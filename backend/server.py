@@ -34,10 +34,6 @@ from rag.chat_retrieve import retrieve, fetch_reddit_mentions
 from rag.query_embedder import embed_query
 from rag.chat_answer import generate, generate_course_list, generate_course_ranking
 from professor_full import build_full, trace_key
-from rating_scale import (
-    CALIBRATION_MIN_RMP, CALIBRATION_MIN_TRACE, FALLBACK_CALIBRATION,
-    FALLBACK_VARIANCES, NO_TRACE_CALIBRATION, fit_rma, project_rmp,
-    rmp_weight_per_rating)
 import bookmarks
 import usage_alert
 
@@ -650,146 +646,6 @@ def shrunk_score(avg_rating, total_reviews, prior_mean, m=SHRINKAGE_M):
     return (n * avg_rating + m * prior_mean) / (n + m)
 
 
-# ── The RMP -> TRACE scale, for display ──────────────────────────────────────
-# avg_rating pools RMP with TRACE only after projecting RMP onto TRACE's scale,
-# because the two do not measure the same way: RMP runs ~0.8 lower and 2.4x
-# wider. That projection happened invisibly, and the board's rating tooltip
-# listed raw RMP, raw TRACE and the pooled Avg as though all three were
-# comparable. They were not, so the arithmetic could not be made to work:
-#
-#   Alec Stubbs      RMP 5.00   TRACE 5.00   Avg 4.99   (5.00 projects to 4.96)
-#   John Rachlin     RMP 4.63   TRACE 4.74   Avg 4.75   (above both shown)
-#
-# and on 32 of the 55 two-source rows across the ten boards the Avg landed
-# exactly on TRACE while RMP differed, so RMP read as thrown away.
-#
-# The fix is to serve the projected value too. Fitting it here rather than
-# reading a stored column is what keeps this off the critical path of a
-# precompute run: measure_calibration fits on `rating` and `trace_overall`
-# filtered by num_ratings and trace_reviews, and professors_catalog stores all
-# four, so the same fit is available at request time.
-#
-# What this deliberately does NOT try to do is let a reader recompute the Avg by
-# eye. The pooling weights are inverse-variance, not the rating counts — one RMP
-# rating carries ~1.88x the weight of one TRACE response (slope^2 * var_trace /
-# var_rmp, the scalar blend_params serves) — so showing the counts as if they
-# were the weights would replace one unreproducible sum with another. The
-# professor page's filtered card does pool client-side, but from that scalar
-# rather than from anything printed beside it. What the projected value
-# does buy is that the Avg always lies between the two numbers displayed above
-# it: true for all 1,708 two-source professors in the catalog, and inherent to
-# pooling, which cannot leave the interval its inputs span.
-def rating_calibration(query_fn):
-    """Refit the RMP->TRACE mapping from the catalog. Never returns None.
-
-    Not separately cached, for the same reason ranking_prior is not: the only
-    caller is behind a cached payload, so this runs on a cache miss rather than
-    per request, and a stale fit served beside fresh ratings would be its own
-    small version of the bug above.
-    """
-    rows = query_fn("""
-        SELECT rmp_rating, trace_rating FROM professors_catalog
-        WHERE rmp_rating IS NOT NULL AND trace_rating IS NOT NULL
-          AND num_ratings >= %s AND trace_reviews >= %s
-    """, (CALIBRATION_MIN_RMP, CALIBRATION_MIN_TRACE))
-    pairs = [(r["trace_rating"], r["rmp_rating"]) for r in rows
-             if r["rmp_rating"] is not None and r["trace_rating"] is not None]
-    if not pairs:
-        # No well-evidenced pair: either TRACE is thin (keep the fallback) or it
-        # is gone from the catalog entirely, and then there is no TRACE scale to
-        # project onto — see NO_TRACE_CALIBRATION.
-        if not query_fn("SELECT 1 FROM professors_catalog "
-                        "WHERE trace_rating IS NOT NULL LIMIT 1", ()):
-            return NO_TRACE_CALIBRATION
-        return FALLBACK_CALIBRATION
-    fit = fit_rma([t for t, _ in pairs], [r for _, r in pairs])
-    return FALLBACK_CALIBRATION if fit is None else fit
-
-
-def response_variances(query_fn):
-    """(var_rmp, var_trace) as precompute measured them. Never returns None.
-
-    Unlike the calibration above these are not refit here: they are pooled
-    within-professor over raw rmp_reviews rows and TRACE count_1..5, which is a
-    precompute-sized scan. precompute writes them to rating_meta; a missing table
-    (a catalog built before this existed) or a missing row degrades to the
-    measured fallback rather than failing the page.
-
-    The rollback is not optional. The pooled connection is request-scoped and not
-    autocommit, so a failed statement aborts the transaction and every later
-    query in the same request dies with InFailedSqlTransaction — a missing
-    rating_meta would 500 the whole professor page rather than falling back to a
-    constant, which is the opposite of degrading gracefully.
-    """
-    try:
-        rows = query_fn("SELECT key, value FROM rating_meta "
-                        "WHERE key IN ('var_rmp', 'var_trace')")
-    except Exception:
-        try:
-            get_db().rollback()
-        except Exception:
-            _discard_db_conn()
-        return FALLBACK_VARIANCES
-    vals = {r["key"]: r["value"] for r in rows if r["value"] is not None}
-    var_rmp, var_trace = vals.get("var_rmp"), vals.get("var_trace")
-    if not var_rmp or not var_trace or var_rmp <= 0 or var_trace <= 0:
-        return FALLBACK_VARIANCES
-    return float(var_rmp), float(var_trace)
-
-
-def blend_params(query_fn, calibration=None):
-    """What a client needs to pool a *subset* of one professor's ratings.
-
-    The professor page lets a reader filter to a course selection, and the card
-    has to keep answering with the same rule avg_rating was built by. It cannot
-    read avg_rating for that — the column describes the whole professor — and it
-    cannot round-trip per checkbox, so the parameters come down with the payload
-    and the pooling happens client-side in frontend/src/utils/ratingBlend.ts.
-
-    Three numbers is the whole of it: the calibration pair to project RMP onto
-    the TRACE scale, and one scalar for how much an RMP rating weighs against a
-    TRACE response. See rating_scale.rmp_weight_per_rating for why the two
-    variances collapse to one number — it is what keeps this from shipping the
-    variance machinery to the browser.
-
-    `calibration` is a parameter so a caller that already fitted it for
-    rmpAdjusted does not scan the catalog twice for the same payload — and, more
-    to the point, cannot serve a projected value fitted separately from the
-    parameters a client will project with.
-    """
-    if calibration is None:
-        calibration = rating_calibration(query_fn)
-    slope, intercept = calibration
-    return {
-        "slope": round(slope, 6),
-        "intercept": round(intercept, 6),
-        "rmpWeightPerRating": round(
-            rmp_weight_per_rating(calibration, response_variances(query_fn)), 6),
-    }
-
-
-def _rating_blend_fields(prof):
-    """The two rating-scale fields every professor payload carries, or nothing.
-
-    `rmpAdjusted` is the projected RMP value the blend was computed from, on the
-    same terms as the leaderboard tooltip: two-source professors only, because
-    for an RMP-only professor avgRating already *is* that number and labelling it
-    twice would imply a pooling that never happened.
-
-    `ratingBlend` goes to any professor with RMP data, two-source or not, since
-    the filtered card has to project a course-subset RMP mean in both cases. A
-    TRACE-only professor needs neither — every subset of their evidence is
-    already on the TRACE scale — so they pay for no calibration fit.
-    """
-    if prof["rmp_rating"] is None:
-        return {}
-    calibration = rating_calibration(query)
-    fields = {"ratingBlend": blend_params(query, calibration)}
-    if prof["trace_rating"] is not None:
-        fields["rmpAdjusted"] = round(project_rmp(prof["rmp_rating"], calibration), 2)
-    return fields
-
-
 @app.route("/api/goat-professors")
 def goat_professors():
     college = request.args.get("college", "Khoury")
@@ -799,10 +655,8 @@ def goat_professors():
     # v5: the ordering has changed three times — to the shrunk score, again when
     # the prior stopped being the whole-catalog average, and again when the
     # per-college review floor collapsed to a single BOARD_MIN_REVIEWS and the
-    # sort gained a name tiebreak — and the payload once, on rmpAdjusted. An
-    # unbumped key serves the previous version from the cache after deploy, which
-    # looks exactly like the fix not working: here, a tooltip whose numbers still
-    # do not add up, on rows that happen to be cached.
+    # sort gained a name tiebreak. An unbumped key serves the previous version
+    # from the cache after deploy, which looks exactly like the fix not working.
     cache_key = f"goat:v5:{college}:{limit}:{min_reviews}"
     cached = cache_get(cache_key)
     if cached:
@@ -870,13 +724,6 @@ def goat_professors():
                 rmp_counts.get(row["name_key"], 0)
                 + trace_counts.get(trace_key(row), 0))
 
-    # Only fitted if some row on this board can use it — a board of single-source
-    # professors would otherwise pay for a catalog scan it never reads.
-    calibration = None
-    if any(r["rmp_rating"] is not None and r["trace_rating"] is not None
-           for r in rows):
-        calibration = rating_calibration(query)
-
     result = []
     for row in rows:
         result.append({
@@ -884,16 +731,6 @@ def goat_professors():
             "dept": row["department"],
             "rmpRating": round(row["rmp_rating"], 2) if row["rmp_rating"] else None,
             "traceRating": round(row["trace_rating"], 2) if row["trace_rating"] else None,
-            # Raw RMP put on TRACE's scale — the value the blend beside it was
-            # actually computed from, so avgRating stops looking like it ignored
-            # RMP (or overshot both sources). Two-source professors only: for an
-            # RMP-only professor avgRating already *is* this number, and printing
-            # it twice under two labels would imply a pooling that never
-            # happened. See rating_calibration above.
-            "rmpAdjusted": (
-                round(project_rmp(row["rmp_rating"], calibration), 2)
-                if calibration and row["rmp_rating"] is not None
-                and row["trace_rating"] is not None else None),
             "avgRating": round(row["avg_rating"], 2) if row["avg_rating"] else None,
             # The board displays this as "Ratings", because it is the quantity
             # every decision here is made on: the floor above gates on it, and
@@ -1240,7 +1077,6 @@ def professor_profile(slug):
         "focusY": prof.get("focus_y") if prof.get("focus_y") is not None else 30.0,
         "hoursPerWeek": round(prof["avg_hours"], 1) if prof["avg_hours"] else None,
     }
-    profile.update(_rating_blend_fields(prof))
 
     # ── TRACE courses + scores ──
     # Authenticated: full scores. Unauthenticated: metadata + precomputed traceAvgDifficulty only.
@@ -1757,8 +1593,7 @@ def professor_full(slug):
     if not is_authed:
         profile_data = build_full(slug, query, query_one, sanitize,
                                   fetch_reddit_mentions=fetch_reddit_mentions,
-                                  is_authed=False,
-                                  blend_fields=_rating_blend_fields)
+                                  is_authed=False)
         if profile_data is None:
             return jsonify({"error": "Professor not found"}), 404
         # Same colleagues field the authed branch gets via professor_profile —

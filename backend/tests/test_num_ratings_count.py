@@ -202,14 +202,14 @@ def test_precompute_recounts_before_deriving_total_reviews():
     assert recount < derive, "total_reviews must be built from the recounted number"
 
 
-def test_precompute_recomputes_the_mean_before_it_is_calibrated():
-    # measure_calibration fits on `rating`, so the fit has to see the recomputed
-    # mean, not RMP's stale one.
+def test_precompute_recomputes_the_mean_before_avg_rating():
+    # apply_avg_rating reads `rating`, so it has to see the recomputed mean, not
+    # RMP's stale one.
     import inspect
 
     import precompute
 
     body = inspect.getsource(precompute.main)
     remean = body.index("apply_counted_rmp_rating(")
-    calibrate = body.index("measure_calibration(")
-    assert remean < calibrate, "the fit must run on the recomputed mean"
+    average = body.index("apply_avg_rating(")
+    assert remean < average, "avg_rating must be built from the recomputed mean"

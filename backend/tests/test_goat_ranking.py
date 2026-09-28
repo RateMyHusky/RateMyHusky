@@ -177,8 +177,7 @@ def test_leaderboard_returns_total_reviews():
 def test_cache_key_was_versioned():
     # A stale entry would serve the previous ordering after deploy — bumped for
     # the shrunk score, again when the prior changed, again for the single review
-    # floor plus the name tiebreak, and again when the payload gained
-    # rmpAdjusted (test_rating_calibration owns that last one).
+    # floor plus the name tiebreak.
     import inspect
     assert 'goat:v5:' in inspect.getsource(server.goat_professors)
 

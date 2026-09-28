@@ -1,5 +1,3 @@
-import type { RatingBlend } from "../utils/ratingBlend";
-
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
 /* ---- Types ---- */
@@ -12,13 +10,6 @@ export interface Professor {
   name: string;
   dept: string;
   rmpRating: number | null;
-  /** rmpRating projected onto TRACE's scale — the value avgRating was actually
-   *  pooled from. RMP runs ~0.8 lower and 2.4x wider than TRACE, so the two raw
-   *  numbers are not comparable and avgRating lands outside them often enough to
-   *  read as broken (RMP 5.00 with TRACE 5.00 gave 4.99). Null unless the
-   *  professor has both sources: with RMP alone avgRating already is this value,
-   *  so showing it twice would imply a pooling that never happened. */
-  rmpAdjusted?: number | null;
   traceRating: number | null;
   avgRating: number;
   /** Ratings: RMP ratings + TRACE overall-question responses. What the
@@ -88,14 +79,6 @@ export interface ProfessorProfile {
   focusY: number;
   hoursPerWeek: number | null;
   traceRatingCounts?: Record<string, TraceRatingCounts>;
-  /* Raw RMP put on TRACE's scale, the value avgRating was computed from. Served
-     for two-source professors only: for an RMP-only professor avgRating already
-     is this number. Same field, same rule, as the leaderboard's. */
-  rmpAdjusted?: number | null;
-  /* Parameters for pooling a course-filtered subset, since avgRating describes
-     the whole professor. Absent for a TRACE-only professor, who needs no
-     projection. See utils/ratingBlend.ts. */
-  ratingBlend?: RatingBlend | null;
   radarData?: RadarDataPoint[] | null;
   radarTermTitle?: string | null;
   colleagues?: { name: string; slug: string; avgRating: number | null; totalRatings: number }[];

@@ -432,7 +432,7 @@ def apply_counted_num_ratings(rmp_profs, review_keys):
     is added or removed, so it disagrees with the rating nodes RMP serves for 392
     professors — 376 low (by 1-3 apiece) and 16 high, 5 of whom claim a rating and
     serve none. Everything downstream counts from this field (total_reviews, the
-    GOATED review floor, the shrinkage weight, n_rmp in the blend), so trusting
+    GOATED review floor, the shrinkage weight), so trusting
     the counter meant the displayed count disagreed with the reviews listed.
 
     Must run after merge_rmp_aliases — that folds RMP's duplicate profile pages
@@ -646,11 +646,8 @@ def absorbed_trace_key(nk, rmp_name_keys, fuzzy_trace_keys):
 def apply_counted_rmp_rating(rmp_profs, review_keys, review_quality):
     """Recompute `rating` as the mean of the ratings we actually hold.
 
-    The partner of apply_counted_num_ratings, and it has to be: the blend reads
-    `rating` as the RMP measurement and num_ratings as its precision, so the two
-    must describe one set of rows. Recounting the ratings while leaving RMP's
-    stale average in place left the blend weighting one population by the size of
-    another. It also supersedes the counter-weighted average merge_rmp_aliases
+    The partner of apply_counted_num_ratings, so `rating` and num_ratings
+    describe one set of rows. It also supersedes the counter-weighted average merge_rmp_aliases
     builds across an RMP professor's duplicate profile pages — the stored ratings
     from all of those pages already carry the merged key, so averaging them is
     the same quantity measured directly instead of reconstructed.
@@ -679,266 +676,23 @@ def apply_counted_rmp_rating(rmp_profs, review_keys, review_quality):
     return int((~same).sum())
 
 
-# ── Rating blend: calibrate, then pool by precision ──────────────────────────
-# See docs/rating-blend-calibration.md for the measurements behind this.
-#
-# RMP and TRACE measure the same thing (corr +0.87 among well-evidenced
-# professors) on different scales: RMP runs ~0.8 lower and is 2.4x wider, because
-# it is voluntary and negatively self-selected while TRACE is administered to
-# everyone. So the blend is two steps:
-#
-#   1. project RMP onto the TRACE scale using a fit refit from the data
-#   2. pool the two by inverse variance, weighting each side by how many
-#      responses it actually has and how precise a response is *on the TRACE
-#      scale* (w = n * slope^2 / sigma^2)
-#
-# The old rule was (rmp + trace) / 2, which did neither: one RMP review carried
-# the same weight as 300 TRACE responses, so a single 1-star could drag a
-# well-liked professor to 2.81.
-#
-# Applies only to professors with *both* sources. Single-source professors keep
-# their raw source rating — calibrating them would move 5,269 more ratings with
-# no second source to check against.
-#
-# Both steps have to agree about which scale they are on, and getting that wrong
-# is silent: an earlier version fitted with ordinary least squares and weighted
-# with w = n / sigma^2, leaving sigma^2_rmp measured in RMP units while the value
-# it weighted had already been divided by the slope. That understated RMP's
-# precision by slope^2 (~3.6x) and collapsed the blend to TRACE-with-a-nudge —
-# RMP moved the displayed number for 1.5% of two-source professors. Validated by
-# hold-out (see the doc): the pair of fixes cuts RMSE against a well-measured
-# TRACE truth by 36% at thin TRACE evidence, and improves 445 of 622 professors.
-# Re-exported, not redefined: server.py fits the same mapping from the catalog to
-# show a reader the projected RMP value the blend actually used, and two copies of
-# a threshold that has to match is how the tooltip drifted out of agreement with
-# the number beside it in the first place. Names stay on this module so
-# measure_calibration and test_rating_blend read them where they always did.
-from rating_scale import (                                        # noqa: E402
-    FALLBACK_CALIBRATION,      # rmp ~ slope * trace + intercept
-    NO_TRACE_CALIBRATION,      # identity, for when there is no TRACE at all
-    FALLBACK_VARIANCES,        # per-response variance: RMP, TRACE
-    CALIBRATION_MIN_RMP,       # what counts as well-evidenced for the fit
-    CALIBRATION_MIN_TRACE,
-    CALIBRATION_MIN_POINTS,    # too few pairs -> keep the fallback fit
-    CALIBRATION_MIN_SLOPE,     # a flat slope makes the inverse explode
-    CALIBRATION_MIN_CORR,      # unrelated (or inverted) scales -> no fit
-    fit_rma,
-)
+def apply_avg_rating(rmp_profs):
+    """Write avg_rating in place: the mean of whichever sources a professor has.
 
-
-def fit_calibration(trace_ratings, rmp_ratings):
-    """Fit `rmp ~ slope * trace + intercept`; returns (slope, intercept).
-
-    Refit every run rather than hardcoded, because both scales drift with each
-    re-scrape. Falls back to the measured constants when there is too little
-    well-evidenced overlap to fit, or when the fit comes out degenerate (a slope
-    at or below CALIBRATION_MIN_SLOPE would blow up the inverse projection).
-
-    Slope is the ratio of standard deviations (reduced major axis), not the OLS
-    coefficient, because this fit exists to be *inverted*. OLS minimises error in
-    rmp given trace, so inverting it over-disperses: it stretches the projected
-    values by 1/corr (measured 1.42x wider than TRACE's own spread). Matching the
-    two spreads is what "project onto the TRACE scale" has to mean for the
-    inverse-variance weights downstream to be in the same units.
-
-    RMA takes its sign from the correlation, so unlike OLS it cannot notice an
-    inverted relationship on its own — hence the explicit CALIBRATION_MIN_CORR
-    guard, which also catches the zero-variance case where corr is undefined.
-
-    The arithmetic and every threshold now live in rating_scale, because
-    server.py needs this same mapping at request time and carries no pandas. What
-    stays here is the coercion: this is fed raw frame columns that may hold
-    strings or NaN, and pd.to_numeric is what makes them a pair of clean numeric
-    vectors. rating_scale.fit_rma returns None for "do not trust this", so the
-    fallback — and the warning measure_calibration prints about it — stays on
-    this side.
+    RMP-only professors (every professor, with the TRACE tables gone) show their
+    RMP rating as is.
     """
-    x = pd.to_numeric(pd.Series(trace_ratings), errors="coerce").to_numpy(dtype=float)
-    y = pd.to_numeric(pd.Series(rmp_ratings), errors="coerce").to_numpy(dtype=float)
-    keep = np.isfinite(x) & np.isfinite(y)
-    fit = fit_rma(x[keep].tolist(), y[keep].tolist())
-    return FALLBACK_CALIBRATION if fit is None else fit
-
-
-def trace_response_variance(counts):
-    """Variance of one TRACE response, pooled across sections.
-
-    `counts` is an (n_sections, 5) array of how many students picked 1..5. Only
-    within-section spread counts: between-section differences are real signal
-    (professors do differ), not response noise.
-    """
-    counts = np.asarray(counts, dtype=float)
-    if counts.ndim != 2 or counts.shape[1] != 5:
-        return None
-    n = counts.sum(axis=1)
-    counts = counts[n > 1]  # a 1-response section carries no spread information
-    if len(counts) == 0:
-        return None
-    n = counts.sum(axis=1)
-    scale = np.arange(1, 6, dtype=float)
-    means = (counts @ scale) / n
-    ss = (counts * (scale - means[:, None]) ** 2).sum()
-    dof = n.sum() - len(counts)
-    if dof <= 0 or ss <= 0:
-        return None
-    return float(ss / dof)
-
-
-def rmp_response_variance(quality, name_keys):
-    """Variance of one RMP rating, pooled within professor.
-
-    Same reasoning as trace_response_variance: differences *between* professors
-    are signal, so only the spread of reviews about the same professor is noise.
-    """
-    df = pd.DataFrame({
-        "q": pd.to_numeric(pd.Series(list(quality)), errors="coerce"),
-        "k": list(name_keys),
-    }).dropna()
-    df = df[(df["q"] >= 1) & (df["q"] <= 5)]
-    df = df[df.groupby("k")["q"].transform("size") > 1]
-    if df.empty:
-        return None
-    dev = df["q"] - df.groupby("k")["q"].transform("mean")
-    dof = len(df) - df["k"].nunique()
-    ss = float((dev ** 2).sum())
-    if dof <= 0 or ss <= 0:
-        return None
-    return ss / dof
-
-
-def calibrate_rmp(rmp_rating, calibration):
-    """Project an RMP rating onto the TRACE scale, clipped to the 1-5 range.
-
-    Inverse of the fit: the fit predicts RMP *from* TRACE, and we need the
-    other direction. Clipping matters because RMP's wider spread projects the
-    extremes past the ends of the scale.
-    """
-    slope, intercept = calibration
-    return np.clip((np.asarray(rmp_rating, dtype=float) - intercept) / slope, 1.0, 5.0)
-
-
-def blend_ratings(rmp_rating, n_rmp, trace_rating, n_trace, calibration, variances):
-    """Inverse-variance pool of both sources, on the TRACE scale.
-
-    Vectorised over numpy/pandas input; also accepts scalars. Callers must pass
-    rows where both sources exist with n > 0 — a professor with no responses on
-    either side has nothing to pool.
-
-    `var_rmp` is measured in RMP units but weights a value calibrate_rmp has
-    already divided by the slope, so it has to be converted the same way: the
-    variance of the projected mean is var_rmp / (n * slope^2), making the
-    precision n * slope^2 / var_rmp. Skipping the slope^2 leaves the two weights
-    on different scales and silently mutes RMP.
-    """
-    slope, _ = calibration
-    var_rmp, var_trace = variances
-    w_rmp = np.asarray(n_rmp, dtype=float) * slope ** 2 / var_rmp
-    w_trace = np.asarray(n_trace, dtype=float) / var_trace
-    rmp_cal = calibrate_rmp(rmp_rating, calibration)
-    trace = np.asarray(trace_rating, dtype=float)
-    return (w_rmp * rmp_cal + w_trace * trace) / (w_rmp + w_trace)
-
-
-def has_rmp_data(rmp_profs):
-    return (rmp_profs["num_ratings"] > 0) & (rmp_profs["rating"] > 0)
-
-
-def has_trace_data(rmp_profs):
-    return rmp_profs["trace_overall"].notna() & (rmp_profs["trace_reviews"] > 0)
-
-
-def measure_calibration(rmp_profs):
-    """Refit the RMP->TRACE mapping from this run's own data.
-
-    Only well-evidenced professors are used: thin samples on either side are
-    mostly noise, and including them flattens the slope toward zero, which would
-    understate how much wider the RMP scale is.
-
-    With no TRACE data at all there is no scale to project onto, so RMP stays on
-    its own (NO_TRACE_CALIBRATION) rather than going through the fallback fit.
-    """
-    if not has_trace_data(rmp_profs).any():
-        print("No TRACE ratings: RMP stays on its own scale (identity calibration)")
-        return NO_TRACE_CALIBRATION
-    fit_rows = (has_rmp_data(rmp_profs) & has_trace_data(rmp_profs)
-                & (rmp_profs["num_ratings"] >= CALIBRATION_MIN_RMP)
-                & (rmp_profs["trace_reviews"] >= CALIBRATION_MIN_TRACE))
-    calibration = fit_calibration(rmp_profs.loc[fit_rows, "trace_overall"],
-                                  rmp_profs.loc[fit_rows, "rating"])
-    if calibration == FALLBACK_CALIBRATION:
-        print(f"  WARNING: calibration fell back to {FALLBACK_CALIBRATION} "
-              f"({int(fit_rows.sum())} well-evidenced professors available)")
-    else:
-        print(f"Calibration fit on {int(fit_rows.sum())} professors: "
-              f"rmp = {calibration[0]:.3f} * trace + {calibration[1]:.3f}")
-    return calibration
-
-
-def measure_variances(rmp_quality, rmp_keys, trace_counts):
-    """Per-response variance of each source, measured from this run's data."""
-    var_rmp = rmp_response_variance(rmp_quality, rmp_keys)
-    var_trace = trace_response_variance(trace_counts)
-    if var_rmp is None or var_trace is None:
-        print(f"  WARNING: response variance not measurable, using {FALLBACK_VARIANCES}")
-        return FALLBACK_VARIANCES
-    # Deliberately not reported as a ratio: these are measured on each source's
-    # own scale, and RMP's is ~2.4x wider, so "RMP is 3x noisier" would be an
-    # artifact of the scales rather than a fact about the responses.
-    # blend_ratings converts var_rmp with slope^2 before the two ever meet.
-    print(f"Per-response variance: RMP {var_rmp:.3f} (RMP scale), "
-          f"TRACE {var_trace:.3f} (TRACE scale)")
-    return (var_rmp, var_trace)
-
-
-def apply_blended_rating(rmp_profs, calibration, variances):
-    """Write avg_rating in place; returns how many professors were *blended*.
-
-    Two-source professors get the pooled, calibrated rating. Single-source
-    professors get their own source's number put on the TRACE scale — for a
-    TRACE-only professor that is already the case, and for an RMP-only professor
-    it is calibrate_rmp.
-
-    Calibration applies to them for the same reason it applies inside the blend:
-    avg_rating is one column that professors are sorted, compared and ranked in,
-    so every number in it has to mean the same thing. RMP runs ~0.8 lower and
-    2.4x wider than TRACE, so leaving RMP-only professors raw showed them as
-    meaningfully worse than TRACE-only professors of identical standing.
-
-    The projection is a unit conversion, not an evidence-weighted estimate, and
-    needs no second source to be valid — that is what separates it from the
-    pooling below, which does. The return value counts only the pooling, since a
-    one-sided conversion is not a blend.
-
-    Visible consequence, and it is the intended one: RMP's range compresses onto
-    TRACE's, so an RMP-only professor at 1.0 displays near 3.0 rather than 1.0.
-    That is where the bottom of the RMP scale sits once measured against TRACE,
-    and it is already what two-source professors have always shown.
-    """
-    if rmp_profs.empty:
-        rmp_profs["avg_rating"] = pd.Series(dtype=float)
-        return 0
-    has_rmp, has_trace = has_rmp_data(rmp_profs), has_trace_data(rmp_profs)
-    both = has_rmp & has_trace
+    has_rmp = (rmp_profs["num_ratings"] > 0) & (rmp_profs["rating"] > 0)
+    has_trace = rmp_profs["trace_overall"].notna() & (rmp_profs["trace_reviews"] > 0)
     rmp_profs["avg_rating"] = np.where(
-        has_trace, rmp_profs["trace_overall"].round(2),
-        np.where(has_rmp,
-                 np.round(calibrate_rmp(rmp_profs["rating"], calibration), 2),
-                 np.nan))
-    if both.any():
-        blended = blend_ratings(
-            rmp_profs.loc[both, "rating"], rmp_profs.loc[both, "num_ratings"],
-            rmp_profs.loc[both, "trace_overall"], rmp_profs.loc[both, "trace_reviews"],
-            calibration, variances)
-        rmp_profs.loc[both, "avg_rating"] = np.round(blended, 2)
-    # Carried over from the original blend. On a float column pandas keeps this
-    # as NaN rather than None; the catalog insert is what converts it to NULL
-    # (`float(...) if pd.notna(...) else None`), so unrated professors are safe.
+        has_rmp & has_trace,
+        ((rmp_profs["rating"] + rmp_profs["trace_overall"]) / 2).round(2),
+        np.where(has_trace, rmp_profs["trace_overall"].round(2),
+                 np.where(has_rmp, rmp_profs["rating"].round(2), np.nan))
+    )
     rmp_profs["avg_rating"] = rmp_profs["avg_rating"].where(
         rmp_profs["avg_rating"].notna(), other=None)
-    print(f"Blended {int(both.sum())} two-source professors "
-          f"({int((has_rmp & ~has_trace).sum())} RMP-only calibrated onto the "
-          f"TRACE scale, {int(has_trace.sum() - both.sum())} TRACE-only already on it)")
-    return int(both.sum())
+
 
 
 def main():
@@ -1109,18 +863,8 @@ def main():
     # ── Data-deletion requests ──
     # Dropped here, after both sides have a name_key and before anything is
     # derived from them, so one filter covers every product keyed on a professor:
-    # professors_catalog and course_catalog, and the calibration fit, which is
-    # measured on rmp_profs. Filtering later would leave a professor out of the
-    # catalog while their rows still built it.
-    #
-    # It does NOT cover the two corpus-wide aggregates measured from the raw
-    # frames: measure_variances reads rmp_reviews["quality"] and the trace_scores
-    # count_1..5 columns, neither of which is filtered here, so a denied
-    # professor's responses still move the pooling weights. Nothing identifying
-    # survives that — a variance over ~44.5k ratings is not a disclosure — and
-    # the rows themselves go with purge_denied.py. Said plainly because the
-    # alternative is the next person auditing a deletion request believing one
-    # filter did more than it does.
+    # professors_catalog and course_catalog. Filtering later would leave a
+    # professor out of the catalog while their rows still built it.
     #
     # This is the enforcement point that matters most, because it is the one that
     # runs every refresh. A row deleted by hand comes back with the next rebuild;
@@ -1200,26 +944,20 @@ def main():
     print(f"Fuzzy-matched {fuzzy_matched} professors to a differently-spelled TRACE name")
 
     # RMP's numRatings counter is a stale aggregate, so count the ratings we
-    # actually hold instead. Runs before total_reviews and the blend, both of
-    # which count from this field.
+    # actually hold instead. Runs before total_reviews and avg_rating, both of
+    # which read this field.
     rmp_rev_keys = rmp_reviews["professor_name"].apply(normalize_name).replace(ALIAS_MAP)
     recounted = apply_counted_num_ratings(rmp_profs, rmp_rev_keys)
     print(f"Recounted num_ratings from stored ratings: {recounted} professors corrected")
     # And the mean over the same rows, so `rating` and num_ratings describe one
-    # population. Must precede measure_calibration, which fits on `rating`.
+    # population. Must precede apply_avg_rating, which reads `rating`.
     remeaned = apply_counted_rmp_rating(rmp_profs, rmp_rev_keys, rmp_reviews["quality"])
     print(f"Recomputed rmp rating from stored ratings: {remeaned} professors corrected")
 
     rmp_profs["trace_reviews"] = rmp_profs["trace_reviews"].fillna(0).astype(int)
     rmp_profs["total_reviews"] = rmp_profs["num_ratings"].astype(int) + rmp_profs["trace_reviews"]
 
-    # ── Blended rating: calibrate RMP onto the TRACE scale, then pool by
-    # precision. See the blend section near the top of this file.
-    calibration = measure_calibration(rmp_profs)
-    variances = measure_variances(
-        rmp_reviews["quality"], rmp_rev_keys,
-        overall[["count_1", "count_2", "count_3", "count_4", "count_5"]].to_numpy())
-    apply_blended_rating(rmp_profs, calibration, variances)
+    apply_avg_rating(rmp_profs)
 
     # ── Comment counts per name_key ──
     # RMP comments
@@ -1501,28 +1239,6 @@ def main():
     cur.execute(
         "UPSERT INTO stats_cache VALUES ('professors', %s), ('courses', %s), ('comments', %s), ('departments', %s)",
         (stat_professors, stat_courses, stat_comments, stat_departments)
-    )
-    conn.commit()
-
-    # 3b. rating_meta — the per-response variances behind the blend.
-    #
-    # Separate table from stats_cache because that one is INT-valued, and these
-    # are variances. Stored rather than refit at request time for the reason
-    # server.rating_calibration does the opposite: the calibration fit needs only
-    # the two rating columns professors_catalog already carries, while these are
-    # pooled within-professor over every raw rmp_reviews row and every TRACE
-    # count_1..5 — ~44k and ~1.1M rows, which is a precompute-sized scan, not a
-    # cache-miss-sized one.
-    #
-    # Only the professor page's course-filtered card reads them, via the scalar
-    # rating_scale.rmp_weight_per_rating. avg_rating itself is written above from
-    # the in-memory values, so a missing or stale row here can never disagree with
-    # the column — it degrades to FALLBACK_VARIANCES.
-    print("Updating rating_meta...")
-    cur.execute("CREATE TABLE IF NOT EXISTS rating_meta (key TEXT PRIMARY KEY, value FLOAT)")
-    cur.execute(
-        "UPSERT INTO rating_meta VALUES ('var_rmp', %s), ('var_trace', %s)",
-        (float(variances[0]), float(variances[1]))
     )
     conn.commit()
 

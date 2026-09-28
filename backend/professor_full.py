@@ -124,15 +124,9 @@ def _scan_trace_scores(name_key, query):
     return challeng_by_ct, hours_by_ct, rating_dist_by_course, challeng_sum, challeng_weight
 
 
-def build_profile_unauthed(prof, trace_course_rows, query, blend_fields=None):
+def build_profile_unauthed(prof, trace_course_rows, query):
     """Build the unauthenticated profile dict from an already-fetched catalog
     row and trace_courses rows (no further catalog/course lookups).
-
-    `blend_fields` is server._rating_blend_fields' output for this professor —
-    rmpAdjusted and the parameters the course-filtered card pools a subset with.
-    Injected rather than computed here for the same reason every query is: this
-    module stays free of the calibration fit and its catalog scan, so the two
-    payload builders serve one set of fields from one implementation.
     """
     profile = {
         "name": prof["name"],
@@ -155,7 +149,6 @@ def build_profile_unauthed(prof, trace_course_rows, query, blend_fields=None):
         "focusY": prof.get("focus_y") if prof.get("focus_y") is not None else 30.0,
         "hoursPerWeek": round(prof["avg_hours"], 1) if prof["avg_hours"] else None,
     }
-    profile.update(blend_fields or {})
 
     # TRACE scores are filed under the TRACE spelling of the name, which is not
     # prof["name_key"] for a fuzzy-matched professor. See trace_key.
@@ -289,15 +282,11 @@ def build_trace_course_rows(name_key, query):
 
 
 def build_full(slug, query, query_one, sanitize,
-               fetch_reddit_mentions=None, is_authed=False, blend_fields=None):
+               fetch_reddit_mentions=None, is_authed=False):
     """Orchestrate the unauthenticated /full payload with shared lookups.
 
     Returns the combined profile+reviews dict, or None if the professor does
     not exist (caller maps None to a 404).
-
-    `blend_fields` is a callable taking the resolved catalog row — the professor
-    is resolved here, so the caller cannot compute it up front. See
-    build_profile_unauthed.
     """
     if fetch_reddit_mentions is None:
         def fetch_reddit_mentions(_slug, _q):
@@ -312,9 +301,7 @@ def build_full(slug, query, query_one, sanitize,
     # a fuzzy-matched professor gets an empty page under the RMP spelling.
     trace_course_rows = build_trace_course_rows(trace_key(prof), query)
 
-    profile = build_profile_unauthed(
-        prof, trace_course_rows, query,
-        blend_fields(prof) if blend_fields else None)
+    profile = build_profile_unauthed(prof, trace_course_rows, query)
     reviews = build_reviews(slug, prof, trace_course_rows, query, sanitize,
                             fetch_reddit_mentions, is_authed)
 

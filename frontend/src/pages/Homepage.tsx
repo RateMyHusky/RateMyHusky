@@ -170,22 +170,6 @@ const RatingCell = ({ prof, isOpen, onToggle }: {
               {prof.rmpRating !== null ? prof.rmpRating.toFixed(2) : '—'}
             </span>
           </div>
-          {/* The number the blend was actually computed from. Without it the
-              panel listed three figures in two unit systems and invited an
-              arithmetic that cannot work: RMP 5.00 with TRACE 5.00 showed an Avg
-              of 4.99, because RMP 5.00 is 4.96 once projected. With it, Avg
-              always lies between the two values above — checked against all
-              1,708 two-source professors, and inherent to pooling, which cannot
-              leave the interval its inputs span.
-
-              Indented under RMP rather than given a row of its own, because it
-              is the same measurement in different units, not a third source. */}
-          {prof.rmpAdjusted != null && (
-            <div className="tooltip-row tooltip-row-sub">
-              <span className="tooltip-label">on the TRACE scale</span>
-              <span className="tooltip-value">{prof.rmpAdjusted.toFixed(2)}</span>
-            </div>
-          )}
           <div className="tooltip-row">
             <span className="tooltip-label">TRACE</span>
             <span className="tooltip-value">
@@ -197,46 +181,6 @@ const RatingCell = ({ prof, isOpen, onToggle }: {
             <span className="tooltip-label">Avg Rating</span>
             <span className="tooltip-value tooltip-blended">{prof.avgRating?.toFixed(2) ?? '—'}</span>
           </div>
-          {/* Why Avg Rating is not simply one of the numbers above it. Both cases
-              need saying, and for the same underlying reason: the column is on the
-              TRACE scale, which runs about 0.8 higher than RMP's and is 2.4x
-              narrower.
-
-              Written as two plain statements of what happens, in order, naming
-              RateMyProfessors in full once so "RMP" in the row above is anchored
-              for a reader who has not met the abbreviation. Earlier drafts said
-              "RMP's scale runs lower, so it converts first", which assumes the
-              reader already pictures two scales, and "leaning on whichever has
-              more responses behind it", where "leaning" and "behind it" both ask
-              to be decoded.
-
-              What the note deliberately does not do is name weights a reader can
-              try. It used to say "weighted by the ratings behind each", and those
-              weights do not work: pooling is inverse-variance, so one RMP rating
-              carries ~1.88x the weight of one TRACE response, and the
-              per-response variances behind that factor are measured from raw
-              review rows the catalog does not store. The exact sum is not
-              reproducible from anything on this page, so printing the two counts
-              would only make a false promise look better evidenced. "Counts for
-              more" is the part that is both true and checkable by eye against the
-              two numbers above.
-
-              With RMP alone, Avg no longer equals the RMP row at all. That is the
-              visible cost of putting every professor in the column on one scale,
-              and an unexplained 3.10 turning into 4.11 is exactly what reads as a
-              bug, so that case says outright that there is no TRACE score. */}
-          {prof.rmpRating !== null && prof.traceRating !== null ? (
-            <div className="tooltip-note">
-              RateMyProfessors scores run lower than TRACE scores, so the RMP score
-              is converted to the TRACE scale first. The two are then averaged, and
-              the one with more responses counts for more.
-            </div>
-          ) : prof.rmpRating !== null ? (
-            <div className="tooltip-note">
-              This professor has no TRACE scores, so the RMP score is converted to
-              the TRACE scale to keep it comparable.
-            </div>
-          ) : null}
         </div>
       )}
     </span>

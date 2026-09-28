@@ -767,11 +767,7 @@
   border: 1px solid #e0e0e0;
   border-radius: 10px;
   padding: 12px 16px;
-  /* 160px before the projected-RMP row, then 208px, which is the point where
-     "on the TRACE scale" plus a tabular value stops wrapping. 240px is for the
-     note underneath rather than the rows: at 208 it ran to six lines and the
-     panel read as mostly prose with some numbers on top. */
-  min-width: 240px;
+  min-width: 160px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   animation: tooltipFadeIn 0.15s ease-out;
   pointer-events: auto;
@@ -814,42 +810,9 @@
   color: #333;
 }
 
-/* The projected RMP value: the same measurement as the row above in different
-   units, not a third source, so it reads as subordinate to RMP rather than as a
-   sibling of RMP and TRACE. Indentation and size carry that, deliberately not
-   colour — the label would have to go lighter than the #888 above it to look
-   subordinate, and #888 is already only 3.5:1 on white. So this goes *darker*
-   (#767676 clears 4.5:1) and leans on the 10px indent and the smaller size
-   instead. */
-.tooltip-row-sub {
-  padding: 0 0 3px 10px;
-  font-size: 0.76rem;
-}
-
-.tooltip-row-sub .tooltip-label {
-  color: #767676;
-  font-weight: 400;
-}
-
-.tooltip-row-sub .tooltip-value {
-  color: #666;
-  font-weight: 500;
-}
-
 .tooltip-blended {
   color: #d6394c;
   font-weight: 800;
-}
-
-.tooltip-note {
-  margin-top: 6px;
-  /* Tracks .goat-rating-tooltip's min-width rather than sitting under it: at
-     170px against a wider panel the note wrapped two words early and left a
-     ragged right edge no content reached. */
-  max-width: 232px;
-  font-size: 0.7rem;
-  line-height: 1.3;
-  color: #999;
 }
 
 .tooltip-divider {
@@ -1305,22 +1268,8 @@
   color: #e8697a;
 }
 
-/* Same reasoning as the light rule: the indent carries the hierarchy, so these
-   stay legible rather than dropping below the label above them. */
-.dark .tooltip-row-sub .tooltip-label {
-  color: #9a9a9a;
-}
-
-.dark .tooltip-row-sub .tooltip-value {
-  color: #bdbdbd;
-}
-
 .dark .tooltip-divider {
   background: #444;
-}
-
-.dark .tooltip-note {
-  color: #8a8a8a;
 }
 
 /* ==============================
@@ -1441,14 +1390,9 @@
     font-size: 0.82rem;
   }
 
-  /* Tooltip nudge: keep it on-screen. The min-width that used to sit here (140px,
-     then 200px) is deliberately gone rather than raised again. It predated the
-     projected-RMP row and re-narrowed the panel below the width its own label
-     needs, so the base rule governs at every size now. Staying on-screen is the
-     left/right anchoring below, which is what actually does that job; the
-     leaderboard rows are 620px wide inside a horizontal scroller here, so this
-     panel is not fighting the viewport the way the ranking note is. */
+  /* Tooltip nudge — keep it on-screen */
   .goat-rating-tooltip {
+    min-width: 140px;
     padding: 10px 14px;
     left: auto;
     right: 0;
@@ -1618,8 +1562,9 @@
     font-size: 0.8rem;
   }
 
-  /* Tooltip: anchor to left edge on tiny screens. No min-width, as above. */
+  /* Tooltip: anchor to left edge on tiny screens */
   .goat-rating-tooltip {
+    min-width: 130px;
     padding: 10px 12px;
     left: 0;
     right: auto;
