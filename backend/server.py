@@ -67,6 +67,17 @@ def normalize_name(name):
     return s
 
 
+# Multi-select filters (dept, college) arrive joined with "|", not ",": real
+# department names carry commas ("Lang, Literature and Culture", "Women's,
+# Gender, and Sexuality Studies"), and a comma split turns one into fragments
+# that match nothing. Must match FILTER_SEPARATOR in the frontend.
+FILTER_SEPARATOR = "|"
+
+
+def split_filter(raw):
+    return [v.strip() for v in (raw or "").split(FILTER_SEPARATOR) if v.strip()]
+
+
 # Build a word-level mapping so partial/typeahead queries also resolve.
 # e.g. typing "virgiliu" (an RMP-only spelling) still finds "virgil".
 _WORD_ALIAS = {}
@@ -972,6 +983,67 @@ def _department_colleagues(department, exclude_slug):
     return colleagues[:8]
 
 
+# Keys a course summary always carries, so a catalog-only course and a matched
+# one are the same shape to the frontend. Absent everywhere else means "the
+# catalog has nothing to say", never "this course has no prerequisites".
+EMPTY_CATALOG_EXTRAS = {
+    "description": None, "creditHours": None, "creditMin": None, "creditMax": None,
+    "prerequisites": None, "corequisites": None, "nupath": [],
+    "catalogYear": None, "catalogName": None,
+}
+
+
+def catalog_extras(code):
+    """What catalog.northeastern.edu says about a course, or empty.
+
+    Returns EMPTY_CATALOG_EXTRAS (never raises) when the catalog has no row, or
+    when the tables are absent — which they are on any deploy that predates
+    scraper/load_catalog_to_crdb.py. A course page must not 500 because a
+    decoration is missing, and for that reason it rolls back first: the pool is
+    not autocommit (see get_db()), so a missing-table ProgrammingError leaves
+    the transaction aborted and the very next query in this request would raise
+    InFailedSqlTransaction.
+
+    `_is_placeholder` rides along unnormalised because the caller needs it to
+    decide whether a catalog-only code deserves a page at all; it is stripped
+    before the payload is built.
+    """
+    try:
+        row = query_one("""
+            SELECT name, department, credit_hours, credit_min, credit_max,
+                   description, prerequisites, corequisites, catalog_year,
+                   is_placeholder
+            FROM catalog_courses WHERE code = %s
+        """, (code,))
+        attributes = query(
+            "SELECT attribute FROM catalog_nupath WHERE code = %s ORDER BY attribute",
+            (code,)) if row else []
+    except Exception as e:
+        app.logger.warning("catalog lookup failed for %s: %s", code, e)
+        try:
+            get_db().rollback()
+        except Exception as rollback_err:
+            app.logger.warning("catalog rollback failed for %s: %s", code, rollback_err)
+        return dict(EMPTY_CATALOG_EXTRAS)
+
+    if not row:
+        return dict(EMPTY_CATALOG_EXTRAS)
+
+    return {
+        "description": row.get("description"),
+        "creditHours": row.get("credit_hours"),
+        "creditMin": row.get("credit_min"),
+        "creditMax": row.get("credit_max"),
+        "prerequisites": row.get("prerequisites"),
+        "corequisites": row.get("corequisites"),
+        "nupath": [a["attribute"] for a in attributes],
+        "catalogYear": row.get("catalog_year"),
+        "catalogName": row.get("name"),
+        "catalogDepartment": row.get("department"),
+        "_is_placeholder": bool(row.get("is_placeholder")),
+    }
+
+
 # ──────────────────────────────────────────────
 #  Professor profile page
 # ──────────────────────────────────────────────
@@ -1588,7 +1660,7 @@ def departments():
     if cached:
         return jsonify(cached)
     if college and college != "All":
-        college_list = [c.strip() for c in college.split(",") if c.strip()]
+        college_list = split_filter(college)
         if len(college_list) == 1:
             rows = query("""
                 SELECT DISTINCT department FROM professors_catalog
@@ -1750,7 +1822,7 @@ def professors_catalog():
     params = []
 
     if college and college != "All":
-        college_list = [c.strip() for c in college.split(",") if c.strip()]
+        college_list = split_filter(college)
         if len(college_list) == 1:
             conditions.append("college = %s")
             params.append(college_list[0])
@@ -1762,7 +1834,7 @@ def professors_catalog():
         "Counseling & Educational Psych": ["Counseling amp Educational Psych", "Counseling  Educational Psych"],
     }
     if dept and dept != "All":
-        dept_list = [d.strip() for d in dept.split(",") if d.strip()]
+        dept_list = split_filter(dept)
         expanded = []
         for d in dept_list:
             expanded.append(d)
@@ -1861,17 +1933,65 @@ def professors_catalog():
     return jsonify(result)
 
 
+# A course's department, as one SQL expression both /api/course-departments and
+# /api/courses-catalog use — the dropdown's options and the list's filter must
+# be the same set, and when they were derived separately 188 of 238 options
+# matched nothing. See tests/test_course_department_agreement.py.
+#
+# The catalog's names win where it covers the course's subject: they are the
+# registrar's own, and the only ones that separate "Accounting - CPS" from
+# "Accounting". TRACE's 81 are coarser, not different — "Sociology and
+# Anthropology" is two catalog departments — so there is nothing to map, only
+# something to replace, and the subject prefix does it. Each catalog subject
+# page belongs to one department; MIN() only guards the join against fan-out.
+# TRACE's name survives for retired subjects the catalog no longer carries
+# (AFAM, RELS, CINE), whose courses keep their ratings and pages.
+#
+# A request-time join rather than a column, because precompute rebuilds
+# course_catalog wholesale and would drop anything written onto it.
+_CATALOG_DEPARTMENT_SOURCE = (
+    """course_catalog cc
+    LEFT JOIN (
+        SELECT subject, MIN(department) AS department FROM catalog_courses
+        WHERE department IS NOT NULL AND department != ''
+        GROUP BY subject
+    ) cat ON cat.subject = regexp_extract(cc.code, '^[A-Za-z]+')""",
+    "COALESCE(cat.department, cc.department)",
+)
+_TRACE_DEPARTMENT_SOURCE = ("course_catalog cc", "cc.department")
+
+
+def _with_course_departments(run):
+    """run(from_sql, department_sql) using catalog departments, else TRACE's.
+
+    Falls back when the catalog tables are absent — any deploy that predates
+    scraper/load_catalog_to_crdb.py — and rolls back first, because the pool is
+    not autocommit and the failed statement would otherwise poison the retry.
+    """
+    try:
+        return run(*_CATALOG_DEPARTMENT_SOURCE)
+    except Exception as e:
+        app.logger.warning("catalog department join failed: %s", e)
+        try:
+            get_db().rollback()
+        except Exception as rollback_err:
+            app.logger.warning("catalog department rollback failed: %s", rollback_err)
+        return run(*_TRACE_DEPARTMENT_SOURCE)
+
+
 @app.route("/api/course-departments")
 def course_departments():
     cached = cache_get("course_depts")
     if cached:
         return jsonify(cached)
-    rows = query("""
-        SELECT DISTINCT department FROM course_catalog
-        WHERE department IS NOT NULL AND department != ''
-        ORDER BY department
-    """)
-    result = [r["department"] for r in rows]
+
+    def run(source, department):
+        return query(f"""
+            SELECT DISTINCT {department} AS department FROM {source}
+            WHERE {department} IS NOT NULL AND {department} != ''
+        """)
+
+    result = sorted(r["department"] for r in _with_course_departments(run))
     cache_set("course_depts", result)
     return jsonify(result)
 
@@ -1901,47 +2021,54 @@ def courses_catalog():
 
     # avg_rating is precomputed on course_catalog (see precompute.py step 8),
     # so this is a plain indexed SELECT/WHERE/ORDER/LIMIT like professors_catalog.
-    conditions = []
-    params = []
+    # department is the shared expression from _with_course_departments, so a
+    # dept= value taken from /api/course-departments always matches.
+    def run(source, department):
+        conditions = []
+        params = []
 
-    if dept and dept != "All":
-        dept_list = [d.strip() for d in dept.split(",") if d.strip()]
-        if len(dept_list) == 1:
-            conditions.append("department = %s")
-            params.append(dept_list[0])
-        elif dept_list:
-            conditions.append("department IN (" + ",".join(["%s"] * len(dept_list)) + ")")
-            params.extend(dept_list)
-    if q:
-        conditions.append("search_text LIKE %s")
-        params.append(f"%{q}%")
-    if min_rating > 0:
-        conditions.append("avg_rating >= %s")
-        params.append(min_rating)
-    if max_rating < 5:
-        conditions.append("avg_rating <= %s")
-        params.append(max_rating)
+        if dept and dept != "All":
+            dept_list = split_filter(dept)
+            if len(dept_list) == 1:
+                conditions.append(f"{department} = %s")
+                params.append(dept_list[0])
+            elif dept_list:
+                conditions.append(f"{department} IN (" + ",".join(["%s"] * len(dept_list)) + ")")
+                params.extend(dept_list)
+        if q:
+            conditions.append("cc.search_text LIKE %s")
+            params.append(f"%{q}%")
+        if min_rating > 0:
+            conditions.append("cc.avg_rating >= %s")
+            params.append(min_rating)
+        if max_rating < 5:
+            conditions.append("cc.avg_rating <= %s")
+            params.append(max_rating)
 
-    where_str = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        where_str = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-    if sort == "rating":
-        order = "avg_rating DESC NULLS LAST"
-    else:
-        order = "lower(code) ASC"
+        if sort == "rating":
+            order = "cc.avg_rating DESC NULLS LAST"
+        else:
+            order = "lower(cc.code) ASC"
 
-    count_row = query_one(f"SELECT COUNT(*) as cnt FROM course_catalog {where_str}", params)
-    total = count_row["cnt"] if count_row else 0
+        count_row = query_one(f"SELECT COUNT(*) as cnt FROM {source} {where_str}", params)
+        total = count_row["cnt"] if count_row else 0
 
-    total_pages = max(1, (total + limit - 1) // limit)
-    page = max(1, min(page, total_pages))
-    offset = (page - 1) * limit
+        total_pages = max(1, (total + limit - 1) // limit)
+        page_n = max(1, min(page, total_pages))
+        offset = (page_n - 1) * limit
 
-    rows = query(f"""
-        SELECT code, name, department, avg_rating FROM course_catalog
-        {where_str}
-        ORDER BY {order}
-        LIMIT %s OFFSET %s
-    """, params + [limit, offset])
+        rows = query(f"""
+            SELECT cc.code, cc.name, {department} AS department, cc.avg_rating
+            FROM {source}
+            {where_str}
+            ORDER BY {order}
+            LIMIT %s OFFSET %s
+        """, params + [limit, offset])
+        return total, total_pages, page_n, rows
+
+    total, total_pages, page, rows = _with_course_departments(run)
 
     courses = [
         {
@@ -1990,8 +2117,47 @@ def course_profile(code):
     # SELECT * so a catalog built before is_topics existed still serves (the
     # column reads as absent, i.e. not a topics code).
     course = query_one("SELECT * FROM course_catalog WHERE code = %s", (code_norm,))
+
+    # The catalog is a decoration on a matched course and the whole page on a
+    # catalog-only one — 2,566 codes TRACE has never surveyed.
+    extras = catalog_extras(code_norm)
+    is_placeholder = extras.pop("_is_placeholder", False)
+    catalog_name = extras.pop("catalogName", None)
+    catalog_department = extras.pop("catalogDepartment", None)
+
     if not course:
-        return jsonify({"error": "Course not found"}), 404
+        # No ratings, no sections, no instructors. A page here still carries
+        # the title, description, credit hours, prerequisites and NUpath —
+        # which is the asymmetry that makes this worth doing for courses and
+        # not for professors, where an unmatched page would carry only a name.
+        #
+        # Placeholders are excluded: 849 rows titled "Elective" are
+        # registration bookkeeping, not classes. The flag is advisory, so this
+        # only applies where TRACE has no rating either — which is exactly the
+        # branch we are in.
+        if not catalog_name or is_placeholder:
+            return jsonify({"error": "Course not found"}), 404
+
+        summary = {
+            "code": code_norm,
+            "name": catalog_name,
+            "department": catalog_department or "",
+            "isTopics": False,
+            "avgRating": None,
+            "avgEnrollment": None,
+            "latestTermTitle": None,
+            "ratingCount": None,
+            "unrated": True,
+            **extras,
+        }
+        result = {"summary": summary, "instructors": [],
+                  "sections": [], "questionScores": []}
+        cache_set(cache_key, result)
+        resp = jsonify(result)
+        resp.headers["Cache-Control"] = ("private, max-age=3600" if is_authed
+                                         else "public, max-age=3600")
+        resp.headers["Vary"] = "Authorization"
+        return resp
 
     # Get all sections for this course from trace_courses using indexed course_code column
     sections = query("""
@@ -2082,15 +2248,24 @@ def course_profile(code):
 
     summary = {
         "code": course["code"],
-        "name": course["name"],
-        "department": course["department"] or "",
+        # The catalog title is the record: TRACE caps at 30 characters and the
+        # export drops "&", so 888 matched titles are truncated and 184 carry a
+        # double space where an ampersand was. Falls back to TRACE whenever the
+        # catalog has no row — including on a deploy without the tables.
+        "name": catalog_name or course["name"],
+        # Same rule as the course list and its department filter
+        # (_CATALOG_DEPARTMENT_SOURCE): the catalog's name where it has one, so
+        # a course does not show one department in the list and another here.
+        "department": catalog_department or course["department"] or "",
         "isTopics": is_topics,
+        "unrated": False,
         "avgRating": round(avg_rating, 2) if avg_rating is not None and not is_topics else None,
         "avgEnrollment": round(total_enrollment / total_sections_with_enrollment) if total_sections_with_enrollment > 0 else None,
         "latestTermTitle": latest_term_title,
         # Count of TRACE "overall" question responses backing avgRating, for
         # AggregateRating JSON-LD (schema.org requires ratingCount alongside ratingValue).
         "ratingCount": total_responses if total_responses > 0 and not is_topics else None,
+        **extras,
     }
 
     # Build instructor aggregates

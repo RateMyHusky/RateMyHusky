@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
+	FILTER_SEPARATOR,
 	fetchCourseDepartments,
 	fetchCoursesCatalog,
 	fetchSearchSuggestions,
@@ -592,7 +593,7 @@ function DepartmentFilter({
 	const [search, setSearch] = useState('');
 	const ref = useRef<HTMLDivElement>(null);
 	const filtered = departments.filter((d) => d.toLowerCase().includes(search.toLowerCase()));
-	const selectedSet = useMemo(() => new Set(selected ? selected.split(',') : []), [selected]);
+	const selectedSet = useMemo(() => new Set(selected ? selected.split(FILTER_SEPARATOR) : []), [selected]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -618,7 +619,7 @@ function DepartmentFilter({
 		const next = new Set(selectedSet);
 		if (next.has(d)) next.delete(d);
 		else next.add(d);
-		onSelect([...next].join(','));
+		onSelect([...next].join(FILTER_SEPARATOR));
 	};
 
 	const label =

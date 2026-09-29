@@ -54,6 +54,8 @@ def make_client(monkeypatch, has_trace_column=True):
             return {"code": "COMM1101", "name": "Public Speaking",
                     "department": "Communication Studies",
                     "avg_rating": 4.0, "num_responses": 10}
+        if "FROM catalog_courses" in sql:
+            return None  # no NEU catalog row; keeps rollbacks to the one under test
         raise AssertionError(f"unexpected query_one: {sql}")
 
     def fake_query(sql, params=()):

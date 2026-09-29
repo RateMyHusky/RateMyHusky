@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
+  FILTER_SEPARATOR,
   fetchProfessorsCatalog,
   fetchDepartments,
   fetchSearchSuggestions,
@@ -407,8 +408,8 @@ export default function ProfessorCatalog() {
 
   const activeFilterCount =
     (filters.q ? 1 : 0) +
-    (filters.college ? filters.college.split(',').filter(Boolean).length : 0) +
-    (filters.dept ? filters.dept.split(',').filter(Boolean).length : 0) +
+    (filters.college ? filters.college.split(FILTER_SEPARATOR).filter(Boolean).length : 0) +
+    (filters.dept ? filters.dept.split(FILTER_SEPARATOR).filter(Boolean).length : 0) +
     (filters.minRating > 0 || filters.maxRating < 5 ? 1 : 0) +
     (filters.minReviews > 1 || filters.maxReviews !== null ? 1 : 0);
 
@@ -920,7 +921,7 @@ function CollegeFilter({
   const toggle = (o: boolean) => { setOpen(o); onOpenChange?.(o); };
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
-  const selectedSet = useMemo(() => new Set(selected ? selected.split(',') : []), [selected]);
+  const selectedSet = useMemo(() => new Set(selected ? selected.split(FILTER_SEPARATOR) : []), [selected]);
   const filtered = colleges.filter(c =>
     c.toLowerCase().includes(search.toLowerCase())
   );
@@ -949,7 +950,7 @@ function CollegeFilter({
     const next = new Set(selectedSet);
     if (next.has(c)) next.delete(c);
     else next.add(c);
-    onSelect([...next].join(','));
+    onSelect([...next].join(FILTER_SEPARATOR));
   };
 
   const label = selectedSet.size === 0
@@ -1037,7 +1038,7 @@ function DepartmentFilter({
   const filtered = departments.filter(d =>
     d.toLowerCase().includes(search.toLowerCase())
   );
-  const selectedSet = useMemo(() => new Set(selected ? selected.split(',') : []), [selected]);
+  const selectedSet = useMemo(() => new Set(selected ? selected.split(FILTER_SEPARATOR) : []), [selected]);
 
   useEffect(() => {
     if (!open) return;
@@ -1063,7 +1064,7 @@ function DepartmentFilter({
     const next = new Set(selectedSet);
     if (next.has(d)) next.delete(d);
     else next.add(d);
-    onSelect([...next].join(','));
+    onSelect([...next].join(FILTER_SEPARATOR));
   };
 
   const label = selectedSet.size === 0

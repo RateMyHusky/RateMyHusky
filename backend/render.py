@@ -339,20 +339,38 @@ def course_html(detail: dict, canonical: str) -> str:
     avg = s.get("avgRating")
     last = s.get("latestTermTitle") or ""
 
-    title = f"{code} Reviews — {cname} at Northeastern"
-    avg_txt = f"Average rating {avg}/5. " if avg is not None else ""
-    last_txt = f"Last taught {last}. " if last else ""
-    summary = (
-        f"{code} ({cname}) course reviews and ratings at Northeastern (NEU). "
-        f"{avg_txt}{last_txt}"
-        f"Compare instructors with student + RMP reviews."
-    )
+    unrated = s.get("unrated") is True
+    description = s.get("description") or ""
+    credits = s.get("creditHours") or ""
+
+    if unrated:
+        # In the catalog, never surveyed: say what the page carries rather
+        # than promising reviews it does not have.
+        title = f"{code} — {cname} at Northeastern"
+        summary = (
+            f"{code} ({cname}) at Northeastern (NEU)"
+            f"{', ' + credits if credits else ''}. {description}"
+        ).strip()
+    else:
+        title = f"{code} Reviews — {cname} at Northeastern"
+        avg_txt = f"Average rating {avg}/5. " if avg is not None else ""
+        last_txt = f"Last taught {last}. " if last else ""
+        summary = (
+            f"{code} ({cname}) course reviews and ratings at Northeastern (NEU). "
+            f"{avg_txt}{last_txt}"
+            f"Compare instructors with student + RMP reviews."
+        )
 
     stats = _stat_rows([
         ("Average rating", f"{avg}/5" if avg is not None else None),
         ("Average enrollment", s.get("avgEnrollment")),
         ("Last taught", last),
+        ("Credits", credits),
+        ("Prerequisites", s.get("prerequisites")),
+        ("Corequisites", s.get("corequisites")),
+        ("NUpath", ", ".join(s.get("nupath") or [])),
     ])
+    about = f"<p>{_esc(description)}</p>" if description and not unrated else ""
 
     instructors = detail.get("instructors") or []
     inst_items = "".join(
@@ -363,9 +381,9 @@ def course_html(detail: dict, canonical: str) -> str:
     freshness = f"<p>Data updated {_esc(_month_year(date.today()))}.</p>"
 
     body = (
-        f"<h1>{_esc(code)} — {_esc(cname)}: Reviews & Ratings</h1>"
+        f"<h1>{_esc(code)} — {_esc(cname)}{'' if unrated else ': Reviews & Ratings'}</h1>"
         f"<p>{_esc(summary)}</p>"
-        f"{stats}{inst_block}{freshness}"
+        f"{about}{stats}{inst_block}{freshness}"
         f'<p><a href="{_esc(canonical)}">View on RateMyHusky</a></p>'
     )
 
@@ -376,6 +394,8 @@ def course_html(detail: dict, canonical: str) -> str:
         "courseCode": code,
         "provider": {"@type": "CollegeOrUniversity", "name": "Northeastern University"},
     }
+    if description:
+        jsonld["description"] = description
     rating_count = s.get("ratingCount")
     if avg is not None and rating_count:
         jsonld["aggregateRating"] = {

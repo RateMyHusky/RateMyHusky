@@ -1,0 +1,80 @@
+name: Catalog edition watch
+
+# One GET a week against catalog.northeastern.edu, asking a single question:
+# is the site still serving the edition we last scraped?
+#
+# Cron rather than a date because the rollover date moves. Measured 2026-08-13
+# from Wayback snapshots of the homepage's own edition label:
+#
+#   2025-26 edition   live between 2025-07-12 and 2025-08-02
+#   2024-25 edition   live between 2024-07-03 and 2024-08-01
+#   2023-24 edition   live between 2023-08-03 and 2023-09-27
+#
+# A six-week window that drifts year to year, so any fixed date is wrong in at
+# least one of those three years. Weekly polling bounds the detection lag to
+# seven days for the cost of 52 requests a year.
+on:
+  schedule:
+    - cron: "0 9 * * 1"   # Mondays 09:00 UTC
+  workflow_dispatch:
+
+# Needs issues:write because the whole point is to be loud. A run that only
+# went red in the Actions tab would sit unread until someone looked, and this
+# job's signal arrives roughly once a year.
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: scraper/requirements.txt
+      - name: Install dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Check the live edition against the recorded baseline
+        id: check
+        run: cd scraper && python catalog_edition.py
+
+      # Two distinct failures land here and both deserve a human: a real
+      # rollover (scrape the new edition, then --record it), and an
+      # EditionUnreadable, which means the layout moved and the watcher is
+      # blind until the selector is fixed.
+      - name: Open an issue when the edition moves
+        if: failure() && steps.check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          existing=$(gh issue list --state open --label catalog-edition --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            echo "Issue #$existing is already open; not filing a duplicate."
+            exit 0
+          fi
+          gh label create catalog-edition --description "NEU catalog edition rollover" --color B60205 --force
+          gh issue create \
+            --title "NEU catalog edition changed — rescrape and re-record" \
+            --label catalog-edition \
+            --body "$(cat <<'EOF'
+          `catalog-edition-watch` found the live catalog no longer serving the edition in `scraper/catalog_edition.json`.
+
+          Run the workflow logs for the exact before/after years. Two possible causes:
+
+          - **Rollover** — a new academic-year edition is live. Every course description on the site has been replaced.
+          - **`EditionUnreadable`** — the `id="edition"` anchor is gone. The layout changed and the watcher is blind until the selector in `scraper/catalog_edition.py` is updated.
+
+          For a rollover:
+
+          1. Scrape the new edition.
+          2. `cd scraper && python catalog_edition.py --record` and commit `catalog_edition.json`.
+
+          Until step 2 lands, this job fails every Monday and reuses this issue rather than filing more.
+          EOF
+          )"
