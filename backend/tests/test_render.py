@@ -50,7 +50,7 @@ def test_professor_meta_description_leads_with_reviews_and_ratings_phrase():
     desc = _meta_description(html)
     assert desc.startswith(
         "Francis Georges professor reviews and ratings: 4.25/5 from 2686 student "
-        "reviews at Northeastern (83% would take again). TRACE + RateMyProfessor + Reddit."
+        "reviews at Northeastern (83% would take again). Student reviews + RMP + Reddit."
     )
 
 
@@ -61,7 +61,7 @@ def test_professor_meta_description_omits_would_take_again_clause_when_absent():
     assert "would take again" not in desc
     assert desc.startswith(
         "Francis Georges professor reviews and ratings: 4.25/5 from 2686 student "
-        "reviews at Northeastern. TRACE + RateMyProfessor + Reddit."
+        "reviews at Northeastern. Student reviews + RMP + Reddit."
     )
 
 
@@ -300,7 +300,7 @@ def test_course_meta_description_leads_with_reviews_and_ratings_phrase():
     assert desc == (
         "ECON1115 (Macroeconomics) course reviews and ratings at Northeastern (NEU). "
         "Average rating 4.1/5. "
-        "Compare instructors with TRACE + RateMyProfessor reviews."
+        "Compare instructors with student + RMP reviews."
     )
 
 
@@ -349,13 +349,13 @@ def _base_profile(**over):
 def test_professor_html_shows_trace_review_count():
     html = professor_html(_base_profile(), [], "https://ratemyhusky.com/professors/x",
                           trace_count=5662)
-    assert "<dt>TRACE reviews</dt><dd>5662</dd>" in html
+    assert "<dt>Student review count</dt><dd>5662</dd>" in html
 
 
 def test_professor_html_omits_trace_count_when_zero():
     html = professor_html(_base_profile(), [], "https://ratemyhusky.com/professors/x",
                           trace_count=0)
-    assert "TRACE reviews" not in html
+    assert "Student review count" not in html
 
 
 def test_professor_html_never_shows_gated_trace_comment_text():
@@ -426,7 +426,7 @@ def test_render_professor_route_exposes_trace_count(render_client):
     # surface their count without rendering any gated comment text.
     resp = render_client.get("/render/professors/francis-georges")
     body = resp.get_data(as_text=True)
-    assert "TRACE reviews" in body
+    assert "Student review count" in body
 
 
 def test_home_html_title_canonical_h1_and_summary():
@@ -668,7 +668,7 @@ def test_professor_html_verdict_sentence_all_clauses():
     expected = (
         "Francis Georges is an Economics professor at Northeastern University "
         "rated 4.25/5 by 2686 students, with 2.9/5 difficulty and 83% who would "
-        f"take them again (TRACE + RateMyProfessors + Reddit, updated {month_year})."
+        f"take them again (student reviews + RateMyProfessors + Reddit, updated {month_year})."
     )
     assert expected in html
 
@@ -679,7 +679,7 @@ def test_professor_html_verdict_sentence_omits_missing_clauses():
     month_year = date.today().strftime("%B %Y")
     expected = (
         "Francis Georges is an Economics professor at Northeastern University "
-        f"rated 4.25/5 by 2686 students (TRACE + RateMyProfessors + Reddit, updated {month_year})."
+        f"rated 4.25/5 by 2686 students (student reviews + RateMyProfessors + Reddit, updated {month_year})."
     )
     assert expected in html
 

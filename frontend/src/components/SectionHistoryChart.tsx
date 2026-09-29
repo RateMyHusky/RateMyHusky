@@ -381,7 +381,7 @@ export default function SectionHistoryChart({ sections }: Props) {
 									<Line
 										type="monotone"
 										dataKey="trace"
-										name="TRACE"
+										name="Student Reviews"
 										stroke="#5ec4a8"
 										strokeWidth={2.5}
 										dot={{ r: 3, fill: '#5ec4a8' }}

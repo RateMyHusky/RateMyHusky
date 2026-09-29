@@ -161,7 +161,7 @@ const Course = () => {
 		`${summary.code} (${summary.name}) course reviews and ratings at Northeastern (NEU). ` +
 		(summary.avgRating != null ? `Average rating ${summary.avgRating.toFixed(1)}/5. ` : '') +
 		(summary.latestTermTitle ? `Last taught ${summary.latestTermTitle}. ` : '') +
-		`Compare instructors with TRACE + RateMyProfessor reviews.`;
+		`Compare instructors with student + RMP reviews.`;
 
 	const courseCanonical = `https://ratemyhusky.com/courses/${code}`;
 	const courseJsonLd: Record<string, unknown> = {
@@ -381,7 +381,7 @@ function RatingStatCard({ avgRating }: { avgRating: number | null }) {
 			</span>
 			{avgRating != null && (
 				<div className="course-stat-breakdown">
-					<span>TRACE: {avgRating.toFixed(2)}</span>
+					<span>Student Reviews: {avgRating.toFixed(2)}</span>
 				</div>
 			)}
 		</article>

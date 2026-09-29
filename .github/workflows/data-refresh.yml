@@ -45,9 +45,10 @@ jobs:
       - name: Fetch data store
         env:
           RMH_DATA_TOKEN: ${{ secrets.RMH_DATA_TOKEN }}
+          RMH_DATA_REPO: ${{ secrets.RMH_DATA_REPO }}
         run: |
           git clone --depth 1 \
-            "https://x-access-token:${RMH_DATA_TOKEN}@github.com/RayanR000/RateMyHusky-data.git" \
+            "https://x-access-token:${RMH_DATA_TOKEN}@github.com/${RMH_DATA_REPO}.git" \
             backend/Better_Scraper/output_data
 
       # Snapshot last week's row counts BEFORE the scrape overwrites the CSVs.
@@ -182,6 +183,7 @@ jobs:
         working-directory: backend/Better_Scraper/output_data
         env:
           RMH_DATA_TOKEN: ${{ secrets.RMH_DATA_TOKEN }}
+          RMH_DATA_REPO: ${{ secrets.RMH_DATA_REPO }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -191,5 +193,5 @@ jobs:
           git branch -D main
           git branch -m main
           git push -f \
-            "https://x-access-token:${RMH_DATA_TOKEN}@github.com/RayanR000/RateMyHusky-data.git" \
+            "https://x-access-token:${RMH_DATA_TOKEN}@github.com/${RMH_DATA_REPO}.git" \
             main

@@ -93,7 +93,7 @@ function ProfCard({ prof, onOpen, onRemove }: { prof: BookmarkedProfessor; onOpe
           </div>
           <div className="sub-rating-item" data-color={ratingColor(prof.traceRating)}>
             <span className="sub-rating-val">{prof.traceRating != null ? prof.traceRating.toFixed(1) : '—'}</span>
-            <span className="sub-rating-lbl">TRACE</span>
+            <span className="sub-rating-lbl">Students</span>
           </div>
         </div>
         <div className="prof-card-footer">

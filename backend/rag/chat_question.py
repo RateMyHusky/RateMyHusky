@@ -157,7 +157,7 @@ def _handle_course_ranking(q, block, deps, _log, session_token, ip_hash):
             "topic": f"{subject} courses by {metric}",
             "courses": [{"code": c.get("code"), "name": c.get("name"), "department": c.get("department"),
                          "rating": c.get("value") if metric == "rating" else None} for c in courses],
-            "disclaimer": "AI-generated ranking of Northeastern courses by TRACE data; may be incomplete.",
+            "disclaimer": "AI-generated ranking of Northeastern courses by student review data; may be incomplete.",
         }
         set_cached(q, [cache_key], payload, deps.cache_set_fn)
         _log("ok", retrieved_count=len(courses), answer_text=payload["answer"], tokens_used=gen.get("tokens_used", 0))

@@ -484,7 +484,7 @@ function Compare() {
 			weight: 2,
 		},
 		{
-			label: 'TRACE Rating',
+			label: 'Student Rating',
 			left: formatMetric(leftTrace),
 			right: formatMetric(rightTrace),
 			winner: pickWinner(leftTrace, rightTrace),
@@ -520,17 +520,17 @@ function Compare() {
 			weight: 2,
 		},
 		{
-			label: 'Recent TRACE Snapshot',
+			label: 'Recent Student Review Snapshot',
 			left: leftSnapshot
 				? `${leftSnapshot.score.toFixed(2)} (${leftSnapshot.term})`
 				: user
 					? '—'
-					: 'Sign in to view TRACE',
+					: 'Sign in to view student reviews',
 			right: rightSnapshot
 				? `${rightSnapshot.score.toFixed(2)} (${rightSnapshot.term})`
 				: user
 					? '—'
-					: 'Sign in to view TRACE',
+					: 'Sign in to view student reviews',
 			footnoteLeft: leftSnapshot?.course,
 			footnoteRight: rightSnapshot?.course,
 			winner: pickWinner(leftSnapshot?.score, rightSnapshot?.score),
@@ -640,7 +640,7 @@ function Compare() {
 					<p className="compare-kicker">Professor Compare</p>
 					<h1>Side-by-side comparison</h1>
 					<p className="compare-subtitle">
-						Pick two professors and compare rating quality, difficulty, review volume, and recent TRACE performance.
+						Pick two professors and compare rating quality, difficulty, review volume, and recent student review performance.
 					</p>
 				</div>
 			</section>
@@ -796,7 +796,7 @@ function Compare() {
 						const showLeft = Boolean(leftSlug) && !leftLoading;
 						const showRight = Boolean(rightSlug) && !rightLoading;
 						const renderValue = (value: string, showValue: boolean) => {
-							if (!authLoading && showValue && row.label === 'Recent TRACE Snapshot' && value === 'Sign in to view TRACE') {
+							if (!authLoading && showValue && row.label === 'Recent Student Review Snapshot' && value === 'Sign in to view student reviews') {
 								return (
 									<span className="compare-lock-prompt">
 										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="compare-lock-icon">

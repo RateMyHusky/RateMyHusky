@@ -8,15 +8,15 @@ const Privacy = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Privacy Policy</h1>
-            <p className="terms-meta">Effective August 12, 2026 &middot; RateMyHusky</p>
+            <p className="terms-meta">Effective September 23, 2026 &middot; RateMyHusky</p>
           </header>
 
           <div className="terms-body">
             <section className="terms-section">
               <h2>1. Introduction</h2>
               <p>
-                RateMyHusky is an aggregator of professor and course information for
-                Northeastern University students. This Privacy Policy describes what information
+                RateMyHusky is a professor and course review platform for Northeastern University
+                students. This Privacy Policy describes what information
                 we collect, how we use it, and the choices you have. By using RateMyHusky,
                 you also agree to our{' '}
                 <a href="/terms">Terms &amp; Conditions</a>.
@@ -42,7 +42,8 @@ const Privacy = () => {
                   address, profile photo, and Google account id. Your name, email, and photo
                   are encoded in a JWT token stored in your browser and are never written to a
                   server-side database. Your Google account id is stored server-side if you
-                  bookmark a professor or course — see the Bookmarks item below.
+                  bookmark a professor or course or write a review — see the Bookmarks and Reviews
+                  items below.
                 </li>
                 <li>
                   <strong>Browser preferences:</strong> your selected theme (dark/light), your
@@ -76,6 +77,15 @@ const Privacy = () => {
                   account is capped at 200 bookmarks. These records are retained on our servers
                   — see <em>How We Store Your Information</em> below.
                 </li>
+                <li>
+                  <strong>Reviews:</strong> when you write a review of a professor or course, we
+                  store the review itself (its ratings, its text, and the professor, course, and
+                  term it is about), when you posted it, its moderation status, and your Google
+                  account id. Reviews are published anonymously: your name, email address, and
+                  photo are never shown with them, and the account id stays private. It lets you
+                  edit or delete your own reviews, and lets us limit duplicate reviews and handle
+                  abuse.
+                </li>
               </ul>
               <p>
                 We do <strong>not</strong> log your search queries, which professor or course
@@ -90,7 +100,7 @@ const Privacy = () => {
               <p>The information we collect is used solely to:</p>
               <ul>
                 <li>Authenticate your identity and confirm your <code>@husky.neu.edu</code> affiliation</li>
-                <li>Restrict access to TRACE course evaluation comments to signed-in users</li>
+                <li>Limit bookmarks and writing reviews to signed-in <code>@husky.neu.edu</code> users</li>
                 <li>Display your name and profile photo in the navigation bar while signed in</li>
                 <li>Save and display the professors and courses you bookmark</li>
                 <li>Apply rate limits across the site so automated traffic cannot overwhelm it</li>
@@ -110,7 +120,7 @@ const Privacy = () => {
                 browser's <code>localStorage</code> and the handshake cookies are cleared.
                 The token expires automatically after 30 days. RateMyHusky does not maintain
                 user accounts or profiles; the only per-user data we store server-side is your
-                bookmarks, described below.
+                bookmarks and any reviews you write, described below.
               </p>
               <p>
                 Signing out deletes the token from your browser immediately.
@@ -121,6 +131,11 @@ const Privacy = () => {
                 item type, the professor or course identifier, and a timestamp. Bookmarks
                 persist across sign-ins until you remove them or request deletion — see{' '}
                 <em>Your Rights &amp; Choices</em>.
+              </p>
+              <p>
+                Reviews you write are stored in our database, keyed to your Google account id, and
+                are kept until you delete them or we remove them. We do not disclose which account
+                wrote a review unless the law requires us to.
               </p>
               <p>
                 Our database is a managed CockroachDB cluster hosted in the United States, the
@@ -226,8 +241,8 @@ const Privacy = () => {
                   privacy policies.
                 </li>
                 <li>
-                  <strong>RateMyProfessors, Northeastern TRACE, Northeastern faculty pages
-                  &amp; Reddit</strong>: these are data sources only. We do not send any user
+                  <strong>RateMyProfessors, Northeastern faculty pages &amp; Reddit</strong>: these
+                  are data sources only. We do not send any user
                   data to these services.
                 </li>
               </ul>
@@ -268,8 +283,8 @@ const Privacy = () => {
               <ul>
                 <li>
                   <strong>Right to access:</strong> you may request a copy of the data we hold
-                  that is associated with you. In practice this is limited to your bookmarks;
-                  your sign-in details and preferences live only in your own browser and are not
+                  that is associated with you. In practice this is limited to your bookmarks and
+                  the reviews you have written; your sign-in details and preferences live only in your own browser and are not
                   accessible to us.
                 </li>
                 <li>
@@ -277,11 +292,11 @@ const Privacy = () => {
                   time to immediately delete your JWT token from your browser, and{' '}
                   <strong>clear localStorage</strong> in your browser settings to remove your
                   session token and stored preferences. You can remove an individual bookmark at
-                  any time by un-bookmarking it. To delete everything we hold for your account,
+                  any time by un-bookmarking it, and delete any review you wrote. To delete everything we hold for your account,
                   sign in and submit a <strong>Data Deletion Request</strong> through the
                   feedback form: an email address is required, and your signed-in account
                   identifier is included so we can verify your identity and delete the records
-                  tied to your account. (You may also email{' '}
+                  tied to your account, including your bookmarks and reviews. (You may also email{' '}
                   <a href="mailto:support@ratemyhusky.com">support@ratemyhusky.com</a>, though
                   because we never store your email address, we can only act on a request we can
                   tie to your account — submitting the form while signed in is the reliable path.)
@@ -290,8 +305,8 @@ const Privacy = () => {
                   <strong>Right to correction:</strong> your name, email, and photo come
                   directly from Google and are never stored on our servers, so corrections to
                   them are made through your Google account. Your Google account id also comes
-                  from Google and cannot be edited; we store it with your bookmarks, and a Data
-                  Deletion Request removes it (see Right to deletion above).
+                  from Google and cannot be edited; we store it with your bookmarks and reviews,
+                  and a Data Deletion Request removes it (see Right to deletion above).
                   If you believe professor or course data displayed on the site is inaccurate,
                   you can report it through the feedback form under "Incorrect Data."
                 </li>
@@ -303,8 +318,8 @@ const Privacy = () => {
               </ul>
               <p>
                 Note that there is no account to delete. Once your token is cleared, no personal
-                data remains in our systems except for any bookmarks, which remain until you
-                request their deletion.
+                data remains in our systems except for your bookmarks and reviews, which remain
+                until you delete them or request their deletion.
               </p>
             </section>
 
@@ -321,10 +336,10 @@ const Privacy = () => {
                   underlying data (average rating, difficulty, would-take-again, per-term
                   history, and department comparisons).
                 </li>
+                <li>Ratings and written reviews from RateMyProfessors.</li>
                 <li>
-                  Ratings and written reviews from RateMyProfessors, and scores and written
-                  comments from Northeastern's TRACE course evaluations. TRACE comments are
-                  shown only to signed-in <code>@husky.neu.edu</code> users.
+                  Ratings and written reviews that students submit on RateMyHusky, shown without
+                  the reviewer's name.
                 </li>
                 <li>
                   A profile photo, taken from the public Northeastern faculty and college
@@ -337,9 +352,9 @@ const Privacy = () => {
                 </li>
               </ul>
               <p>
-                We publish no contact details, no course rosters, and nothing that is not already
-                public in the sources above (except TRACE comments, which stay behind sign-in as
-                Northeastern publishes them). Data is refreshed on a weekly schedule.
+                We publish no contact details, no course rosters, and nothing beyond what is
+                public in the sources above and the reviews students write here. Data from outside
+                sources is refreshed on a weekly schedule.
               </p>
               <p>
                 <strong>Removal requests.</strong> If you are a professor or instructor and want
@@ -350,7 +365,7 @@ const Privacy = () => {
                 cannot reinstate you, and the rows already loaded — your page, your ratings and
                 comments, your Reddit mentions, and the evidence corpus built from them — are
                 deleted. Two limits are worth being straight about: we cannot remove your data
-                from RateMyProfessors, TRACE, or Reddit themselves, and our own private source
+                from RateMyProfessors or Reddit themselves, and our own private source
                 files can still contain your rows until the upstream source stops publishing
                 them, though nothing published on the site can reach them. If you
                 need removal from a source itself, contact that source directly.

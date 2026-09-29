@@ -416,7 +416,7 @@ export default function ProfessorCatalog() {
     <div className="catalog-page">
       <Seo
         title="Northeastern Professor Ratings & Reviews | RateMyHusky"
-        description={`Browse ${total ? total.toLocaleString() : 'thousands of'} Northeastern University (NEU) professor ratings and reviews. Compare TRACE evaluations and RateMyProfessor reviews.`}
+        description={`Browse ${total ? total.toLocaleString() : 'thousands of'} Northeastern University (NEU) professor ratings and reviews. Compare student reviews and RateMyProfessor ratings.`}
         canonical="https://ratemyhusky.com/professors"
       />
 
@@ -811,7 +811,7 @@ export default function ProfessorCatalog() {
                       </div>
                       <div className="sub-rating-item" data-color={ratingColor(prof.traceRating)}>
                         <span className="sub-rating-val">{prof.traceRating != null ? prof.traceRating.toFixed(1) : '—'}</span>
-                        <span className="sub-rating-lbl">TRACE</span>
+                        <span className="sub-rating-lbl">Students</span>
                       </div>
                     </div>
                     <div className="prof-card-footer">

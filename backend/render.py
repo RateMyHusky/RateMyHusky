@@ -202,10 +202,10 @@ def professor_html(profile: dict, reviews: list, canonical: str,
     wta_txt = f" ({wta}% would take again)" if wta is not None else ""
     summary = (
         f"{name} professor reviews and ratings: {avg}/5 from {total} student "
-        f"reviews at Northeastern{wta_txt}. TRACE + RateMyProfessor + Reddit."
+        f"reviews at Northeastern{wta_txt}. Student reviews + RMP + Reddit."
         if avg is not None else
         f"{name}, Northeastern {dept} professor: no student ratings yet. "
-        "TRACE + RateMyProfessor + Reddit."
+        "Student reviews + RMP + Reddit."
     )
     month_year = _month_year(date.today())
 
@@ -214,11 +214,11 @@ def professor_html(profile: dict, reviews: list, canonical: str,
     verdict = (
         f"{name} is {_article(dept)} {dept} professor at Northeastern University rated "
         f"{avg}/5 by {total} students{diff_clause}{wta_clause} "
-        f"(TRACE + RateMyProfessors + Reddit, updated {month_year})."
+        f"(student reviews + RateMyProfessors + Reddit, updated {month_year})."
         if avg is not None else
         f"{name} is {_article(dept)} {dept} professor at Northeastern University "
         f"with no student ratings yet "
-        f"(TRACE + RateMyProfessors + Reddit, updated {month_year})."
+        f"(student reviews + RateMyProfessors + Reddit, updated {month_year})."
     )
 
     stats = _stat_rows([
@@ -227,9 +227,9 @@ def professor_html(profile: dict, reviews: list, canonical: str,
         ("Would take again", f"{wta}%" if wta is not None else None),
         ("Difficulty", f"{diff}/5" if diff is not None else None),
         ("RateMyProfessor rating", profile.get("rmpRating")),
-        ("TRACE rating", profile.get("traceRating")),
+        ("Student rating", profile.get("traceRating")),
         # Count of TRACE evaluations only — the comment text stays gated.
-        ("TRACE reviews", trace_count if trace_count else None),
+        ("Student review count", trace_count if trace_count else None),
         ("RateMyProfessor reviews", rmp_count if rmp_count else None),
     ])
 
@@ -345,7 +345,7 @@ def course_html(detail: dict, canonical: str) -> str:
     summary = (
         f"{code} ({cname}) course reviews and ratings at Northeastern (NEU). "
         f"{avg_txt}{last_txt}"
-        f"Compare instructors with TRACE + RateMyProfessor reviews."
+        f"Compare instructors with student + RMP reviews."
     )
 
     stats = _stat_rows([
@@ -391,7 +391,7 @@ def course_html(detail: dict, canonical: str) -> str:
 def home_html(stats: list, top_professors: list, canonical: str) -> str:
     title = "RateMyHusky — Northeastern University Professor Reviews & Ratings"
     summary = (
-        "RateMyHusky combines TRACE evaluations and RateMyProfessor reviews for "
+        "RateMyHusky combines student reviews and RateMyProfessor ratings for "
         "Northeastern professors and courses. Compare ratings, difficulty, and "
         "reviews — free."
     )
@@ -444,8 +444,8 @@ def professors_listing_html(entries: list, total: int, canonical: str) -> str:
     total_txt = str(total) if total else "thousands of"
     summary = (
         f"Browse {total_txt} Northeastern University (NEU) professor ratings and "
-        f"reviews. Compare ratings, difficulty, and would-take-again from TRACE "
-        f"evaluations and RateMyProfessor reviews."
+        f"reviews. Compare ratings, difficulty, and would-take-again from student "
+        f"reviews and RateMyProfessor ratings."
     )
 
     shown = [e for e in (entries or []) if e.get("slug")][:LISTING_CAP]
@@ -484,7 +484,7 @@ def courses_listing_html(entries: list, total: int, canonical: str) -> str:
     summary = (
         f"Browse {total_txt} Northeastern University (NEU) course reviews and "
         f"ratings. Compare instructors, average ratings, and enrollment from "
-        f"TRACE evaluations."
+        f"student reviews."
     )
 
     shown = [e for e in (entries or []) if e.get("code")][:LISTING_CAP]

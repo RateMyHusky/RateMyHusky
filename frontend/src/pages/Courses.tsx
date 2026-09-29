@@ -315,7 +315,7 @@ export default function Courses() {
 		<div className="catalog-page">
 			<Seo
 				title="Northeastern Course Reviews & Ratings | RateMyHusky"
-				description={`Browse ${total ? total.toLocaleString() : 'thousands of'} Northeastern University (NEU) course reviews and ratings. See TRACE evaluation data and compare instructors for every course.`}
+				description={`Browse ${total ? total.toLocaleString() : 'thousands of'} Northeastern University (NEU) course reviews and ratings. See student review data and compare instructors for every course.`}
 				canonical="https://ratemyhusky.com/courses"
 			/>
 			{sidebarOpen && <div className="catalog-overlay" onClick={() => setSidebarOpen(false)} />}

@@ -171,7 +171,7 @@ const RatingCell = ({ prof, isOpen, onToggle }: {
             </span>
           </div>
           <div className="tooltip-row">
-            <span className="tooltip-label">TRACE</span>
+            <span className="tooltip-label">Student Reviews</span>
             <span className="tooltip-value">
               {prof.traceRating !== null ? prof.traceRating.toFixed(2) : '—'}
             </span>
@@ -452,14 +452,14 @@ const Homepage = () => {
     <div className="homepage">
       <Seo
         title="RateMyHusky — Northeastern University Professor Reviews & Ratings"
-        description="Find the right Northeastern professor every semester. RateMyHusky combines TRACE evaluations and RateMyProfessor ratings and reviews in one place."
+        description="Find the right Northeastern professor every semester. RateMyHusky combines student reviews and RateMyProfessor ratings and reviews in one place."
         canonical="https://ratemyhusky.com/"
         jsonLd={{
           '@context': 'https://schema.org',
           '@type': 'WebSite',
           name: 'RateMyHusky',
           url: 'https://ratemyhusky.com/',
-          description: 'Northeastern University professor and course ratings combining TRACE evaluations and RateMyProfessor reviews.',
+          description: 'Northeastern University professor and course ratings combining student reviews and RateMyProfessor ratings.',
         }}
       />
 
@@ -506,7 +506,7 @@ const Homepage = () => {
           Find the <span>right professor</span>, every semester
         </h1>
         <p className="hero-subtitle">
-          TRACE evaluations and RateMyProfessor ratings, all in one place.
+          Student reviews and RateMyProfessor ratings, all in one place.
         </p>
 
         <SearchBar forceAsk={askTrigger} restoreAsk={(location.state as { restoreAsk?: boolean } | null)?.restoreAsk} />
