@@ -48,6 +48,8 @@ def make_client(monkeypatch, trace_row, catalog_row, nupath=(), catalog_raises=F
                         lambda: (_ for _ in ()).throw(AssertionError("no DB in test")),
                         raising=False)
     monkeypatch.setattr(server, "cache_get", lambda key: None, raising=False)
+    # 20 requests/second is shared across the whole suite.
+    monkeypatch.setattr(server.limiter, "enabled", False)
     monkeypatch.setattr(server, "cache_set", lambda key, data: None, raising=False)
 
     rolled_back = []
@@ -89,7 +91,7 @@ def make_client(monkeypatch, trace_row, catalog_row, nupath=(), catalog_raises=F
         if "GROUP BY question" in sql:
             return [{"question": "Overall Rating", "weighted_sum": 40.0,
                      "total_responses": 10}]
-        if "UNION ALL" in sql:
+        if "UNION ALL" in sql or "FROM trace_comments" in sql:
             return []
         raise AssertionError(f"unexpected query: {sql}")
 
@@ -133,6 +135,18 @@ def test_trace_ratings_are_untouched_by_the_join(monkeypatch):
     s = get_course(monkeypatch).get_json()["summary"]
     assert s["avgRating"] == 4.0
     assert s["ratingCount"] == 10
+
+
+def test_the_page_shows_the_same_department_as_the_course_list(monkeypatch):
+    """The list and its filter use the catalog's department; the page must too,
+    or CS3000 is "Computer Science" in the list and "Khoury" when opened."""
+    s = get_course(monkeypatch).get_json()["summary"]
+    assert s["department"] == "Computer Science"
+
+
+def test_without_the_catalog_the_page_keeps_traces_department(monkeypatch):
+    s = get_course(monkeypatch, catalog_raises=True).get_json()["summary"]
+    assert s["department"] == "Khoury"
 
 
 # --- a catalog-only course gains a page ---

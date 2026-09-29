@@ -2223,7 +2223,10 @@ def course_profile(code):
         # double space where an ampersand was. Falls back to TRACE whenever the
         # catalog has no row — including on a deploy without the tables.
         "name": catalog_name or course["name"],
-        "department": course["department"] or "",
+        # Same rule as the course list and its department filter
+        # (_CATALOG_DEPARTMENT_SOURCE): the catalog's name where it has one, so
+        # a course does not show one department in the list and another here.
+        "department": catalog_department or course["department"] or "",
         "isTopics": is_topics,
         "unrated": False,
         "avgRating": round(avg_rating, 2) if avg_rating is not None and not is_topics else None,
