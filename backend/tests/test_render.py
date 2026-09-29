@@ -1014,3 +1014,38 @@ def test_department_html_handles_zero_professors_without_crashing():
     assert html.count("<tr>") == 1  # header row only, no professor rows
     body = html.split("</h1>")[1].split("</p>")[0]
     assert "highest-rated" not in body
+
+
+def _catalog_only_detail():
+    return {"summary": {
+        "code": "CS4973", "name": "Special Topics in Computer Science",
+        "department": "Computer Science", "avgRating": None, "avgEnrollment": None,
+        "latestTermTitle": None, "ratingCount": None, "unrated": True,
+        "description": "Offers various topics in computer science.",
+        "creditHours": "4 Hours", "prerequisites": None, "corequisites": None,
+        "nupath": [],
+    }, "instructors": [], "sections": [], "questionScores": []}
+
+
+def test_catalog_only_course_html_does_not_promise_reviews():
+    html = course_html(_catalog_only_detail(), "https://ratemyhusky.com/courses/cs4973")
+    assert "<title>CS4973 — Special Topics in Computer Science at Northeastern" in html
+    assert "Reviews" not in html.split("<body")[0].split("<title>")[1].split("</title>")[0]
+    assert "Offers various topics in computer science." in _meta_description(html)
+    assert "Compare instructors" not in html
+
+
+def test_course_html_carries_catalog_fields():
+    detail = {"summary": {
+        "code": "CS3000", "name": "Algorithms and Data", "department": "Computer Science",
+        "avgRating": 4.0, "avgEnrollment": 20, "latestTermTitle": "Fall 2024",
+        "ratingCount": 10, "description": "Introduces algorithms.",
+        "creditHours": "4 Hours", "prerequisites": "CS 2100", "corequisites": "CS 3001",
+        "nupath": ["Formal/Quant Reasoning"],
+    }, "instructors": []}
+    html = course_html(detail, "https://ratemyhusky.com/courses/cs3000")
+    for text in ("Introduces algorithms.", "4 Hours", "CS 2100", "CS 3001",
+                 "Formal/Quant Reasoning"):
+        assert text in html
+    course_ld = [b for b in _extract_jsonld(html) if b.get("@type") == "Course"][0]
+    assert course_ld["description"] == "Introduces algorithms."

@@ -314,11 +314,24 @@ export interface CourseSummary {
   department: string;
   avgRating: number | null;
   avgEnrollment: number | null;
-  latestTermTitle: string;
+  latestTermTitle: string | null;
   ratingCount: number | null;
   /** A code that runs as several unrelated classes in one term, so it has no
    *  single course rating. avgRating and ratingCount are null when set. */
   isTopics?: boolean;
+  /** In the NEU catalog but never surveyed: no ratings, sections or instructors. */
+  unrated?: boolean;
+  /* From catalog.northeastern.edu. Null/empty means the catalog has nothing
+   * to say (or isn't loaded), never "this course has no prerequisites". */
+  description?: string | null;
+  /** Verbatim, e.g. "4 Hours" or "1-4 Hours". */
+  creditHours?: string | null;
+  creditMin?: number | null;
+  creditMax?: number | null;
+  prerequisites?: string | null;
+  corequisites?: string | null;
+  nupath?: string[];
+  catalogYear?: string | null;
 }
 
 export interface CourseInstructorBreakdown {

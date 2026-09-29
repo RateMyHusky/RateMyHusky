@@ -157,11 +157,23 @@ const Course = () => {
 	const canCollapseInstructors = visibleInstructorCount > INITIAL_INSTRUCTORS_VISIBLE;
 	const hasExpandableInstructors = course.instructors.length > INITIAL_INSTRUCTORS_VISIBLE;
 
-	const courseSeoDescription =
-		`${summary.code} (${summary.name}) course reviews and ratings at Northeastern (NEU). ` +
-		(summary.avgRating != null ? `Average rating ${summary.avgRating.toFixed(1)}/5. ` : '') +
-		(summary.latestTermTitle ? `Last taught ${summary.latestTermTitle}. ` : '') +
-		`Compare instructors with TRACE + RateMyProfessor reviews.`;
+	const unrated = summary.unrated === true;
+	const nupath = summary.nupath ?? [];
+	const hasCatalogInfo = Boolean(
+		summary.description || summary.creditHours || summary.prerequisites ||
+		summary.corequisites || nupath.length,
+	);
+
+	// A catalog-only page has no ratings to describe, so its description leads
+	// with what the page does carry instead of an empty "reviews and ratings".
+	const courseSeoDescription = unrated
+		? `${summary.code} (${summary.name}) at Northeastern (NEU)` +
+			(summary.creditHours ? `, ${summary.creditHours}` : '') + '. ' +
+			(summary.description ?? '')
+		: `${summary.code} (${summary.name}) course reviews and ratings at Northeastern (NEU). ` +
+			(summary.avgRating != null ? `Average rating ${summary.avgRating.toFixed(1)}/5. ` : '') +
+			(summary.latestTermTitle ? `Last taught ${summary.latestTermTitle}. ` : '') +
+			`Compare instructors with TRACE + RateMyProfessor reviews.`;
 
 	const courseCanonical = `https://ratemyhusky.com/courses/${code}`;
 	const courseJsonLd: Record<string, unknown> = {
@@ -171,6 +183,7 @@ const Course = () => {
 		courseCode: summary.code,
 		provider: { '@type': 'CollegeOrUniversity', name: 'Northeastern University' },
 	};
+	if (summary.description) courseJsonLd.description = summary.description;
 	if (summary.avgRating != null && summary.ratingCount) {
 		courseJsonLd.aggregateRating = {
 			'@type': 'AggregateRating',
@@ -192,7 +205,9 @@ const Course = () => {
 	return (
 		<div className="course-page">
 			<Seo
-				title={`${summary.code} Reviews — ${summary.name} at Northeastern`}
+				title={unrated
+					? `${summary.code} — ${summary.name} at Northeastern`
+					: `${summary.code} Reviews — ${summary.name} at Northeastern`}
 				description={courseSeoDescription}
 				canonical={courseCanonical}
 				jsonLd={[courseJsonLd, courseBreadcrumbJsonLd]}
@@ -222,6 +237,54 @@ const Course = () => {
 					</p>
 				)}
 
+				{hasCatalogInfo && (
+					<section className="course-panel course-catalog-info">
+						<div className="course-panel-header">
+							<h2>About This Course</h2>
+						</div>
+						{summary.description && (
+							<p className="course-catalog-desc">{summary.description}</p>
+						)}
+						<dl className="course-catalog-facts">
+							{summary.creditHours && (
+								<div>
+									<dt>Credits</dt>
+									<dd>{summary.creditHours}</dd>
+								</div>
+							)}
+							{summary.prerequisites && (
+								<div>
+									<dt>Prerequisites</dt>
+									<dd>{summary.prerequisites}</dd>
+								</div>
+							)}
+							{summary.corequisites && (
+								<div>
+									<dt>Corequisites</dt>
+									<dd>{summary.corequisites}</dd>
+								</div>
+							)}
+							{nupath.length > 0 && (
+								<div>
+									<dt>NUpath</dt>
+									<dd className="course-catalog-nupath">
+										{nupath.map(a => <span key={a} className="course-catalog-tag">{a}</span>)}
+									</dd>
+								</div>
+							)}
+						</dl>
+						{summary.catalogYear && (
+							<p className="course-catalog-source">From the {summary.catalogYear} Northeastern course catalog.</p>
+						)}
+					</section>
+				)}
+
+				{unrated ? (
+					<p className="course-topics-notice">
+						No ratings yet. This course is in the Northeastern catalog but has no
+						course evaluations or professor reviews on file.
+					</p>
+				) : (<>
 				<section className="course-stats-grid">
 					<RatingStatCard avgRating={summary.avgRating} />
 					<DifficultyStatCard value={avgDifficulty} />
@@ -351,6 +414,7 @@ const Course = () => {
 						<SectionHistoryChart sections={course.sections} />
 					)}
 				</section>
+				</>)}
 
 			</div>
 			<SignInModal open={showSignIn} onClose={() => setShowSignIn(false)} />
