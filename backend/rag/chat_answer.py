@@ -64,7 +64,7 @@ def _provenance(c):
     if src == "rmp":
         return "(RateMyProfessor review)"
     if src == "trace":
-        return "(TRACE course survey)"
+        return "(student review)"
     return f"(r/{c.get('subreddit')}, {c.get('score')} upvotes)"
 
 def _fmt(v, suffix=""):
@@ -318,10 +318,10 @@ def selftest():
     check("reddit provenance shows subreddit + upvotes",
           _provenance({"source": "reddit", "subreddit": "NEU", "score": 12}) == "(r/NEU, 12 upvotes)")
     check("rmp provenance labeled", _provenance({"source": "rmp"}) == "(RateMyProfessor review)")
-    check("trace provenance labeled", _provenance({"source": "trace"}) == "(TRACE course survey)")
+    check("trace provenance labeled", _provenance({"source": "trace"}) == "(student review)")
     # build_user_message uses source-aware provenance for a non-reddit source
     um2 = build_user_message("q", facts, [{"source": "trace", "body": "clear lectures"}])
-    check("user msg labels TRACE source", "(TRACE course survey)" in um2)
+    check("user msg labels student review source", "(student review)" in um2)
     # generate carries source through on sources_comments
     g_src = generate("q", {"facts": facts, "comments": [{"source": "rmp", "body": "fair"}],
                             "professor_slug": "guha-prof", "course_code": None}, FakeAdapter())

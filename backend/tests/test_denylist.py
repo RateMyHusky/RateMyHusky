@@ -252,14 +252,48 @@ def test_precompute_filters_both_sides(listfile):
     assert list(tc[~tc["name_key"].map(is_denied_key)]["name_key"]) == ["garrett morrow"]
 
 
+def _fuzzy_frames():
+    """"dan koloski" on RMP is "daniel koloski" on TRACE; "garrett morrow" is exact."""
+    import pandas as pd
+    rmp = pd.DataFrame({"_name_key": ["dan koloski", "garrett morrow"],
+                        "_trace_name_key": ["daniel koloski", None]})
+    tc = pd.DataFrame({"name_key": ["daniel koloski", "daniel koloski", "garrett morrow"]})
+    return rmp, tc
+
+
+def test_denying_the_rmp_spelling_drops_the_trace_half(listfile):
+    from precompute import drop_denied
+    listfile("Dan Koloski")
+    rmp, tc = drop_denied(*_fuzzy_frames())
+    assert list(rmp["_name_key"]) == ["garrett morrow"]
+    assert list(tc["name_key"]) == ["garrett morrow"]
+
+
+def test_denying_the_trace_spelling_drops_the_rmp_half(listfile):
+    from precompute import drop_denied
+    listfile("Daniel Koloski")
+    rmp, tc = drop_denied(*_fuzzy_frames())
+    assert list(rmp["_name_key"]) == ["garrett morrow"]
+    assert list(tc["name_key"]) == ["garrett morrow"]
+
+
+def test_drop_denied_leaves_everyone_else(listfile):
+    from precompute import drop_denied
+    listfile("Julia Garrett")
+    rmp, tc = drop_denied(*_fuzzy_frames())
+    assert len(rmp) == 2 and len(tc) == 3
+
+
 def test_evidence_builders_import_the_filter():
     """The RAG corpus is what chat quotes; it has to honour the list too."""
     import pathlib
     src = pathlib.Path(__file__).resolve().parents[2] / "scraper" / "load_evidence_to_crdb.py"
     text = src.read_text()
     assert "from denylist import is_denied_key" in text
-    assert text.count("is_denied_key(r.get(\"name_key\"))") == 2, (
-        "both the RMP and TRACE evidence builders must check the denylist")
+    assert "is_denied_key(trace_key_by_key.get(nk))" in text, (
+        "the RMP evidence builder must check the TRACE spelling too")
+    assert "is_denied_key(r.get(\"catalog_name_key\"))" in text, (
+        "the TRACE evidence builder must check the RMP spelling too")
     assert "known_slugs" in text, "reddit rows must be restricted to catalog slugs"
 
 

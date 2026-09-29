@@ -1,10 +1,10 @@
 # RateMyHusky
 
-> Northeastern University professor & course reviews and ratings, aggregating official TRACE evaluations, RateMyProfessors, and Reddit.
+> Northeastern University professor & course reviews and ratings, aggregating student reviews, RateMyProfessors, and Reddit.
 
 RateMyHusky is a free ratings and review site for Northeastern University, covering
 roughly 9,300 professors and thousands of courses. Ratings and reviews are aggregated
-from official TRACE evaluations, RateMyProfessors, and Reddit discussions, then combined
+from student reviews, RateMyProfessors, and Reddit discussions, then combined
 into a single profile per professor and per course. Pages are served as crawler-readable
 static HTML, and data is refreshed regularly.
 
@@ -18,7 +18,7 @@ static HTML, and data is refreshed regularly.
 ## Page formats
 
 - Professor pages (`/professors/<slug>`) show a professor's overall rating, difficulty,
-  would-take-again percentage, and student reviews aggregated from TRACE, RateMyProfessors,
+  would-take-again percentage, and reviews aggregated from students, RateMyProfessors,
   and Reddit.
 - Course pages (`/courses/<code>`) show a course's overall rating, difficulty, and a
   comparison of instructors who have taught it.

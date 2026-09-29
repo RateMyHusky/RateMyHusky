@@ -27,6 +27,7 @@ from Better_Scraper.scrape_guard import RELATIVE_FLOOR_PCT
 from prune_rmp_reviews import (
     MAX_PRUNE_PCT,
     csv_keys,
+    default_incomplete_path,
     prune,
     stale_ids,
 )
@@ -363,3 +364,39 @@ def test_dry_run_touches_no_evidence(tmp_path):
     stats = prune(conn, path, dry_run=True, force=True)
     assert stats["deleted"] == 0
     assert not any(sql.startswith("DELETE") for sql, _ in conn.executed)
+
+
+# ── professors whose fetch did not finish ───────────────────────────────────
+
+def test_rows_of_a_skipped_professor_are_never_stale():
+    rows = [(1, "Half Fetched", "CS1", "a"), (2, "Gone", "CS2", "b")]
+    assert stale_ids(rows, set(), {"Half Fetched"}) == [2]
+
+
+def test_incomplete_fetch_list_protects_that_professors_reviews(tmp_path):
+    # "Half Fetched" had 3 reviews in the DB, but the fetch stopped after one.
+    # The two it never reached were not deleted on RMP and must stay.
+    live = [(f"Prof {i}", f"CS{i}", "Jan 1st, 2025", "a") for i in range(199)]
+    live.append(("Half Fetched", "CS1", "Jan 1st, 2025", "a"))
+    path = write_reviews(tmp_path / "r.csv", live)
+    (tmp_path / "r_incomplete.json").write_text('["Half Fetched"]')
+    rows = [(i, name, course, date) for i, (name, course, date, _) in enumerate(live)]
+    rows += [(900, "Half Fetched", "CS2", "Feb 1st, 2025"),
+             (901, "Half Fetched", "CS3", "Mar 1st, 2025"),
+             (999, "Gone", "CS9999", "Dec 9th, 2024")]
+    conn = FakeConn(rows)
+    stats = prune(conn, path)
+    deletes = [params for sql, params in conn.executed
+               if sql.startswith("DELETE FROM rmp_reviews")]
+    assert deletes == [([999],)]
+    assert stats["deleted"] == 1
+
+
+def test_missing_incomplete_list_prunes_as_before(tmp_path):
+    path = write_reviews(tmp_path / "r.csv", [("Kept", "CS1", "d", "a")])
+    conn = FakeConn([(1, "Kept", "CS1", "d"), (2, "Gone", "CS2", "d")])
+    assert prune(conn, path, force=True)["deleted"] == 1
+
+
+def test_default_incomplete_path_sits_beside_the_csv():
+    assert default_incomplete_path("out/rmp_reviews.csv") == "out/rmp_reviews_incomplete.json"

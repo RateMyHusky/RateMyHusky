@@ -27,12 +27,18 @@ week, and RMP gives students no way to edit a posted rating — only moderation
 removes one. Rows sharing a key therefore survive together, which under-prunes
 rather than over-prunes.
 
+Professors whose review fetch did not finish are left alone. fetch_lite.py
+names them in rmp_reviews_incomplete.json beside the CSV; their missing rows
+were never reached, not deleted on RMP, so pruning them would throw away real
+reviews (and their evidence) until a later run fetched the whole list.
+
 Usage:
-    python prune_rmp_reviews.py [--csv PATH] [--dry-run] [--force]
+    python prune_rmp_reviews.py [--csv PATH] [--incomplete PATH] [--dry-run] [--force]
 """
 
 import argparse
 import csv
+import json
 import os
 import sys
 
@@ -77,14 +83,36 @@ def csv_keys(csv_path):
     return keys
 
 
-def stale_ids(db_rows, fresh_keys):
+def default_incomplete_path(csv_path):
+    """Where fetch_lite.py writes the incomplete-fetch list for `csv_path`."""
+    root, _ = os.path.splitext(csv_path)
+    return root + "_incomplete.json"
+
+
+def incomplete_names(path):
+    """Professor names whose fetch did not finish, or an empty set.
+
+    A missing file means a scrape from before the list existed, which is
+    treated as "none incomplete" so the prune keeps working on old CSVs.
+    """
+    if not os.path.exists(path):
+        print(f"  no incomplete-fetch list at {path}; pruning every professor")
+        return set()
+    with open(path, "r", encoding="utf-8") as fh:
+        return set(json.load(fh))
+
+
+def stale_ids(db_rows, fresh_keys, skip_names=frozenset()):
     """Ids in `db_rows` whose key is absent from `fresh_keys`.
 
     db_rows: (id, professor_name, course, date) tuples. NULL course/date are
-    normalised to "" to match the CSV, which writes empty strings.
+    normalised to "" to match the CSV, which writes empty strings. Rows for a
+    professor in `skip_names` are never stale: their fetch was incomplete.
     """
     stale = []
     for row_id, name, course, date in db_rows:
+        if (name or "") in skip_names:
+            continue
         key = (name or "", course or "", date or "")
         if key not in fresh_keys:
             stale.append(row_id)
@@ -138,9 +166,11 @@ def _delete_evidence(cur, review_ids):
     return cur.rowcount or 0
 
 
-def prune(conn, csv_path, batch_size=BATCH_SIZE, dry_run=False, force=False):
+def prune(conn, csv_path, batch_size=BATCH_SIZE, dry_run=False, force=False,
+          incomplete_path=None):
     """Delete rmp_reviews rows absent from `csv_path`. Returns stats."""
     fresh = csv_keys(csv_path)
+    skip = incomplete_names(incomplete_path or default_incomplete_path(csv_path))
     if not fresh:
         sys.exit(
             f"prune: {csv_path} yielded 0 keys; refusing to delete every row. "
@@ -152,8 +182,10 @@ def prune(conn, csv_path, batch_size=BATCH_SIZE, dry_run=False, force=False):
         db_rows = cur.fetchall()
 
     total = len(db_rows)
-    stale = stale_ids(db_rows, fresh)
+    stale = stale_ids(db_rows, fresh, skip)
     print(f"  {total} rows in table, {len(fresh)} keys in CSV, {len(stale)} stale")
+    if skip:
+        print(f"  {len(skip)} professors with incomplete fetches left unpruned")
 
     if stale and not force:
         pct = len(stale) * 100.0 / total if total else 0.0
@@ -209,6 +241,9 @@ def prune(conn, csv_path, batch_size=BATCH_SIZE, dry_run=False, force=False):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--csv", default=DEFAULT_CSV, help="Fresh rmp_reviews.csv")
+    parser.add_argument("--incomplete", default=None,
+                        help="Incomplete-fetch list from fetch_lite.py "
+                             "(default: <csv>_incomplete.json)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Report what would be deleted, delete nothing")
     parser.add_argument("--force", action="store_true",
@@ -224,7 +259,8 @@ def main(argv=None):
 
     conn = get_connection()
     try:
-        prune(conn, args.csv, dry_run=args.dry_run, force=args.force)
+        prune(conn, args.csv, dry_run=args.dry_run, force=args.force,
+              incomplete_path=args.incomplete)
     finally:
         conn.close()
     return 0

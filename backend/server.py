@@ -9,6 +9,7 @@ Run:           python server.py
 import os, re, unicodedata, json, hashlib, random
 import html as _html
 import psycopg2
+import psycopg2.errors
 from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import RealDictCursor
 from functools import lru_cache
@@ -365,6 +366,28 @@ def query(sql, params=None):
 def query_one(sql, params=None):
     rows = query(sql, params)
     return rows[0] if rows else None
+
+
+def catalog_rows_by_trace_keys(trace_keys):
+    """Catalog rows whose TRACE spelling (trace_name_key) is one of `trace_keys`.
+
+    These are fuzzy-matched professors: TRACE files their courses under a name
+    that differs from the catalog row's name_key, so a name_key lookup by the
+    TRACE spelling misses them. A catalog built before the column existed has
+    no such rows, and naming the column there raises, so that returns [] after
+    rolling back the aborted transaction for the caller's next query.
+    """
+    if not trace_keys:
+        return []
+    placeholders = ",".join(["%s"] * len(trace_keys))
+    try:
+        return query(
+            f"SELECT * FROM professors_catalog WHERE trace_name_key IN ({placeholders})",
+            list(trace_keys),
+        )
+    except psycopg2.errors.UndefinedColumn:
+        get_db().rollback()
+        return []
 
 def _chat_write(sql, params=None):
     """Write helper for the question path (ask_log INSERTs): execute + commit, never fetch.
@@ -1051,6 +1074,9 @@ def professor_profile(slug):
         name_key = slug.strip().lower().replace("-", " ")
         name_key = ALIAS_MAP.get(name_key, name_key)
         prof = query_one("SELECT * FROM professors_catalog WHERE name_key = %s", (name_key,))
+        if not prof:
+            rows = catalog_rows_by_trace_keys([name_key])
+            prof = rows[0] if rows else None
 
     if not prof:
         return jsonify({"error": "Professor not found"}), 404
@@ -1465,6 +1491,9 @@ def professor_reviews(slug):
         name_key = slug.strip().lower().replace("-", " ")
         name_key = ALIAS_MAP.get(name_key, name_key)
         prof = query_one("SELECT * FROM professors_catalog WHERE name_key = %s", (name_key,))
+        if not prof:
+            rows = catalog_rows_by_trace_keys([name_key])
+            prof = rows[0] if rows else None
     if not prof:
         return jsonify({"error": "Professor not found"}), 404
 
@@ -1593,7 +1622,8 @@ def professor_full(slug):
     if not is_authed:
         profile_data = build_full(slug, query, query_one, sanitize,
                                   fetch_reddit_mentions=fetch_reddit_mentions,
-                                  is_authed=False)
+                                  is_authed=False,
+                                  by_trace_keys=catalog_rows_by_trace_keys)
         if profile_data is None:
             return jsonify({"error": "Professor not found"}), 404
         # Same colleagues field the authed branch gets via professor_profile —
@@ -2277,6 +2307,7 @@ def course_profile(code):
     prof_map = {}
     comment_counts = {}
     rmp_course_diff_map = {}
+    rmp_key_of = {}
     if name_keys:
         placeholders = ",".join(["%s"] * len(name_keys))
         prof_rows = query(
@@ -2284,37 +2315,50 @@ def course_profile(code):
             f"FROM professors_catalog WHERE name_key IN ({placeholders})", name_keys
         )
         prof_map = {r["name_key"]: r for r in prof_rows}
+        # These instructor names are TRACE's spelling. A fuzzy-matched professor's
+        # catalog row is keyed by the RMP spelling and records TRACE's in
+        # trace_name_key, so without this second lookup their card here has no
+        # profile link, photo or review counts. An exact name_key match wins.
+        for r in catalog_rows_by_trace_keys([k for k in name_keys if k not in prof_map]):
+            prof_map.setdefault(r["trace_name_key"], r)
+        # RMP rows (difficulty, comments) are stored under the catalog's RMP key.
+        rmp_key_of = {nk: (prof_map[nk]["name_key"] if nk in prof_map else nk)
+                      for nk in name_keys}
+        rmp_keys = list(set(rmp_key_of.values()))
+        rmp_placeholders = ",".join(["%s"] * len(rmp_keys))
         # Fuzzy match RMP course: exact normalized match, or match on numeric portion
         # (RMP course names are often misspelled, e.g. "C1100" instead of "CS1100")
         code_num = re.sub(r"[^0-9]", "", code_norm)
         rmp_course_diff_rows = query(
             f"SELECT name_key, AVG(CAST(difficulty AS FLOAT)) as avg_diff "
             f"FROM rmp_reviews "
-            f"WHERE name_key IN ({placeholders}) AND difficulty IS NOT NULL "
+            f"WHERE name_key IN ({rmp_placeholders}) AND difficulty IS NOT NULL "
             f"AND (UPPER(REPLACE(course, ' ', '')) = %s OR REGEXP_REPLACE(course, '[^0-9]', '', 'g') = %s) "
             f"GROUP BY name_key",
-            name_keys + [code_norm, code_num]
+            rmp_keys + [code_norm, code_num]
         )
         rmp_course_diff_map = {r["name_key"]: round(float(r["avg_diff"]), 2) for r in rmp_course_diff_rows if r["avg_diff"] is not None}
-        combined_counts = query(
-            f"SELECT name_key, SUM(cnt) as cnt FROM ("
-            f"  SELECT name_key, COUNT(*) as cnt FROM rmp_reviews "
-            f"  WHERE name_key IN ({placeholders}) AND comment IS NOT NULL AND comment != '' "
-            f"  GROUP BY name_key"
-            f"  UNION ALL "
-            f"  SELECT tc2.name_key, COUNT(*) as cnt "
-            f"  FROM trace_comments tc "
-            f"  JOIN trace_courses tc2 ON tc.tc_course_id = tc2.course_id "
-            f"    AND tc.tc_instructor_id = tc2.instructor_id "
-            f"    AND tc.tc_term_id = tc2.term_id "
-            f"  WHERE tc2.name_key IN ({placeholders}) "
-            f"  AND tc.comment IS NOT NULL AND tc.comment != '' "
-            f"  GROUP BY tc2.name_key"
-            f") sub GROUP BY name_key",
-            name_keys + name_keys
-        )
-        for r in combined_counts:
-            comment_counts[r["name_key"]] = int(r["cnt"])
+        # Each side counted under its own key, then added per instructor: RMP
+        # comments live under the RMP spelling, TRACE comments under TRACE's.
+        rmp_counts = {r["name_key"]: int(r["cnt"]) for r in query(
+            f"SELECT name_key, COUNT(*) as cnt FROM rmp_reviews "
+            f"WHERE name_key IN ({rmp_placeholders}) AND comment IS NOT NULL AND comment != '' "
+            f"GROUP BY name_key",
+            rmp_keys
+        )}
+        trace_counts = {r["name_key"]: int(r["cnt"]) for r in query(
+            f"SELECT tc2.name_key, COUNT(*) as cnt "
+            f"FROM trace_comments tc "
+            f"JOIN trace_courses tc2 ON tc.tc_course_id = tc2.course_id "
+            f"  AND tc.tc_instructor_id = tc2.instructor_id "
+            f"  AND tc.tc_term_id = tc2.term_id "
+            f"WHERE tc2.name_key IN ({placeholders}) "
+            f"AND tc.comment IS NOT NULL AND tc.comment != '' "
+            f"GROUP BY tc2.name_key",
+            name_keys
+        )}
+        for nk in name_keys:
+            comment_counts[nk] = rmp_counts.get(rmp_key_of[nk], 0) + trace_counts.get(nk, 0)
 
     instructor_rows = []
     for name, data in instructor_data.items():
@@ -2331,7 +2375,7 @@ def course_profile(code):
         challeng_resp = data["challeng_responses"]
         hours_resp = data["hours_responses"]
         trace_diff = round(data["challeng_weighted"] / challeng_resp, 2) if challeng_resp > 0 else None
-        rmp_course_diff = rmp_course_diff_map.get(nk)
+        rmp_course_diff = rmp_course_diff_map.get(rmp_key_of.get(nk, nk))
         if trace_diff is not None and rmp_course_diff is not None:
             course_diff = round((trace_diff + rmp_course_diff) / 2, 2)
         elif trace_diff is not None:

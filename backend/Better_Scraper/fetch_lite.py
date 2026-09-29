@@ -590,6 +590,25 @@ class RMPSchool:
                     writer.writerow(row)
         print(f"  ✓ Reviews CSV saved to: {file_path}")
 
+    def dump_incomplete_to_json(self, file_path: str) -> None:
+        """Name the professors whose review fetch never finished.
+
+        prune_rmp_reviews.py reads this so it can leave those professors' rows
+        alone. Their missing reviews were not deleted on RMP, the fetch just
+        never reached them, and pruning them would drop real reviews (and their
+        evidence rows) until a later run happened to fetch the full list.
+
+        Written on every run, empty included, so the file next to a reviews CSV
+        always describes that CSV and never a previous run's.
+        """
+        os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
+        names: List[str] = sorted({
+            str(p.name) for p in self.professors_list if not p.reviews_complete
+        })
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(names, f, indent=2, ensure_ascii=False)
+        print(f"  ✓ Incomplete-fetch list saved to: {file_path} ({len(names)} professors)")
+
     def dump_to_json(self, file_path: str) -> None:
         os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
         data: Dict[str, Any] = {
@@ -660,6 +679,8 @@ def main() -> None:
 
     if not args.no_reviews:
         school.dump_reviews_to_csv(professors_csv.replace("_professors.csv", "_reviews.csv"))
+        school.dump_incomplete_to_json(
+            professors_csv.replace("_professors.csv", "_reviews_incomplete.json"))
 
     if args.json:
         school.dump_to_json(professors_csv.replace("_professors.csv", "_full.json"))

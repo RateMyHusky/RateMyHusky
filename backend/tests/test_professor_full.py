@@ -236,3 +236,19 @@ def test_resolve_professor_applies_alias_map_to_slug_fallback():
 
     _resolve_professor("chris-bosso", fake_query_one)
     assert calls[-1] == ("christopher bosso",), calls
+
+
+def test_old_trace_spelling_slug_resolves_to_the_merged_row():
+    """"daniel-koloski" was the absorbed TRACE-only duplicate's slug; links to it
+    have to land on the merged "dan-koloski" row instead of 404ing."""
+    from professor_full import _resolve_professor
+    merged = {"slug": "dan-koloski", "name_key": "dan koloski",
+              "trace_name_key": "daniel koloski"}
+    prof = _resolve_professor("daniel-koloski", lambda sql, params: None,
+                              lambda keys: [merged] if keys == ["daniel koloski"] else [])
+    assert prof is merged
+
+
+def test_resolver_without_trace_lookup_is_unchanged():
+    from professor_full import _resolve_professor
+    assert _resolve_professor("nobody", lambda sql, params: None) is None

@@ -18,13 +18,22 @@ import re
 from prof_aliases import ALIAS_MAP
 
 
-def _resolve_professor(slug, query_one):
-    """One catalog lookup, slug then name_key fallback. Returns the row or None."""
+def _resolve_professor(slug, query_one, by_trace_keys=None):
+    """One catalog lookup, slug then name_key fallback. Returns the row or None.
+
+    `by_trace_keys`, when given, is a last fallback for a slug built from the
+    TRACE spelling of a fuzzy-matched professor. That spelling used to have its
+    own duplicate catalog row; now it only survives as trace_name_key on the
+    merged row, so old links to it would otherwise 404.
+    """
     prof = query_one("SELECT * FROM professors_catalog WHERE slug = %s", (slug,))
     if not prof:
         name_key = slug.strip().lower().replace("-", " ")
         name_key = ALIAS_MAP.get(name_key, name_key)
         prof = query_one("SELECT * FROM professors_catalog WHERE name_key = %s", (name_key,))
+        if not prof and by_trace_keys is not None:
+            rows = by_trace_keys([name_key])
+            prof = rows[0] if rows else None
     return prof
 
 
@@ -282,7 +291,7 @@ def build_trace_course_rows(name_key, query):
 
 
 def build_full(slug, query, query_one, sanitize,
-               fetch_reddit_mentions=None, is_authed=False):
+               fetch_reddit_mentions=None, is_authed=False, by_trace_keys=None):
     """Orchestrate the unauthenticated /full payload with shared lookups.
 
     Returns the combined profile+reviews dict, or None if the professor does
@@ -292,7 +301,7 @@ def build_full(slug, query, query_one, sanitize,
         def fetch_reddit_mentions(_slug, _q):
             return []
 
-    prof = _resolve_professor(slug, query_one)
+    prof = _resolve_professor(slug, query_one, by_trace_keys)
     if not prof:
         return None
 

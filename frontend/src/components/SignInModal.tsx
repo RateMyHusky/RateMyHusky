@@ -61,7 +61,7 @@ export default function SignInModal({ open, onClose }: Props) {
         <h2 className="signin-modal-title">Sign In</h2>
 
         <p className="signin-modal-desc">
-          Sign in to use our AI <strong>Ask</strong> feature, view TRACE Comments, bookmark professors and courses, and other sign-in only features. We currently only support valid <strong>husky.neu.edu</strong> accounts.
+          Sign in to use our AI <strong>Ask</strong> feature, read student reviews, bookmark professors and courses, and other sign-in only features. We currently only support valid <strong>husky.neu.edu</strong> accounts.
         </p>
 
         <img src={neuIcon} alt="Northeastern University" className="signin-modal-logo" />

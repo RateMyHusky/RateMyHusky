@@ -68,7 +68,7 @@ def make_client(monkeypatch, catalog_row):
             return []
         if "GROUP BY question" in sql:
             return [{"question": "Overall Rating", "weighted_sum": 40.0, "total_responses": 10}]
-        if "UNION ALL" in sql:
+        if "FROM trace_comments" in sql:
             return []
         raise AssertionError(f"unexpected query: {sql}")
 

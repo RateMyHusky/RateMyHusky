@@ -19,7 +19,7 @@ a filter only governs the next write.
 ## Scope: the database, not the data store
 
 Deliberate, and worth stating because it is the surprising half. The filters run
-at *load* time, so the scraped CSVs in RateMyHusky-data still contain a denied
+at *load* time, so the scraped CSVs in the data store still contain a denied
 professor's rows — the scrapers write everyone, and the loaders drop them on the
 way in. Nothing the site or the chat can reach holds their data; the private
 store does.

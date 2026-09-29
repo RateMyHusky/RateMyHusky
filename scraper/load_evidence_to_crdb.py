@@ -220,10 +220,12 @@ def build_rmp_rows(query_fn) -> list:
         # the lookup above already fails — but an evidence build against a
         # catalog written before the request would otherwise re-embed them, and
         # this corpus is what the chat quotes.
-        if is_denied_key(r.get("name_key")):
+        # Both spellings: a fuzzy-matched professor's request may have been
+        # hashed from the TRACE one.
+        nk = r.get("name_key")
+        if is_denied_key(nk) or is_denied_key(trace_key_by_key.get(nk)):
             continue
         code = norm_code(r.get("course"))
-        nk = r.get("name_key")
         prof_codes = taught.get(trace_key_by_key.get(nk, nk), set())
         course_code = code if code in prof_codes else None
         meta = {
@@ -240,7 +242,7 @@ def build_trace_rows(query_fn) -> list:
     """Yield evidence rows from trace_comments joined to trace_courses + professors_catalog."""
     rows = query_fn("""
         SELECT tc.id, tc.comment, c.name_key, c.course_code,
-               p.slug AS professor_slug
+               p.slug AS professor_slug, p.name_key AS catalog_name_key
         FROM trace_comments tc
         JOIN trace_courses c
           ON tc.tc_course_id = c.course_id AND tc.tc_instructor_id = c.instructor_id
@@ -261,7 +263,9 @@ def build_trace_rows(query_fn) -> list:
         if not is_meaningful(r.get("comment")):
             continue
         slug = r.get("professor_slug")
-        if is_denied_key(r.get("name_key")):
+        # Both spellings, as in build_rmp_rows: c.name_key is TRACE's, and the
+        # catalog row's name_key is RMP's for a fuzzy-matched professor.
+        if is_denied_key(r.get("name_key")) or is_denied_key(r.get("catalog_name_key")):
             continue
         code = norm_code(r.get("course_code"))
         k = (slug, code, dedup_key(r.get("comment")))

@@ -569,6 +569,26 @@ def attach_fuzzy_trace(rmp_profs, trace_lookup, trace_reviews_lookup,
     return matched
 
 
+def drop_denied(rmp_profs, tc):
+    """Remove denylisted professors from both sides, under either spelling.
+
+    Runs after attach_fuzzy_trace, because a fuzzy-matched professor is filed
+    under two names: RMP's in `_name_key` and TRACE's in `_trace_name_key` /
+    tc["name_key"]. A request is hashed from whichever spelling the requester
+    gave. Filtering each side by its own spelling before the match, as this
+    used to, dropped only the half spelled that way: deny "dan koloski" and the
+    TRACE courses under "daniel koloski" came back as a TRACE-only catalog row.
+
+    Returns (rmp_profs, tc), both filtered copies.
+    """
+    trace_keys = rmp_profs["_trace_name_key"]
+    denied = (rmp_profs["_name_key"].map(is_denied_key)
+              | trace_keys.map(lambda k: isinstance(k, str) and is_denied_key(k)))
+    denied_trace_keys = set(trace_keys[denied].dropna())
+    tc_denied = tc["name_key"].map(is_denied_key) | tc["name_key"].isin(denied_trace_keys)
+    return rmp_profs[~denied].copy(), tc[~tc_denied].copy()
+
+
 def catalog_comment_count(name_key, trace_name_key, rmp_counts, trace_counts):
     """Comments to store for a catalog row, summed from both sources separately.
 
@@ -860,26 +880,8 @@ def main():
     tc["name_key"] = (tc["_first"] + " " + tc["_last"]).apply(normalize_name)
     tc["term_id"] = pd.to_numeric(tc["term_id"], errors="coerce")
 
-    # ── Data-deletion requests ──
-    # Dropped here, after both sides have a name_key and before anything is
-    # derived from them, so one filter covers every product keyed on a professor:
-    # professors_catalog and course_catalog. Filtering later would leave a
-    # professor out of the catalog while their rows still built it.
-    #
-    # This is the enforcement point that matters most, because it is the one that
-    # runs every refresh. A row deleted by hand comes back with the next rebuild;
-    # a row dropped here never enters it. See denylist.py.
-    if denied_hashes():
-        rmp_before, tc_before = len(rmp_profs), len(tc)
-        rmp_profs = rmp_profs[~rmp_profs["_name_key"].map(is_denied_key)].copy()
-        tc = tc[~tc["name_key"].map(is_denied_key)].copy()
-        # Scores and comments carry no name — they reach a professor only by
-        # joining trace_courses on (course_id, instructor_id, term_id), so
-        # dropping the course rows is what detaches them. The rows themselves are
-        # purge_denied.py's job; a build-time filter cannot delete.
-        print(f"Denylist: dropped {rmp_before - len(rmp_profs)} RMP and "
-              f"{tc_before - len(tc)} TRACE course rows "
-              f"({len(denied_hashes())} entries)")
+    # Data-deletion requests are dropped after the fuzzy match below, not here:
+    # see drop_denied for why the match has to have run first.
 
     # ── TRACE department lookup ──
     dept_sorted = tc.sort_values("term_id", ascending=False).drop_duplicates(subset=["name_key"])
@@ -942,6 +944,25 @@ def main():
         rmp_profs, trace_lookup, trace_reviews_lookup, trace_dept_lookup, hours_lookup,
         trace_name_keys=tc["name_key"])
     print(f"Fuzzy-matched {fuzzy_matched} professors to a differently-spelled TRACE name")
+
+    # ── Data-deletion requests ──
+    # Dropped here, once each professor's two spellings are known and before
+    # comment counts, catalog rows or the course catalog are derived, so one
+    # filter covers every product keyed on a professor.
+    #
+    # This is the enforcement point that matters most, because it is the one that
+    # runs every refresh. A row deleted by hand comes back with the next rebuild;
+    # a row dropped here never enters it. See denylist.py.
+    if denied_hashes():
+        rmp_before, tc_before = len(rmp_profs), len(tc)
+        rmp_profs, tc = drop_denied(rmp_profs, tc)
+        # Scores and comments carry no name — they reach a professor only by
+        # joining trace_courses on (course_id, instructor_id, term_id), so
+        # dropping the course rows is what detaches them. The rows themselves are
+        # purge_denied.py's job; a build-time filter cannot delete.
+        print(f"Denylist: dropped {rmp_before - len(rmp_profs)} RMP and "
+              f"{tc_before - len(tc)} TRACE course rows "
+              f"({len(denied_hashes())} entries)")
 
     # RMP's numRatings counter is a stale aggregate, so count the ratings we
     # actually hold instead. Runs before total_reviews and avg_rating, both of
