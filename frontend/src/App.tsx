@@ -18,7 +18,7 @@ import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
 import Navbar from './components/Navbar';
 import FeedbackTab from './components/FeedbackTab';
-import ThemeToggle from './components/ThemeToggle';
+import AskWidget from './components/AskWidget';
 import ErrorBoundary from './components/ErrorBoundary';
 import './App.css';
 
@@ -57,7 +57,7 @@ function App() {
             </Routes>
           </ErrorBoundary>
           <FeedbackTab />
-          <ThemeToggle />
+          <AskWidget />
         </Router>
         <Analytics />
         <SpeedInsights />
