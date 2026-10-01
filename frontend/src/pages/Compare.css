@@ -811,7 +811,8 @@
 		gap: 10px;
 	}
 
-	.compare-controls:not(:has(.compare-control-card:not(.is-filled))) {
+	/* Set from React state: every open slot has a professor */
+	.compare-controls.is-all-filled {
 		display: none;
 	}
 

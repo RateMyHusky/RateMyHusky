@@ -55,8 +55,6 @@ interface CompareRow {
 }
 
 /* ---- Helpers ---- */
-const slugify = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-
 const normalizeName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const parseMaybeNumber = (value: number | null | undefined) => {
@@ -121,12 +119,17 @@ const getRecentTraceSnapshot = (profile: ProfessorProfile | null): TraceSnapshot
 };
 
 /* ---- One search box (replaces the duplicated left/right search code) ---- */
+interface ResolvedSuggestion {
+	prof: ProfessorSuggestion;
+	slug: string;
+}
+
 interface SlotSearchProps {
 	label: string;
 	slug: string;
 	selectedName: string | null;
 	excludeSlugs: string[];
-	resolveSlug: (suggestion: ProfessorSuggestion) => string;
+	resolveSlug: (suggestion: ProfessorSuggestion) => string | null;
 	onSelect: (slug: string) => void;
 	onClear: () => void;
 	clearLabel: string | null;
@@ -145,7 +148,7 @@ function SlotSearch({
 	autoFocus,
 }: SlotSearchProps) {
 	const [query, setQuery] = useState('');
-	const [suggestions, setSuggestions] = useState<ProfessorSuggestion[]>([]);
+	const [suggestions, setSuggestions] = useState<ResolvedSuggestion[]>([]);
 	const [open, setOpen] = useState(false);
 	const [activeIndex, setActiveIndex] = useState(-1);
 
@@ -188,7 +191,8 @@ function SlotSearch({
 				if (gen !== fetchGenRef.current) return;
 				const professorResults = results
 					.filter((result): result is ProfessorSuggestion => result.type === 'professor')
-					.filter((result) => !excluded.has(resolveSlug(result)))
+					.map((prof) => ({ prof, slug: resolveSlug(prof) }))
+					.filter((entry): entry is ResolvedSuggestion => entry.slug !== null && !excluded.has(entry.slug))
 					.slice(0, 3);
 
 				setSuggestions(professorResults);
@@ -214,11 +218,11 @@ function SlotSearch({
 		return () => document.removeEventListener('mousedown', handleOutsideClick);
 	}, []);
 
-	const select = (suggestion: ProfessorSuggestion) => {
-		setQuery(suggestion.name);
+	const select = ({ prof, slug: profSlug }: ResolvedSuggestion) => {
+		setQuery(prof.name);
 		setOpen(false);
 		setActiveIndex(-1);
-		onSelect(resolveSlug(suggestion));
+		onSelect(profSlug);
 	};
 
 	return (
@@ -260,13 +264,13 @@ function SlotSearch({
 			/>
 			{open && (
 				<div className="compare-suggestion-list">
-					{suggestions.map((prof, index) => {
-						const profSlug = resolveSlug(prof);
+					{suggestions.map((entry, index) => {
+						const { prof, slug: profSlug } = entry;
 						return (
 							<button
 								key={profSlug}
 								className={`compare-suggestion ${slug === profSlug || activeIndex === index ? 'active' : ''}`}
-								onClick={() => select(prof)}
+								onClick={() => select(entry)}
 								type="button"
 							>
 								<span className="compare-suggestion-main">{prof.name}</span>
@@ -367,19 +371,27 @@ function Compare() {
 		};
 	}, [slugKey, user]);
 
+	/* Returns the professor's canonical slug, or null if we can't be sure who it is.
+	   The search API should always send a slug. If one is missing, only accept a
+	   catalog match that is unique by name (narrowed by department if needed);
+	   never guess, because the wrong professor would be compared silently. */
 	const resolveSlug = useCallback(
-		(suggestion: ProfessorSuggestion) => {
+		(suggestion: ProfessorSuggestion): string | null => {
 			if (suggestion.slug) return suggestion.slug;
 
-			const lowered = suggestion.name.toLowerCase();
-			const exactMatch = catalog.find((prof) => prof.name.toLowerCase() === lowered);
-			if (exactMatch) return exactMatch.slug;
+			const target = normalizeName(suggestion.name);
+			let matches = catalog.filter((prof) => normalizeName(prof.name) === target);
+			if (matches.length > 1 && suggestion.dept) {
+				matches = matches.filter((prof) => prof.department === suggestion.dept);
+			}
+			if (matches.length === 1) return matches[0].slug;
 
-			const normalized = normalizeName(suggestion.name);
-			const normalizedMatch = catalog.find((prof) => normalizeName(prof.name) === normalized);
-			if (normalizedMatch) return normalizedMatch.slug;
-
-			return slugify(suggestion.name);
+			console.error(
+				`[Compare] Search result "${suggestion.name}" has no slug and ${
+					matches.length === 0 ? 'no' : 'several'
+				} catalog matches. Hiding it so the wrong professor can't be compared.`,
+			);
+			return null;
 		},
 		[catalog],
 	);
@@ -493,6 +505,8 @@ function Compare() {
 	];
 
 	const selectedSlots = slots.filter((s) => s.slug);
+	// Mobile hides the search area once every open slot has a professor (chips take over)
+	const hasEmptyOpenSlot = slots.slice(0, visibleCount).some((s) => !s.slug);
 	const selectedCount = selectedSlots.length;
 	const anyLoading = selectedSlots.some((s) => s.loading);
 	const allReady = selectedCount >= 2 && selectedSlots.every((s) => !s.loading && s.profile);
@@ -666,7 +680,10 @@ function Compare() {
 					</section>
 				)}
 
-				<section className="compare-controls" aria-label="Professor selection">
+				<section
+					className={`compare-controls ${hasEmptyOpenSlot ? '' : 'is-all-filled'}`}
+					aria-label="Professor selection"
+				>
 					{slots.map((slot) => {
 						const isOpen = slot.index < visibleCount;
 						if (!isOpen) {
