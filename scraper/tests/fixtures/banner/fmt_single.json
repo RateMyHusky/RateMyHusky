@@ -1,0 +1,20 @@
+{
+  "fmt": [
+    {
+      "category": "01",
+      "courseReferenceNumber": "10324",
+      "faculty": [
+        {"bannerId": "13227", "displayName": "Witte, Annie", "emailAddress": null, "primaryIndicator": true, "term": "202710"}
+      ],
+      "meetingTime": {"beginTime": "0800", "endTime": "0905", "endDate": "12/20/2026"}
+    },
+    {
+      "category": "02",
+      "courseReferenceNumber": "10324",
+      "faculty": [
+        {"bannerId": "13227", "displayName": "Witte, Annie", "emailAddress": null, "primaryIndicator": true, "term": "202710"}
+      ],
+      "meetingTime": {"beginTime": "1000", "endTime": "1105", "endDate": "12/20/2026"}
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "success": true,
+  "totalCount": 3,
+  "data": [
+    {
+      "id": 1,
+      "term": "202710",
+      "termDesc": "Fall 2026 Semester",
+      "courseReferenceNumber": "10324",
+      "subject": "ACCT",
+      "subjectCourse": "ACCT1201",
+      "courseNumber": "1201",
+      "sequenceNumber": "01",
+      "courseTitle": "Fin Accounting &amp; Reporting",
+      "campusDescription": "Boston",
+      "instructionalMethodDescription": "Traditional",
+      "scheduleTypeDescription": "Lecture",
+      "faculty": [],
+      "meetingsFaculty": [
+        {
+          "courseReferenceNumber": "10324",
+          "faculty": [],
+          "meetingTime": {"startDate": "09/09/2026", "endDate": "12/20/2026", "campusDescription": "Boston"}
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "term": "202710",
+      "termDesc": "Fall 2026 Semester",
+      "courseReferenceNumber": "10999",
+      "subject": "CS",
+      "subjectCourse": "CS7999",
+      "courseNumber": "7999",
+      "sequenceNumber": "02",
+      "courseTitle": "Dissertation Research",
+      "campusDescription": "Oakland, CA",
+      "instructionalMethodDescription": "Traditional",
+      "scheduleTypeDescription": "Individual Instruction",
+      "faculty": [],
+      "meetingsFaculty": []
+    }
+  ]
+}

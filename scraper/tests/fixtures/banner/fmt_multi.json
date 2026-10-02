@@ -1,0 +1,13 @@
+{
+  "fmt": [
+    {
+      "category": "01",
+      "courseReferenceNumber": "20001",
+      "faculty": [
+        {"bannerId": "900", "displayName": "Hurley, Patrick", "emailAddress": "hurley.pa@northeastern.edu", "primaryIndicator": true, "term": "202710"},
+        {"bannerId": "901", "displayName": "Smith, John A", "emailAddress": null, "primaryIndicator": false, "term": "202710"}
+      ],
+      "meetingTime": {"beginTime": "1335", "endTime": "1515", "endDate": "12/20/2026"}
+    }
+  ]
+}

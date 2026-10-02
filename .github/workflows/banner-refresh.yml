@@ -1,0 +1,56 @@
+name: Banner teaching refresh
+
+on:
+  schedule:
+    - cron: "0 8 * * 1"   # Mondays 08:00 UTC — see cadence note in docs
+  workflow_dispatch:
+
+# Only one refresh at a time: two overlapping runs would scrape and replace the
+# same terms, each checking its gates against a baseline the other is about to
+# overwrite. Queue rather than cancel — a cancelled run can stop between the
+# section load and the match, leaving banner_sections fresh while
+# professor_teaching and the history tables still describe the previous one.
+concurrency:
+  group: banner-refresh
+  cancel-in-progress: false
+
+# Nothing here reads or writes the repo through GITHUB_TOKEN; the only
+# credential used is the CRDB secret.
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    # Measured cold full-term run 2026-08-04: 11m57s. A week where a term
+    # closes adds one more full-term scrape on top of the open terms.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: scraper/requirements.txt
+      - name: Install dependencies
+        run: pip install -r scraper/requirements.txt
+      - name: Offline selftest
+        run: cd scraper && python load_banner_to_crdb.py --selftest
+      - name: Refresh open terms
+        env:
+          CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
+        run: cd scraper && python load_banner_to_crdb.py
+      # A term that closed since last week was last scraped while still open;
+      # give it one final scrape. History before that is already stored and
+      # closed terms never change, so most weeks this finds nothing to do.
+      # continue-on-error so a refused term can't stop the chip rebuild below;
+      # the step still shows as failed.
+      - name: Finalize newly closed terms
+        continue-on-error: true
+        env:
+          CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
+        run: cd scraper && python load_banner_to_crdb.py --backfill
+      - name: Build teaching chip and course history
+        env:
+          CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
+        run: cd scraper && python match_banner_instructors.py
