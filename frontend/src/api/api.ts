@@ -339,6 +339,11 @@ export function fetchProfessorsCatalog(params: {
   return get<CatalogResponse>(`/api/professors-catalog?${sp.toString()}`);
 }
 
+/** Joins multi-select dept/college filter values. Not ",": department names
+ *  carry commas ("Lang, Literature and Culture"). Must match FILTER_SEPARATOR
+ *  in backend/server.py. */
+export const FILTER_SEPARATOR = '|';
+
 export const fetchDepartments = (college?: string) => {
   const sp = new URLSearchParams();
   if (college) sp.set('college', college);

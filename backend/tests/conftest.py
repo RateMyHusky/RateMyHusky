@@ -21,6 +21,8 @@ os.environ["JWT_SECRET"] = "test-secret"
 # does not override an existing var. A deliberately unusable value — nothing in
 # the suite connects, and a real URL here would let a stray test reach prod.
 os.environ["CRDB_DATABASE_URL"] = "postgresql://test:test@localhost:26257/test"
+# pipeline.db prefers this name, and load_dotenv() would inject the real one.
+os.environ["NEW_CRDB_DATABASE_URL"] = "postgresql://test:test@localhost:26257/test"
 
 
 @pytest.fixture

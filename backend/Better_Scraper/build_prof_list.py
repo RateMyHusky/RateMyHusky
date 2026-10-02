@@ -1,7 +1,7 @@
 """Build the per-college master professor list for the photo re-scrape.
 
 Merges rmp_professors.csv + trace_courses.csv, dedups by normalized name,
-attaches college (precompute.COLLEGE_MAP), aliases, and any existing photo URL.
+attaches college (pipeline.names.COLLEGE_MAP), aliases, and any existing photo URL.
 Writes output_data/prof_list.json.
 """
 import os
@@ -12,7 +12,7 @@ import re
 import argparse
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from precompute import normalize_name  # noqa: E402
+from pipeline.names import normalize_name  # noqa: E402
 import photo_research as pr  # noqa: E402
 
 

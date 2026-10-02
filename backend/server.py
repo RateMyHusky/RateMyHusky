@@ -65,6 +65,15 @@ def normalize_name(name):
     return s
 
 
+# Joins multi-select dept/college filter values. Not ",": department names carry
+# commas ("Lang, Literature and Culture"). Must match FILTER_SEPARATOR in api.ts.
+FILTER_SEPARATOR = "|"
+
+
+def split_filter(raw):
+    return [v.strip() for v in (raw or "").split(FILTER_SEPARATOR) if v.strip()]
+
+
 # Build a word-level mapping so partial/typeahead queries also resolve.
 # e.g. typing "virgiliu" (an RMP-only spelling) still finds "virgil".
 _WORD_ALIAS = {}
@@ -918,7 +927,7 @@ def departments():
     if cached:
         return jsonify(cached)
     if college and college != "All":
-        college_list = [c.strip() for c in college.split(",") if c.strip()]
+        college_list = split_filter(college)
         if len(college_list) == 1:
             rows = query("""
                 SELECT DISTINCT department FROM professors_catalog
@@ -1080,7 +1089,7 @@ def professors_catalog():
     params = []
 
     if college and college != "All":
-        college_list = [c.strip() for c in college.split(",") if c.strip()]
+        college_list = split_filter(college)
         if len(college_list) == 1:
             conditions.append("college = %s")
             params.append(college_list[0])
@@ -1092,7 +1101,7 @@ def professors_catalog():
         "Counseling & Educational Psych": ["Counseling amp Educational Psych", "Counseling  Educational Psych"],
     }
     if dept and dept != "All":
-        dept_list = [d.strip() for d in dept.split(",") if d.strip()]
+        dept_list = split_filter(dept)
         expanded = []
         for d in dept_list:
             expanded.append(d)
@@ -1234,7 +1243,7 @@ def courses_catalog():
     params = []
 
     if dept and dept != "All":
-        dept_list = [d.strip() for d in dept.split(",") if d.strip()]
+        dept_list = split_filter(dept)
         if len(dept_list) == 1:
             conditions.append("department = %s")
             params.append(dept_list[0])
