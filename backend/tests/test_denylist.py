@@ -50,25 +50,25 @@ def listfile(tmp_path, monkeypatch):
 
 # ── the matching rule ───────────────────────────────────────────────────────
 
-def test_normalize_matches_precomputes_rule():
-    """The key has to be byte-identical to precompute's or the filter never fires.
+def test_normalize_matches_pipeline_rule():
+    """The key has to be byte-identical to pipeline.names' or the filter never fires.
 
-    Duplicated rather than imported because precompute pulls in pandas and numpy
-    and this module is imported by loaders that carry neither.
+    denylist.py keeps its own copy rather than importing pipeline.names, to stay
+    import-light for loaders that do not carry the pipeline package.
     """
-    from precompute import normalize_name as pc_normalize
+    from pipeline.names import normalize_name as pc_normalize
     for raw in ["Julia Garrett", "  JULIA   GARRETT ", "Renée Descartes",
                 "José Álvarez", "O'Brien", "Zhiyuan (Katherine) Zhang"]:
         assert normalize_name(raw) == pc_normalize(raw), raw
 
 
-def test_purge_slug_rule_matches_precomputes():
-    """purge_denied reconstructs slugs precompute wrote; the rules must agree.
+def test_purge_slug_rule_matches_pipeline():
+    """purge_denied reconstructs slugs the pipeline wrote; the rules must agree.
 
-    Duplicated for the same reason normalize_name is — precompute pulls in pandas
-    and numpy, and purge_denied is a small operational script.
+    Duplicated for the same reason normalize_name is: purge_denied is a small
+    operational script that stays import-light rather than importing pipeline.names.
     """
-    from precompute import name_to_slug as pc_slug
+    from pipeline.names import name_to_slug as pc_slug
     from purge_denied import name_to_slug
     for key in ["julia garrett", "jose garcia", "o'brien smith",
                 "md nazmus sakib miazi", "zhiyuan (katherine) zhang"]:
@@ -250,38 +250,6 @@ def test_precompute_filters_both_sides(listfile):
     tc = pd.DataFrame({"name_key": ["julia garrett", "julia garrett", "garrett morrow"]})
     assert list(rmp[~rmp["_name_key"].map(is_denied_key)]["_name_key"]) == ["garrett morrow"]
     assert list(tc[~tc["name_key"].map(is_denied_key)]["name_key"]) == ["garrett morrow"]
-
-
-def _fuzzy_frames():
-    """"dan koloski" on RMP is "daniel koloski" on TRACE; "garrett morrow" is exact."""
-    import pandas as pd
-    rmp = pd.DataFrame({"_name_key": ["dan koloski", "garrett morrow"],
-                        "_trace_name_key": ["daniel koloski", None]})
-    tc = pd.DataFrame({"name_key": ["daniel koloski", "daniel koloski", "garrett morrow"]})
-    return rmp, tc
-
-
-def test_denying_the_rmp_spelling_drops_the_trace_half(listfile):
-    from precompute import drop_denied
-    listfile("Dan Koloski")
-    rmp, tc = drop_denied(*_fuzzy_frames())
-    assert list(rmp["_name_key"]) == ["garrett morrow"]
-    assert list(tc["name_key"]) == ["garrett morrow"]
-
-
-def test_denying_the_trace_spelling_drops_the_rmp_half(listfile):
-    from precompute import drop_denied
-    listfile("Daniel Koloski")
-    rmp, tc = drop_denied(*_fuzzy_frames())
-    assert list(rmp["_name_key"]) == ["garrett morrow"]
-    assert list(tc["name_key"]) == ["garrett morrow"]
-
-
-def test_drop_denied_leaves_everyone_else(listfile):
-    from precompute import drop_denied
-    listfile("Julia Garrett")
-    rmp, tc = drop_denied(*_fuzzy_frames())
-    assert len(rmp) == 2 and len(tc) == 3
 
 
 def test_evidence_builders_import_the_filter():

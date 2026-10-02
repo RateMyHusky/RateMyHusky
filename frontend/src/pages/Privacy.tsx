@@ -225,7 +225,7 @@ const Privacy = () => {
                   privacy policies.
                 </li>
                 <li>
-                  <strong>RateMyProfessors, Northeastern faculty pages &amp; Reddit</strong>: these are data sources only. We do not send any user
+                  <strong>RateMyProfessors, Northeastern faculty pages, the Northeastern course catalog &amp; Reddit</strong>: these are data sources only. We do not send any user
                   data to these services.
                 </li>
               </ul>

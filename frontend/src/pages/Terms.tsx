@@ -23,8 +23,8 @@ const Terms = () => {
               <p>
                 RateMyHusky is a read-only aggregator of professor and course information for
                 Northeastern University students. Data displayed on this platform is sourced from
-                RateMyProfessors, Northeastern's public faculty directory pages, and publicly
-                available discussion on Reddit; it is not submitted by users of this site.
+                RateMyProfessors, Northeastern's public course catalog and faculty directory
+                pages, and publicly available discussion on Reddit; it is not submitted by users of this site.
                 Alongside that source data we show figures we compute from it — averages, blended
                 ratings, department comparisons, and sentiment labels derived from Reddit text.
                 Those are our estimates, not numbers published by any source.
@@ -170,6 +170,11 @@ const Terms = () => {
                   sourced from the public college and department directory pages that publish them.
                 </li>
                 <li>
+                  <strong>Northeastern course catalog</strong>: course names, departments, and
+                  descriptions are sourced from the public course catalog at
+                  catalog.northeastern.edu.
+                </li>
+                <li>
                   <strong>Reddit</strong>: publicly available discussion mentioning professors is
                   sourced from Reddit and remains subject to Reddit's own terms and policies.
                 </li>
@@ -181,8 +186,9 @@ const Terms = () => {
               <p>
                 Review content and ratings sourced from RateMyProfessors remain subject to
                 RateMyProfessors' intellectual property rights and terms of use. The faculty
-                photos published on Northeastern University's directory pages remain its
-                property, and we display them as they are published there. Reddit content
+                photos published on Northeastern University's directory pages and the course
+                descriptions in its public course catalog remain its property, and we display
+                them as they are published there. Reddit content
                 remains the property of its authors and of Reddit.
               </p>
               <p>

@@ -1,6 +1,6 @@
 """Canonical RMP-name-variant -> trace-name alias map (normalized keys).
 
-Single source of truth shared by precompute.py (build time) and server.py
+Single source of truth shared by the pipeline (build time) and server.py
 (runtime). These were previously two hand-synced copies that had drifted:
 the server copy was missing 62 of the aliases the catalog was built with.
 """
@@ -137,26 +137,6 @@ ALIAS_MAP = {
 }
 
 
-# Distinct people the surname fuzzy match in precompute.attach_fuzzy_trace
-# would otherwise merge, because one first name is a prefix of the other the
-# same way a nickname is: "yan" of "yaning", "michael" of "michaela". ALIAS_MAP
-# cannot express this — it maps a name onto another name, and what is needed
-# here is the refusal to.
-#
-# Nothing lexical separates these from "dan" -> "daniel", and department does
-# not either: cross-college teaching is common, so a college mismatch flagged
-# three legitimate matches (Lungeanu, Koloski, Laverdiere) for every real
-# collision it caught. Entries are added by hand when someone spots one.
-#
-# michaela lewis is *also* caught by the trace_courses check in
-# attach_fuzzy_trace, which needs no list; she is here so the pair is recorded
-# in one place if her TRACE courses ever go away.
-FUZZY_DENY = {
-    ("yan li", "yaning li"),
-    ("michaela lewis", "michael lewis"),
-}
-
-
 # Hand-reviewed corrections to how an RMP listing links to a professor, keyed
 # by RMP's spelling of the name. Recorded in prof_rmp_link.match_method as
 # "manual", which is what separates a reviewer's decision from the ALIAS_MAP
@@ -165,14 +145,12 @@ FUZZY_DENY = {
 # Keyed by name rather than RMP's legacy id because rmp_reviews carries no id:
 # reviews reach a professor through their professor_name, so an override keyed
 # any other way would move the summary and leave its ratings behind — the
-# recount in precompute would then publish 0 ratings under the new key.
+# recount in the pipeline would then publish 0 ratings under the new key.
 # rmp_link_key() is the single place both sides resolve through.
 #
-# Fill this from the rmp_link_review.csv report precompute writes each run.
+# Add entries here by hand when a reviewer finds a wrong link.
 RMP_MANUAL_LINKS = {
 }
-
-RMP_MATCH_METHODS = ("exact", "alias", "fuzzy", "manual")
 
 
 def _normalize_name(name: str) -> str:
@@ -182,9 +160,8 @@ def _normalize_name(name: str) -> str:
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
-# Ensure keys/values match normalize_name() used by server.py/precompute.py.
+# Ensure keys/values match normalize_name() used by server.py and the pipeline.
 ALIAS_MAP = {_normalize_name(k): _normalize_name(v) for k, v in ALIAS_MAP.items()}
-FUZZY_DENY = {(_normalize_name(a), _normalize_name(b)) for a, b in FUZZY_DENY}
 RMP_MANUAL_LINKS = {_normalize_name(k): _normalize_name(v) for k, v in RMP_MANUAL_LINKS.items()}
 
 

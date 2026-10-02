@@ -38,8 +38,8 @@ jobs:
         run: pip install -r requirements-data.txt
 
       # Pull the CSV data store (photos, course listings, previous RMP data) into
-      # output_data. precompute.py reads its CSVs from here; the RMP scrape
-      # below overwrites rmp_professors.csv / rmp_reviews.csv with fresh data.
+      # output_data. The RMP scrape below overwrites rmp_professors.csv /
+      # rmp_reviews.csv with fresh data.
       - name: Fetch data store
         env:
           RMH_DATA_TOKEN: ${{ secrets.RMH_DATA_TOKEN }}
@@ -98,7 +98,7 @@ jobs:
       # rmp_professors is full-replaced every run: 3,889 rows, and its columns
       # are aggregates RMP recomputes constantly (rating, num_ratings,
       # would_take_again_pct), which an upsert's DO NOTHING would never update.
-      # Nothing in the request path reads this table — only precompute, later in
+      # Nothing in the request path reads this table — only pipeline.run, later in
       # this same job — so the reload window is invisible to users, and no
       # foreign key or source_ref points at its ids.
       #
@@ -118,8 +118,8 @@ jobs:
           python migrate_to_crdb.py rmp_reviews
 
       # Reviews deleted on RMP have to leave the table too, or the list keeps
-      # rendering rows the count beside it (derived from the fresh CSV by
-      # precompute) has already dropped. Runs before precompute so the reviews
+      # rendering rows the count beside it (rebuilt from the DB by
+      # pipeline.run) has already dropped. Runs before pipeline.run so the reviews
       # and the counts describe the same set. Refuses to delete more than 1% of
       # the table without --force; the real weekly delta is tens of rows (~0.1%).
       # The ceiling is deliberately under the 2% loss scrape_guard tolerates, so
@@ -134,16 +134,14 @@ jobs:
           python prune_rmp_reviews.py \
             --csv Better_Scraper/output_data/rmp_reviews.csv
 
-      # RMP-only refresh: TRACE data is unchanged this run, so skip the heavy
-      # TRACE table maintenance (REFRESH_TRACE=false). Run a full precompute
-      # (REFRESH_TRACE unset/true) after a manual TRACE re-scrape.
-      - name: Precompute & write to CockroachDB
+      # Rebuilds the read models from the fresh rows and bumps data_version, which
+      # retires every cached page. Exits non-zero, writing nothing, if verify fails.
+      - name: Rebuild read models
         if: ${{ !inputs.dry_run }}
         working-directory: backend
         env:
           CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
-          REFRESH_TRACE: "false"
-        run: python precompute.py
+        run: python -m pipeline.run
 
       # Post-write verification: the pre-scrape floors validate the input CSVs;
       # this validates what actually landed in the DB. Runs BEFORE the store
@@ -162,13 +160,13 @@ jobs:
           n = cur.fetchone()[0]
           print(f"professors_catalog: {n} rows")
           if n < 3000:
-              print(f"::error::professors_catalog has only {n} rows after precompute (< 3000). Store push skipped; investigate before re-running.")
+              print(f"::error::professors_catalog has only {n} rows after pipeline.run (< 3000). Store push skipped; investigate before re-running.")
               sys.exit(1)
           cur.execute("SELECT count(*) FROM (SELECT 1 FROM rmp_reviews WHERE name_key IS NULL LIMIT 1001) AS probe")
           nulls = cur.fetchone()[0]
           if nulls:
               shown = "1000+" if nulls > 1000 else nulls
-              print(f"::warning::rmp_reviews has {shown} NULL name_key rows after precompute.")
+              print(f"::warning::rmp_reviews has {shown} NULL name_key rows after pipeline.run.")
           conn.close()
           EOF
 
