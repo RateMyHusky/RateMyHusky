@@ -16,10 +16,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "backend")))
 from match_banner_instructors import (BANNER_ALIASES, MIN_KEPT_RATIO,  # noqa: E402
                                       TEACHING_DDL, UNMATCHED_DDL,
-                                      MatchGateFailed, build_rows,
-                                      catalog_index, check_match_gate,
-                                      group_instructors, match_one,
-                                      single_term_desc, write_results)
+                                      Identity, MatchGateFailed, build_rows,
+                                      catalog_departments, catalog_index,
+                                      check_match_gate, chip_scraped_at,
+                                      department_subjects, group_instructors,
+                                      match_one, subject_agrees,
+                                      subjects_by_term, write_results)
 
 SCRAPED = "2026-08-04T00:00:00"
 
@@ -319,7 +321,10 @@ def test_build_rows_merges_two_banner_keys_that_alias_to_one_catalog_row(cur):
         brow(key="benjamin tasker", name="Tasker, Benjamin", course="CS4000",
              campus="Oakland, CA", term="202715"),
     ])
-    teaching, unmatched = build_rows(groups, catalog_index(cur), "Fall 2026", SCRAPED)
+    # The ALIAS_MAP half needs its subject vouched for by the department.
+    identity = Identity(catalog_index(cur), {"benjamin-tasker": "Computer Science"},
+                        {"Computer Science": {"CS": {"a", "b", "c"}}})
+    teaching, unmatched = build_rows(groups, identity, "Fall 2026", SCRAPED)
     assert unmatched == []
     assert len(teaching) == 1
     slug, name_key, term_desc, term_codes, courses, campuses, method, ts = teaching[0]
@@ -346,26 +351,8 @@ def test_build_rows_records_alias_path_ambiguity_candidates(cur):
     assert "benjamin-tasker" in unmatched[0][5] and "benjamin-tasker-2" in unmatched[0][5]
 
 
-# ── single_term_desc ─────────────────────────────────────────────────────
-# rows[0]["term_desc"] alone reads from an unordered SELECT; if
-# banner_sections ever holds two seasons at once, whichever row happened to
-# come back first would silently decide the label for every professor's chip.
-
-def test_single_term_desc_returns_the_shared_value():
-    rows = [{"term_desc": "Fall 2026"}, {"term_desc": "Fall 2026"}]
-    assert single_term_desc(rows) == "Fall 2026"
-
-
-def test_single_term_desc_raises_on_more_than_one_value():
-    rows = [{"term_desc": "Fall 2026"}, {"term_desc": "Spring 2026"}]
-    with pytest.raises(ValueError, match="2 distinct term_desc"):
-        single_term_desc(rows)
-
-
 # ── write_results ─────────────────────────────────────────────────────────
-# professor_teaching/banner_unmatched are upserted, never inserted fresh, so a
-# professor who drops off the current roster keeps their old row (and public
-# chip) unless this run's rows for the current term_desc are cleared first.
+
 
 def test_write_results_drops_professor_who_stopped_teaching_this_season(store_cur):
     """Annie had a row for Fall 2026 last run. This run she has no section at
@@ -607,13 +594,7 @@ def test_chip_rows_take_only_the_current_season(banner_db):
 
 def test_history_round_trip_and_rebuild_replaces_everything(banner_db, cur):
     _, sections, instructors = read_banner(banner_db)
-    index = catalog_index(cur)
-
-    def match(key):
-        slug, name_key, method, _ = match_one(key, index)
-        return slug, name_key, method
-
-    pairs = build_course_instructors(instructors, match)
+    pairs = build_course_instructors(instructors, Identity(catalog_index(cur)))
     offerings = build_course_offerings(sections, instructors)
     assert write_history(banner_db, pairs, offerings) == (2, 2)
     got = dict(banner_db.execute(
@@ -636,3 +617,169 @@ def test_approved_renames_keep_only_pairs_whose_codes_exist():
     got = approved_renames(offs, {"ECON1291": "ECON3291", "OLD1000": "NEW1000"}, {"AFAM": "AFCS"})
     assert got == [{"old_code": "AFAM1225", "new_code": "AFCS1225"},
                    {"old_code": "ECON1291", "new_code": "ECON3291"}]
+
+
+# ── identity: a name is not enough ───────────────────────────────────────
+#
+# The reviewer's repros: two different Wei Wangs (CHEM1211 in 2022, FINA2201 in
+# 2026) were both credited to the catalog's one wei-wang, and ALIAS_MAP sent
+# every Banner "katherine zhang" to zhiyuan-zhang.
+
+BUSINESS = {"Business": {"FINA": {"wei-wang", "other-1", "other-2"},
+                         "ACCT": {"other-3"}}}
+
+
+def hist(term, course, key):
+    return {"term_code": term, "crn": f"{term}-{course}", "instructor_key": key,
+            "instructor_name": key.title(), "is_primary": True,
+            "subject_course": course, "schedule_type": "Lecture", "campus": "Boston",
+            "instructional_method": "Traditional", "enrollment": 30,
+            "term_label": "Fall 2025", "closed": True}
+
+
+def wei_identity(rows=(), **kw):
+    return Identity({"wei wang": [("wei-wang", "wei wang")]}, {"wei-wang": "Business"},
+                    BUSINESS, teaching=subjects_by_term(rows), **kw)
+
+
+def test_a_namesake_in_another_subject_is_not_credited_to_the_profile():
+    rows = [hist("202210", "CHEM1211", "wei wang"), hist("202610", "FINA2201", "wei wang")]
+    pairs = build_course_instructors(rows, wei_identity(rows))
+    got = {p["subject_course"]: (p["professor_slug"], p["match_method"]) for p in pairs}
+    assert got == {"CHEM1211": (None, "subject_mismatch"),
+                   "FINA2201": ("wei-wang", "name_key")}
+
+
+def test_an_unrelated_course_near_the_professors_own_years_is_kept():
+    """A physicist's one BIOE section a term before their PHYS ones is theirs.
+    Measured on the local stage: every rejection closer than a year's gap was
+    a real professor."""
+    rows = [hist("202530", "CHEM1211", "wei wang"), hist("202610", "FINA2201", "wei wang")]
+    assert wei_identity(rows)("wei wang", "CHEM1211", {"202530"})[0] == "wei-wang"
+
+
+def test_a_subject_taught_in_the_same_term_as_a_department_one_belongs():
+    rows = [hist("202210", "CHEM1211", "wei wang"), hist("202210", "FINA2201", "wei wang"),
+            hist("202610", "FINA2201", "wei wang")]
+    assert wei_identity(rows)("wei wang", "CHEM1211", {"202210"})[0] == "wei-wang"
+
+
+def test_a_name_with_no_department_subject_anywhere_is_kept():
+    """RMP labels are too coarse to overrule Banner when nothing agrees at all."""
+    rows = [hist("202210", "CHEM1211", "wei wang")]
+    assert wei_identity(rows)("wei wang", "CHEM1211", {"202210"})[0] == "wei-wang"
+
+
+def test_a_related_subject_passes_without_sharing_a_term():
+    stats = {"Mathematics": {"MATH": {"p", "a", "b"}}}
+    rows = [hist("202210", "CS7170", "paul hand"), hist("202610", "MATH1000", "paul hand"),
+            hist("202610", "MATH1000", "x"), hist("202610", "CS1800", "x"),
+            hist("202610", "MATH1000", "y"), hist("202610", "CS1800", "y")]
+    identity = Identity({"paul hand": [("p", "paul hand")]}, {"p": "Mathematics"}, stats,
+                        teaching=subjects_by_term(rows))
+    assert identity("paul hand", "CS7170", {"202210"})[0] == "p"
+
+
+def test_a_name_the_roster_listed_twice_is_refused():
+    identity = wei_identity(roster_duplicates={("202610", "wei wang")})
+    assert identity("wei wang", "FINA2201", {"202610"}) == (None, None, "roster_duplicate")
+    assert identity("wei wang", "FINA2201", {"202510"})[0] == "wei-wang"
+
+
+def test_alias_map_alone_does_not_credit_a_banner_name():
+    alias, target = "katherine zhang", "zhiyuan zhang"
+    assert match_one(alias, {target: [("zhiyuan-zhang", target)]})[2] == "alias"
+    identity = Identity({target: [("zhiyuan-zhang", target)]})
+    assert identity(alias, "CS3500", {"202710"}) == (None, None, "alias_unverified")
+
+
+def test_alias_map_passes_when_the_department_teaches_the_subject():
+    target = "zhiyuan zhang"
+    identity = Identity({target: [("zhiyuan-zhang", target)]}, {"zhiyuan-zhang": "Business"},
+                        BUSINESS)
+    assert identity("katherine zhang", "FINA2201")[0] == "zhiyuan-zhang"
+    assert identity("katherine zhang", "CHEM1211")[2] == "subject_mismatch"
+
+
+def test_banner_aliases_were_checked_by_hand_and_pass():
+    key, target = next(iter(BANNER_ALIASES.items()))
+    identity = Identity({target: [("slug", target)]})
+    assert identity(key, "ZZZZ1000")[0] == "slug"
+
+
+def test_an_exact_name_passes_when_there_is_nothing_to_judge_by():
+    """No department on the catalog row: the check abstains, an exact name stands."""
+    identity = Identity({"wei wang": [("wei-wang", "wei wang")]}, {"wei-wang": None}, BUSINESS)
+    assert identity("wei wang", "CHEM1211")[0] == "wei-wang"
+
+
+def test_a_small_department_abstains():
+    stats = {"Dance": {"DANC": {"a", "b"}}}
+    assert subject_agrees("Dance", "THTR", "a", stats) is None
+
+
+def test_a_professor_cannot_vouch_for_their_own_subject():
+    stats = {"Business": {"FINA": {"a", "b", "c"}, "CHEM": {"wei-wang"}}}
+    assert subject_agrees("Business", "CHEM", "wei-wang", stats) is False
+    assert subject_agrees("Business", "FINA", "a", stats) is True
+
+
+def test_department_subjects_learn_only_from_unambiguous_exact_names():
+    index = {"wei wang": [("wei-wang", "wei wang")],
+             "john smith": [("john-smith", "john smith"), ("john-smith-2", "john smith")]}
+    rows = [hist("202610", "FINA2201", "wei wang"), hist("202610", "CHEM1211", "john smith"),
+            hist("202610", "MATH1000", "nobody")]
+    assert department_subjects(rows, index, {"wei-wang": "Business", "john-smith": "Science"}) == {
+        "Business": {"FINA": {"wei-wang"}}}
+
+
+def test_the_chip_keeps_only_courses_that_belong_to_the_professor():
+    """ALIAS_MAP needs its subject to belong outright; on the chip, a course in an
+    unrelated subject is dropped and the rest are kept."""
+    target = "zhiyuan zhang"
+    identity = Identity({target: [("zhiyuan-zhang", target)]}, {"zhiyuan-zhang": "Business"},
+                        BUSINESS)
+    groups = group_instructors([brow(key="katherine zhang", name="Zhang, Katherine", course="FINA2201"),
+                                brow(key="katherine zhang", name="Zhang, Katherine", course="CHEM1211")])
+    teaching, unmatched = build_rows(groups, identity, "Fall 2026", SCRAPED)
+    assert [t[4] for t in teaching] == ["FINA2201"]
+    assert unmatched == []
+
+
+def test_catalog_departments_treat_blank_and_unspecified_as_none():
+    c = sqlite3.connect(":memory:").cursor()
+    c.execute("CREATE TABLE professors_catalog (slug TEXT, name_key TEXT, department TEXT)")
+    c.executemany("INSERT INTO professors_catalog VALUES (?, ?, ?)",
+                  [("a", "a", "Business"), ("b", "b", "unspecified"), ("c", "c", None)])
+    assert catalog_departments(c) == {"a": "Business", "b": None, "c": None}
+
+
+# ── what the matcher reads ───────────────────────────────────────────────
+
+def test_imported_instructor_rows_stay_out_of_the_history(banner_db):
+    banner_db.execute("UPDATE banner_section_instructors SET source = 'import' "
+                      "WHERE term_code = '202630'")
+    _, _, instructors = read_banner(banner_db)
+    assert {i["term_code"] for i in instructors} == {"202710"}
+
+
+def test_closed_means_finally_scraped_not_just_marked_view_only(banner_db):
+    """sync_view_only flips view_only before the final re-scrape; until then the
+    enrollment is a snapshot."""
+    banner_db.execute("UPDATE banner_terms SET view_only = 1 WHERE term_code = '202710'")
+    _, sections, _ = read_banner(banner_db)
+    assert {s["closed"] for s in sections if s["term_code"] == "202710"} == {False}
+
+
+def test_a_cps_winter_quarter_joins_the_spring_chip():
+    rows = [term("202730", "Spring 2027", "Spring", False),
+            term("202725", "Winter 2027", "Winter", False),
+            term("202650", "Summer Full 2026", "Summer", False)]
+    assert current_season(rows) == ("Spring 2027", ["202725", "202730"])
+
+
+def test_chip_is_stamped_with_its_oldest_term_scrape():
+    rows = [{"term_code": "202710", "scraped_at": "2026-09-01 08:00:00"},
+            {"term_code": "202715", "scraped_at": "2026-09-29 08:00:00"},
+            {"term_code": "202630", "scraped_at": "2026-01-01 08:00:00"}]
+    assert chip_scraped_at(rows, ["202710", "202715"]).startswith("2026-09-01T08:00:00")

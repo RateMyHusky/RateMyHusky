@@ -22,9 +22,11 @@ permissions:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    # Measured cold full-term run 2026-08-04: 11m57s. A week where a term
-    # closes adds one more full-term scrape on top of the open terms.
-    timeout-minutes: 60
+    # Measured cold full-term run 2026-08-04: 11m57s at concurrency 4. The
+    # weekly run now uses 2 (gentler on the live registration system), which
+    # roughly doubles that per term, and a week where a term closes adds one
+    # more full-term scrape on top of the open terms.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,7 +37,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r scraper/requirements.txt
       - name: Offline selftest
+        id: selftest
         run: cd scraper && python load_banner_to_crdb.py --selftest
+      # A refused term makes this step fail, but the steps below still run
+      # (`!cancelled()`, once the selftest has passed): the other terms were written, and skipping the
+      # matcher would leave banner_sections fresh while professor_teaching and
+      # the history tables describe the previous run. A chip whose own term
+      # keeps failing still goes stale, because the matcher stamps it with
+      # that term's last scrape, not with its own clock.
       - name: Refresh open terms
         env:
           CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
@@ -43,14 +52,13 @@ jobs:
       # A term that closed since last week was last scraped while still open;
       # give it one final scrape. History before that is already stored and
       # closed terms never change, so most weeks this finds nothing to do.
-      # continue-on-error so a refused term can't stop the chip rebuild below;
-      # the step still shows as failed.
       - name: Finalize newly closed terms
-        continue-on-error: true
+        if: ${{ !cancelled() && steps.selftest.outcome == 'success' }}
         env:
           CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
         run: cd scraper && python load_banner_to_crdb.py --backfill
       - name: Build teaching chip and course history
+        if: ${{ !cancelled() && steps.selftest.outcome == 'success' }}
         env:
           CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
         run: cd scraper && python match_banner_instructors.py

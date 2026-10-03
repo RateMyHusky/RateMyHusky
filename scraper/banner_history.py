@@ -25,10 +25,11 @@ import re
 from collections import defaultdict
 from statistics import median
 
-from banner_api import NON_PLACE_CAMPUSES, NON_TEACHING_SCHEDULE_TYPES
+from banner_api import (NON_PLACE_CAMPUSES, NON_TEACHING_SCHEDULE_TYPES,
+                        pattern_season)
 
 # A coordinator Banner lists on every lab of a programme is not teaching all of
-# them. Same threshold and same reasoning as server.py's TEACHING_MAX_COURSES
+# them. Same threshold and same reasoning as backend/teaching_history.py's TEACHING_MAX_COURSES
 # for the live chip (three physics coordinators each sat on ~150 sections of
 # 9-11 courses in Fall 2026); here it is applied per term, so a real teaching
 # load in other terms is kept.
@@ -69,6 +70,17 @@ def is_teaching(row):
     return (row.get("schedule_type") or "").lower() not in NON_TEACHING_SCHEDULE_TYPES
 
 
+def is_cancelled(row):
+    """A closed-term section with no one enrolled.
+
+    Almost always a cancelled section Banner kept, not an empty classroom, so it
+    must not count as taught or offered. Open terms are excluded: 0 enrolled
+    there just means registration hasn't filled it yet. An unknown (None)
+    headcount is kept.
+    """
+    return bool(row.get("closed")) and row.get("enrollment") == 0
+
+
 def roster_artifacts(rows):
     """{(term_code, instructor_key)} listed on too many distinct courses that term."""
     courses = defaultdict(set)
@@ -78,7 +90,7 @@ def roster_artifacts(rows):
     return {k for k, v in courses.items() if len(v) > MAX_COURSES_PER_TERM}
 
 
-def _place(campus):
+def place(campus):
     if campus and campus.strip().lower() not in NON_PLACE_CAMPUSES:
         return campus
     return None
@@ -118,18 +130,23 @@ def build_course_instructors(rows, match):
 
     `rows` are banner_sections joined to banner_section_instructors and
     banner_terms (one row per section-instructor; TBA sections carry no
-    instructor_key and are ignored here). `match(instructor_key)` returns
-    (slug, name_key, method) or (None, None, reason) — the same matcher the
-    chip uses, so a professor's history and chip never disagree about who
-    they are. Unmatched instructors are kept with a null slug: a course page
-    can still name them.
+    instructor_key and are ignored here). `match(instructor_key, course,
+    term_codes)` returns (slug, name_key, method) or (None, None, reason) — the
+    same matcher the chip uses, so a professor's history and chip never
+    disagree about who they are. It gets the course and terms because a name
+    alone isn't identity: the matcher checks the course's subject against the
+    professor's department and refuses names that were two people on a
+    term's roster. Unmatched instructors are kept with a null slug: a course
+    page can still name them.
+
+    Cancelled sections (is_cancelled) are dropped before grouping.
     """
     artifacts = roster_artifacts(rows)
     groups = {}
     for r in rows:
         key = r.get("instructor_key")
         course = r.get("subject_course")
-        if not key or not course or not is_teaching(r):
+        if not key or not course or not is_teaching(r) or is_cancelled(r):
             continue
         if (r["term_code"], key) in artifacts:
             continue
@@ -143,14 +160,14 @@ def build_course_instructors(rows, match):
             g["crns"].add((r["term_code"], r["crn"]))
             g["sections"].append(r)
         g["primary"] = g["primary"] or bool(r.get("is_primary"))
-        if _place(r.get("campus")):
+        if place(r.get("campus")):
             g["campuses"].add(r["campus"])
         if r.get("instructional_method"):
             g["methods"].add(r["instructional_method"])
 
     out = []
     for (course, key), g in sorted(groups.items()):
-        slug, name_key, method = match(key)
+        slug, name_key, method = match(key, course, {c for c, _ in g["terms"]})
         codes = sorted((int(c) for c, _ in g["terms"]))
         labels = _labels_newest_first(g["terms"])
         size = _size_sample(g["sections"])
@@ -229,19 +246,22 @@ def build_course_offerings(sections, instructor_rows=()):
 
     `sections` are one row per section, TBA included. `instructor_rows` are
     used only to count distinct instructors, with the same roster-artifact
-    filter as build_course_instructors.
+    filter as build_course_instructors. Cancelled sections (is_cancelled)
+    count toward nothing; the pattern window still sees their terms, since a
+    term that was stored is a term that was looked at.
     """
     window = pattern_window({s["term_code"]: s.get("closed") for s in sections})
 
     by_course = defaultdict(list)
     for s in sections:
-        if s.get("subject_course") and is_teaching(s):
+        if s.get("subject_course") and is_teaching(s) and not is_cancelled(s):
             by_course[s["subject_course"]].append(s)
 
     artifacts = roster_artifacts(instructor_rows)
     instructors = defaultdict(set)
     for r in instructor_rows:
         if (r.get("instructor_key") and r.get("subject_course") and is_teaching(r)
+                and not is_cancelled(r)
                 and (r["term_code"], r["instructor_key"]) not in artifacts):
             instructors[r["subject_course"]].add(r["instructor_key"])
 
@@ -253,7 +273,7 @@ def build_course_offerings(sections, instructor_rows=()):
         years_by_season = defaultdict(set)
         sections_per_label = defaultdict(int)
         for s in secs:
-            years_by_season[s["season_group"]].add(academic_year(s["term_code"]))
+            years_by_season[pattern_season(s["season_group"])].add(academic_year(s["term_code"]))
             sections_per_label[s["term_label"]] += 1
         label, counts = offering_pattern(years_by_season, window)
         if label == "Not offered recently" and any(not s.get("closed") for s in secs):

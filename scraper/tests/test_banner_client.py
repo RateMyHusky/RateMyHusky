@@ -13,7 +13,7 @@ import requests
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 from banner_client import (BannerClient, BannerPageFailed,  # noqa: E402
-                           BannerRateLimited)
+                           BannerRateLimited, BannerRequestFailed)
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "banner")
 
@@ -148,8 +148,8 @@ def test_iter_sections_paginates_until_total_count():
 
 def test_iter_sections_dedupes_repeated_crns():
     """Pagination can repeat rows across page boundaries."""
-    page1 = {"totalCount": 4, "data": [{"courseReferenceNumber": "1"}, {"courseReferenceNumber": "2"}]}
-    page2 = {"totalCount": 4, "data": [{"courseReferenceNumber": "2"}, {"courseReferenceNumber": "3"}]}
+    page1 = {"totalCount": 3, "data": [{"courseReferenceNumber": "1"}, {"courseReferenceNumber": "2"}]}
+    page2 = {"totalCount": 3, "data": [{"courseReferenceNumber": "2"}, {"courseReferenceNumber": "3"}]}
     pages = iter([page1, page2])
     s = FakeSession({
         "resetDataForm": FakeResp(text="true"),
@@ -161,13 +161,67 @@ def test_iter_sections_dedupes_repeated_crns():
     assert [r["courseReferenceNumber"] for r in rows] == ["1", "2", "3"]
 
 
-def test_iter_sections_stops_on_short_page():
-    """A page shorter than page_size means the term is exhausted.
+def test_iter_sections_raises_when_distinct_crns_fall_short_of_total_count():
+    """Banner ignoring pageOffset and serving the same page again would read
+    as 500 of 9,000 sections; the distinct count against totalCount catches it."""
+    page = {"totalCount": 4, "data": [{"courseReferenceNumber": "1"}, {"courseReferenceNumber": "2"}]}
+    s = FakeSession({
+        "resetDataForm": FakeResp(text="true"),
+        "searchResults": FakeResp(page),
+    })
+    client = BannerClient(session=s)
+    client.page_size = 2
+    with pytest.raises(BannerPageFailed, match="totalCount 4"):
+        list(client.iter_sections("202710"))
+
+
+def test_iter_sections_raises_on_a_short_page_before_total_count():
+    page = {"totalCount": 999, "data": [{"courseReferenceNumber": "1"}]}
+    s = FakeSession({
+        "resetDataForm": FakeResp(text="true"),
+        "searchResults": FakeResp(page),
+    })
+    client = BannerClient(session=s)
+    client.page_size = 500
+    with pytest.raises(BannerPageFailed, match="1 of 999"):
+        list(client.iter_sections("202710"))
+
+
+def test_iter_sections_raises_on_success_false_mid_term():
+    """The reviewer's repro: 500 of 1,200 rows, then success: false. That used
+    to end the loop as if the term were finished."""
+    pages = iter([{"totalCount": 1200, "data": [{"courseReferenceNumber": str(i)} for i in range(2)]},
+                  {"success": False, "data": None}])
+    s = FakeSession({
+        "resetDataForm": FakeResp(text="true"),
+        "searchResults": lambda _s: FakeResp(next(pages)),
+    })
+    client = BannerClient(session=s)
+    client.page_size = 2
+    with pytest.raises(BannerPageFailed, match="success: false"):
+        list(client.iter_sections("202710"))
+
+
+def test_iter_sections_raises_on_an_empty_page_before_total_count():
+    pages = iter([{"totalCount": 1200, "data": [{"courseReferenceNumber": str(i)} for i in range(2)]},
+                  {"totalCount": 1200, "data": []}])
+    s = FakeSession({
+        "resetDataForm": FakeResp(text="true"),
+        "searchResults": lambda _s: FakeResp(next(pages)),
+    })
+    client = BannerClient(session=s)
+    client.page_size = 2
+    with pytest.raises(BannerPageFailed):
+        list(client.iter_sections("202710"))
+
+
+def test_iter_sections_stops_on_short_page_without_a_total_count():
+    """With no totalCount, a page shorter than page_size is the only end signal.
 
     Asserts the request count, not the row count: row count is confounded by CRN
     dedup, so it stays 1 even if this termination branch is deleted entirely.
     """
-    page = {"totalCount": 999, "data": [{"courseReferenceNumber": "1"}]}
+    page = {"data": [{"courseReferenceNumber": "1"}]}
     s = FakeSession({
         "resetDataForm": FakeResp(text="true"),
         "searchResults": FakeResp(page),
@@ -179,8 +233,9 @@ def test_iter_sections_stops_on_short_page():
     assert endpoints_called(s).count("searchResults") == 1
 
 
-def test_iter_sections_respects_max_pages():
-    """Circuit breaker against an API bug that never stops returning rows."""
+def test_iter_sections_raises_at_max_pages():
+    """Circuit breaker against an API bug that never stops returning rows. It
+    raises: stopping quietly at the cap would hand back a truncated term."""
     n = [0]
 
     def full_page(_s):
@@ -192,8 +247,9 @@ def test_iter_sections_respects_max_pages():
     client = BannerClient(session=s)
     client.page_size = 2
     client.max_pages = 3
-    rows = list(client.iter_sections("202710"))
-    assert len(rows) == 6
+    with pytest.raises(BannerPageFailed, match="3-page cap"):
+        list(client.iter_sections("202710"))
+    assert n[0] == 3
 
 
 def test_iter_sections_raises_when_a_page_never_comes_back():
@@ -305,3 +361,35 @@ def test_instructor_roster_returns_none_on_transport_failure():
     empty roster — the scrape_term gate treats them very differently."""
     s = FakeSession({"get_instructor": FakeResp(status=500)})
     assert BannerClient(session=s, sleep=lambda _: None).instructor_roster("202710") is None
+
+
+# ── bootstrap / reset must not fail silently ─────────────────────────────
+
+def test_reset_that_keeps_failing_raises_instead_of_searching():
+    """A failed resetDataForm leaves the previous query's filters in place, and
+    the search then returns the wrong rows with a 200. Never search after one."""
+    s = FakeSession({"resetDataForm": FakeResp(status=500),
+                     "searchResults": FakeResp(fixture("search_page.json"))})
+    client = BannerClient(session=s, sleep=lambda _: None)
+    with pytest.raises(BannerRequestFailed, match="resetDataForm"):
+        client.search_page("202710", 0)
+    assert "searchResults" not in endpoints_called(s)
+
+
+def test_bootstrap_with_no_response_raises():
+    def always_raises(_s):
+        raise requests.exceptions.ConnectionError("reset")
+
+    s = FakeSession({"search": always_raises})
+    with pytest.raises(BannerRequestFailed, match="no response"):
+        BannerClient(session=s, sleep=lambda _: None).bootstrap("202710")
+
+
+def test_roster_reports_names_more_than_one_row_normalizes_to():
+    rows = [{"description": "Wang, Wei"}, {"description": "Wang,  Wei"},
+            {"description": "Witte, Annie"}]
+    s = FakeSession({"get_instructor": FakeResp(rows)})
+    roster = BannerClient(session=s).instructor_roster("202710")
+    assert roster.keys == {"wei wang", "annie witte"}
+    assert roster.row_count == 3
+    assert roster.duplicate_keys == {"wei wang"}

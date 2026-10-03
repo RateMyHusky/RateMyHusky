@@ -29,13 +29,26 @@ class Roster(NamedTuple):
 
     Kept together because the truncation gate needs the row count while the
     coverage ratio needs the deduped keys — see instructor_roster.
+    `duplicate_keys` are names more than one roster row normalizes to: possibly
+    two different people, so the matcher must not credit either to a profile.
     """
     keys: set
     row_count: int
+    duplicate_keys: frozenset = frozenset()
 
 
-class BannerPageFailed(RuntimeError):
-    """A section page never came back after every retry.
+class BannerRequestFailed(RuntimeError):
+    """A request whose failure would make later answers meaningless.
+
+    Raised for the session bootstrap and the filter reset: if either fails, the
+    next search runs with no cookie or with the previous query's filters, and
+    Banner answers that with a 200 full of the wrong rows. Nothing has been
+    written for the term when this is raised.
+    """
+
+
+class BannerPageFailed(BannerRequestFailed):
+    """A section page never came back, or came back short of totalCount.
 
     Raised rather than returned because a short read is indistinguishable from
     a finished term: `iter_sections` stops on an empty page, so a swallowed
@@ -128,16 +141,31 @@ class BannerClient:
         return self._get("classSearch/getTerms",
                          {"searchTerm": "", "offset": 1, "max": 500}) or []
 
+    def _post_ok(self, path, **kwargs):
+        """`_post`, raising unless it ends in a 200.
+
+        `_post` hands back None after repeated connection errors and the last
+        5xx response itself, and both are failures here. Ignoring them is the
+        stale-filter hazard this module's callers guard against.
+        """
+        r = self._post(path, **kwargs)
+        status = getattr(r, "status_code", None)
+        if status != 200:
+            raise BannerRequestFailed(
+                f"{path} failed ({status if status is not None else 'no response'}) — "
+                f"later searches would run with a stale session or stale filters")
+        return r
+
     def bootstrap(self, term_code):
         """Establishes the session cookie. Required before any search."""
-        self._post(
+        self._post_ok(
             "term/search", params={"mode": "search"},
             data={"term": term_code, "studyPath": "", "studyPathText": "",
                   "startDatepicker": "", "endDatepicker": ""})
 
     def _reset(self):
         """Clears sticky filters. MUST precede every searchResults call."""
-        self._post("classSearch/resetDataForm")
+        self._post_ok("classSearch/resetDataForm")
 
     def search_page(self, term_code, offset):
         """One page of section rows, or None if the request never succeeded.
@@ -154,35 +182,55 @@ class BannerClient:
     def iter_sections(self, term_code):
         """All section rows for a term, deduped on CRN.
 
-        Stops on a short page, on totalCount, or at max_pages — a bug on either
-        side must not become an unbounded loop. Raises BannerPageFailed if any
-        page fails outright, because stopping early there would silently
-        truncate the term instead.
+        Every way of stopping short raises BannerPageFailed instead of
+        returning, because a short read looks exactly like a finished term and
+        a first backfill of a term has no baseline that would notice:
+          - a page that failed every attempt, or answered success: false;
+          - an empty or short page while fewer than totalCount rows have
+            arrived;
+          - fewer distinct CRNs than totalCount at the end (Banner repeating
+            the same page instead of honouring pageOffset);
+          - max_pages reached before the term ran out.
+        Without a totalCount, an empty or short page is the only end signal.
         """
         seen = set()
         offset = 0
+        total = None
+
+        def short(reason):
+            return BannerPageFailed(
+                f"{term_code}: {reason} — aborting rather than reporting a "
+                f"truncated term as a complete one")
+
         for _ in range(self.max_pages):
             payload = self.search_page(term_code, offset)
             if payload is None:
-                raise BannerPageFailed(
-                    f"{term_code}: section page at offset {offset} failed every "
-                    f"attempt — aborting rather than reporting a truncated term "
-                    f"as a complete one")
+                raise short(f"section page at offset {offset} failed every attempt")
+            if payload.get("success") is False:
+                raise short(f"section page at offset {offset} answered success: false")
+            if payload.get("totalCount") is not None:
+                total = payload["totalCount"]
             rows = payload.get("data") or []
-            if not rows:
-                return
             for row in rows:
                 crn = row.get("courseReferenceNumber")
                 if crn in seen:
                     continue        # pagination repeats rows across boundaries
                 seen.add(crn)
                 yield row
-            total = payload.get("totalCount")
             offset += len(rows)
-            if len(rows) < self.page_size:
-                return
             if total is not None and offset >= total:
+                break
+            if len(rows) < self.page_size:
+                if total is not None:
+                    raise short(f"page at offset {offset - len(rows)} returned "
+                                f"{len(rows)} rows with {offset} of {total} read")
                 return
+        else:
+            raise short(f"hit the {self.max_pages}-page cap with "
+                        f"{len(seen)} sections read")
+        if len(seen) < total:
+            raise short(f"read {len(seen)} distinct sections but Banner reported "
+                        f"totalCount {total}")
 
     def faculty_for(self, term_code, crn):
         """Instructors for one CRN, or None if the call never succeeded."""
@@ -193,7 +241,7 @@ class BannerClient:
         return parse_faculty(payload)
 
     def faculty_for_many(self, term_code, crns):
-        """{crn: faculty-or-None}. Concurrency 4 — see banner_api.CONCURRENCY."""
+        """{crn: faculty-or-None}, `concurrency` at a time — see banner_api.CONCURRENCY."""
         out = {}
         with ThreadPoolExecutor(max_workers=self.concurrency) as ex:
             for crn, result in zip(crns, ex.map(
@@ -225,6 +273,10 @@ class BannerClient:
                           "offset": 1, "max": ROSTER_REQUEST_CAP})
         if rows is None:
             return None
-        keys = {normalize_instructor_key(r.get("description"))
-                for r in rows if normalize_instructor_key(r.get("description"))}
-        return Roster(keys=keys, row_count=len(rows))
+        counts = {}
+        for r in rows:
+            key = normalize_instructor_key(r.get("description"))
+            if key:
+                counts[key] = counts.get(key, 0) + 1
+        return Roster(keys=set(counts), row_count=len(rows),
+                      duplicate_keys=frozenset(k for k, n in counts.items() if n > 1))

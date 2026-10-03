@@ -48,11 +48,13 @@ MIN_FACULTY_FAILURES_TOLERATED = 3  # a handful of transient lookup failures sho
 # their formats and class sizes would skew every "usually" on the site.
 DEFAULT_SINCE_TERM = "202210"
 
-# Terms before this code are scraped sections-only: their instructors come
-# from a one-off import (already loaded in prod), which Banner confirmed at
-# 98-99% for CS and PSYC in Fall 2022 and Fall 2024. That import's
-# Fall 2025 is incomplete (59% of Banner's sections against the usual 68-70%),
-# so Banner owns instructors from Fall 2025 on.
+# Terms before this code are scraped sections-only: their instructor rows came
+# from a one-off import (source 'import' in prod), which Banner confirmed at
+# 98-99% for CS and PSYC in Fall 2022 and Fall 2024. That import's Fall 2025 is
+# incomplete (59% of Banner's sections against the usual 68-70%), so Banner owns
+# instructors from Fall 2025 on. The import is not Banner data, so the matcher
+# leaves it out of the public history; lowering this re-scrapes those terms'
+# instructors from Banner (~7,000 requests a term) and brings them in.
 DEFAULT_INSTRUCTORS_FROM = "202610"
 
 
@@ -63,10 +65,12 @@ class SanityGateFailed(RuntimeError):
 def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM):
     """getTerms rows -> [(term_code, parsed term)] this run should scrape.
 
-    `known` is {term_code: view_only_when_last_scraped} from banner_terms.
+    `known` is {term_code: closed_when_last_scraped} from banner_terms.
 
     mode "current": every open term. Re-scraped each run, because rosters,
-    reassignments and enrollment all move until the term closes.
+    reassignments and enrollment all move until the term closes. A term whose
+    last meeting has passed is scraped once more as closed (see scrape_term)
+    and then skipped here, even while Banner is slow to mark it View Only.
 
     mode "backfill": closed terms from `since_term` on that are either missing
     or were last scraped while still open. Newest first, so an interrupted
@@ -83,7 +87,7 @@ def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM):
             continue
         code = str(code)
         if mode == "current":
-            if not parsed["view_only"]:
+            if not parsed["view_only"] and known.get(code) is not True:
                 picked.append((code, parsed))
         elif mode == "backfill":
             if not parsed["view_only"] or int(code) < int(since_term):
@@ -120,8 +124,12 @@ def scrape_term(client, term_code, previous_count=None, today=None,
 
     with_instructors=False stops after the section pages — ~15 requests for a
     whole term instead of ~7,000 — and returns instructors=None, which tells
-    write_term to leave that term's instructor rows alone (they come from the
-    one-off import instead).
+    write_term to leave that term's instructor rows alone.
+
+    The result's "ended" is True when an open term's last meeting has already
+    passed: its enrollment is final, so the caller stores it as closed.
+    "failed_crns" are the teaching sections whose faculty lookup failed even
+    after the retry pass; write_term keeps their previous instructor rows.
     """
     today = today or date.today()
 
@@ -129,15 +137,27 @@ def scrape_term(client, term_code, previous_count=None, today=None,
     if not raw_rows:
         raise SanityGateFailed(f"{term_code}: 0 sections returned")
 
-    # Banner marks closed terms "(View Only)"; this checks an *open* term's
-    # claim against the actual meeting dates, which searchResults hands over
-    # for free. A closed term ended long ago by definition.
+    # Every row names its own term. A stale session (a bootstrap or reset that
+    # silently kept the previous term) serves another term's rows with a 200,
+    # and write_term would file them under this code.
+    foreign = sorted({str(r["term"]) for r in raw_rows
+                      if r.get("term") is not None and str(r["term"]) != str(term_code)})
+    if foreign:
+        raise SanityGateFailed(
+            f"{term_code}: Banner returned rows for term(s) {', '.join(foreign)} — "
+            f"the session is serving another term's search")
+
+    # Banner marks closed terms "(View Only)", but has been slow to flip ended
+    # summer terms (seen open on 2026-08-04 after their last meeting). Past its
+    # last meeting a term's enrollment is final, so it is scraped as closed
+    # rather than refused every week until Banner catches up.
+    ended = False
     if not view_only:
         end_dates = section_end_dates(raw_rows)
         if end_dates and max(end_dates) < today:
-            raise SanityGateFailed(
-                f"{term_code}: term already ended (last meeting {max(end_dates)}) "
-                f"but Banner did not mark it View Only")
+            ended = True
+            print(f"{term_code}: last meeting was {max(end_dates)} but Banner has "
+                  f"not marked it View Only; storing this scrape as closed")
 
     sections = {}
     for raw in raw_rows:
@@ -156,6 +176,7 @@ def scrape_term(client, term_code, previous_count=None, today=None,
 
     if not with_instructors:
         return {"sections": list(sections.values()), "instructors": None,
+                "ended": ended, "failed_crns": [], "roster_duplicates": [],
                 "stats": {"section_count": len(sections),
                           "attributed_sections": 0, "instructor_count": 0}}
 
@@ -233,6 +254,11 @@ def scrape_term(client, term_code, previous_count=None, today=None,
     return {
         "sections": list(sections.values()),
         "instructors": instructors,
+        "ended": ended,
+        "failed_crns": sorted(crn for crn in to_fetch if fetched.get(crn) is None),
+        # Two roster rows that normalize to one name may be two people. Stored,
+        # so the matcher can refuse to credit that name to a profile.
+        "roster_duplicates": sorted(roster.duplicate_keys),
         "stats": {"section_count": len(sections),
                   "attributed_sections": len({r["crn"] for r in instructors}),
                   "instructor_count": len(found)},
@@ -283,9 +309,9 @@ def main(argv=None):
         term_desc, scrapes = scrape_season(client)
 
     for code, s in scrapes.items():
-        teaching = _teaching(s["instructors"], s["sections"])
+        teaching = _teaching(s["instructors"] or [], s["sections"])
         print(f"{term_desc} [{code}]: {len(s['sections'])} sections, "
-              f"{len(s['instructors'])} instructor rows, "
+              f"{len(s['instructors'] or [])} instructor rows, "
               f"{len({r['instructor_key'] for r in teaching})} distinct teaching instructors")
 
     # This script never touches the database — the loader does — so --json-out

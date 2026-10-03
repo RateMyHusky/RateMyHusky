@@ -25,8 +25,10 @@ it back to the bare DSN.
 
 Instructors for closed terms before --instructors-from (default Fall 2025)
 came from a one-off import instead of ~7,000 Banner requests a term; those
-terms are scraped sections-only here, and their instructors are already in prod
-(source other than 'banner').
+terms are scraped sections-only here, and their instructor rows (source
+'import') are left as they are. The import is not Banner data, so the matcher
+reads only source = 'banner' rows; re-scraping those terms with instructors
+(--instructors-from set lower) is what would bring them into the history.
 
 Staging: --local-db PATH writes to a sqlite file instead of CockroachDB, so the
 Banner traffic can happen once, offline from the database. --push-from PATH then
@@ -40,6 +42,9 @@ Usage
     python load_banner_to_crdb.py --backfill --max-sections 30000 --since 202410
     python load_banner_to_crdb.py --local-db stage.db --backfill
     python load_banner_to_crdb.py --push-from stage.db
+
+A stage pushed over prod is gated against prod's own counts, and a staged
+sections-only term never touches prod's instructor rows.
 """
 
 import argparse
@@ -52,8 +57,10 @@ from datetime import datetime, timezone
 import psycopg2
 from psycopg2.extras import execute_values
 
+from banner_client import BannerRequestFailed
 from banner_scrape import (DEFAULT_INSTRUCTORS_FROM, DEFAULT_SINCE_TERM,
-                           SanityGateFailed, plan_terms, scrape_term)
+                           MIN_SECTION_RATIO, SanityGateFailed, plan_terms,
+                           scrape_term)
 
 # CockroachDB runs SERIALIZABLE. A write that overlaps the live site's reads
 # can be aborted with 40001 and has to be replayed by the client — the same
@@ -110,7 +117,12 @@ CREATE TABLE IF NOT EXISTS banner_section_instructors (
     source               TEXT NOT NULL DEFAULT 'banner',
     PRIMARY KEY (term_code, crn, instructor_key)
 );
-CREATE INDEX IF NOT EXISTS bsi_instructor ON banner_section_instructors (instructor_key)
+CREATE INDEX IF NOT EXISTS bsi_instructor ON banner_section_instructors (instructor_key);
+CREATE TABLE IF NOT EXISTS banner_roster_duplicates (
+    term_code            TEXT NOT NULL,
+    instructor_key       TEXT NOT NULL,      -- >1 roster row normalizes to it
+    PRIMARY KEY (term_code, instructor_key)
+)
 """
 
 TERM_COLUMNS = ("term_code", "term_desc_raw", "term_label", "season",
@@ -123,16 +135,32 @@ SECTION_COLUMNS = ("term_code", "crn", "subject", "subject_course",
                    "credit_hours_low", "credit_hours_high", "enrollment")
 INSTRUCTOR_COLUMNS = ("term_code", "crn", "instructor_key", "instructor_name",
                       "is_primary", "source")
+DUPLICATE_COLUMNS = ("term_code", "instructor_key")
+
+# Same resolver flake and same answer as backend/pipeline/db.connect.
+CONNECT_ATTEMPTS = 20
 
 
-def connect(dsn):
-    """Open a CRDB connection.
+def connect(dsn, attempts=CONNECT_ATTEMPTS, sleep=time.sleep):
+    """Open a CRDB connection, retrying the resolver flake.
 
     sslmode="require" overrides the DSN's verify-full, matching
     load_reddit_to_crdb.py and backend/pipeline/db.py — the deployment does not
     distribute a root cert, so verify-full fails outright.
+
+    "could not translate host name" is a known flake on *.cockroachlabs.cloud;
+    backend/pipeline/db.connect retries it the same way. Every connect in the
+    loader and the matcher goes through here, so one flake can't skip a
+    week's refresh. Any other connection error is raised at once.
     """
-    return psycopg2.connect(dsn, sslmode="require")
+    for attempt in range(1, attempts + 1):
+        try:
+            return psycopg2.connect(dsn, sslmode="require")
+        except psycopg2.OperationalError as e:
+            if "could not translate host name" not in str(e) or attempt == attempts:
+                raise
+            print(f"  DNS lookup flaked; retrying ({attempt}/{attempts})...")
+            sleep(3)
 
 
 def with_retry(open_conn, work, attempts=RETRY_ATTEMPTS, sleep=time.sleep):
@@ -219,31 +247,54 @@ def write_term(cur, term_code, parsed, desc_raw, scrape):
     have already passed before this runs.
 
     scrape["instructors"] is None for a sections-only scrape: the term's
-    instructor rows (from the one-off import, or nothing yet) are left exactly as they
-    are, and the term keeps whatever instructors_source it already had.
+    instructor rows (from the one-off import, or nothing yet) are left exactly as
+    they are, and the term keeps its instructors_source and instructor counts.
+
+    A section whose faculty lookup failed (scrape["failed_crns"]) keeps the
+    instructor rows it already had: the gate tolerates a few failures, and
+    deleting what last week attributed correctly would lose it for good once
+    the term is closed. A closed term with any failed lookup is not marked
+    scraped_closed, so the next finalize pass tries it again.
+
+    A term whose last meeting has passed (scrape["ended"]) is stored as closed
+    even though Banner has not marked it View Only yet.
 
     Returns (sections written, instructor rows written).
     """
     ph = _placeholder(cur)
-    cur.execute(f"SELECT first_seen_at, instructors_source FROM banner_terms "
-                f"WHERE term_code = {ph}", (term_code,))
+    cur.execute(f"SELECT first_seen_at, instructors_source, attributed_sections, "
+                f"instructor_count FROM banner_terms WHERE term_code = {ph}", (term_code,))
     prior = cur.fetchone()
     first_seen = prior[0] if prior else None
     if first_seen is None and not parsed["view_only"]:
         first_seen = datetime.now(timezone.utc).isoformat()
 
+    closed = bool(parsed["view_only"] or scrape.get("ended"))
+    failed = list(scrape.get("failed_crns") or [])
     sections_only = scrape["instructors"] is None
     if not sections_only:
-        cur.execute(f"DELETE FROM banner_section_instructors WHERE term_code = {ph}",
+        keep = ""
+        if failed:
+            keep = f" AND crn NOT IN ({', '.join([ph] * len(failed))})"
+        cur.execute(f"DELETE FROM banner_section_instructors WHERE term_code = {ph}{keep}",
+                    (term_code, *failed))
+        cur.execute(f"DELETE FROM banner_roster_duplicates WHERE term_code = {ph}",
                     (term_code,))
+        _insert(cur, "banner_roster_duplicates", DUPLICATE_COLUMNS,
+                [{"term_code": term_code, "instructor_key": k}
+                 for k in scrape.get("roster_duplicates") or []])
     cur.execute(f"DELETE FROM banner_sections WHERE term_code = {ph}", (term_code,))
     n_sections = _insert(cur, "banner_sections", SECTION_COLUMNS,
                          [{**s, "term_code": term_code} for s in scrape["sections"]])
     n_instructors = 0 if sections_only else _insert(
         cur, "banner_section_instructors", INSTRUCTOR_COLUMNS,
         [{"source": "banner", **r} for r in scrape["instructors"]])
+    stats = dict(scrape["stats"])
     if sections_only:
         source = prior[1] if prior and prior[1] else "none"
+        if prior:
+            stats["attributed_sections"] = prior[2] or 0
+            stats["instructor_count"] = prior[3] or 0
     else:
         source = "banner"
     _insert(cur, "banner_terms", TERM_COLUMNS, [{
@@ -254,11 +305,11 @@ def write_term(cur, term_code, parsed, desc_raw, scrape):
         "season_group": parsed["season_group"],
         "year": parsed["year"],
         "track": parsed["track"],
-        "view_only": parsed["view_only"],
-        "scraped_closed": parsed["view_only"],
+        "view_only": closed,
+        "scraped_closed": closed and not failed,
         "instructors_source": source,
         "first_seen_at": first_seen,
-        **scrape["stats"],
+        **stats,
     }], conflict="(term_code)")
     return n_sections, n_instructors
 
@@ -294,11 +345,13 @@ def run(client, open_conn, mode, since_term=DEFAULT_SINCE_TERM,
     """Scrape and write every term `plan_terms` picks. Returns (ok, failed).
 
     One transaction per term, so a backfill interrupted at term 40 keeps the
-    39 it finished and resumes from 40. A gate failure in backfill mode skips
-    that term and carries on — one bad 2017 CPS term must not block the rest —
-    but is still reported, and makes the process exit non-zero. In current
-    mode the first failure stops the run, because those terms feed the live
-    teaching chip.
+    39 it finished and resumes from 40. A term refused by a gate, or whose
+    bootstrap, reset or pages failed, is skipped and the run carries on: in
+    backfill so one bad 2017 CPS term can't block the rest, and in current
+    mode so a future term with no schedule yet (or a CPS quarter code sorting
+    above the semester) can't keep the live term from refreshing. Every
+    refusal is still reported and makes the process exit non-zero. A rate
+    limit is not caught: it stops the whole run.
 
     `max_sections` caps the work per run (checked between terms), so the
     backfill can be spread across scheduled runs instead of one 6-hour job.
@@ -328,19 +381,17 @@ def run(client, open_conn, mode, since_term=DEFAULT_SINCE_TERM,
             print(f"section budget of {max_sections} reached — "
                   f"{len(plan) - len(ok) - len(failed)} term(s) left for the next run")
             break
-        client.bootstrap(code)
         try:
+            client.bootstrap(code)
             with_instructors = (not parsed["view_only"]
                                 or int(code) >= int(instructors_from))
             scrape = scrape_term(client, code,
                                  previous_count=(known.get(code) or (None, None))[1],
                                  view_only=parsed["view_only"],
                                  with_instructors=with_instructors)
-        except SanityGateFailed as e:
+        except (SanityGateFailed, BannerRequestFailed) as e:
             print(f"GATE {e}", file=sys.stderr)
             failed.append(code)
-            if mode == "current":
-                break
             continue
         done_sections += scrape["stats"]["section_count"]
         if dry_run:
@@ -375,21 +426,39 @@ def push(stage_path, open_conn):
     pushing after a partial earlier push finishes the job. banner_terms is
     written last in each transaction, so a term only counts as present once
     its rows are.
+
+    A term staged sections-only (instructors_source other than 'banner') has
+    no instructor rows to put back, so prod's are left exactly as they are and
+    the term keeps prod's instructors_source and counts, as write_term does.
+
+    The stage's own gates ran against the stage's baseline, which a fresh
+    file doesn't have, so each term is gated again against prod: a staged
+    term more than MIN_SECTION_RATIO below prod's section count, or an open
+    snapshot over a term prod already holds as closed, is refused. Returns
+    non-zero if any term was refused.
     """
     stage = sqlite3.connect(stage_path)
     codes = [r[0] for r in stage.execute(
         "SELECT term_code FROM banner_terms ORDER BY term_code")]
     if not codes:
         raise SystemExit(f"{stage_path}: no terms staged")
+    staged_tables = {r[0] for r in stage.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")}
 
     conn = open_conn()
     try:
-        apply_ddl(conn.cursor())
+        cur = conn.cursor()
+        apply_ddl(cur)
         conn.commit()
+        cur.execute("SELECT term_code, section_count, scraped_closed, instructors_source, "
+                    "attributed_sections, instructor_count FROM banner_terms")
+        prod = {r[0]: r[1:] for r in cur.fetchall()}
     finally:
         conn.close()
 
     def rows(table, columns, code):
+        if table not in staged_tables:     # a stage file from before the table existed
+            return []
         cur = stage.execute(
             f"SELECT {', '.join(columns)} FROM {table} WHERE term_code = ?", (code,))
         return [dict(zip(columns, r)) for r in cur.fetchall()]
@@ -401,27 +470,57 @@ def push(stage_path, open_conn):
                     r[f] = bool(r[f])
         return rows_
 
-    total = 0
+    total, refused = 0, []
     for code in codes:
         terms = as_bool(rows("banner_terms", TERM_COLUMNS, code), "view_only", "scraped_closed")
-        sections = as_bool(rows("banner_sections", SECTION_COLUMNS, code), "is_linked")
-        instructors = as_bool(rows("banner_section_instructors", INSTRUCTOR_COLUMNS, code),
-                              "is_primary")
+        term = terms[0]
+        prior = prod.get(code)
+        if prior:
+            prod_count, prod_closed = prior[0] or 0, bool(prior[1])
+            if term["section_count"] < prod_count * MIN_SECTION_RATIO:
+                print(f"REFUSED {code}: staged {term['section_count']} sections against "
+                      f"prod's {prod_count} — a stale or truncated stage", file=sys.stderr)
+                refused.append(code)
+                continue
+            if prod_closed and not term["scraped_closed"]:
+                print(f"REFUSED {code}: prod holds the closed term's final scrape; the "
+                      f"stage only has an open snapshot", file=sys.stderr)
+                refused.append(code)
+                continue
 
-        def work(cur, code=code, terms=terms, sections=sections, instructors=instructors):
+        with_instructors = term["instructors_source"] == "banner"
+        sections = rows("banner_sections", SECTION_COLUMNS, code)
+        instructors = as_bool(rows("banner_section_instructors", INSTRUCTOR_COLUMNS, code),
+                              "is_primary") if with_instructors else []
+        duplicates = rows("banner_roster_duplicates", DUPLICATE_COLUMNS, code) \
+            if with_instructors else []
+        if not with_instructors and prior:
+            term.update(instructors_source=prior[2], attributed_sections=prior[3],
+                        instructor_count=prior[4])
+
+        def work(cur, code=code, terms=terms, sections=sections, instructors=instructors,
+                 duplicates=duplicates, with_instructors=with_instructors):
             ph = _placeholder(cur)
-            for table in ("banner_section_instructors", "banner_sections", "banner_terms"):
+            tables = ("banner_sections", "banner_terms")
+            if with_instructors:
+                tables = ("banner_section_instructors", "banner_roster_duplicates") + tables
+            for table in tables:
                 cur.execute(f"DELETE FROM {table} WHERE term_code = {ph}", (code,))
             _insert(cur, "banner_sections", SECTION_COLUMNS, sections)
-            _insert(cur, "banner_section_instructors", INSTRUCTOR_COLUMNS, instructors)
+            if with_instructors:
+                _insert(cur, "banner_section_instructors", INSTRUCTOR_COLUMNS, instructors)
+                _insert(cur, "banner_roster_duplicates", DUPLICATE_COLUMNS, duplicates)
             _insert(cur, "banner_terms", TERM_COLUMNS, terms)
             return len(sections)
 
         n = with_retry(open_conn, work)
         total += n
-        print(f"pushed {code}: {n} sections, {len(instructors)} instructor rows")
-    print(f"pushed {len(codes)} terms, {total} sections")
-    return 0
+        print(f"pushed {code}: {n} sections, "
+              + (f"{len(instructors)} instructor rows" if with_instructors
+                 else "instructor rows left as they are"))
+    print(f"pushed {len(codes) - len(refused)} terms, {total} sections"
+          + (f"; refused {len(refused)} ({', '.join(refused)})" if refused else ""))
+    return 1 if refused else 0
 
 
 def sqlite_opener(path):
@@ -462,7 +561,7 @@ def main(argv=None):
     ap.add_argument("--max-sections", type=int,
                     help="stop starting new terms after this many sections")
     ap.add_argument("--concurrency", type=int,
-                    help="parallel faculty lookups (default 4 current, "
+                    help="parallel faculty lookups (default 2 current, "
                          f"{BACKFILL_CONCURRENCY} backfill)")
     ap.add_argument("--dry-run", action="store_true", help="scrape and gate, write nothing")
     ap.add_argument("--local-db", help="write to this sqlite file instead of CockroachDB")
@@ -487,10 +586,12 @@ def main(argv=None):
             return 1
         return push(args.push_from, open_conn)
 
-    from banner_client import CONCURRENCY, BannerClient
+    from banner_api import WEEKLY_CONCURRENCY
+    from banner_client import BannerClient
 
     mode = "backfill" if args.backfill else "current"
-    concurrency = args.concurrency or (BACKFILL_CONCURRENCY if args.backfill else CONCURRENCY)
+    concurrency = args.concurrency or (BACKFILL_CONCURRENCY if args.backfill
+                                       else WEEKLY_CONCURRENCY)
     ok, failed = run(BannerClient(concurrency=concurrency), open_conn,
                      mode, since_term=args.since, max_sections=args.max_sections,
                      dry_run=args.dry_run, instructors_from=args.instructors_from)

@@ -15,8 +15,11 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 import psycopg2  # noqa: E402
 
 import banner_scrape  # noqa: E402
-from load_banner_to_crdb import (apply_ddl, known_terms, push,  # noqa: E402
-                                 run, sync_view_only, with_retry, write_term)
+import load_banner_to_crdb  # noqa: E402
+from banner_client import BannerRequestFailed  # noqa: E402
+from load_banner_to_crdb import (apply_ddl, connect, known_terms,  # noqa: E402
+                                 push, run, sync_view_only, with_retry,
+                                 write_term)
 from test_banner_scrape import ANNIE, PAT, FakeClient, section  # noqa: E402
 
 FALL = {"label": "Fall 2026", "season": "Fall", "season_group": "Fall",
@@ -147,6 +150,51 @@ def test_first_seen_is_set_once_for_open_terms_and_never_for_backfill(cur):
     assert cur.execute("SELECT first_seen_at FROM banner_terms WHERE term_code='202630'").fetchone()[0] is None
 
 
+def test_a_failed_lookup_keeps_the_rows_last_week_attributed(cur):
+    """The reviewer's repro: CRN 2's lookup failed on the final scrape, the gate
+    tolerated it, and the delete wiped the instructor last week had right."""
+    write_term(cur, "202710", FALL, None,
+               scrape([sec("1"), sec("2")], [ins("202710", "1"), ins("202710", "2", "pat hurley")]))
+    final = scrape([sec("1"), sec("2")], [ins("202710", "1")])
+    final["failed_crns"] = ["2"]
+    write_term(cur, "202710", {**FALL, "view_only": True}, None, final)
+    assert sorted(cur.execute("SELECT crn, instructor_key FROM banner_section_instructors")) == [
+        ("1", "annie witte"), ("2", "pat hurley")]
+
+
+def test_a_closed_term_with_failed_lookups_is_not_marked_finished(cur):
+    """So the next finalize pass retries it rather than freezing the gap."""
+    final = scrape([sec("1"), sec("2")], [ins("202630", "1")])
+    final["failed_crns"] = ["2"]
+    write_term(cur, "202630", SPRING, None, final)
+    assert known_terms(cur)["202630"] == (False, 2)
+
+
+def test_an_ended_term_is_stored_closed(cur):
+    ended = scrape([sec("1")], [ins("202650", "1")])
+    ended["ended"] = True
+    write_term(cur, "202650", {**FALL, "label": "Summer 2026"}, None, ended)
+    assert cur.execute("SELECT view_only, scraped_closed FROM banner_terms").fetchone() == (1, 1)
+
+
+def test_sections_only_write_keeps_the_terms_instructor_counts(cur):
+    write_term(cur, "202510", SPRING, None,
+               scrape([sec("1"), sec("2")], [ins("202510", "1"), ins("202510", "2", "pat hurley")]))
+    write_term(cur, "202510", SPRING, None,
+               {"sections": [sec("1"), sec("2")], "instructors": None,
+                "stats": {"section_count": 2, "attributed_sections": 0, "instructor_count": 0}})
+    assert cur.execute("SELECT attributed_sections, instructor_count FROM banner_terms").fetchone() == (2, 2)
+
+
+def test_roster_duplicates_are_stored_and_replaced_with_the_term(cur):
+    first = scrape([sec("1")], [ins("202710", "1")])
+    first["roster_duplicates"] = ["wei wang"]
+    write_term(cur, "202710", FALL, None, first)
+    assert cur.execute("SELECT instructor_key FROM banner_roster_duplicates").fetchall() == [("wei wang",)]
+    write_term(cur, "202710", FALL, None, scrape([sec("1")], [ins("202710", "1")]))
+    assert count(cur, "banner_roster_duplicates") == 0
+
+
 # ── sync_view_only ────────────────────────────────────────────────────────
 
 def test_sync_marks_a_closed_term_without_clearing_its_final_scrape_debt(cur):
@@ -191,6 +239,36 @@ def test_run_current_loads_only_open_terms(db):
                         {"1": ANNIE, "5": PAT}, terms=TERMS)
     assert run(client, db, "current") == (["202710"], [])
     assert count(db().cursor(), "banner_sections") == 1
+
+
+def test_run_current_carries_on_past_a_refused_newer_term(db, capsys):
+    """The reviewer's repro: a future term with no sections yet sorts above the
+    live term, and the old `break` meant Fall 2026 was never refreshed."""
+    terms = [{"code": "202730", "description": "Spring 2027 Semester"}] + TERMS
+    client = FakeClient({"202730": [], "202710": [section("1")]}, {"1": ANNIE}, terms=terms)
+    assert run(client, db, "current") == (["202710"], ["202730"])
+    assert count(db().cursor(), "banner_sections", "202710") == 1
+
+
+def test_run_current_treats_a_failed_bootstrap_as_one_refused_term(db):
+    class FlakyBootstrap(FakeClient):
+        def bootstrap(self, term_code):
+            if term_code == "202730":
+                raise BannerRequestFailed("term/search failed (500)")
+            super().bootstrap(term_code)
+
+    terms = [{"code": "202730", "description": "Spring 2027 Semester"}] + TERMS
+    client = FlakyBootstrap({"202710": [section("1")]}, {"1": ANNIE}, terms=terms)
+    assert run(client, db, "current") == (["202710"], ["202730"])
+
+
+def test_run_current_skips_a_term_already_stored_as_ended(db):
+    """Once an ended term is stored closed, the weekly run stops re-scraping it
+    while Banner still lists it as open."""
+    client = FakeClient({"202710": [section("1", end="09/01/2026")]}, {"1": ANNIE}, terms=TERMS)
+    assert run(client, db, "current") == (["202710"], [])
+    assert known_terms(db().cursor())["202710"] == (True, 1)
+    assert run(client, db, "current") == ([], [])
 
 
 def test_run_backfill_is_resumable_and_skips_finished_terms(db):
@@ -328,3 +406,86 @@ def test_with_retry_commits_once_on_the_happy_path():
     conn = _FakeConn()
     assert with_retry(lambda: conn, lambda _c: 42, sleep=lambda _: None) == 42
     assert conn.committed and conn.closed
+
+
+# ── push ──────────────────────────────────────────────────────────────────
+
+def _stage_sections_only(tmp_path, n_sections=1):
+    stage = str(tmp_path / "stage.db")
+    client = FakeClient({"202630": [section(str(i)) for i in range(n_sections)]}, {},
+                        terms=TERMS)
+    run(client, lambda: sqlite3.connect(stage), "backfill", since_term="202630",
+        instructors_from="202710")
+    return stage
+
+
+def test_push_of_a_sections_only_stage_keeps_prods_imported_instructors(db, tmp_path):
+    """The reviewer's repro: prod held import rows for the term, the stage had
+    none, and the push deleted them and relabelled the term 'none'."""
+    conn = db()
+    c = conn.cursor()
+    apply_ddl(c)
+    write_term(c, "202630", SPRING, None,
+               scrape([sec("0")], [ins("202630", "0"), ins("202630", "0", "pat hurley")]))
+    c.execute("UPDATE banner_section_instructors SET source = 'import'")
+    c.execute("UPDATE banner_terms SET instructors_source = 'import'")
+    conn.commit()
+
+    assert push(_stage_sections_only(tmp_path), db) == 0
+    cur = db().cursor()
+    assert sorted(cur.execute("SELECT term_code, crn, source FROM banner_section_instructors")) == [
+        ("202630", "0", "import"), ("202630", "0", "import")]
+    assert cur.execute("SELECT instructors_source, attributed_sections, instructor_count "
+                       "FROM banner_terms").fetchone() == ("import", 1, 2)
+
+
+def test_push_refuses_a_term_far_smaller_than_prods(db, tmp_path):
+    conn = db()
+    c = conn.cursor()
+    apply_ddl(c)
+    write_term(c, "202630", SPRING, None, scrape([sec(str(i)) for i in range(10)], []))
+    conn.commit()
+
+    assert push(_stage_sections_only(tmp_path, n_sections=5), db) == 1
+    assert count(db().cursor(), "banner_sections", "202630") == 10
+
+
+def test_push_refuses_an_open_snapshot_over_a_closed_term(db, tmp_path):
+    stage = str(tmp_path / "stage.db")
+    run(FakeClient({"202710": [section("1")]}, {"1": ANNIE}, terms=TERMS),
+        lambda: sqlite3.connect(stage), "current")
+    conn = db()
+    c = conn.cursor()
+    apply_ddl(c)
+    write_term(c, "202710", {**FALL, "view_only": True}, None,
+               scrape([sec("1")], [ins("202710", "1", "pat hurley")]))
+    conn.commit()
+
+    assert push(stage, db) == 1
+    assert db().cursor().execute(
+        "SELECT instructor_key FROM banner_section_instructors").fetchall() == [("pat hurley",)]
+
+
+# ── connect ───────────────────────────────────────────────────────────────
+
+def test_connect_retries_the_dns_flake(monkeypatch):
+    attempts = []
+
+    def flaky(dsn, sslmode):
+        attempts.append(sslmode)
+        if len(attempts) < 3:
+            raise psycopg2.OperationalError('could not translate host name "x" to address')
+        return "conn"
+
+    monkeypatch.setattr(load_banner_to_crdb.psycopg2, "connect", flaky)
+    assert connect("postgres://x", sleep=lambda _: None) == "conn"
+    assert attempts == ["require"] * 3
+
+
+def test_connect_does_not_retry_other_errors(monkeypatch):
+    def refused(dsn, sslmode):
+        raise psycopg2.OperationalError("password authentication failed")
+
+    monkeypatch.setattr(load_banner_to_crdb.psycopg2, "connect", refused)
+    with pytest.raises(psycopg2.OperationalError, match="password"):
+        connect("postgres://x", sleep=lambda _: pytest.fail("must not retry"))

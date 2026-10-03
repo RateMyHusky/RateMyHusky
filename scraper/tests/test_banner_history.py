@@ -14,7 +14,9 @@ LABELS = {"202710": ("Fall 2026", "Fall"), "202630": ("Spring 2026", "Spring"),
           "202530": ("Spring 2025", "Spring"), "202510": ("Fall 2024", "Fall"),
           "202430": ("Spring 2024", "Spring"), "202410": ("Fall 2023", "Fall"),
           "202330": ("Spring 2023", "Spring"), "202310": ("Fall 2022", "Fall"),
-          "202615": ("Fall 2025", "Fall")}
+          "202615": ("Fall 2025", "Fall"),
+          "202325": ("Winter 2023", "Winter"), "202425": ("Winter 2024", "Winter"),
+          "202525": ("Winter 2025", "Winter"), "202625": ("Winter 2026", "Winter")}
 
 
 def sec(term, crn, course="CS3500", enrollment=30, cap=40, wait=0,
@@ -43,7 +45,7 @@ def ins(term, crn, key="annie witte", course="CS3500", enrollment=30,
 
 
 def matcher(known):
-    def match(key):
+    def match(key, course=None, term_codes=()):
         if key in known:
             return known[key], key, "name_key"
         return None, None, "no_match"
@@ -283,3 +285,53 @@ def test_generic_titles_are_never_candidates():
             offering("CS5963", "Topics", "202410", "202710")]
     rows = [taught("INAM5963", "x y"), taught("CS5963", "x y")]
     assert rename_candidates(offs, rows) == []
+
+
+# ── cancelled sections ───────────────────────────────────────────────────
+
+def test_a_cancelled_section_does_not_count_as_taught():
+    """The reviewer's repro: one closed-term section with 0 enrolled gave
+    terms_taught=1 and last_term='Spring 2024'."""
+    rows = [ins("202430", "1", enrollment=0)]
+    assert build_course_instructors(rows, matcher({})) == []
+
+
+def test_a_cancelled_section_does_not_set_the_last_term():
+    rows = [ins("202330", "1"), ins("202430", "2", enrollment=0)]
+    got = build_course_instructors(rows, matcher({}))[0]
+    assert (got["terms_taught"], got["last_term_label"]) == (1, "Spring 2023")
+
+
+def test_a_course_whose_every_section_was_cancelled_is_not_offered():
+    """Four years of 0-enrollment sections used to read as offered every Spring."""
+    secs = [sec(t, "1", enrollment=0) for t in ("202330", "202430", "202530", "202630")]
+    secs.append(sec("202630", "9", course="CS2500"))
+    assert [o["subject_course"] for o in build_course_offerings(secs)] == ["CS2500"]
+
+
+def test_zero_enrolled_in_an_open_term_still_counts():
+    """Registration hasn't filled it yet; that's not a cancellation."""
+    got = build_course_offerings([sec("202710", "1", enrollment=0)])
+    assert got[0]["offered_now"] == "Fall 2026"
+
+
+# ── CPS Winter quarter ───────────────────────────────────────────────────
+
+def test_a_winter_quarter_course_counts_as_spring():
+    """MGT5000 ran every Winter quarter and read 'Not offered recently'."""
+    secs = [sec(t, "1", course="MGT5000") for t in ("202325", "202425", "202525", "202625")]
+    secs += [sec(t, "2", course="CS2500") for t in ("202330", "202430", "202530", "202630")]
+    got = {o["subject_course"]: o for o in build_course_offerings(secs)}
+    assert got["MGT5000"]["pattern"] == "Spring"
+    assert got["MGT5000"]["spring_years"] == 4
+
+
+def test_match_gets_the_course_and_terms_it_is_judging():
+    seen = []
+
+    def match(key, course, term_codes):
+        seen.append((key, course, term_codes))
+        return None, None, "no_match"
+
+    build_course_instructors([ins("202630", "1"), ins("202610", "2")], match)
+    assert seen == [("annie witte", "CS3500", {"202630", "202610"})]

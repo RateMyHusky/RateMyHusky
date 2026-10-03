@@ -21,10 +21,14 @@ import unicodedata
 from datetime import datetime
 
 BASE = "https://nubanner.neu.edu/StudentRegistrationSsb/ssb"
-USER_AGENT = "RateMyHusky/1.0 (+https://github.com/RayanR000/RateMyHusky)"
+USER_AGENT = "RateMyHusky/1.0 (+https://github.com/gRain-is-grainy/RateMyHusky)"
 
 PAGE_SIZE = 500     # server-side hard cap; asking for 1000 returns 500
 CONCURRENCY = 4     # measured optimum: 1,065 req/min. 6 and 8 are slower.
+# The weekly refresh has no reason to run at that optimum against the live
+# registration system: ~7k requests per open term, every Monday. Half the
+# rate roughly doubles the run (measured 11m57s per full term at 4).
+WEEKLY_CONCURRENCY = 2
 TIMEOUT = 30        # matches fetch_lite.py
 MAX_PAGES = 40      # circuit breaker: 40 * 500 = 20k sections, ~2x the largest term
 
@@ -63,6 +67,18 @@ _VIEW_ONLY = "(view only)"
 _TERM_RE = re.compile(
     r"^\s*(Summer Full|Summer 1|Summer 2|Summer|Fall|Spring|Winter)\s+(\d{4})\s*(.*)$",
     re.IGNORECASE)
+
+
+# CPS runs a Winter quarter (January to March) alongside the Spring semester.
+# For "when is this course offered" and for the teaching chip it is the same
+# part of the year, so it folds into Spring rather than vanishing: a course that
+# runs every Winter quarter would otherwise read "Not offered recently".
+_PATTERN_SEASON = {"Winter": "Spring"}
+
+
+def pattern_season(season_group):
+    """season_group -> the season it counts as for offering patterns and the chip."""
+    return _PATTERN_SEASON.get(season_group, season_group)
 
 
 def normalize_instructor_key(display_name):

@@ -19,9 +19,12 @@ from banner_scrape import (SanityGateFailed, plan_terms,  # noqa: E402
 
 
 def section(crn, subject_course="ACCT1201", schedule_type="Lecture",
-            campus="Boston", end="12/20/2026"):
+            campus="Boston", end="12/20/2026", term=None):
+    # No "term" unless a test sets one: FakeClient serves these rows for any
+    # term code, and scrape_term refuses rows that name a different term.
+    row = {} if term is None else {"term": term}
     return {
-        "term": "202710", "termDesc": "Fall 2026 Semester",
+        **row, "termDesc": "Fall 2026 Semester",
         "courseReferenceNumber": crn, "subject": subject_course[:4],
         "subjectCourse": subject_course, "courseNumber": subject_course[4:],
         "sequenceNumber": "01", "courseTitle": "T", "campusDescription": campus,
@@ -350,11 +353,46 @@ def test_gate_allows_a_small_number_of_failures_on_the_full_fetch_set():
     assert got["stats"]["section_count"] == 200
 
 
-def test_gate_aborts_when_term_already_ended():
-    """Validates Banner's (View Only) convention against real meeting dates."""
+def test_an_ended_term_banner_has_not_closed_is_scraped_as_closed():
+    """Banner can be slow to mark an ended term View Only. Refusing it would fail
+    the weekly run every Monday until Banner caught up; past its last meeting
+    the enrollment is final, so the scrape is kept and flagged as closed."""
     client = FakeClient({"202710": [section("1", end="12/20/2025")]}, {"1": ANNIE})
-    with pytest.raises(SanityGateFailed, match="already ended"):
-        scrape_term(client, "202710", today=TODAY)
+    got = scrape_term(client, "202710", today=TODAY)
+    assert got["ended"] is True
+    assert got["stats"]["section_count"] == 1
+
+
+def test_a_term_still_running_is_not_flagged_ended():
+    client = FakeClient({"202710": [section("1")]}, {"1": ANNIE})
+    assert scrape_term(client, "202710", today=TODAY)["ended"] is False
+
+
+def test_rows_for_another_term_are_refused():
+    """The reviewer's repro: a stale session served 202530's rows for 202430,
+    and they were stored under the requested code."""
+    rows = [section(str(i), term="202530") for i in range(5)]
+    client = FakeClient({"202430": rows}, {})
+    with pytest.raises(SanityGateFailed, match="202530"):
+        scrape_term(client, "202430", today=TODAY, view_only=True, with_instructors=False)
+
+
+def test_rows_for_the_requested_term_pass():
+    client = FakeClient({"202710": [section("1", term="202710")]}, {"1": ANNIE})
+    assert scrape_term(client, "202710", today=TODAY)["stats"]["section_count"] == 1
+
+
+def test_failed_lookups_are_reported_so_their_rows_can_be_kept():
+    sections = [section(str(i)) for i in range(200)]
+    faculty = {str(i): (None if i < 2 else ANNIE) for i in range(200)}
+    got = scrape_term(FakeClient({"202710": sections}, faculty), "202710", today=TODAY)
+    assert got["failed_crns"] == ["0", "1"]
+
+
+def test_roster_duplicates_are_carried_into_the_result():
+    roster = Roster(keys={"annie witte"}, row_count=2, duplicate_keys=frozenset({"annie witte"}))
+    client = FakeClient({"202710": [section("1")]}, {"1": ANNIE}, roster=roster)
+    assert scrape_term(client, "202710", today=TODAY)["roster_duplicates"] == ["annie witte"]
 
 
 def test_end_date_gate_is_skipped_for_a_closed_term():
@@ -424,6 +462,13 @@ TERMS = [
 
 def test_plan_current_picks_every_open_term():
     assert [c for c, _ in plan_terms(TERMS, {}, "current")] == ["202710"]
+
+
+def test_plan_current_skips_an_open_term_already_stored_as_closed():
+    """An ended term Banner hasn't marked View Only is scraped once as closed;
+    after that the weekly run leaves it alone."""
+    assert plan_terms(TERMS, {"202710": True}, "current") == []
+    assert [c for c, _ in plan_terms(TERMS, {"202710": False}, "current")] == ["202710"]
 
 
 def test_plan_backfill_takes_closed_terms_newest_first_from_since():

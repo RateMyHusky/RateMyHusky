@@ -13,9 +13,16 @@ email column, and Banner itself only supplies one
 ~15% of the time (measured 2026-08-04). So identity on both sides is a
 normalized name.
 
-No fuzzy matching. Banner offers no department or subject signal at match time,
-and a wrong match publishes a course on the wrong person's profile. Ambiguity
-is recorded, never resolved.
+No fuzzy matching, and a name is not identity on its own: two different people
+share names across five years of rosters. A name match is only credited when
+the course's subject is one the professor's catalog department teaches (learned
+from every other professor in that department), and never when a term's own
+roster listed the name twice. A wrong match publishes a course on the wrong
+person's profile, so ambiguity is recorded, never resolved.
+
+Only Banner's own instructor rows (source = 'banner') are read. The one-off
+import that filled Fall 2021 to Summer 2025 is not Banner data and stays out
+of the public history until those terms are scraped from Banner.
 
 Usage
 -----
@@ -24,25 +31,27 @@ Usage
 
 import argparse
 import os
+import re
 import sqlite3
 import sys
 from datetime import datetime, timezone
 
-import psycopg2
 from psycopg2.extras import execute_values
 
 sys.path.insert(0, os.path.abspath(os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")))
 
-from banner_api import NON_PLACE_CAMPUSES, NON_TEACHING_SCHEDULE_TYPES  # noqa: E402,F401
-from banner_history import (build_course_instructors,  # noqa: E402
-                            build_course_offerings, rename_candidates)
+from banner_api import pattern_season  # noqa: E402
+from banner_history import (academic_year,  # noqa: E402
+                            build_course_instructors, build_course_offerings,
+                            is_teaching, place, rename_candidates)
 from prof_aliases import ALIAS_MAP  # noqa: E402
 
 # One definition of how to reach CRDB, shared with the loader: sslmode must
-# override the DSN's verify-full or the connection fails outright. with_retry
-# comes from the same place so both write paths replay a 40001 identically.
-from load_banner_to_crdb import connect, with_retry  # noqa: E402
+# override the DSN's verify-full or the connection fails outright, and the DNS
+# flake is retried. with_retry comes from the same place so both write paths
+# replay a 40001 identically.
+from load_banner_to_crdb import apply_ddl, connect, with_retry  # noqa: E402
 
 # A run must keep at least this share of the previous run's matches. Not a
 # share of Banner: the catalog only holds professors with an RMP page, so most
@@ -50,6 +59,24 @@ from load_banner_to_crdb import connect, with_retry  # noqa: E402
 # measured 2026-10-02). A broken run — an empty or mismatched catalog index, a
 # name_key normalization change — shows up as a collapse against last week.
 MIN_KEPT_RATIO = 0.5
+
+# A department needs at least this many professors matched by exact name before
+# its subjects can vouch for anyone; below it there is too little to learn from,
+# and the subject check abstains (see subject_agrees).
+MIN_DEPARTMENT_PROFESSORS = 3
+# Two subjects are related when at least this many different instructors taught
+# both in the same term (MATH and CS, ENGL and HIST). Measured 2026-10-03 on the
+# local Fall 2025 – Fall 2026 stage: CHEM and FINA share none.
+MIN_RELATED_INSTRUCTORS = 2
+# An unrelated subject only counts as a namesake's when it was taught at least
+# this many academic years away from the professor's own teaching: a gap of a
+# full year or more with nothing in between. Closer than that is the same
+# person (measured 2026-10-03 on the local stage: every subject rejected at a
+# smaller gap was a real professor's PJM, AAI or TELE course one term earlier).
+MIN_NAMESAKE_GAP_YEARS = 2
+# RMP leaves some departments blank or literally "unspecified".
+_NO_DEPARTMENT = {"", "unspecified", "none"}
+_SUBJECT_RE = re.compile(r"^[A-Za-z]+")
 
 # Banner-only name variants -> the catalog name_key they belong to.
 #
@@ -257,24 +284,6 @@ UNMATCHED_COLUMNS = ("term_desc", "instructor_key", "instructor_name",
                      "candidates", "scraped_at")
 
 
-def single_term_desc(rows):
-    """The one term_desc all `rows` must share, or raise.
-
-    `rows[0]["term_desc"]` alone reads from an unordered SELECT: if
-    banner_sections ever holds more than one season's rows at once (a stale
-    prune that didn't run, a partial write, a race with load_banner_to_crdb),
-    whichever row happens to come back first silently decides which season
-    every professor's chip gets labelled with. Fail loudly instead of
-    guessing.
-    """
-    descs = {r["term_desc"] for r in rows}
-    if len(descs) != 1:
-        raise ValueError(
-            f"banner_sections holds {len(descs)} distinct term_desc values "
-            f"{sorted(descs)} — expected exactly one; refusing to guess")
-    return next(iter(descs))
-
-
 def catalog_index(cur):
     """name_key -> [(slug, name_key)]. A list, so collisions stay visible."""
     cur.execute("SELECT slug, name_key FROM professors_catalog")
@@ -285,9 +294,232 @@ def catalog_index(cur):
     return index
 
 
+def catalog_departments(cur):
+    """slug -> department, or None where the catalog has none."""
+    cur.execute("SELECT slug, department FROM professors_catalog")
+    out = {}
+    for slug, dept in cur.fetchall():
+        d = (dept or "").strip()
+        out[slug] = None if d.lower() in _NO_DEPARTMENT else d
+    return out
+
+
+def subject_of(subject_course):
+    """"CHEM1211" -> "CHEM"."""
+    m = _SUBJECT_RE.match(subject_course or "")
+    return m.group(0).upper() if m else None
+
+
+def department_subjects(instructor_rows, index, departments):
+    """{department: {subject: {slugs}}} from exact, unambiguous name matches.
+
+    What a department teaches, learned from Banner itself: every professor whose
+    Banner name equals exactly one catalog name_key contributes the subjects
+    they teach to their catalog department. RMP departments ("Business",
+    "Engineering") don't map one-to-one onto Banner subjects, so this is learned
+    rather than hand-written.
+    """
+    out = {}
+    for r in instructor_rows:
+        if not is_teaching(r):
+            continue
+        hits = index.get(r.get("instructor_key")) or []
+        subject = subject_of(r.get("subject_course"))
+        if len(hits) != 1 or not subject:
+            continue
+        slug = hits[0][0]
+        dept = departments.get(slug)
+        if dept:
+            out.setdefault(dept, {}).setdefault(subject, set()).add(slug)
+    return out
+
+
+def subject_agrees(department, subject, slug, stats):
+    """True / False / None: is `subject` one `department` teaches?
+
+    Judged by the *other* professors in the department, so a second person who
+    shares the professor's name can't vouch for their own courses (the Wei Wang
+    who teaches CHEM is not evidence that the Finance Wei Wang does). None means
+    there is nothing to judge by: no department, or too few matched professors
+    in it.
+    """
+    if not department or department not in stats:
+        return None
+    by_subject = stats[department]
+    professors = set().union(*by_subject.values())
+    if len(professors) < MIN_DEPARTMENT_PROFESSORS:
+        return None
+    return bool(by_subject.get(subject, set()) - {slug})
+
+
+def related_subjects(teaching):
+    """{subject: {subjects}} taught together in one term by enough instructors.
+
+    `teaching` is subjects_by_term's output. Joint appointments and
+    cross-listings make these pairs common between neighbouring fields and
+    essentially absent between unrelated ones, which is what lets a professor's
+    second subject pass without letting a namesake's pass.
+    """
+    pairs = {}
+    for key, terms in teaching.items():
+        for subjects in terms.values():
+            for a in subjects:
+                for b in subjects:
+                    if a != b:
+                        pairs.setdefault((a, b), set()).add(key)
+    out = {}
+    for (a, b), keys in pairs.items():
+        if len(keys) >= MIN_RELATED_INSTRUCTORS:
+            out.setdefault(a, set()).add(b)
+    return out
+
+
+def subjects_by_term(instructor_rows):
+    """{instructor_key: {term_code: {subjects}}} over teaching rows."""
+    out = {}
+    for r in instructor_rows:
+        subject = subject_of(r.get("subject_course"))
+        if r.get("instructor_key") and subject and is_teaching(r):
+            out.setdefault(r["instructor_key"], {}).setdefault(
+                str(r["term_code"]), set()).add(subject)
+    return out
+
+
+class Identity:
+    """Everything a match needs beyond the name: catalog departments, what each
+    department teaches, every subject each name taught per term, and the names
+    a term's roster listed more than once.
+
+    Built once per run and called as identity(key, course, term_codes) for
+    the history (banner_history's match contract), or through resolve() for
+    the chip, which judges an instructor's whole course list at once.
+    """
+
+    def __init__(self, index, departments=None, subject_stats=None, roster_duplicates=(),
+                 teaching=None):
+        self.index = index
+        self.departments = departments or {}
+        self.stats = subject_stats or {}
+        self.duplicates = set(roster_duplicates)
+        self.teaching = teaching or {}
+        self.related = related_subjects(self.teaching)
+        self._personal = {}
+        self._span = {}
+
+    def active_span(self, key, slug):
+        """(first, last) term code in which this name taught a subject that
+        belongs to the professor, or None if it never did."""
+        if (key, slug) not in self._span:
+            terms = [int(t) for t, subjects in self.teaching.get(key, {}).items()
+                     if any(self.verdict(key, slug, s) is True for s in subjects)]
+            self._span[(key, slug)] = (min(terms), max(terms)) if terms else None
+        return self._span[(key, slug)]
+
+    def belongs(self, key, slug, method, subject, term_codes):
+        """Is a course in `subject`, taught in `term_codes`, this professor's?
+
+        An ALIAS_MAP match needs the subject to belong outright (verdict True).
+        An exact name is refused only on evidence of a second person: the
+        subject belongs to nothing the professor or their department teaches,
+        *and* it was taught at least MIN_NAMESAKE_GAP_YEARS academic years
+        away from every term in which the name taught the professor's own
+        subjects. Two namesakes active in the same years would share a term,
+        which the roster check refuses; one who slipped past it taught well
+        before or after the professor did (the reviewer's case: CHEM1211 in
+        2022, FINA2201 in 2026). A professor's cross-department course near
+        their own teaching years is kept, as is everything for a name with no
+        subject the department vouches for (RMP's department labels are too
+        coarse to overrule Banner there).
+        """
+        v = self.verdict(key, slug, subject)
+        if method == "alias":
+            return v is True
+        if v is not False:
+            return True
+        span = self.active_span(key, slug)
+        if span is None or not term_codes:
+            return True
+        first, last = academic_year(span[0]), academic_year(span[1])
+        return any(first - MIN_NAMESAKE_GAP_YEARS < academic_year(t) < last + MIN_NAMESAKE_GAP_YEARS
+                   for t in term_codes)
+
+    def personal_subjects(self, key, slug):
+        """Subjects this name taught in a term where it also taught one the
+        department vouches for.
+
+        Within one term a name is one person (two people sharing it there show
+        up as a roster duplicate and are refused), so a professor's cross-listed
+        or interdisciplinary courses (an English professor's HIST section, a
+        chemical engineer's ENLR one) ride on the department subject taught
+        alongside them. A namesake who never shares a term with the professor
+        (the CHEM Wei Wang of 2022, the FINA one of 2026) gets no such anchor.
+        """
+        if (key, slug) not in self._personal:
+            dept = self.departments.get(slug)
+            personal = set()
+            for subjects in self.teaching.get(key, {}).values():
+                if any(subject_agrees(dept, s, slug, self.stats) is True for s in subjects):
+                    personal |= subjects
+            self._personal[(key, slug)] = personal
+        return self._personal[(key, slug)]
+
+    def verdict(self, key, slug, subject):
+        """True / False / None: does `subject` belong to this professor?
+
+        True when the department teaches it (subject_agrees), when the name
+        taught it alongside a department subject in one term
+        (personal_subjects), or when it is related to a subject the department
+        teaches (related_subjects). None when the department has too little
+        evidence to judge; False otherwise.
+        """
+        dept = self.departments.get(slug)
+        agrees = subject_agrees(dept, subject, slug, self.stats)
+        if agrees is None:
+            return None
+        if agrees or subject in self.personal_subjects(key, slug):
+            return True
+        taught = {s for s in self.stats[dept] if subject_agrees(dept, s, slug, self.stats)}
+        return bool(self.related.get(subject, set()) & taught)
+
+    def resolve(self, key, courses, term_codes=()):
+        """(slug, name_key, method, candidates, kept_courses).
+
+        A name a term's roster listed twice is refused outright: it may be two
+        people, and nothing here can tell which one taught what. Otherwise the
+        name is resolved (match_one), and each course is kept only if its
+        subject agrees with the professor's department:
+          - BANNER_ALIASES entries were each checked by hand, so they pass;
+          - an exact name passes where the check abstains (None) and fails
+            where it says no;
+          - an ALIAS_MAP entry needs a yes. Those aliases were chosen for
+            particular RMP listings, not for every Banner legal name.
+        No course left means no match.
+        """
+        if any((t, key) in self.duplicates for t in term_codes):
+            return None, None, "roster_duplicate", [], []
+        slug, name_key, method, candidates = match_one(key, self.index)
+        if not slug:
+            return None, None, method, candidates, []
+        if method == "banner_alias":
+            return slug, name_key, method, [], list(courses)
+        kept = [c for c in courses
+                if self.belongs(key, slug, method, subject_of(c), term_codes)]
+        if not kept:
+            judged = [self.verdict(key, slug, subject_of(c)) for c in courses]
+            reason = "subject_mismatch" if False in judged else "alias_unverified"
+            return None, None, reason, [slug], []
+        return slug, name_key, method, [], kept
+
+    def __call__(self, key, course=None, term_codes=()):
+        slug, name_key, method, _, _ = self.resolve(key, [course] if course else [], term_codes)
+        return slug, name_key, method
+
+
 def match_one(instructor_key, index):
-    """(slug, name_key, method, candidates). slug is None when unmatched or
-    ambiguous; candidates is the slugs rejected as ambiguous (empty otherwise).
+    """Name resolution only: (slug, name_key, method, candidates). slug is None
+    when unmatched or ambiguous; candidates is the slugs rejected as ambiguous
+    (empty otherwise). Identity.resolve adds the subject and roster checks; call
+    that, not this, to decide what a profile shows.
 
     Order: exact key, then ALIAS_MAP (nicknames and name changes already
     curated for RMP), then BANNER_ALIASES (variants only NUBanner uses).
@@ -340,7 +572,7 @@ def group_instructors(rows):
     """
     groups = {}
     for r in rows:
-        if (r.get("schedule_type") or "").lower() in NON_TEACHING_SCHEDULE_TYPES:
+        if not is_teaching(r):
             continue
         key = r.get("instructor_key")
         if not key:
@@ -351,7 +583,7 @@ def group_instructors(rows):
         })
         if r.get("subject_course"):
             g["courses"].add(r["subject_course"])
-        if r.get("campus") and r["campus"].strip().lower() not in NON_PLACE_CAMPUSES:
+        if place(r.get("campus")):
             g["campuses"].add(r["campus"])
         if r.get("term_code"):
             g["terms"].add(r["term_code"])
@@ -365,8 +597,12 @@ def group_instructors(rows):
     }
 
 
-def build_rows(groups, index, term_desc, scraped_at):
+def build_rows(groups, identity, term_desc, scraped_at):
     """(teaching rows, unmatched rows) as insert-ready tuples.
+
+    `identity` is an Identity, or a bare catalog index (an Identity with no
+    departments, so only exact names match). A matched instructor's chip lists
+    only the courses whose subject agrees with their department.
 
     Two distinct Banner instructor_keys can match the same catalog row — the
     only way left after FIX 4 removed the fuzzy passes is two ALIAS_MAP
@@ -377,10 +613,13 @@ def build_rows(groups, index, term_desc, scraped_at):
     whole matcher dies, so groups that match the same name_key are merged
     here (union of course codes/campuses/term codes) before any row is built.
     """
+    if not isinstance(identity, Identity):
+        identity = Identity(identity)
     merged = {}   # matched name_key -> merged entry
     unmatched = []
     for instructor_key, g in sorted(groups.items()):
-        slug, name_key, method, candidates = match_one(instructor_key, index)
+        slug, name_key, method, candidates, kept = identity.resolve(
+            instructor_key, g["course_codes"], g["term_codes"])
         if not slug:
             courses = ",".join(g["course_codes"])
             unmatched.append((term_desc, instructor_key, g["name"],
@@ -390,7 +629,7 @@ def build_rows(groups, index, term_desc, scraped_at):
             "slug": slug, "method": method,
             "courses": set(), "campuses": set(), "term_codes": set(),
         })
-        entry["courses"].update(g["course_codes"])
+        entry["courses"].update(kept)
         entry["campuses"].update(g["campuses"])
         entry["term_codes"].update(g["term_codes"])
 
@@ -407,48 +646,34 @@ def build_rows(groups, index, term_desc, scraped_at):
     return teaching, unmatched
 
 
-def _placeholder(cur):
-    """sqlite uses ?, psycopg2 uses %s. The tests run on sqlite."""
-    return "?" if isinstance(cur, sqlite3.Cursor) else "%s"
-
-
 def _insert(cur, table, columns, rows):
+    """Plain insert: write_results has already emptied the table."""
     if not rows:
         return 0
     if isinstance(cur, sqlite3.Cursor):
         cur.executemany(
-            f"INSERT OR REPLACE INTO {table} ({', '.join(columns)}) "
+            f"INSERT INTO {table} ({', '.join(columns)}) "
             f"VALUES ({', '.join('?' * len(columns))})", rows)
     else:
-        conflict = "(name_key, term_desc)" if table == "professor_teaching" \
-                   else "(term_desc, instructor_key)"
-        updates = ", ".join(f"{c} = excluded.{c}" for c in columns)
         execute_values(
-            cur,
-            f"INSERT INTO {table} ({', '.join(columns)}) VALUES %s "
-            f"ON CONFLICT {conflict} DO UPDATE SET {updates}",
+            cur, f"INSERT INTO {table} ({', '.join(columns)}) VALUES %s",
             rows, page_size=2000)
     return len(rows)
 
 
 def write_results(cur, term_desc, teaching, unmatched):
-    """Replace this run's rows for `term_desc`, drop stale older seasons.
+    """Replace both tables with this run's rows for `term_desc`.
 
-    A professor who leaves the current roster — cancelled section,
-    reassignment, conversion to Individual Instruction, a catalog rename that
-    breaks the match — has no row in `teaching`/`unmatched` this run. `_insert`
-    is an upsert, so without deleting THIS season's existing rows first, their
-    old row (and public chip) would survive untouched until the 21-day
-    staleness guard expires it — three weeks of a false public claim, in the
-    middle of add/drop. The caller (`main`) commits once after this returns,
-    so the two deletes and two inserts for both tables share one transaction:
-    a crash here cannot leave either table empty.
+    Every row goes, this season's included: a professor who left the current
+    roster (cancelled section, reassignment, conversion to Individual
+    Instruction, a catalog rename that breaks the match) has no row this run,
+    and keeping their old one would leave a false public chip until the
+    21-day staleness guard expired it. The caller commits once after this
+    returns, so the deletes and inserts share one transaction: a crash here
+    cannot leave either table empty.
     """
-    ph = _placeholder(cur)
-    cur.execute(f"DELETE FROM professor_teaching WHERE term_desc <> {ph}", (term_desc,))
-    cur.execute(f"DELETE FROM banner_unmatched WHERE term_desc <> {ph}", (term_desc,))
-    cur.execute(f"DELETE FROM professor_teaching WHERE term_desc = {ph}", (term_desc,))
-    cur.execute(f"DELETE FROM banner_unmatched WHERE term_desc = {ph}", (term_desc,))
+    cur.execute("DELETE FROM professor_teaching")
+    cur.execute("DELETE FROM banner_unmatched")
     n_teaching = _insert(cur, "professor_teaching", TEACHING_COLUMNS, teaching)
     n_unmatched = _insert(cur, "banner_unmatched", UNMATCHED_COLUMNS, unmatched)
     return n_teaching, n_unmatched
@@ -495,14 +720,18 @@ def current_season(term_rows):
     """banner_terms rows -> (label, [term codes]) for the chip, or raise.
 
     The same rule as banner_api.select_season, applied to what is stored
-    rather than to a live getTerms call: earliest open Fall/Spring label wins,
-    with every term code that shares it (Law and CPS run parallel codes).
+    rather than to a live getTerms call: earliest open Fall/Spring season wins,
+    with every term code that shares it (Law and CPS run parallel codes). A CPS
+    Winter quarter belongs to the Spring of its year (banner_api.pattern_season),
+    so its instructors get the chip alongside the Spring semester's.
     """
     seasons = {}
     for r in term_rows:
-        if r["view_only"] or r["season_group"] not in ("Fall", "Spring"):
+        season = pattern_season(r["season_group"])
+        if r["view_only"] or season not in ("Fall", "Spring"):
             continue
-        seasons.setdefault(r["term_label"], []).append(str(r["term_code"]))
+        label = f"{season} {str(r['term_label']).split()[-1]}"
+        seasons.setdefault(label, []).append(str(r["term_code"]))
     if not seasons:
         raise ValueError("banner_terms has no open Fall/Spring term — run "
                          "load_banner_to_crdb.py first")
@@ -557,11 +786,15 @@ def write_history(cur, course_instructors, offerings, candidates=(), renames=())
     return len(course_instructors), len(offerings)
 
 
+# "closed" is scraped_closed, not view_only: sync_view_only flips view_only
+# before a term's final re-scrape, so between the two the stored enrollment is
+# still a mid-registration snapshot and must not feed class sizes or count the
+# year as complete.
 SECTION_SELECT = """
     SELECT s.term_code, s.crn, s.subject, s.subject_course, s.course_title,
            s.campus, s.instructional_method, s.schedule_type,
            s.credit_hours_low, s.credit_hours_high, s.enrollment,
-           t.term_label, t.season_group, t.view_only
+           t.term_label, t.season_group, t.scraped_closed
     FROM banner_sections s JOIN banner_terms t ON t.term_code = s.term_code
 """
 SECTION_FIELDS = ("term_code", "crn", "subject", "subject_course", "course_title",
@@ -569,14 +802,16 @@ SECTION_FIELDS = ("term_code", "crn", "subject", "subject_course", "course_title
                   "credit_hours_low", "credit_hours_high", "enrollment", "term_label",
                   "season_group", "closed")
 
+# Banner's own rows only; see the module docstring on the one-off import.
 INSTRUCTOR_SELECT = """
     SELECT i.term_code, i.crn, i.instructor_key, i.instructor_name,
            i.is_primary, s.subject_course, s.schedule_type,
            s.campus, s.instructional_method, s.enrollment,
-           t.term_label, t.view_only
+           t.term_label, t.scraped_closed
     FROM banner_section_instructors i
     JOIN banner_sections s ON s.term_code = i.term_code AND s.crn = i.crn
     JOIN banner_terms t ON t.term_code = i.term_code
+    WHERE i.source = 'banner'
 """
 INSTRUCTOR_FIELDS = ("term_code", "crn", "instructor_key", "instructor_name",
                      "is_primary", "subject_course",
@@ -584,11 +819,13 @@ INSTRUCTOR_FIELDS = ("term_code", "crn", "instructor_key", "instructor_name",
                      "enrollment", "term_label", "closed")
 
 
+TERM_FIELDS = ("term_code", "term_label", "season_group", "view_only", "scraped_at")
+
+
 def read_banner(cur):
     """(term rows, section rows, instructor rows) as dicts, from the three tables."""
-    cur.execute("SELECT term_code, term_label, season_group, view_only FROM banner_terms")
-    terms = [dict(zip(("term_code", "term_label", "season_group", "view_only"), r))
-             for r in cur.fetchall()]
+    cur.execute(f"SELECT {', '.join(TERM_FIELDS)} FROM banner_terms")
+    terms = [dict(zip(TERM_FIELDS, r)) for r in cur.fetchall()]
     cur.execute(SECTION_SELECT)
     sections = [dict(zip(SECTION_FIELDS, r)) for r in cur.fetchall()]
     cur.execute(INSTRUCTOR_SELECT)
@@ -596,6 +833,31 @@ def read_banner(cur):
     for r in sections + instructors:
         r["closed"] = bool(r["closed"])
     return terms, sections, instructors
+
+
+def read_roster_duplicates(cur):
+    """{(term_code, instructor_key)} a term's roster listed more than once."""
+    cur.execute("SELECT term_code, instructor_key FROM banner_roster_duplicates")
+    return {(str(t), k) for t, k in cur.fetchall()}
+
+
+def chip_scraped_at(term_rows, codes):
+    """When the chip's terms were last scraped: the oldest of them.
+
+    professor_teaching.scraped_at drives the 21-day staleness guard in
+    backend/teaching_history.py. Stamping it with the matcher's own clock
+    would let a matcher that now runs every week hide a chip term whose scrape
+    has been failing for a month.
+    """
+    def as_utc(stamp):
+        # CockroachDB hands back datetimes; sqlite, "YYYY-MM-DD HH:MM:SS" text in UTC.
+        dt = stamp if isinstance(stamp, datetime) else datetime.fromisoformat(str(stamp))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+    codes = set(codes)
+    stamps = [as_utc(r["scraped_at"]) for r in term_rows
+              if str(r["term_code"]) in codes and r.get("scraped_at")]
+    return min(stamps).isoformat() if stamps else datetime.now(timezone.utc).isoformat()
 
 
 def chip_rows(instructors, term_desc, codes):
@@ -623,6 +885,7 @@ def main(argv=None):
 
     conn = open_conn()
     cur = conn.cursor()
+    apply_ddl(cur)    # the loader's tables, so a stage file from before a new one still reads
     for ddl in (TEACHING_DDL, UNMATCHED_DDL, HISTORY_DDL):
         for stmt in ddl.split(";"):
             if stmt.strip():
@@ -639,11 +902,15 @@ def main(argv=None):
     local_catalog = bool(args.local_db) and cur.execute(
         "SELECT 1 FROM sqlite_master WHERE name = 'professors_catalog'").fetchone()
     if args.local_db and not local_catalog:
-        index = {}
+        index, departments = {}, {}
         print("local staging file: no professors_catalog, so every instructor is "
               "unmatched — history is built, profile links are not")
     else:
         index = catalog_index(cur)
+        departments = catalog_departments(cur)
+    identity = Identity(index, departments,
+                        department_subjects(instructors, index, departments),
+                        read_roster_duplicates(cur), subjects_by_term(instructors))
     # The last run's matches, the baseline for the gate. Read before anything
     # is written, so it is always the previous run's count, never this one's.
     cur.execute("SELECT count(*) FROM professor_teaching")
@@ -655,7 +922,7 @@ def main(argv=None):
     rows = chip_rows(instructors, term_desc, codes)
     groups = group_instructors(rows)
     teaching, unmatched = build_rows(
-        groups, index, term_desc, datetime.now(timezone.utc).isoformat())
+        groups, identity, term_desc, chip_scraped_at(term_rows, codes))
 
     total = len(teaching) + len(unmatched)
     rate = len(teaching) / total * 100 if total else 0
@@ -674,11 +941,7 @@ def main(argv=None):
                      dry_run=args.dry_run or (bool(args.local_db) and not local_catalog))
 
     # ── history across every stored term ──
-    def match(key):
-        slug, name_key, method, _ = match_one(key, index)
-        return slug, name_key, method
-
-    course_instructors = build_course_instructors(instructors, match)
+    course_instructors = build_course_instructors(instructors, identity)
     offerings = build_course_offerings(sections, instructors)
     candidates = rename_candidates(offerings, course_instructors)
     renames = approved_renames(offerings)
