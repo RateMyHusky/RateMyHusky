@@ -1,0 +1,12 @@
+[
+  {"code": "202710", "description": "Fall 2026 Semester"},
+  {"code": "202715", "description": "Fall 2026 CPS Quarter"},
+  {"code": "202655", "description": "Summer 2026 CPS Quarter"},
+  {"code": "202650", "description": "Summer 2026 Semester"},
+  {"code": "202635", "description": "Spring 2026 CPS Quarter (View Only)"},
+  {"code": "202630", "description": "Spring 2026 Semester (View Only)"},
+  {"code": "202625", "description": "Winter 2026 CPS Quarter (View Only)"},
+  {"code": "202615", "description": "Fall 2025 CPS Quarter (View Only)"},
+  {"code": "202610", "description": "Fall 2025 Semester (View Only)"},
+  {"code": "202552", "description": "Summer 2025 Law Semester (View Only)"}
+]

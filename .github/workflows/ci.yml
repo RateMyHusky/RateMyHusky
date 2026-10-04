@@ -82,6 +82,25 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: python -m pytest tests -q
 
+  # The Banner and catalog scrapers. Offline: every test runs against saved
+  # fixtures and in-memory sqlite, never the live sites or CockroachDB.
+  scraper:
+    name: Scraper tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: scraper
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'   # what the scraper workflows run on
+          cache: pip
+          cache-dependency-path: scraper/requirements.txt
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest tests -q
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
