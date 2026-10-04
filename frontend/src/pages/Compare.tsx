@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type React from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { fetchProfessorFull, fetchProfessorsCatalog, fetchSearchSuggestions } from '../api/api';
 import type { CatalogProfessor, ProfessorPage, ProfessorSuggestion } from '../api/api';
@@ -7,26 +8,45 @@ import Footer from '../components/Footer';
 
 import './Compare.css';
 
-type Side = 'a' | 'b';
-
-type WinnerSide = 'left' | 'right' | null;
+/* ---- Slot config ----
+   Each slot maps to a URL param: /compare?a=slug&b=slug&c=slug&d=slug */
+const SLOT_KEYS = ['a', 'b', 'c', 'd'] as const;
+const SLOT_LABELS = ['A', 'B', 'C', 'D'] as const;
+const MAX_SLOTS = SLOT_KEYS.length;
+const MIN_OPEN_SLOTS = 2; // A and B always show a search box
 
 const CATALOG_LIMIT = 10000;
+const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four'];
 
 // Module-level cache so catalog survives component unmounts
 let cachedCatalog: CatalogProfessor[] | null = null;
 
-const slugify = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+interface ProfileEntry {
+	status: 'loading' | 'ready' | 'error';
+	profile: ProfessorPage | null;
+}
 
+interface SlotData {
+	index: number;
+	label: string;
+	slug: string;
+	catalogProf: CatalogProfessor | null;
+	profile: ProfessorPage | null;
+	loading: boolean;
+	failed: boolean;
+	name: string;
+}
+
+interface CompareRow {
+	label: string;
+	values: string[];
+	footnotes?: (string | undefined)[];
+	winner: number | null; // slot index, or null for no winner
+	weight: number;
+}
+
+/* ---- Helpers ---- */
 const normalizeName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-const getInitials = (name: string) =>
-	name
-		.split(/\s+/)
-		.filter(Boolean)
-		.slice(0, 2)
-		.map((part) => part[0]?.toUpperCase() ?? '')
-		.join('');
 
 const parseMaybeNumber = (value: number | null | undefined) => {
 	if (typeof value !== 'number' || Number.isNaN(value)) return null;
@@ -38,71 +58,219 @@ const formatMetric = (value: number | null | undefined, digits = 2) => {
 	return parsed === null ? '—' : parsed.toFixed(digits);
 };
 
-const getDifficultyClass = (value: number | null | undefined) => {
-	const d = parseMaybeNumber(value);
-	if (d === null) return 'compare-value-muted';
-	if (d <= 2.5) return 'compare-value-good';
-	if (d <= 3.5) return 'compare-value-mid';
-	return 'compare-value-hard';
-};
-
-const pickWinner = (
-	leftValue: number | null | undefined,
-	rightValue: number | null | undefined,
+/* Picks the single best slot among those that have a value.
+   Needs at least two values to compare, and returns null on a tie for first. */
+const pickWinnerIndex = (
+	values: (number | null | undefined)[],
 	mode: 'higher' | 'lower' = 'higher',
 	decimals = 2,
-): WinnerSide => {
-	const left = parseMaybeNumber(leftValue);
-	const right = parseMaybeNumber(rightValue);
-
-	if (left === null && right === null) return null;
-	if (left === null) return 'right';
-	if (right === null) return 'left';
-
-	// Round to displayed precision so ties match what the user sees
+): number | null => {
 	const factor = 10 ** decimals;
-	const l = Math.round(left * factor) / factor;
-	const r = Math.round(right * factor) / factor;
-	if (l === r) return null;
+	const valid = values
+		.map((value, index) => {
+			const parsed = parseMaybeNumber(value);
+			// Round to displayed precision so ties match what the user sees
+			return parsed === null ? null : { index, value: Math.round(parsed * factor) / factor };
+		})
+		.filter((entry): entry is { index: number; value: number } => entry !== null);
 
-	if (mode === 'higher') return l > r ? 'left' : 'right';
-	return l < r ? 'left' : 'right';
+	if (valid.length < 2) return null;
+
+	const nums = valid.map((entry) => entry.value);
+	const best = mode === 'higher' ? Math.max(...nums) : Math.min(...nums);
+	const top = valid.filter((entry) => entry.value === best);
+	return top.length === 1 ? top[0].index : null;
 };
 
+const joinNames = (names: string[]) => {
+	if (names.length <= 2) return names.join(' and ');
+	return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+};
 
+/* ---- One search box (replaces the duplicated left/right search code) ---- */
+interface ResolvedSuggestion {
+	prof: ProfessorSuggestion;
+	slug: string;
+}
+
+interface SlotSearchProps {
+	label: string;
+	slug: string;
+	selectedName: string | null;
+	excludeSlugs: string[];
+	resolveSlug: (suggestion: ProfessorSuggestion) => string | null;
+	onSelect: (slug: string) => void;
+	onClear: () => void;
+	clearLabel: string | null;
+	autoFocus: boolean;
+}
+
+function SlotSearch({
+	label,
+	slug,
+	selectedName,
+	excludeSlugs,
+	resolveSlug,
+	onSelect,
+	onClear,
+	clearLabel,
+	autoFocus,
+}: SlotSearchProps) {
+	const [query, setQuery] = useState('');
+	const [suggestions, setSuggestions] = useState<ResolvedSuggestion[]>([]);
+	const [open, setOpen] = useState(false);
+	const [activeIndex, setActiveIndex] = useState(-1);
+
+	const wrapperRef = useRef<HTMLDivElement>(null);
+	const inputRef = useRef<HTMLInputElement>(null);
+	const fetchGenRef = useRef(0);
+	const excludeKey = excludeSlugs.join(',');
+
+	useEffect(() => {
+		if (autoFocus) inputRef.current?.focus();
+	}, [autoFocus]);
+
+	// Keep the input text in sync with the selected professor
+	useEffect(() => {
+		if (!slug) setQuery('');
+		else if (selectedName) setQuery(selectedName);
+		setSuggestions([]);
+		setOpen(false);
+		setActiveIndex(-1);
+	}, [slug, selectedName]);
+
+	// Debounced suggestion fetch
+	useEffect(() => {
+		const trimmed = query.trim();
+		if (trimmed.length < 2 || (slug && trimmed === selectedName)) {
+			fetchGenRef.current += 1;
+			setSuggestions([]);
+			setOpen(false);
+			setActiveIndex(-1);
+			return;
+		}
+
+		fetchGenRef.current += 1;
+		const gen = fetchGenRef.current;
+		const excluded = new Set(excludeKey.split(',').filter(Boolean));
+
+		const timer = setTimeout(async () => {
+			try {
+				const results = await fetchSearchSuggestions(trimmed, 'Professor');
+				if (gen !== fetchGenRef.current) return;
+				const professorResults = results
+					.filter((result): result is ProfessorSuggestion => result.type === 'professor')
+					.map((prof) => ({ prof, slug: resolveSlug(prof) }))
+					.filter((entry): entry is ResolvedSuggestion => entry.slug !== null && !excluded.has(entry.slug))
+					.slice(0, 3);
+
+				setSuggestions(professorResults);
+				setOpen(professorResults.length > 0);
+				setActiveIndex(-1);
+			} catch {
+				if (gen !== fetchGenRef.current) return;
+				setSuggestions([]);
+				setOpen(false);
+			}
+		}, 200);
+
+		return () => clearTimeout(timer);
+	}, [query, slug, selectedName, excludeKey, resolveSlug]);
+
+	useEffect(() => {
+		const handleOutsideClick = (event: MouseEvent) => {
+			if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+				setOpen(false);
+			}
+		};
+		document.addEventListener('mousedown', handleOutsideClick);
+		return () => document.removeEventListener('mousedown', handleOutsideClick);
+	}, []);
+
+	const select = ({ prof, slug: profSlug }: ResolvedSuggestion) => {
+		setQuery(prof.name);
+		setOpen(false);
+		setActiveIndex(-1);
+		onSelect(profSlug);
+	};
+
+	return (
+		<div className={`compare-control-card ${open ? 'is-open' : ''} ${slug ? 'is-filled' : ''}`} ref={wrapperRef}>
+			<div className="compare-control-title-row">
+				<h2>{label}</h2>
+				{clearLabel && (
+					<button className="compare-inline-btn" type="button" onClick={onClear}>
+						{clearLabel}
+					</button>
+				)}
+			</div>
+			<input
+				ref={inputRef}
+				className="compare-search"
+				placeholder="Search professor name or department"
+				value={query}
+				onChange={(e) => setQuery(e.target.value)}
+				onFocus={() => {
+					if (suggestions.length > 0) setOpen(true);
+				}}
+				onKeyDown={(e) => {
+					if (!open || suggestions.length === 0) return;
+
+					if (e.key === 'ArrowDown') {
+						e.preventDefault();
+						setActiveIndex((prev) => (prev < suggestions.length - 1 ? prev + 1 : 0));
+					} else if (e.key === 'ArrowUp') {
+						e.preventDefault();
+						setActiveIndex((prev) => (prev > 0 ? prev - 1 : suggestions.length - 1));
+					} else if (e.key === 'Enter' && activeIndex >= 0) {
+						e.preventDefault();
+						select(suggestions[activeIndex]);
+					} else if (e.key === 'Escape') {
+						setOpen(false);
+					}
+				}}
+				aria-label={`Search ${label}`}
+			/>
+			{open && (
+				<div className="compare-suggestion-list">
+					{suggestions.map((entry, index) => {
+						const { prof, slug: profSlug } = entry;
+						return (
+							<button
+								key={profSlug}
+								className={`compare-suggestion ${slug === profSlug || activeIndex === index ? 'active' : ''}`}
+								onClick={() => select(entry)}
+								type="button"
+							>
+								<span className="compare-suggestion-main">{prof.name}</span>
+								<span className="compare-suggestion-meta">
+									{prof.dept} • {prof.rating !== null ? prof.rating.toFixed(2) : '—'}
+								</span>
+							</button>
+						);
+					})}
+				</div>
+			)}
+		</div>
+	);
+}
+
+/* ---- Page ---- */
 function Compare() {
 	const [searchParams, setSearchParams] = useSearchParams();
 
-	const [catalog, setCatalog] = useState<CatalogProfessor[]>([]);
-	const [, setCatalogLoading] = useState(true);
+	const [catalog, setCatalog] = useState<CatalogProfessor[]>(cachedCatalog ?? []);
 	const [catalogError, setCatalogError] = useState<string | null>(null);
+	const [entries, setEntries] = useState<Record<string, ProfileEntry>>({});
+	const [openCount, setOpenCount] = useState(MIN_OPEN_SLOTS);
+	const [focusSlot, setFocusSlot] = useState<number | null>(null);
 
-	const [leftQuery, setLeftQuery] = useState('');
-	const [rightQuery, setRightQuery] = useState('');
-	const [leftSuggestions, setLeftSuggestions] = useState<ProfessorSuggestion[]>([]);
-	const [rightSuggestions, setRightSuggestions] = useState<ProfessorSuggestion[]>([]);
-	const [showLeftSuggestions, setShowLeftSuggestions] = useState(false);
-	const [showRightSuggestions, setShowRightSuggestions] = useState(false);
-	const [leftActiveIndex, setLeftActiveIndex] = useState(-1);
-	const [rightActiveIndex, setRightActiveIndex] = useState(-1);
+	const slugs = SLOT_KEYS.map((key) => searchParams.get(key)?.trim() ?? '');
+	const slugKey = slugs.join('|');
+	const lastFilledIndex = slugs.reduce((last, slug, i) => (slug ? i : last), -1);
+	const visibleCount = Math.max(openCount, MIN_OPEN_SLOTS, lastFilledIndex + 1);
 
-	const leftWrapperRef = useRef<HTMLDivElement>(null);
-	const rightWrapperRef = useRef<HTMLDivElement>(null);
-	const leftDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const rightDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const leftFetchGenRef = useRef(0);
-	const rightFetchGenRef = useRef(0);
-
-	const [leftProfile, setLeftProfile] = useState<ProfessorPage | null>(null);
-	const [rightProfile, setRightProfile] = useState<ProfessorPage | null>(null);
-	const [leftLoading, setLeftLoading] = useState(false);
-	const [rightLoading, setRightLoading] = useState(false);
-	const [leftError, setLeftError] = useState<string | null>(null);
-	const [rightError, setRightError] = useState<string | null>(null);
-
-	const leftSlug = searchParams.get('a')?.trim() ?? '';
-	const rightSlug = searchParams.get('b')?.trim() ?? '';
-
+	// Old links used ?prof=slug. Move it to ?a=slug.
 	useEffect(() => {
 		const oldParam = searchParams.get('prof')?.trim();
 		const existingA = searchParams.get('a')?.trim();
@@ -114,33 +282,25 @@ function Compare() {
 		setSearchParams(next, { replace: true });
 	}, [searchParams, setSearchParams]);
 
+	// If the URL already has c or d filled, keep those slots open
 	useEffect(() => {
-		if (cachedCatalog) {
-			setCatalog(cachedCatalog);
-			return;
-		}
+		setOpenCount((count) => Math.max(count, lastFilledIndex + 1));
+	}, [lastFilledIndex]);
 
+	useEffect(() => {
+		if (cachedCatalog) return;
 		let cancelled = false;
 
-		const loadCatalog = async () => {
-			try {
-				setCatalogLoading(true);
-				setCatalogError(null);
-				const result = await fetchProfessorsCatalog({ sort: 'alpha', limit: CATALOG_LIMIT, page: 1 });
-				if (!cancelled) {
-					cachedCatalog = result.professors;
-					setCatalog(result.professors);
-				}
-			} catch {
-				if (!cancelled) {
-					setCatalogError('Could not load professor list. Please refresh and try again.');
-				}
-			} finally {
-				if (!cancelled) setCatalogLoading(false);
-			}
-		};
+		fetchProfessorsCatalog({ sort: 'alpha', limit: CATALOG_LIMIT, page: 1 })
+			.then((result) => {
+				if (cancelled) return;
+				cachedCatalog = result.professors;
+				setCatalog(result.professors);
+			})
+			.catch(() => {
+				if (!cancelled) setCatalogError('Could not load professor list. Please refresh and try again.');
+			});
 
-		loadCatalog();
 		return () => {
 			cancelled = true;
 		};
@@ -148,377 +308,223 @@ function Compare() {
 
 	const catalogBySlug = useMemo(() => {
 		const map = new Map<string, CatalogProfessor>();
-		catalog.forEach((prof) => {
-			map.set(prof.slug, prof);
-		});
+		catalog.forEach((prof) => map.set(prof.slug, prof));
 		return map;
 	}, [catalog]);
 
-	const leftCatalogProfessor = leftSlug ? catalogBySlug.get(leftSlug) ?? null : null;
-	const rightCatalogProfessor = rightSlug ? catalogBySlug.get(rightSlug) ?? null : null;
-
-	useEffect(() => {
-		if (!leftSlug || leftCatalogProfessor) return;
-		setLeftError('That professor could not be found in the catalog.');
-	}, [leftSlug, leftCatalogProfessor]);
-
-	useEffect(() => {
-		if (!rightSlug || rightCatalogProfessor) return;
-		setRightError('That professor could not be found in the catalog.');
-	}, [rightSlug, rightCatalogProfessor]);
-
-	useEffect(() => {
-		if (!leftSlug) {
-			setLeftQuery('');
-		} else if (leftCatalogProfessor?.name) {
-			setLeftQuery(leftCatalogProfessor.name);
-		}
-		setLeftSuggestions([]);
-		setShowLeftSuggestions(false);
-		setLeftActiveIndex(-1);
-	}, [leftSlug, leftCatalogProfessor?.name]);
-
-	useEffect(() => {
-		if (!rightSlug) {
-			setRightQuery('');
-		} else if (rightCatalogProfessor?.name) {
-			setRightQuery(rightCatalogProfessor.name);
-		}
-		setRightSuggestions([]);
-		setShowRightSuggestions(false);
-		setRightActiveIndex(-1);
-	}, [rightSlug, rightCatalogProfessor?.name]);
-
+	// Load a profile for every selected slug
 	useEffect(() => {
 		let cancelled = false;
+		const active = Array.from(new Set(slugKey.split('|').filter(Boolean)));
 
-		const load = async () => {
-			if (!leftSlug) {
-				setLeftProfile(null);
-				setLeftError(null);
-				return;
+		setEntries((prev) => {
+			const next: Record<string, ProfileEntry> = {};
+			for (const slug of active) {
+				next[slug] = prev[slug]?.status === 'ready' ? prev[slug] : { status: 'loading', profile: null };
 			}
-			setLeftLoading(true);
-			setLeftError(null);
-			const res = await fetchProfessorFull(leftSlug);
+			return next;
+		});
+
+		active.forEach(async (slug) => {
+			const res = await fetchProfessorFull(slug);
 			if (cancelled) return;
-			if (!res.ok) {
-				setLeftProfile(null);
-				setLeftError('Could not load this professor profile.');
-			} else {
-				setLeftProfile(res.data);
-			}
-			setLeftLoading(false);
-		};
+			setEntries((prev) => ({
+				...prev,
+				[slug]: res.ok ? { status: 'ready', profile: res.data } : { status: 'error', profile: null },
+			}));
+		});
 
-		load();
 		return () => {
 			cancelled = true;
 		};
-	}, [leftSlug]);
+	}, [slugKey]);
 
-	useEffect(() => {
-		let cancelled = false;
+	/* Returns the professor's canonical slug, or null if we can't be sure who it is.
+	   The search API should always send a slug. If one is missing, only accept a
+	   catalog match that is unique by name (narrowed by department if needed);
+	   never guess, because the wrong professor would be compared silently. */
+	const resolveSlug = useCallback(
+		(suggestion: ProfessorSuggestion): string | null => {
+			if (suggestion.slug) return suggestion.slug;
 
-		const load = async () => {
-			if (!rightSlug) {
-				setRightProfile(null);
-				setRightError(null);
-				return;
+			const target = normalizeName(suggestion.name);
+			let matches = catalog.filter((prof) => normalizeName(prof.name) === target);
+			if (matches.length > 1 && suggestion.dept) {
+				matches = matches.filter((prof) => prof.department === suggestion.dept);
 			}
-			setRightLoading(true);
-			setRightError(null);
-			const res = await fetchProfessorFull(rightSlug);
-			if (cancelled) return;
-			if (!res.ok) {
-				setRightProfile(null);
-				setRightError('Could not load this professor profile.');
-			} else {
-				setRightProfile(res.data);
-			}
-			setRightLoading(false);
-		};
+			if (matches.length === 1) return matches[0].slug;
 
-		load();
-		return () => {
-			cancelled = true;
-		};
-	}, [rightSlug]);
+			console.error(
+				`[Compare] Search result "${suggestion.name}" has no slug and ${
+					matches.length === 0 ? 'no' : 'several'
+				} catalog matches. Hiding it so the wrong professor can't be compared.`,
+			);
+			return null;
+		},
+		[catalog],
+	);
 
-	const updateSlugs = (updates: { a?: string; b?: string }) => {
+	const updateSlot = (index: number, slug: string) => {
+		if (slug && slugs.some((existing, i) => i !== index && existing === slug)) return;
+
 		const next = new URLSearchParams(searchParams);
-
-		if (updates.a !== undefined) {
-			if (updates.a) next.set('a', updates.a);
-			else next.delete('a');
-		}
-
-		if (updates.b !== undefined) {
-			if (updates.b) next.set('b', updates.b);
-			else next.delete('b');
-		}
-
+		if (slug) next.set(SLOT_KEYS[index], slug);
+		else next.delete(SLOT_KEYS[index]);
 		next.delete('prof');
-		const nextString = next.toString();
-		if (nextString === searchParams.toString()) return;
+
+		if (next.toString() === searchParams.toString()) return;
 		setSearchParams(next, { replace: true });
 	};
 
-	const handlePick = (side: Side, slug: string) => {
-		if (side === 'a') {
-			if (slug === rightSlug) return;
-			updateSlugs({ a: slug });
-			return;
-		}
-		if (slug === leftSlug) return;
-		updateSlugs({ b: slug });
+	const openSlot = (index: number) => {
+		setOpenCount((count) => Math.max(count, index + 1));
+		setFocusSlot(index);
 	};
 
-	const handleClear = (side: Side) => {
-		if (side === 'a') {
-			setLeftQuery('');
-			setLeftSuggestions([]);
-			setShowLeftSuggestions(false);
-			setLeftActiveIndex(-1);
-			updateSlugs({ a: '' });
-			return;
-		}
-
-		setRightQuery('');
-		setRightSuggestions([]);
-		setShowRightSuggestions(false);
-		setRightActiveIndex(-1);
-		updateSlugs({ b: '' });
+	const closeSlot = (index: number) => {
+		setOpenCount(index);
+		setFocusSlot(null);
 	};
 
-	const getSlugForSuggestion = (name: string) => {
-		const lowered = name.toLowerCase();
-		const exactMatch = catalog.find((prof) => prof.name.toLowerCase() === lowered);
-		if (exactMatch) return exactMatch.slug;
-
-		const normalized = normalizeName(name);
-		const normalizedMatch = catalog.find((prof) => normalizeName(prof.name) === normalized);
-		if (normalizedMatch) return normalizedMatch.slug;
-
-		return slugify(name);
-	};
-
-	const getSuggestionSlug = (suggestion: ProfessorSuggestion) => suggestion.slug || getSlugForSuggestion(suggestion.name);
-
-	const handleSelectSuggestion = (side: Side, suggestion: ProfessorSuggestion) => {
-		const selectedSlug = getSuggestionSlug(suggestion);
-		if (side === 'a') {
-			if (selectedSlug === rightSlug) return;
-			setLeftQuery(suggestion.name);
-			setShowLeftSuggestions(false);
-			setLeftActiveIndex(-1);
-			handlePick('a', selectedSlug);
-			return;
-		}
-
-		if (selectedSlug === leftSlug) return;
-		setRightQuery(suggestion.name);
-		setShowRightSuggestions(false);
-		setRightActiveIndex(-1);
-		handlePick('b', selectedSlug);
-	};
-
-	useEffect(() => {
-		if (leftDebounceRef.current) clearTimeout(leftDebounceRef.current);
-
-		const trimmedQuery = leftQuery.trim();
-		if (trimmedQuery.length < 2) {
-			setLeftSuggestions([]);
-			setShowLeftSuggestions(false);
-			setLeftActiveIndex(-1);
-			return;
-		}
-
-		leftFetchGenRef.current += 1;
-		const gen = leftFetchGenRef.current;
-		leftDebounceRef.current = setTimeout(async () => {
-			try {
-				const results = await fetchSearchSuggestions(trimmedQuery, 'Professor');
-				if (gen !== leftFetchGenRef.current) return;
-				const professorResults = results
-					.filter((result): result is ProfessorSuggestion => result.type === 'professor')
-					.filter((result) => getSuggestionSlug(result) !== rightSlug)
-					.slice(0, 3);
-
-				setLeftSuggestions(professorResults);
-				setShowLeftSuggestions(professorResults.length > 0);
-				setLeftActiveIndex(-1);
-			} catch {
-				if (gen !== leftFetchGenRef.current) return;
-				setLeftSuggestions([]);
-				setShowLeftSuggestions(false);
-			}
-		}, 200);
-
-		return () => {
-			if (leftDebounceRef.current) clearTimeout(leftDebounceRef.current);
+	/* ---- Per-slot data ---- */
+	const slots: SlotData[] = slugs.map((slug, index) => {
+		const catalogProf = slug ? catalogBySlug.get(slug) ?? null : null;
+		const entry = slug ? entries[slug] : undefined;
+		const profile = entry?.profile ?? null;
+		return {
+			index,
+			label: SLOT_LABELS[index],
+			slug,
+			catalogProf,
+			profile,
+			loading: Boolean(slug) && (!entry || entry.status === 'loading'),
+			failed: entry?.status === 'error',
+			name: catalogProf?.name ?? profile?.identity.name ?? '',
 		};
-	}, [leftQuery, rightSlug, catalog]);
+	});
 
-	useEffect(() => {
-		if (rightDebounceRef.current) clearTimeout(rightDebounceRef.current);
+	const isReady = (slot: SlotData) => Boolean(slot.slug) && !slot.loading;
+	const displayName = (slot: SlotData) => slot.name || `Professor ${slot.label}`;
+	// "Elena Strange" -> "Elena S." (mobile chips) and "Elena" (mobile table header)
+	const chipName = (slot: SlotData) => {
+		const parts = slot.name.trim().split(/\s+/).filter(Boolean);
+		if (parts.length === 0) return `Prof. ${slot.label}`;
+		if (parts.length === 1) return parts[0];
+		return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+	};
+	const firstName = (slot: SlotData) => slot.name.trim().split(/\s+/)[0] || `Prof. ${slot.label}`;
 
-		const trimmedQuery = rightQuery.trim();
-		if (trimmedQuery.length < 2) {
-			setRightSuggestions([]);
-			setShowRightSuggestions(false);
-			setRightActiveIndex(-1);
-			return;
-		}
+	/* Professor data shape (api.ts v2): summary = blended numbers, sources.rmp = RMP only,
+	   summary.bySource = per-source ratings. Catalog values are the fallback. */
+	const overall = slots.map((s) => (isReady(s) ? s.profile?.summary.rating ?? s.catalogProf?.avgRating ?? null : null));
+	const rmp = slots.map((s) => (isReady(s) ? s.profile?.sources.rmp.rating ?? s.catalogProf?.rmpRating ?? null : null));
+	const trace = slots.map((s) => (isReady(s) ? s.profile?.summary.bySource.trace?.rating ?? null : null));
+	const difficulty = slots.map((s) => (isReady(s) ? s.profile?.summary.difficulty ?? null : null));
+	const reviews = slots.map((s) => (isReady(s) ? s.profile?.summary.numRatings ?? s.catalogProf?.totalReviews ?? null : null));
+	const takeAgain = slots.map((s) =>
+		isReady(s) ? s.profile?.summary.wouldTakeAgainPct ?? s.catalogProf?.wouldTakeAgainPct ?? null : null,
+	);
 
-		rightFetchGenRef.current += 1;
-		const gen = rightFetchGenRef.current;
-		rightDebounceRef.current = setTimeout(async () => {
-			try {
-				const results = await fetchSearchSuggestions(trimmedQuery, 'Professor');
-				if (gen !== rightFetchGenRef.current) return;
-				const professorResults = results
-					.filter((result): result is ProfessorSuggestion => result.type === 'professor')
-					.filter((result) => getSuggestionSlug(result) !== leftSlug)
-					.slice(0, 3);
+	const departments = slots.map((s) => {
+		if (!isReady(s)) return '—';
+		if (s.catalogProf) return `${s.catalogProf.department} (${s.catalogProf.college})`;
+		const identity = s.profile?.identity;
+		if (!identity) return '—';
+		return identity.college ? `${identity.department} (${identity.college})` : identity.department;
+	});
 
-				setRightSuggestions(professorResults);
-				setShowRightSuggestions(professorResults.length > 0);
-				setRightActiveIndex(-1);
-			} catch {
-				if (gen !== rightFetchGenRef.current) return;
-				setRightSuggestions([]);
-				setShowRightSuggestions(false);
-			}
-		}, 200);
-
-		return () => {
-			if (rightDebounceRef.current) clearTimeout(rightDebounceRef.current);
-		};
-	}, [rightQuery, leftSlug, catalog]);
-
-	useEffect(() => {
-		const handleOutsideClick = (event: MouseEvent) => {
-			if (leftWrapperRef.current && !leftWrapperRef.current.contains(event.target as Node)) {
-				setShowLeftSuggestions(false);
-			}
-			if (rightWrapperRef.current && !rightWrapperRef.current.contains(event.target as Node)) {
-				setShowRightSuggestions(false);
-			}
-		};
-
-		document.addEventListener('mousedown', handleOutsideClick);
-		return () => document.removeEventListener('mousedown', handleOutsideClick);
-	}, []);
-
-	const leftDept = leftCatalogProfessor
-		? `${leftCatalogProfessor.department} (${leftCatalogProfessor.college})`
-		: leftProfile?.identity.department
-			? leftProfile.identity.department
-			: '—';
-	const rightDept = rightCatalogProfessor
-		? `${rightCatalogProfessor.department} (${rightCatalogProfessor.college})`
-		: rightProfile?.identity.department
-			? rightProfile.identity.department
-			: '—';
-
-	const leftSummary = leftProfile?.summary;
-	const rightSummary = rightProfile?.summary;
-	const leftRating = leftSummary?.rating ?? leftCatalogProfessor?.avgRating ?? null;
-	const rightRating = rightSummary?.rating ?? rightCatalogProfessor?.avgRating ?? null;
-	const leftCount = leftSummary?.numRatings ?? leftCatalogProfessor?.totalReviews;
-	const rightCount = rightSummary?.numRatings ?? rightCatalogProfessor?.totalReviews;
-	const formatPct = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${v.toFixed(0)}%`);
-
-	const compareRows = [
-		{ label: 'Department', left: leftDept, right: rightDept, winner: null, weight: 0 },
+	const compareRows: CompareRow[] = [
+		{ label: 'Department', values: departments, winner: null, weight: 0 },
 		{
 			label: 'Overall Rating',
-			left: formatMetric(leftRating),
-			right: formatMetric(rightRating),
-			winner: pickWinner(leftRating, rightRating),
+			values: overall.map((v) => formatMetric(v)),
+			winner: pickWinnerIndex(overall),
 			weight: 3,
 		},
+		{ label: 'RMP Rating', values: rmp.map((v) => formatMetric(v)), winner: pickWinnerIndex(rmp), weight: 2 },
+		{ label: 'TRACE Rating', values: trace.map((v) => formatMetric(v)), winner: pickWinnerIndex(trace), weight: 2 },
 		{
 			label: 'Difficulty',
-			left: formatMetric(leftSummary?.difficulty),
-			right: formatMetric(rightSummary?.difficulty),
-			leftClass: getDifficultyClass(leftSummary?.difficulty),
-			rightClass: getDifficultyClass(rightSummary?.difficulty),
-			winner: pickWinner(leftSummary?.difficulty, rightSummary?.difficulty, 'lower'),
+			values: difficulty.map((v) => formatMetric(v)),
+			winner: pickWinnerIndex(difficulty, 'lower'),
 			weight: 1.5,
 		},
 		{
-			label: 'Would Take Again',
-			left: formatPct(leftSummary?.wouldTakeAgainPct),
-			right: formatPct(rightSummary?.wouldTakeAgainPct),
-			winner: pickWinner(leftSummary?.wouldTakeAgainPct, rightSummary?.wouldTakeAgainPct, 'higher', 0),
-			weight: 2,
+			label: 'Total Reviews',
+			values: reviews.map((v) => (v === null ? '—' : v.toLocaleString())),
+			winner: pickWinnerIndex(reviews, 'higher', 0),
+			weight: 0.5,
 		},
 		{
-			label: 'Total Ratings',
-			left: leftCount?.toLocaleString() ?? '—',
-			right: rightCount?.toLocaleString() ?? '—',
-			winner: pickWinner(leftCount, rightCount, 'higher', 0),
-			weight: 0.5,
+			label: 'Would Take Again',
+			values: takeAgain.map((v) => (v === null ? '—' : `${v.toFixed(0)}%`)),
+			winner: pickWinnerIndex(takeAgain, 'higher', 0),
+			weight: 2,
 		},
 	];
 
-	const bothSelected = Boolean(leftSlug) && Boolean(rightSlug);
-	const bothReady = bothSelected && !leftLoading && !rightLoading;
+	const selectedSlots = slots.filter((s) => s.slug);
+	// Mobile hides the search area once every open slot has a professor (chips take over)
+	const hasEmptyOpenSlot = slots.slice(0, visibleCount).some((s) => !s.slug);
+	const selectedCount = selectedSlots.length;
+	const anyLoading = selectedSlots.some((s) => s.loading);
+	const allReady = selectedCount >= 2 && selectedSlots.every((s) => !s.loading && s.profile);
 
 	const recommendation = (() => {
-		if (!bothReady || !leftProfile || !rightProfile) return null;
+		if (!allReady) return null;
 
-		let leftScore = 0;
-		let rightScore = 0;
-		const leftKeyWins: string[] = [];
-		const rightKeyWins: string[] = [];
+		const scores = slots.map(() => 0);
+		const keyWins: string[][] = slots.map(() => []);
 
 		for (const row of compareRows) {
 			if (!row.weight || row.winner === null) continue;
-			if (row.winner === 'left') {
-				leftScore += row.weight;
-				if (row.weight >= 2) leftKeyWins.push(row.label);
-			} else {
-				rightScore += row.weight;
-				if (row.weight >= 2) rightKeyWins.push(row.label);
-			}
+			scores[row.winner] += row.weight;
+			if (row.weight >= 2) keyWins[row.winner].push(row.label);
 		}
 
-		if (leftScore === 0 && rightScore === 0) return null;
+		const contenders = selectedSlots.map((s) => s.index);
+		const best = Math.max(...contenders.map((i) => scores[i]));
+		if (best === 0) return null;
 
-		const leftName = leftCatalogProfessor?.name ?? leftProfile.identity.name ?? 'Professor A';
-		const rightName = rightCatalogProfessor?.name ?? rightProfile.identity.name ?? 'Professor B';
-
-		if (leftScore > rightScore) {
-			return { winner: 'left' as const, name: leftName, otherName: rightName, keyWins: leftKeyWins };
-		} else if (rightScore > leftScore) {
-			return { winner: 'right' as const, name: rightName, otherName: leftName, keyWins: rightKeyWins };
-		} else {
-			return { winner: 'tie' as const, leftName, rightName };
+		const top = contenders.filter((i) => scores[i] === best);
+		if (top.length > 1) {
+			return { kind: 'tie' as const, names: top.map((i) => displayName(slots[i])) };
 		}
+		return { kind: 'winner' as const, name: displayName(slots[top[0]]), keyWins: keyWins[top[0]] };
 	})();
 
-	const renderProfileCard = (
-		slug: string,
-		catalogProf: CatalogProfessor | null,
-		profile: ProfessorPage | null,
-		isLoading: boolean,
-		error: string | null,
-		slotLabel: string,
-	) => {
-		if (isLoading) return <p className="compare-status">Loading profile...</p>;
-		if (error && !profile && !catalogProf) return <p className="compare-status compare-status-error">{error}</p>;
+	const heroSubtitle = (() => {
+		if (selectedCount === 0) {
+			return `Pick up to ${MAX_SLOTS} professors and compare rating quality, difficulty, review volume, and recent TRACE performance.`;
+		}
+		if (selectedCount === 1) return 'Add at least one more professor to start comparing.';
+		if (selectedCount < MAX_SLOTS) {
+			return `Comparing ${selectedCount} professors side-by-side. Add ${NUMBER_WORDS[MAX_SLOTS - selectedCount]} more to complete your comparison pool.`;
+		}
+		return `Comparing ${selectedCount} professors side-by-side.`;
+	})();
 
-		const source = catalogProf || profile;
-		if (!source) return <p className="compare-status">Pick a professor for slot {slotLabel}.</p>;
+	const renderProfileCard = (slot: SlotData) => {
+		if (slot.loading) return <p className="compare-status">Loading profile...</p>;
+		if (slot.failed && !slot.catalogProf) {
+			return <p className="compare-status compare-status-error">Could not load this professor profile.</p>;
+		}
+		if (!slot.slug || (!slot.catalogProf && !slot.profile)) {
+			return <p className="compare-status">Pick a professor for slot {slot.label}.</p>;
+		}
 
-		const name = catalogProf?.name ?? profile?.identity.name ?? '';
+		const { catalogProf, profile } = slot;
 		const dept = catalogProf?.department ?? profile?.identity.department ?? '';
 		const imgUrl = profile?.identity.imageUrl ?? catalogProf?.imageUrl ?? null;
 		const rating = profile?.summary.rating ?? catalogProf?.avgRating ?? null;
-		const profSlug = catalogProf?.slug ?? slug;
+		const profSlug = catalogProf?.slug ?? slot.slug;
+
+		const fallbackIcon = (
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+				<circle cx="12" cy="8" r="4" />
+				<path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" />
+			</svg>
+		);
 
 		return (
 			<>
@@ -527,7 +533,7 @@ function Compare() {
 						<>
 							<img
 								src={imgUrl}
-								alt={name}
+								alt={slot.name}
 								className="compare-avatar-img"
 								onError={(e) => {
 									e.currentTarget.style.display = 'none';
@@ -535,13 +541,15 @@ function Compare() {
 									if (fb) fb.style.display = 'flex';
 								}}
 							/>
-							<div className="compare-avatar-fallback" style={{ display: 'none' }}>{getInitials(name)}</div>
+							<div className="compare-avatar-fallback" style={{ display: 'none' }}>
+								{fallbackIcon}
+							</div>
 						</>
 					) : (
-						<div className="compare-avatar-fallback">{getInitials(name)}</div>
+						<div className="compare-avatar-fallback">{fallbackIcon}</div>
 					)}
 				</div>
-				<h3>{name}</h3>
+				<h3>{slot.name}</h3>
 				<p>{dept}</p>
 				<div className="compare-rating-line">
 					<strong>{formatMetric(rating)}</strong>
@@ -558,219 +566,207 @@ function Compare() {
 		);
 	};
 
+	const renderValue = (value: string) => <span>{value}</span>;
+
 	return (
 		<>
 			<main className="compare-page">
-			<section className="compare-hero">
-				<div className="compare-hero-inner">
-					<p className="compare-kicker">Professor Compare</p>
-					<h1>Side-by-side comparison</h1>
-					<p className="compare-subtitle">
-						Pick two professors and compare rating quality, difficulty, would-take-again, and review volume.
-					</p>
-				</div>
-			</section>
-
-			<section className="compare-controls" aria-label="Professor selection">
-				<div className="compare-control-card" ref={leftWrapperRef}>
-					<div className="compare-control-title-row">
-						<h2>Professor A</h2>
-						{leftSlug && (
-							<button className="compare-inline-btn" onClick={() => handleClear('a')}>
-								Clear
-							</button>
-						)}
+				<section className="compare-hero">
+					<div className="compare-hero-inner">
+						<p className="compare-kicker">Compare</p>
+						<h1>Multi-professor comparison</h1>
+						<p className="compare-subtitle">{heroSubtitle}</p>
 					</div>
-					<input
-						className="compare-search"
-						placeholder="Search professor name or department"
-						value={leftQuery}
-						onChange={(e) => {
-							setLeftQuery(e.target.value);
-							if (e.target.value.trim().length < 2) {
-								setLeftSuggestions([]);
-								setShowLeftSuggestions(false);
-							}
-						}}
-						onFocus={() => {
-							if (leftSuggestions.length > 0) setShowLeftSuggestions(true);
-						}}
-						onKeyDown={(e) => {
-							if (!showLeftSuggestions || leftSuggestions.length === 0) return;
+				</section>
 
-							if (e.key === 'ArrowDown') {
-								e.preventDefault();
-								setLeftActiveIndex((prev) => (prev < leftSuggestions.length - 1 ? prev + 1 : 0));
-							} else if (e.key === 'ArrowUp') {
-								e.preventDefault();
-								setLeftActiveIndex((prev) => (prev > 0 ? prev - 1 : leftSuggestions.length - 1));
-							} else if (e.key === 'Enter' && leftActiveIndex >= 0) {
-								e.preventDefault();
-								handleSelectSuggestion('a', leftSuggestions[leftActiveIndex]);
-							} else if (e.key === 'Escape') {
-								setShowLeftSuggestions(false);
-							}
-						}}
-						aria-label="Search left professor"
-					/>
-					{showLeftSuggestions && (
-						<div className="compare-suggestion-list">
-							{leftSuggestions.map((prof, index) => {
-								const profSlug = getSuggestionSlug(prof);
+				{(selectedCount > 0 || visibleCount < MAX_SLOTS) && (
+					<section className="compare-chips" aria-label="Selected professors">
+						{slots
+							.filter((slot) => slot.slug)
+							.map((slot) => {
+								const imgUrl = slot.profile?.identity.imageUrl ?? slot.catalogProf?.imageUrl ?? null;
 								return (
-									<button
-										key={prof.name}
-										className={`compare-suggestion ${leftSlug === profSlug || leftActiveIndex === index ? 'active' : ''}`}
-										onClick={() => handleSelectSuggestion('a', prof)}
-										type="button"
-									>
-										<span className="compare-suggestion-main">{prof.name}</span>
-										<span className="compare-suggestion-meta">
-											{prof.dept} • {prof.rating !== null ? prof.rating.toFixed(2) : '—'}
-										</span>
-									</button>
+									<div className="compare-chip" key={slot.label}>
+										<Link
+											className="compare-chip-main"
+											to={`/professors/${slot.catalogProf?.slug ?? slot.slug}`}
+											state={{ fromPage: { label: 'Compare', url: `/compare?${searchParams.toString()}` } }}
+										>
+											<span className={`compare-chip-avatar tone-${slot.index}`}>
+												{imgUrl ? (
+													<img src={imgUrl} alt="" onError={(e) => (e.currentTarget.style.display = 'none')} />
+												) : (
+													<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+														<circle cx="12" cy="9" r="4" />
+														<path d="M4 21a8 8 0 0 1 16 0z" />
+													</svg>
+												)}
+											</span>
+											<span className="compare-chip-name">{chipName(slot)}</span>
+										</Link>
+										<button
+											type="button"
+											className="compare-chip-remove"
+											aria-label={`Remove ${displayName(slot)}`}
+											onClick={() => updateSlot(slot.index, '')}
+										>
+											×
+										</button>
+									</div>
 								);
 							})}
-						</div>
-					)}
-				</div>
-
-				<div className="compare-control-card" ref={rightWrapperRef}>
-					<div className="compare-control-title-row">
-						<h2>Professor B</h2>
-						{rightSlug && (
-							<button className="compare-inline-btn" onClick={() => handleClear('b')}>
-								Clear
+						{visibleCount < MAX_SLOTS && (
+							<button type="button" className="compare-chip compare-chip-add" onClick={() => openSlot(visibleCount)}>
+								{selectedCount === 0 ? '+ Add professor' : '+ Add'}
 							</button>
 						)}
-					</div>
-					<input
-						className="compare-search"
-						placeholder="Search professor name or department"
-						value={rightQuery}
-						onChange={(e) => {
-							setRightQuery(e.target.value);
-							if (e.target.value.trim().length < 2) {
-								setRightSuggestions([]);
-								setShowRightSuggestions(false);
-							}
-						}}
-						onFocus={() => {
-							if (rightSuggestions.length > 0) setShowRightSuggestions(true);
-						}}
-						onKeyDown={(e) => {
-							if (!showRightSuggestions || rightSuggestions.length === 0) return;
+					</section>
+				)}
 
-							if (e.key === 'ArrowDown') {
-								e.preventDefault();
-								setRightActiveIndex((prev) => (prev < rightSuggestions.length - 1 ? prev + 1 : 0));
-							} else if (e.key === 'ArrowUp') {
-								e.preventDefault();
-								setRightActiveIndex((prev) => (prev > 0 ? prev - 1 : rightSuggestions.length - 1));
-							} else if (e.key === 'Enter' && rightActiveIndex >= 0) {
-								e.preventDefault();
-								handleSelectSuggestion('b', rightSuggestions[rightActiveIndex]);
-							} else if (e.key === 'Escape') {
-								setShowRightSuggestions(false);
-							}
-						}}
-						aria-label="Search right professor"
-					/>
-					{showRightSuggestions && (
-						<div className="compare-suggestion-list">
-							{rightSuggestions.map((prof, index) => {
-								const profSlug = getSuggestionSlug(prof);
-								return (
-									<button
-										key={prof.name}
-										className={`compare-suggestion ${rightSlug === profSlug || rightActiveIndex === index ? 'active' : ''}`}
-										onClick={() => handleSelectSuggestion('b', prof)}
-										type="button"
-									>
-										<span className="compare-suggestion-main">{prof.name}</span>
-										<span className="compare-suggestion-meta">
-											{prof.dept} • {prof.rating !== null ? prof.rating.toFixed(2) : '—'}
-										</span>
-									</button>
-								);
-							})}
-						</div>
-					)}
-				</div>
-			</section>
+				<section
+					className={`compare-controls ${hasEmptyOpenSlot ? '' : 'is-all-filled'}`}
+					aria-label="Professor selection"
+				>
+					{slots.map((slot) => {
+						const isOpen = slot.index < visibleCount;
+						if (!isOpen) {
+							return (
+								<button
+									key={slot.label}
+									type="button"
+									className={`compare-slot-placeholder ${slot.index === visibleCount ? 'is-next' : ''}`}
+									onClick={() => openSlot(slot.index)}
+								>
+									Slot {slot.label} (Available)
+								</button>
+							);
+						}
 
-			{catalogError && <p className="compare-status compare-status-error">{catalogError}</p>}
+						// Extra slots (C, D) can be closed again while empty
+						const canClose = !slot.slug && slot.index >= MIN_OPEN_SLOTS && slot.index === visibleCount - 1;
 
-			<section className="compare-panels" aria-live="polite">
-				<article className="compare-profile-card">
-					{renderProfileCard(leftSlug, leftCatalogProfessor, leftProfile, leftLoading, leftError, 'A')}
-				</article>
-
-				<article className="compare-profile-card">
-					{renderProfileCard(rightSlug, rightCatalogProfessor, rightProfile, rightLoading, rightError, 'B')}
-				</article>
-			</section>
-
-			<section className="compare-metrics">
-				<header className="compare-metrics-header">
-					<h2>Key Comparison Metrics</h2>
-					{bothSelected && !bothReady && <p>Loading comparison...</p>}
-				</header>
-
-				<div className="compare-table" role="table" aria-label="Professor metrics comparison table">
-					{compareRows.map((row) => {
-						const showLeft = Boolean(leftSlug) && !leftLoading;
-						const showRight = Boolean(rightSlug) && !rightLoading;
-						const renderValue = (value: string, showValue: boolean) => <span>{showValue ? value : '—'}</span>;
 						return (
-							<div className="compare-row" role="row" key={row.label}>
-								<div
-									className={`compare-cell compare-cell-left ${showLeft ? (row.leftClass ?? '') : ''} ${bothSelected && showLeft && row.winner === 'left' ? 'compare-cell-winner' : ''}`}
-									role="cell"
-								>
-									{renderValue(row.left, showLeft)}
-								</div>
-								<div className="compare-cell compare-cell-label" role="columnheader">
-									{row.label}
-								</div>
-								<div
-									className={`compare-cell compare-cell-right ${showRight ? (row.rightClass ?? '') : ''} ${bothSelected && showRight && row.winner === 'right' ? 'compare-cell-winner' : ''}`}
-									role="cell"
-								>
-									{renderValue(row.right, showRight)}
-								</div>
-							</div>
+							<SlotSearch
+								key={slot.label}
+								label={`Professor ${slot.label}`}
+								slug={slot.slug}
+								selectedName={slot.catalogProf?.name ?? null}
+								excludeSlugs={slugs.filter((s, i) => s && i !== slot.index)}
+								resolveSlug={resolveSlug}
+								onSelect={(slug) => updateSlot(slot.index, slug)}
+								onClear={() => (canClose ? closeSlot(slot.index) : updateSlot(slot.index, ''))}
+								clearLabel={slot.slug ? 'Clear' : canClose ? 'Remove' : null}
+								autoFocus={focusSlot === slot.index}
+							/>
 						);
 					})}
-				</div>
-			</section>
+				</section>
 
-		{recommendation && (
-			<section className="compare-verdict">
-				<div className="compare-verdict-inner">
-					{recommendation.winner === 'tie' ? (
-						<>
-							<p className="compare-verdict-title">It's a tie</p>
-							<p className="compare-verdict-body">
-								{recommendation.leftName} and {recommendation.rightName} are evenly matched
-								across the key metrics. Both are solid choices, so consider factors like course availability or teaching style.
-							</p>
-						</>
-					) : (
-						<>
-							<p className="compare-verdict-kicker">Our Recommendation</p>
-							<p className="compare-verdict-title">{recommendation.name}</p>
-							<p className="compare-verdict-body">
-								{recommendation.keyWins.length > 0
-									? `${recommendation.name} has the edge in ${recommendation.keyWins.join(', ')}, making them the stronger overall choice.`
-									: `${recommendation.name} comes out ahead based on the available data.`}
-							</p>
-						</>
+				{catalogError && <p className="compare-status compare-status-error compare-status-page">{catalogError}</p>}
+
+				<section className="compare-panels" aria-live="polite">
+					{slots.map((slot) =>
+						slot.index < visibleCount ? (
+							<article className="compare-profile-card" key={slot.label}>
+								{renderProfileCard(slot)}
+							</article>
+						) : (
+							<button
+								key={slot.label}
+								type="button"
+								className={`compare-add-card ${slot.index === visibleCount ? 'is-next' : ''}`}
+								onClick={() => openSlot(slot.index)}
+							>
+								<span className="compare-add-icon" aria-hidden="true">+</span>
+								<span className="compare-add-label">Add Professor</span>
+							</button>
+						),
 					)}
-				</div>
-			</section>
-		)}
+				</section>
 
+				<section className="compare-metrics">
+					<div className="compare-table-card">
+						<header className="compare-metrics-header">
+							<h2>Key Comparison Metrics</h2>
+							{anyLoading && <p>Loading comparison...</p>}
+						</header>
+
+						<div className="compare-table-scroll">
+							<div
+								className={`compare-table ${selectedCount > 0 ? 'has-selection' : ''}`}
+								style={{ '--cols': selectedCount || MAX_SLOTS } as React.CSSProperties}
+								role="table"
+								aria-label="Professor metrics comparison table"
+							>
+								<div className="compare-row compare-row-head" role="row">
+									<div className="compare-cell compare-cell-label" role="columnheader">
+										Metric
+									</div>
+									{slots.map((slot) => (
+										<div
+											key={slot.label}
+											className={`compare-cell compare-col-head ${slot.slug ? '' : 'is-empty is-empty-col'}`}
+											role="columnheader"
+										>
+											<span className="compare-name-full">{slot.slug ? displayName(slot) : `Professor ${slot.label}`}</span>
+											<span className="compare-name-short">{slot.slug ? firstName(slot) : `Prof. ${slot.label}`}</span>
+										</div>
+									))}
+								</div>
+
+								{compareRows.map((row, rowIndex) => (
+									<div
+										className={`compare-row ${row.label === 'Department' ? 'is-desktop-only' : ''}`}
+										role="row"
+										key={row.label}
+										style={{ animationDelay: `${rowIndex * 0.05}s` }}
+									>
+										<div className="compare-cell compare-cell-label" role="rowheader">
+											{row.label}
+										</div>
+										{row.values.map((value, i) => (
+											<div
+												key={SLOT_LABELS[i]}
+												className={`compare-cell ${slots[i].slug ? '' : 'is-empty-col'} ${selectedCount >= 2 && row.winner === i ? 'compare-cell-winner' : ''}`}
+												role="cell"
+											>
+												{renderValue(value)}
+												{row.footnotes?.[i] && <small>{row.footnotes[i]}</small>}
+											</div>
+										))}
+									</div>
+								))}
+							</div>
+						</div>
+					</div>
+				</section>
+
+				{recommendation && (
+					<section className="compare-verdict">
+						<div className="compare-verdict-inner">
+							{recommendation.kind === 'tie' ? (
+								<>
+									<p className="compare-verdict-title">It's a tie</p>
+									<p className="compare-verdict-body">
+										{joinNames(recommendation.names)} are evenly matched across the key metrics.{' '}
+										{recommendation.names.length === 2 ? 'Both' : 'All of them'} are solid choices, so consider
+										factors like course availability or teaching style.
+									</p>
+								</>
+							) : (
+								<>
+									<p className="compare-verdict-kicker">Our Recommendation</p>
+									<p className="compare-verdict-title">{recommendation.name}</p>
+									<p className="compare-verdict-body">
+										{recommendation.keyWins.length > 0
+											? `${recommendation.name} has the edge in ${joinNames(recommendation.keyWins)}, making them the stronger overall choice.`
+											: `${recommendation.name} comes out ahead based on the available data.`}
+									</p>
+								</>
+							)}
+						</div>
+					</section>
+				)}
 			</main>
 			<Footer />
 		</>
