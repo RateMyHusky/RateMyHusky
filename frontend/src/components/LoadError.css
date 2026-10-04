@@ -1,0 +1,11 @@
+.load-error {
+  min-height: 50vh; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 14px; padding: 48px 16px; text-align: center;
+}
+.load-error-title { font-size: 1.1rem; font-weight: 800; color: #333; margin: 0; }
+.load-error-retry {
+  background: #d6394c; color: #fff; border: none; border-radius: 10px;
+  padding: 10px 18px; font-weight: 800; cursor: pointer;
+}
+.load-error-retry:hover { background: #b82f40; }
+.dark .load-error-title { color: #e0e0e0; }

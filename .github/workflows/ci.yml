@@ -2,6 +2,7 @@
 #   frontend  -> tsc + vite build (what fails a Vercel deploy)
 #   backend   -> pip install + pytest (deps + "does server.py import")
 #   secrets   -> gitleaks over full history + tracked-.env guard
+#   legacy    -> PRs only: no added line names the retired review source
 # Lint is non-blocking until the existing ESLint errors are cleaned up.
 # No repository secrets are used anywhere in this workflow.
 name: CI
@@ -101,3 +102,18 @@ jobs:
             exit 1
           fi
           echo "No tracked .env files."
+
+  legacy-terms:
+    name: No retired source names in added lines
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python .github/scripts/legacy_terms_guard.py --selftest
+      - run: python .github/scripts/legacy_terms_guard.py --base "origin/${{ github.base_ref }}"

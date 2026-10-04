@@ -12,9 +12,7 @@ const Footer = () => {
         </div>
         <div className="footer-meta">
           <span className="footer-copy">
-            © {new Date().getFullYear()} RateMyHusky. Made by{' '}
-            <a href="https://oasisneu.com/" target="_blank" rel="noreferrer">Oasis</a>
-            {' '}in Boston, MA.
+            © {new Date().getFullYear()} RateMyHusky. Made in Boston, MA.
           </span>
           <div className="footer-links">
             <Link to="/terms">Terms &amp; Conditions</Link>

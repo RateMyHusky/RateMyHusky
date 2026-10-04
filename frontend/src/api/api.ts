@@ -10,8 +10,10 @@ export interface Professor {
   name: string;
   dept: string;
   rmpRating: number | null;
-  traceRating: number | null;
   avgRating: number;
+  /** Ratings behind avgRating: what the leaderboard's floor gates on and the ranking weights by. */
+  totalReviews?: number;
+  /** Written reviews. Unused by the leaderboard. */
   totalComments?: number;
 }
 
@@ -21,66 +23,74 @@ export interface RandomProfessor {
   college: string;
 }
 
-/* ---- Professor page types ---- */
-export interface RadarDataPoint {
-  metric: string;
-  professor: number;
-  department: number;
-  profMissing: boolean;
-  deptMissing: boolean;
-}
+/* ---- Professor page (/full, version 2) ----
+   `summary` holds the blended numbers every page shows; `sources.<name>` holds what
+   each source measured; `courses` has one row per course the ratings name. */
 
-export interface TraceCourse {
-  courseId: number;
-  termId: number;
-  termTitle: string;
-  departmentName: string;
-  displayName: string;
-  hoursPerWeek?: number | null;
-  challengeWeightedSum?: number | null;
-  challengeResponses?: number | null;
-  overallRating?: number | null;
-}
-
-export interface TraceRatingCounts {
-  count1: number;
-  count2: number;
-  count3: number;
-  count4: number;
-  count5: number;
-  completed: number;
-}
-
-export interface ProfessorProfile {
+export interface ProfessorIdentity {
+  slug: string;
   name: string;
   department: string;
-  rmpRating: number | null;
-  traceRating: number | null;
-  avgRating: number;
-  wouldTakeAgainPct: number | null;
-  difficulty: number | null;
-  totalRatings: number;
-  totalComments: number;
-  professorUrl: string | null;
-  traceCourses: TraceCourse[];
+  college: string | null;
   imageUrl: string | null;
   focusX: number;
   focusY: number;
-  hoursPerWeek: number | null;
-  traceRatingCounts?: Record<string, TraceRatingCounts>;
-  radarData?: RadarDataPoint[] | null;
-  radarTermTitle?: string | null;
-  colleagues?: { name: string; slug: string; avgRating: number | null; totalRatings: number }[];
 }
 
-export interface ProfessorReviews {
+export interface SourceSummary {
+  rating: number | null;
+  numRatings: number;
+}
+
+export interface ProfessorSummary {
+  rating: number | null;
+  difficulty: number | null;
+  wouldTakeAgainPct: number | null;
+  numRatings: number;
+  numComments: number;
+  hoursPerWeek: number | null;
+  bySource: Record<string, SourceSummary>;
+}
+
+export type RatingDistribution = Record<'1' | '2' | '3' | '4' | '5', number>;
+
+export interface RmpData {
+  /** False without RMP ratings; every number below is null then. */
+  available: boolean;
+  rating: number | null;
+  difficulty: number | null;
+  wouldTakeAgainPct: number | null;
+  numRatings: number;
+  professorUrl: string | null;
+  ratingDistribution: RatingDistribution;
+  gradeDistribution: Record<string, number>;
   reviews: ProfessorReview[];
-  traceComments: TraceComment[];
+}
+
+export interface ProfessorCourse {
+  code: string;
+  /** null when the code is not in the course catalog (no course page to link to). */
+  name: string | null;
+  rating: number | null;
+  difficulty: number | null;
+  numRatings: number;
+  ratingDistribution: RatingDistribution;
+  /** Terms taught. Not sent yet: it arrives with student-submitted data, and no term tags show until then. */
+  terms?: string[];
+}
+
+export interface ProfessorPage {
+  version: 2;
+  identity: ProfessorIdentity;
+  summary: ProfessorSummary;
+  sources: { rmp: RmpData };
+  courses: ProfessorCourse[];
   redditMentions: RedditMention[];
 }
 
 export interface ProfessorReview {
   course: string;
+  courseCode: string | null;
   quality: number;
   difficulty: number;
   date: string;
@@ -90,13 +100,6 @@ export interface ProfessorReview {
   textbook: string;
   online_class: string;
   comment: string;
-}
-
-export interface TraceComment {
-  courseId: number;
-  question: string;
-  comment: string;
-  termId: number;
 }
 
 export interface RedditMention {
@@ -110,12 +113,9 @@ export interface RedditMention {
 }
 
 /* ---- Session caches (cleared on page refresh, keyed by slug/code) ---- */
-const _profCache = new Map<string, ProfessorProfile>();
-const _profReviewsCache = new Map<string, ProfessorReviews>();
 const _courseCache = new Map<string, CourseDetail>();
 
-type ProfessorFull = ProfessorProfile & ProfessorReviews;
-const _profFullCache = new Map<string, ProfessorFull>();
+const _profPageCache = new Map<string, ProfessorPage>();
 
 /* ---- Maintenance detection ----
    While maintenance mode is on, Vercel 307-redirects /api/* to
@@ -130,6 +130,26 @@ export function maintenanceGuard(res: Response): boolean {
 }
 
 /* ---- Fetchers ---- */
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/* A fetch that reports why it failed, so a page shows NotFound only for a real 404.
+   status 0 = network failure or the maintenance redirect. */
+export type Fetched<T> = { ok: true; data: T } | { ok: false; status: number };
+
+async function fetchWithStatus<T>(path: string): Promise<Fetched<T>> {
+  try {
+    return { ok: true, data: await get<T>(path) };
+  } catch (e) {
+    return { ok: false, status: e instanceof ApiError ? e.status : 0 };
+  }
+}
+
 async function get<T>(path: string): Promise<T> {
   const headers: Record<string, string> = {};
   const token = localStorage.getItem('auth_token');
@@ -138,7 +158,7 @@ async function get<T>(path: string): Promise<T> {
   }
   const res = await fetch(`${API_BASE}${path}`, { headers, cache: token ? 'no-cache' : 'default' });
   if (maintenanceGuard(res)) throw new Error('Site is under maintenance');
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
+  if (!res.ok) throw new ApiError(res.status, `API ${res.status}: ${res.statusText}`);
   return res.json();
 }
 
@@ -152,45 +172,14 @@ export const fetchGoatProfessors = (college: string, limit = 10) =>
 export const fetchRandomProfessor = () => get<RandomProfessor>("/api/random-professor");
 
 /* ---- Professor page fetchers ---- */
-export async function fetchProfessorFull(slug: string): Promise<ProfessorFull | null> {
-  const token = localStorage.getItem('auth_token');
-  const reviewsKey = `${slug}:${token ?? 'u'}`;
-  if (_profFullCache.has(reviewsKey)) return _profFullCache.get(reviewsKey)!;
-  try {
-    const data = await get<ProfessorFull>(`/api/professors/${encodeURIComponent(slug)}/full`);
-    _profFullCache.set(reviewsKey, data);
-    _profCache.set(reviewsKey, data);
-    _profReviewsCache.set(reviewsKey, data);
-    return data;
-  } catch {
-    return null;
-  }
-}
-
-export async function fetchProfessorData(slug: string): Promise<ProfessorProfile | null> {
-  const token = localStorage.getItem('auth_token');
-  const key = `${slug}:${token ?? 'u'}`;
-  if (_profCache.has(key)) return _profCache.get(key)!;
-  try {
-    const data = await get<ProfessorProfile>(`/api/professors/${encodeURIComponent(slug)}`);
-    _profCache.set(key, data);
-    return data;
-  } catch {
-    return null;
-  }
-}
-
-export async function fetchProfessorReviews(slug: string): Promise<ProfessorReviews | null> {
-  const token = localStorage.getItem('auth_token');
-  const key = `${slug}:${token ?? 'u'}`;
-  if (_profReviewsCache.has(key)) return _profReviewsCache.get(key)!;
-  try {
-    const data = await get<ProfessorReviews>(`/api/professors/${encodeURIComponent(slug)}/reviews`);
-    _profReviewsCache.set(key, data);
-    return data;
-  } catch {
-    return null;
-  }
+/* The Professor page's single round-trip. Every visitor gets the same payload, so the
+   cache is keyed by slug alone; failures are not cached. */
+export async function fetchProfessorFull(slug: string): Promise<Fetched<ProfessorPage>> {
+  const cached = _profPageCache.get(slug);
+  if (cached) return { ok: true, data: cached };
+  const res = await fetchWithStatus<ProfessorPage>(`/api/professors/${encodeURIComponent(slug)}/full`);
+  if (res.ok) _profPageCache.set(slug, res.data);
+  return res;
 }
 
 /* ---- Search autocomplete ---- */
@@ -267,7 +256,6 @@ export interface CatalogProfessor {
   college: string;
   avgRating: number | null;
   rmpRating: number | null;
-  traceRating: number | null;
   totalReviews: number;
   totalComments: number;
   wouldTakeAgainPct: number | null;
@@ -298,47 +286,40 @@ export interface CourseCatalogResponse {
 }
 
 export interface CourseSummary {
-  code: string;
-  name: string;
-  department: string;
-  avgRating: number | null;
-  avgEnrollment: number | null;
-  latestTermTitle: string;
-  ratingCount: number | null;
-}
-
-export interface CourseInstructorBreakdown {
-  name: string;
-  slug: string;
-  imageUrl: string | null;
+  rating: number | null;
   difficulty: number | null;
-  wouldTakeAgainPct: number | null;
-  totalReviews: number;
-  totalComments: number;
-  latestTermTitle: string;
-  avgRating: number | null;
-  courseAvgDifficulty: number | null;
-  courseAvgHoursPerWeek: number | null;
+  numRatings: number;
+  hoursPerWeek: number | null;
+  bySource: Record<string, SourceSummary>;
 }
 
-export interface CourseSection {
-  termId: number;
-  termTitle: string;
-  instructor: string;
-  overallRating: number | null;
-  rmpRating: number | null;
+export interface CourseProfessor {
+  slug: string;
+  name: string;
+  imageUrl: string | null;
+  focusX: number;
+  focusY: number;
+  /** This professor's ratings for this course only. */
+  rating: number | null;
+  difficulty: number | null;
+  numRatings: number;
 }
 
-export interface CourseQuestionScore {
-  question: string;
-  avgRating: number | null;
+export interface CourseCatalog {
+  description: string | null;
+  credits: string | null;
+  prerequisites: string | null;
+  corequisites: string | null;
+  nupath: string[];
 }
 
 export interface CourseDetail {
+  code: string;
+  name: string;
+  department: string;
+  catalog: CourseCatalog | null;
   summary: CourseSummary;
-  instructors: CourseInstructorBreakdown[];
-  sections: CourseSection[];
-  questionScores: CourseQuestionScore[];
+  professors: CourseProfessor[];
 }
 
 export function fetchProfessorsCatalog(params: {
@@ -366,6 +347,11 @@ export function fetchProfessorsCatalog(params: {
   if (params.limit) sp.set('limit', String(params.limit));
   return get<CatalogResponse>(`/api/professors-catalog?${sp.toString()}`);
 }
+
+/** Joins multi-select dept/college filter values. Not ",": department names
+ *  carry commas ("Lang, Literature and Culture"). Must match FILTER_SEPARATOR
+ *  in backend/server.py. */
+export const FILTER_SEPARATOR = '|';
 
 export const fetchDepartments = (college?: string) => {
   const sp = new URLSearchParams();
@@ -496,15 +482,11 @@ export async function fetchDepartmentDetail(slug: string): Promise<DepartmentDet
   }
 }
 
-export async function fetchCourseData(code: string): Promise<CourseDetail | null> {
-  const token = localStorage.getItem('auth_token');
-  const key = `${code}:${token ?? 'u'}`;
-  if (_courseCache.has(key)) return _courseCache.get(key)!;
-  try {
-    const data = await get<CourseDetail>(`/api/courses/${encodeURIComponent(code)}`);
-    _courseCache.set(key, data);
-    return data;
-  } catch {
-    return null;
-  }
+/* Same payload for every visitor, so cached by code alone; failures are not cached. */
+export async function fetchCourseData(code: string): Promise<Fetched<CourseDetail>> {
+  const cached = _courseCache.get(code);
+  if (cached) return { ok: true, data: cached };
+  const res = await fetchWithStatus<CourseDetail>(`/api/courses/${encodeURIComponent(code)}`);
+  if (res.ok) _courseCache.set(code, res.data);
+  return res;
 }

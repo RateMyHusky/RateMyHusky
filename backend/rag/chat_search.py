@@ -18,14 +18,17 @@ def _resolve_link(comment, query_fn):
             return {"type": "course", "value": row[0]["code"]}
     return None
 
-def keyword_search(q, query_fn, prof_search_fn, limit=20):
-    rows = query_fn("""
+def keyword_search(q, query_fn, prof_search_fn, limit=20, mod_filter=""):
+    # Two independent gates, same as fetch_reddit_mentions: t.flagged is the
+    # scraper's prompt-injection marker, mod_filter is the content verdict. The
+    # caller passes mod_filter in so rag/ keeps its no-backend-root-imports rule.
+    rows = query_fn(f"""
         SELECT t.source_id, t.body, t.subreddit, t.permalink,
                array_agg(DISTINCT m.professor_slug) AS professor_slugs,
                ts_rank(t.body_tsv, plainto_tsquery('english', %s)) AS rank
         FROM reddit_text t
         JOIN reddit_mentions m ON m.source_id = t.source_id
-        WHERE t.flagged = false
+        WHERE t.flagged = false{mod_filter}
           AND t.body_tsv @@ plainto_tsquery('english', %s)
         GROUP BY t.source_id, t.body, t.subreddit, t.permalink, t.body_tsv
         ORDER BY rank DESC

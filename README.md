@@ -6,7 +6,7 @@
 
 **Find the right professor, every semester.**
 
-TRACE evaluations, RateMyProfessors ratings, and Reddit chatter for 9,300+ Northeastern professors — searchable, comparable, and answerable in one place.
+RateMyProfessors ratings and Reddit chatter for 9,300+ Northeastern professors — searchable, comparable, and answerable in one place.
 
 [![Live Site](https://img.shields.io/badge/Live-ratemyhusky.com-e63946?style=for-the-badge)](https://ratemyhusky.com)
 [![React](https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](frontend)
@@ -24,11 +24,10 @@ TRACE evaluations, RateMyProfessors ratings, and Reddit chatter for 9,300+ North
 
 ## Why RateMyHusky?
 
-Choosing classes at Northeastern means juggling TRACE PDFs, RateMyProfessors tabs, and Reddit threads —> each with a fragment of the picture. RateMyHusky unifies all three sources into a single profile per professor, then layers search, comparison, and an AI question-answering mode on top.
+Choosing classes at Northeastern means juggling RateMyProfessors tabs and Reddit threads —> each with a fragment of the picture. RateMyHusky unifies both sources into a single profile per professor, then layers search, comparison, and an AI question-answering mode on top.
 
 | Source | Scale |
 |---|---|
-| TRACE course evaluations | 1.7M+ student comments |
 | RateMyProfessors | 43K+ ratings & reviews |
 | Reddit (r/NEU and beyond) | ~9K verified professor mentions, sentiment-scored |
 | Professor profiles | 9,300+ professors, 3,700+ photos, full course history |
@@ -37,7 +36,7 @@ Choosing classes at Northeastern means juggling TRACE PDFs, RateMyProfessors tab
 
 ### Explore
 - **Professor catalog** —> filter by college, department, rating, and review volume
-- **Rich profile pages** —> RMP ratings, TRACE in-depth scores, rating history, grade distributions, review feeds from all three sources, and related courses
+- **Rich profile pages** —> RMP ratings, rating history, grade distributions, review feeds from RMP and Reddit, and related courses
 - **Course catalog** —> course detail pages with sections, ratings, and linked professors
 - **Side-by-side compare** —> stack any professors against each other
 - **GOATED leaderboard** —> top-rated professors by college
@@ -45,7 +44,7 @@ Choosing classes at Northeastern means juggling TRACE PDFs, RateMyProfessors tab
 
 ### Ask (AI)
 - **Ask a real question** —> *"Is Rachlin a fair grader?"* — and get a cited, single-shot answer grounded in actual student reviews
-- **Hybrid retrieval** —> full-text search + 384-dim [BGE-small](https://huggingface.co/BAAI/bge-small-en-v1.5) embeddings fused with Reciprocal Rank Fusion over 1.5M+ review excerpts from RMP, TRACE, and Reddit
+- **Hybrid retrieval** —> full-text search + 384-dim [BGE-small](https://huggingface.co/BAAI/bge-small-en-v1.5) embeddings fused with Reciprocal Rank Fusion over RMP and Reddit review excerpts
 - **Citations that jump** —> every cited snippet pins, scrolls to, and highlights its source on the professor page
 - **Guardrailed** —> prompt-injection gate, topic classifier, output validation, per-user abuse strikes, adaptive rate limiting, and answer caching
 
@@ -72,7 +71,7 @@ flowchart LR
     API --> DB[("CockroachDB Serverless")]
     ASK --> DB
 
-    SCRAPE["Scrapers: TRACE via Bluera + ApplyWeb (Law), RMP, Reddit"] --> INGEST["Match, score, dedupe"]
+    SCRAPE["Scrapers: RMP, Reddit"] --> INGEST["Match, score, dedupe"]
     INGEST --> PRECOMP["precompute - rebuilds the catalog tables the API reads"]
     PRECOMP --> EMBED["Evidence build + BGE-small embedding backfill"]
     PRECOMP --> DB
@@ -113,10 +112,8 @@ flowchart LR
 │   │   │                      #   validate, cache, throttle, abuse,
 │   │   │                      #   ONNX BGE-small query embeddings
 │   │   └── eval/              #   Retrieval eval sets + RAG metrics
-│   └── Better_Scraper/        #   TRACE/RMP scrapers + CSV outputs
+│   └── Better_Scraper/        #   RMP scrapers + CSV outputs
 └── scraper/                   # Reddit corpus + evidence/embedding pipeline
-    ├── trace_pipeline/        #   Bluera TRACE per-term scrape → ingest → finalize
-    └── applyweb_pipeline/     #   ApplyWeb XLS scrape → parse → ingest → verify
 ```
 
 ## Getting Started

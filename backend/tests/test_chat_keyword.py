@@ -9,7 +9,7 @@ def chat_client(monkeypatch):
     # Stop the real pool from ever opening a connection during this test.
     monkeypatch.setattr(server, "_get_pool", lambda: (_ for _ in ()).throw(AssertionError("no DB in test")), raising=False)
     monkeypatch.setattr(server, "keyword_search",
-        lambda q, qf, pf, limit=20: {
+        lambda q, qf, pf, limit=20, mod_filter="": {
             "comments": [{"source_id": "c1", "professor_slugs": ["ada-lovelace"],
                 "snippet": "great grader", "sentiments": {"ada-lovelace": {"sentiment": "positive", "score": 0.6}},
                 "subreddit": "NEU", "permalink": "/r/x", "rank": 0.9}],

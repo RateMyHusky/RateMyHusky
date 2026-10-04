@@ -91,10 +91,6 @@ function ProfCard({ prof, onOpen, onRemove }: { prof: BookmarkedProfessor; onOpe
             <span className="sub-rating-val">{prof.rmpRating != null ? prof.rmpRating.toFixed(1) : '—'}</span>
             <span className="sub-rating-lbl">RMP</span>
           </div>
-          <div className="sub-rating-item" data-color={ratingColor(prof.traceRating)}>
-            <span className="sub-rating-val">{prof.traceRating != null ? prof.traceRating.toFixed(1) : '—'}</span>
-            <span className="sub-rating-lbl">TRACE</span>
-          </div>
         </div>
         <div className="prof-card-footer">
           <span className="prof-rating-count">{prof.totalReviews.toLocaleString()} ratings</span>

@@ -466,15 +466,18 @@ def fetch_evidence(slug, code, query, embed_query_fn, query_fn, limit=8):
                     "source": r.get("source")})
     return out
 
-def fetch_reddit_mentions(slug, query_fn):
-    rows = query_fn("""
+def fetch_reddit_mentions(slug, query_fn, mod_filter=""):
+    # t.flagged is the scraper's prompt-injection marker, mod_filter is the
+    # content verdict — a row clears both or it isn't shown. the caller passes
+    # mod_filter in so rag/ doesn't have to import from the backend root.
+    rows = query_fn(f"""
         SELECT t.body, t.subreddit, t.permalink, t.created_utc,
                t.score AS reddit_score, s.sentiment, s.score AS sentiment_score
         FROM reddit_mentions m
         JOIN reddit_text t ON t.source_id = m.source_id
         LEFT JOIN reddit_sentiment s
           ON s.source_id = t.source_id AND s.professor_slug = m.professor_slug
-        WHERE m.professor_slug = %s AND t.flagged = false
+        WHERE m.professor_slug = %s AND t.flagged = false{mod_filter}
         ORDER BY t.created_utc DESC NULLS LAST
     """, (slug,))
     out = []

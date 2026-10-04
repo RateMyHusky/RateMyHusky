@@ -12,7 +12,7 @@ import re
 from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from precompute import normalize_name, upgrade_image_url  # noqa: E402
+from pipeline.names import normalize_name, upgrade_image_url  # noqa: E402
 import photo_research as pr  # noqa: E402
 
 AUDIT_FIELDS = ["name", "college", "department", "matched_name",

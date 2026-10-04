@@ -1,4 +1,28 @@
+import os
+
 import pytest
+
+# Test modules pin the JWT secret with os.environ.setdefault("JWT_SECRET",
+# "test-secret"), which silently loses whenever a real value is already in the
+# environment — and importing server or precompute calls load_dotenv(), which
+# injects the developer's real .env. Whether the suite passed then came down to
+# alphabetical collection order: if a module calling load_dotenv() sorted before
+# the module doing the setdefault, every token signed with "test-secret" failed
+# to validate and the auth-gated tests 401'd. conftest is imported before any
+# test module, so pinning it here makes the suite order- and .env-independent.
+# load_dotenv() does not override existing vars, so this value survives.
+os.environ["JWT_SECRET"] = "test-secret"
+
+# migrate_to_crdb reads the DB URL at import and sys.exits when it is missing,
+# so importing it for a pure-logic test (REPLACE_ALLOWED, TABLES) takes the whole
+# collection down wherever backend/.env is absent — which is every CI run, since
+# ci.yml only checks the repo out. Set here rather than in the test modules for
+# the same reason JWT_SECRET is: conftest is imported first, and load_dotenv()
+# does not override an existing var. A deliberately unusable value — nothing in
+# the suite connects, and a real URL here would let a stray test reach prod.
+os.environ["CRDB_DATABASE_URL"] = "postgresql://test:test@localhost:26257/test"
+# pipeline.db prefers this name, and load_dotenv() would inject the real one.
+os.environ["NEW_CRDB_DATABASE_URL"] = "postgresql://test:test@localhost:26257/test"
 
 
 @pytest.fixture
@@ -15,38 +39,47 @@ def render_client(monkeypatch):
         def get_json(self):
             return self._data
 
-    def fake_professor_profile(slug):
+    def fake_professor_payload(slug):
         if slug == "missing":
-            return ({"error": "not found"}, 404)
-        return FakeResp({
-            "name": "Francis Georges", "department": "Economics",
-            "avgRating": 4.25, "totalRatings": 2686, "wouldTakeAgainPct": 83,
-            "difficulty": 2.9, "rmpRating": 4.3, "traceRating": 4.2,
-            "imageUrl": None, "professorUrl": None, "traceCourses": [],
-        })
+            return None
+        return {
+            "version": 2,
+            "identity": {"slug": "francis-georges", "name": "Francis Georges",
+                         "department": "Economics", "college": "CSSH",
+                         "imageUrl": None, "focusX": 50.0, "focusY": 30.0},
+            "summary": {"rating": 4.25, "difficulty": 2.9, "wouldTakeAgainPct": 83,
+                        "numRatings": 2686, "numComments": 1, "hoursPerWeek": None,
+                        "bySource": {"rmp": {"rating": 4.25, "numRatings": 2686}}},
+            "sources": {"rmp": {
+                "available": True, "rating": 4.25, "difficulty": 2.9, "wouldTakeAgainPct": 83,
+                "numRatings": 2686, "professorUrl": None,
+                "ratingDistribution": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 1},
+                "gradeDistribution": {},
+                "reviews": [{"course": "ECON1115", "quality": 5, "difficulty": 3,
+                             "date": "2024", "comment": "Excellent lecturer."}]}},
+            "courses": [{"code": "ECON1115", "name": "Macroeconomics", "rating": 5.0,
+                         "difficulty": 3.0, "numRatings": 1,
+                         "ratingDistribution": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 1}}],
+            "redditMentions": [],
+        }
 
-    def fake_professor_reviews(slug):
-        # Unauthenticated shape: RMP reviews carry text; TRACE comments are
-        # present (so their count is known) but their text is gated to "".
-        return FakeResp({"reviews": [
-            {"course": "ECON1115", "quality": 5, "difficulty": 3,
-             "date": "2024", "comment": "Excellent lecturer."}
-        ], "traceComments": [
-            {"question": "Comments", "comment": "", "termId": 901, "courseId": 1},
-            {"question": "Comments", "comment": "", "termId": 902, "courseId": 1},
-            {"question": "Comments", "comment": "", "termId": 903, "courseId": 1},
-        ]})
+    def fake_colleagues(department, exclude_slug):
+        return [{"name": "Alice Smith", "slug": "alice-smith", "avgRating": 4.5, "totalRatings": 30}]
 
-    def fake_course_detail(code):
+    def fake_course_payload(code):
         if code == "missing":
-            return ({"error": "not found"}, 404)
-        return FakeResp({
-            "summary": {"code": "ECON1115", "name": "Macroeconomics",
-                        "department": "Economics", "avgRating": 4.1,
-                        "avgEnrollment": 120, "latestTermTitle": "Fall 2025"},
-            "instructors": [{"name": "Francis Georges", "slug": "francis-georges"}],
-            "sections": [], "questionScores": [],
-        })
+            return None
+        return {
+            "code": "ECON1115", "name": "Macroeconomics", "department": "Economics",
+            "catalog": {"description": "Covers the macroeconomy.", "credits": "4",
+                        "prerequisites": "ECON 1116 with a minimum grade of D-", "corequisites": None,
+                        "nupath": ["Analyzing/Using Data", "Societies/Institutions"]},
+            "summary": {"rating": 4.1, "difficulty": 2.5, "numRatings": 342, "hoursPerWeek": None,
+                        "bySource": {"rmp": {"rating": 4.1, "numRatings": 342}}},
+            "professors": [{"slug": "francis-georges", "name": "Francis Georges", "imageUrl": None,
+                            "focusX": 50.0, "focusY": 30.0, "rating": 4.1, "difficulty": 2.5,
+                            "numRatings": 342}],
+        }
 
     def fake_stats():
         return FakeResp([
@@ -87,9 +120,9 @@ def render_client(monkeypatch):
             ],
         })
 
-    monkeypatch.setattr(render, "_get_profile_view", lambda: fake_professor_profile, raising=False)
-    monkeypatch.setattr(render, "_get_reviews_view", lambda: fake_professor_reviews, raising=False)
-    monkeypatch.setattr(render, "_get_course_view", lambda: fake_course_detail, raising=False)
+    monkeypatch.setattr(render, "_get_professor_payload", lambda: fake_professor_payload, raising=False)
+    monkeypatch.setattr(render, "_get_colleagues", lambda: fake_colleagues, raising=False)
+    monkeypatch.setattr(render, "_get_course_payload", lambda: fake_course_payload, raising=False)
     monkeypatch.setattr(render, "_get_stats_view", lambda: fake_stats, raising=False)
     monkeypatch.setattr(render, "_get_professors_catalog_view", lambda: fake_professors_catalog, raising=False)
     monkeypatch.setattr(render, "_get_courses_catalog_view", lambda: fake_courses_catalog, raising=False)

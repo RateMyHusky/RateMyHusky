@@ -19,11 +19,12 @@ from flask_cors import CORS
 from flask_compress import Compress
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from werkzeug.exceptions import HTTPException
 import jwt as pyjwt
 import requests as http_requests
 from urllib.parse import urlencode, urlparse
 from datetime import datetime, timedelta, timezone
-from threading import Lock, Thread, Event
+from threading import Lock
 import time
 from rag.chat_search import keyword_search
 from rag.chat_question import handle_question
@@ -33,15 +34,17 @@ from rag.chat_gate import gate
 from rag.chat_retrieve import retrieve, fetch_reddit_mentions
 from rag.query_embedder import embed_query
 from rag.chat_answer import generate, generate_course_list, generate_course_ranking
-from professor_full import build_full
+from course_page import build_course
+from professor_full import build_payload
 import bookmarks
+import moderation
 import usage_alert
 
 load_dotenv()
 
 import types as _types
 
-CHAT_ENABLED = os.getenv("CHAT_ENABLED", "true").lower() == "true"
+CHAT_ENABLED = os.getenv("CHAT_ENABLED", "false").lower() == "true"
 _IP_SALT = os.getenv("ASK_IP_SALT", "rmh-default-salt")
 _chat_pool = KeyPool()
 _chat_adapter = GroqAdapter(_chat_pool)
@@ -53,34 +56,6 @@ def _hash_ip(ip):
 # ──────────────────────────────────────────────
 #  Helpers
 # ──────────────────────────────────────────────
-def term_sort_key(title: str) -> int:
-    """Returns a numeric sort key where higher = more recent term.
-    Order within a year: Fall(7) > Fall A(6) > Full Summer(5) > Summer 2(4) > Summer 1(3) > Spring(2) > Spring A(1)
-    """
-    if not title:
-        return 0
-    lower = title.lower()
-    # Try word-bounded year first, then 4-digit prefix of 6-digit code (e.g. "202510")
-    m = re.search(r'\b(20\d{2})\b', lower) or re.search(r'(20\d{2})\d{2}', lower)
-    if not m:
-        return 0
-    year = int(m.group(1))
-    if re.search(r'\bfall\b', lower):
-        sub = 6 if re.search(r'\bfall\s+a\b', lower) else 7
-    elif re.search(r'\bfull\s+summer\b', lower):
-        sub = 5
-    elif re.search(r'\bsummer\b', lower):
-        if re.search(r'\bsummer\s+2\b', lower):
-            sub = 4
-        elif re.search(r'\bsummer\s+1\b', lower):
-            sub = 3
-        else:
-            sub = 4
-    elif re.search(r'\bspring\b', lower):
-        sub = 1 if re.search(r'\bspring\s+a\b', lower) else 2
-    else:
-        sub = 0
-    return year * 10 + sub
 
 
 def normalize_name(name):
@@ -88,6 +63,15 @@ def normalize_name(name):
     s = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode('ascii')
     s = re.sub(r'\s+', ' ', s).strip()
     return s
+
+
+# Joins multi-select dept/college filter values. Not ",": department names carry
+# commas ("Lang, Literature and Culture"). Must match FILTER_SEPARATOR in api.ts.
+FILTER_SEPARATOR = "|"
+
+
+def split_filter(raw):
+    return [v.strip() for v in (raw or "").split(FILTER_SEPARATOR) if v.strip()]
 
 
 # Build a word-level mapping so partial/typeahead queries also resolve.
@@ -221,6 +205,39 @@ def set_security_headers(response):
     return response
 
 
+# TEMPORARY: per-request server time for the backend refactor's latency targets.
+# Remove once the targets are measured.
+_TIMED_PREFIXES = ("/api/professors/", "/api/courses/", "/api/professors-catalog",
+                   "/api/courses-catalog")
+
+
+@app.before_request
+def _timing_start():
+    g.t0 = time.perf_counter()
+
+
+@app.after_request
+def _timing_log(response):
+    t0 = g.pop("t0", None)
+    if t0 is not None and request.path.startswith(_TIMED_PREFIXES):
+        print(f"[timing] {request.path} {response.status_code} "
+              f"{(time.perf_counter() - t0) * 1000:.1f}ms", flush=True)
+    return response
+
+
+@app.errorhandler(HTTPException)
+def _http_error(e):
+    """404/405/429 and every other HTTP error as JSON; the frontend reads the status."""
+    return jsonify({"error": e.description}), e.code
+
+
+@app.errorhandler(Exception)
+def _unhandled_error(e):
+    """Any uncaught error is logged with its traceback and served as a JSON 500."""
+    app.logger.exception("Unhandled error on %s", request.path)
+    return jsonify({"error": "Internal server error"}), 500
+
+
 # ──────────────────────────────────────────────
 #  Database connection pool
 # ──────────────────────────────────────────────
@@ -235,6 +252,7 @@ def _get_pool():
     if _pool is None:
         _pool = ThreadedConnectionPool(5, 10, CRDB_DATABASE_URL, sslmode="require",
                                        connect_timeout=5,
+                                       options="-c statement_timeout=5000",
                                        keepalives=1, keepalives_idle=30,
                                        keepalives_interval=10, keepalives_count=3)
     return _pool
@@ -244,7 +262,7 @@ def _get_pool():
 # ──────────────────────────────────────────────
 _cache = {}
 _cache_lock = Lock()
-CACHE_TTL = 3600      # 1 hour
+CACHE_TTL = 86400      # 24 h; a pipeline run invalidates by bumping data_version
 CACHE_MAX_SIZE = 5000
 
 _feedback_lock = Lock()
@@ -257,7 +275,39 @@ _ACCOUNT_FEEDBACK_TYPES = {"banappeal", "datadeletion"}
 
 
 
+DATA_VERSION_TTL = 60
+_version_state = {"value": 0, "checked": 0.0}
+_version_lock = Lock()
+
+
+def data_version():
+    """stats_cache.data_version, re-read at most once a minute per process. Every
+    pipeline run bumps it, which retires every cached page at once. Bumping it by
+    hand (UPDATE stats_cache SET value = value + 1 WHERE key = 'data_version')
+    flushes every process's cache within a minute, e.g. after a takedown or
+    moderation change."""
+    now = time.time()
+    with _version_lock:
+        if now - _version_state["checked"] < DATA_VERSION_TTL:
+            return _version_state["value"]
+        _version_state["checked"] = now
+    try:
+        row = query_one("SELECT value FROM stats_cache WHERE key = 'data_version'")
+    except psycopg2.Error as e:
+        # A cache hit needs no other query; keep serving it and re-read in a minute.
+        print(f"data_version: read failed, keeping v{_version_state['value']}: {e}")
+        return _version_state["value"]
+    value = int(row["value"]) if row else 0
+    with _version_lock:
+        if value != _version_state["value"]:
+            with _cache_lock:
+                _cache.clear()   # entries under the old version can never be read again
+        _version_state["value"] = value
+    return value
+
+
 def cache_get(key):
+    key = f"v{data_version()}:{key}"
     with _cache_lock:
         entry = _cache.get(key)
         if entry and time.time() - entry["ts"] < CACHE_TTL:
@@ -266,48 +316,12 @@ def cache_get(key):
 
 
 def cache_set(key, data):
+    key = f"v{data_version()}:{key}"
     with _cache_lock:
+        _cache.pop(key, None)   # re-insert so dict order stays oldest-first
         _cache[key] = {"data": data, "ts": time.time()}
-        if len(_cache) > CACHE_MAX_SIZE:
-            cutoff = time.time() - CACHE_TTL
-            expired = [k for k, v in _cache.items() if v["ts"] < cutoff]
-            for k in expired:
-                del _cache[k]
-
-
-# ──────────────────────────────────────────────
-#  Daily memory reset at 09:00 UTC
-# ──────────────────────────────────────────────
-_shutdown_event = Event()
-_reset_thread_started = False
-
-def _seconds_until_next_9utc():
-    now = datetime.now(timezone.utc)
-    target = now.replace(hour=9, minute=0, second=0, microsecond=0)
-    if now >= target:
-        target += timedelta(days=1)
-    return (target - now).total_seconds()
-
-def _daily_cache_reset():
-    while not _shutdown_event.is_set():
-        wait = _seconds_until_next_9utc()
-        if _shutdown_event.wait(timeout=wait):
-            break
-        try:
-            with _cache_lock:
-                _cache.clear()
-            print(f"[{datetime.now(timezone.utc).isoformat()}] Daily cache reset complete",
-                  flush=True)
-        except Exception as e:
-            print(f"[{datetime.now(timezone.utc).isoformat()}] Cache reset error: {e}",
-                  flush=True)
-
-def _start_reset_thread():
-    global _reset_thread_started
-    if not _reset_thread_started:
-        _reset_thread_started = True
-        t = Thread(target=_daily_cache_reset, daemon=True)
-        t.start()
+        while len(_cache) > CACHE_MAX_SIZE:
+            del _cache[next(iter(_cache))]
 
 
 def _acquire_fresh_conn():
@@ -331,6 +345,15 @@ def _discard_db_conn():
                 pass
 
 
+def _rollback_after_cancel(conn):
+    """A cancelled statement aborts the transaction (the pool is not autocommit), so
+    roll back or the request's next query fails with InFailedSqlTransaction."""
+    try:
+        conn.rollback()
+    except Exception:
+        _discard_db_conn()
+
+
 def get_db():
     if 'db' not in g:
         return _acquire_fresh_conn()
@@ -339,11 +362,6 @@ def get_db():
         _discard_db_conn()
         return _acquire_fresh_conn()
     return conn
-
-
-@app.before_request
-def _ensure_reset_thread():
-    _start_reset_thread()
 
 
 @app.teardown_appcontext
@@ -366,6 +384,9 @@ def query(sql, params=None):
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(sql, params or ())
         return cur.fetchall()
+    except psycopg2.extensions.QueryCanceledError:
+        _rollback_after_cancel(conn)
+        raise   # statement_timeout: the connection is healthy, a retry would just time out again
     except (psycopg2.InterfaceError, psycopg2.OperationalError):
         # Connection was stale — discard it and retry once with a fresh one
         _discard_db_conn()
@@ -379,6 +400,7 @@ def query_one(sql, params=None):
     rows = query(sql, params)
     return rows[0] if rows else None
 
+
 def _chat_write(sql, params=None):
     """Write helper for the question path (ask_log INSERTs): execute + commit, never fetch.
     The read-only query()/query_one() call fetchall(), which raises on a non-RETURNING INSERT;
@@ -390,6 +412,9 @@ def _chat_write(sql, params=None):
         cur = conn.cursor()
         cur.execute(sql, params or ())
         conn.commit()
+    except psycopg2.extensions.QueryCanceledError as e:
+        _rollback_after_cancel(conn)
+        print(f"_chat_write: log write timed out, dropping: {e}")
     except (psycopg2.InterfaceError, psycopg2.OperationalError):
         try:
             _discard_db_conn()
@@ -420,6 +445,9 @@ def _write(sql, params=None):
         cur = conn.cursor()
         cur.execute(sql, params or ())
         conn.commit()
+    except psycopg2.extensions.QueryCanceledError:
+        _rollback_after_cancel(conn)
+        raise
     except (psycopg2.InterfaceError, psycopg2.OperationalError):
         _discard_db_conn()
         conn = get_db()
@@ -555,59 +583,145 @@ def colleges():
     return jsonify(result)
 
 
-NO_MIN_COLLEGES = {"Law", "Professional Studies"}
+# ── Leaderboard ranking ──────────────────────────────────────────────
+# Ranking by raw avg_rating lets a 5.00 built on 3 reviews outrank a 4.9 built on
+# 500. 276 professors sit at exactly 5.00 and 95% of them have under 15 reviews,
+# which is why the Law and Professional Studies boards (which used to carry a
+# review floor of 5 rather than 100) filled up with them.
+#
+# So rank on a Bayesian posterior mean instead — the IMDb Top 250 formula —
+# blending each professor toward the global mean with a prior worth SHRINKAGE_M
+# reviews:   (n*R + m*C) / (n + m)
+#
+# A professor with 3 reviews is dragged to C; one with 500 barely moves. m=50 is
+# small enough that the correlation between score and review count only rises to
+# ~0.26 (it saturates around 0.30, so a larger m buys nothing but distortion).
+# C is read from the data rather than hardcoded so it tracks re-scrapes.
+#
+# This is the *sort key only* — the displayed number stays avg_rating. Shrinkage
+# is mathematically a contraction, so it cannot spread the top of the board; the
+# clustering near 4.9 is a real property of the ratings, not something a formula
+# should paper over.
+SHRINKAGE_M = 50
+
+# What C is measured over. It was avg(avg_rating) across the entire catalog,
+# which is mostly professors carrying a handful of responses: their ratings are
+# sampling noise, so averaging them describes the noise rather than the
+# professors, and the prior the whole board shrinks toward came out of it.
+#
+# The prior of a ranking should be the mean of the quantity being ranked, so it
+# is measured over professors whose rating is actually pinned down. At 30
+# responses the standard error of a TRACE mean is ~0.13; at 5 it is ~0.33, which
+# is wider than the entire top of the board.
+#
+# Deliberately global rather than per-college: a per-college prior ranks each
+# professor against their own college, which is department-relative ranking under
+# another name. That was built once and rejected — this board is a class-picking
+# tool, not a per-department award.
+RANKING_PRIOR_MIN_REVIEWS = 30
+FALLBACK_PRIOR = 4.2   # only for an empty or brand-new catalog
+
+# The board's evidence floor, and deliberately the same 30 as the prior's: a
+# threshold for "well enough measured to be ranked" cannot sensibly be looser
+# than the one for "well enough measured to inform the prior". The standard-error
+# argument above is the whole reason for both.
+#
+# It replaced a floor of 100 with a per-college exception dropping Law and
+# Professional Studies to 5. Both halves of that were wrong in opposite
+# directions, and shrinkage is what makes a single number workable:
+#
+#   - 100 was doing almost no work. Reaching Khoury's rank-10 score needs ~57
+#     reviews even at a perfect 5.00, so the shrunk score already excludes
+#     nearly everyone the floor was excluding. Re-measured after the
+#     total_reviews rebuild, going 100 -> 30 changes one row across every
+#     100-floor board: Business rank 10, Peggy O'Kelly -> Laura Huang. (Before
+#     the rebuild it changed nothing at all, so expect this to keep drifting
+#     with the corpus — the argument is that the floor is near-redundant, not
+#     that it is exactly redundant.)
+#   - 5 was the actual bug. Law survives it on population (232 eligible), but
+#     Professional Studies had 15, so a "top 10" showed two thirds of the
+#     department including professors with 7 ratings, scoring within 0.04 of each
+#     other and of the prior — an ordering that reflects the prior, not the
+#     professors. At 30 that board is 5 professors long, which is the honest
+#     answer: the department does not have ten well-measured ones.
+#
+# So a short board is a feature. Do not backfill it to reach `limit`.
+BOARD_MIN_REVIEWS = 30
+
+# CockroachDB has no implicit int/float coercion, so total_reviews (INT) needs an
+# explicit cast against avg_rating (FLOAT) or the query fails with
+# "unsupported binary operator: <int> * <float>".
+# float(m), not "{m}.0" — the latter renders "0.9.0" and is a syntax error if
+# SHRINKAGE_M is ever tuned to a non-integer.
+# The prior arrives as a bound parameter rather than a subquery, so the sort does
+# not carry a full-table aggregate and the value can be measured under its own
+# filter.
+# The prior is cast explicitly: CockroachDB infers placeholder types from
+# context, and a bare %s inside an ORDER BY arithmetic expression is the kind of
+# position where it gives up with "could not determine data type of placeholder".
+RANKING_SCORE_SQL = """
+    ((total_reviews::float * avg_rating + {m} * %s::float)
+     / (total_reviews::float + {m}))
+""".format(m=float(SHRINKAGE_M))
+
+
+def ranking_prior(query_one):
+    """Mean rating of professors well-enough measured to have one.
+
+    Falls back to a constant only when nothing clears the floor, which means an
+    empty catalog — ranking on None would order the whole board by review count.
+    """
+    row = query_one("""
+        SELECT avg(avg_rating) AS prior FROM professors_catalog
+        WHERE avg_rating IS NOT NULL AND total_reviews >= %s
+    """, (RANKING_PRIOR_MIN_REVIEWS,))
+    prior = row.get("prior") if row else None
+    return float(prior) if prior is not None else FALLBACK_PRIOR
+
+
+def shrunk_score(avg_rating, total_reviews, prior_mean, m=SHRINKAGE_M):
+    """Python mirror of RANKING_SCORE_SQL (for tests and any Python-side ranking)."""
+    if avg_rating is None:
+        return None
+    n = total_reviews or 0
+    return (n * avg_rating + m * prior_mean) / (n + m)
 
 
 @app.route("/api/goat-professors")
 def goat_professors():
     college = request.args.get("college", "Khoury")
     limit = min(int(request.args.get("limit", "10")), 50)
-    min_reviews = int(request.args.get("min_reviews", "100"))
+    min_reviews = int(request.args.get("min_reviews", str(BOARD_MIN_REVIEWS)))
 
-    cache_key = f"goat:{college}:{limit}:{min_reviews}"
+    # v5: the ordering has changed three times — to the shrunk score, again when
+    # the prior stopped being the whole-catalog average, and again when the
+    # per-college review floor collapsed to a single BOARD_MIN_REVIEWS and the
+    # sort gained a name tiebreak. An unbumped key serves the previous version
+    # from the cache after deploy, which looks exactly like the fix not working.
+    cache_key = f"goat:v5:{college}:{limit}:{min_reviews}"
     cached = cache_get(cache_key)
     if cached:
         return jsonify(cached)
 
-    if college in NO_MIN_COLLEGES:
-        rows = query("""
-            SELECT * FROM professors_catalog
-            WHERE college = %s AND total_reviews >= 5
-            ORDER BY avg_rating DESC NULLS LAST, total_reviews DESC
-            LIMIT %s
-        """, (college, limit))
-    else:
-        rows = query("""
-            SELECT * FROM professors_catalog
-            WHERE college = %s AND total_reviews >= %s
-            ORDER BY avg_rating DESC NULLS LAST, total_reviews DESC
-            LIMIT %s
-        """, (college, min_reviews, limit))
-
-    # Batch-count RMP + TRACE comments
-    comment_counts = {}
-    if rows:
-        name_keys = [row["name_key"] for row in rows]
-        placeholders = ",".join(["%s"] * len(name_keys))
-        combined_counts = query(
-            f"SELECT name_key, SUM(cnt) as cnt FROM ("
-            f"  SELECT name_key, COUNT(*) as cnt FROM rmp_reviews "
-            f"  WHERE name_key IN ({placeholders}) AND comment IS NOT NULL AND comment != '' "
-            f"  GROUP BY name_key"
-            f"  UNION ALL "
-            f"  SELECT tc2.name_key, COUNT(*) as cnt "
-            f"  FROM trace_comments tc "
-            f"  JOIN trace_courses tc2 ON tc.tc_course_id = tc2.course_id "
-            f"    AND tc.tc_instructor_id = tc2.instructor_id "
-            f"    AND tc.tc_term_id = tc2.term_id "
-            f"  WHERE tc2.name_key IN ({placeholders}) "
-            f"  AND tc.comment IS NOT NULL AND tc.comment != '' "
-            f"  GROUP BY tc2.name_key"
-            f") sub GROUP BY name_key",
-            name_keys + name_keys
-        )
-        for r in combined_counts:
-            comment_counts[r["name_key"]] = int(r["cnt"])
+    prior = ranking_prior(query_one)
+    # `name` breaks ties last. Without it, professors equal on both score and
+    # review count come back in whatever order the scan produces, so the board
+    # could reshuffle between requests. Measured on the current corpus:
+    # 64 such groups across the catalog, covering 137 professors, and none
+    # reaching a top 10. So this closes the door rather than fixing a visible bug.
+    #
+    # Which colleges hold them is not worth stating: an earlier version of this
+    # comment said "none in Law", Law acquired one on the next refresh, and the
+    # test guarding the claim went red on data drift alone. Tie groups move
+    # whenever total_reviews is recomputed. The durable property is the one
+    # test_measured_claims checks — that no tie reaches a board's top 10, which
+    # is the only place the ordering is visible.
+    rows = query(f"""
+        SELECT * FROM professors_catalog
+        WHERE college = %s AND total_reviews >= %s
+        ORDER BY {RANKING_SCORE_SQL} DESC NULLS LAST, total_reviews DESC, name
+        LIMIT %s
+    """, (college, min_reviews, prior, limit))
 
     result = []
     for row in rows:
@@ -615,9 +729,11 @@ def goat_professors():
             "name": row["name"],
             "dept": row["department"],
             "rmpRating": round(row["rmp_rating"], 2) if row["rmp_rating"] else None,
-            "traceRating": round(row["trace_rating"], 2) if row["trace_rating"] else None,
             "avgRating": round(row["avg_rating"], 2) if row["avg_rating"] else None,
-            "totalComments": comment_counts.get(row["name_key"], 0),
+            # Displayed as "Ratings": the floor above gates on it and
+            # RANKING_SCORE_SQL weights by it.
+            "totalReviews": row["total_reviews"] or 0,
+            "totalComments": row["total_comments"] or 0,
         })
     cache_set(cache_key, result)
     return jsonify(result)
@@ -646,24 +762,6 @@ def random_professor():
 
 def _format_course_code(raw: str) -> str:
     return re.sub(r"\s+", "", str(raw).upper())
-
-
-def _safe_int(value, default: int = 0) -> int:
-    try:
-        if value is None:
-            return default
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _safe_float(value, default: float = 0.0) -> float:
-    try:
-        if value is None:
-            return default
-        return float(value)
-    except (TypeError, ValueError):
-        return default
 
 
 @app.route("/api/search")
@@ -725,7 +823,8 @@ def chat():
             limit = min(int(request.args.get("limit", "20")), 50)
         except (TypeError, ValueError):
             limit = 20
-        data = keyword_search(q, query, _professor_search, limit=limit)
+        data = keyword_search(q, query, _professor_search, limit=limit,
+                              mod_filter=moderation.sql_filter("t"))
         return jsonify({"mode": "keyword", "results": data["comments"], "professors": data["professors"]})
     # 'question' mode is account-gated: identity comes from the verified JWT (not a spoofable
     # header), so the abuse ladder keys on a server-trusted user id that can't be forged or omitted.
@@ -762,43 +861,6 @@ def chat():
     return jsonify(payload), code
 
 
-# ──────────────────────────────────────────────
-#  Radar chart metric definitions (professor profile)
-# ──────────────────────────────────────────────
-_RADAR_METRICS = [
-    {"metric": "Teaching", "patterns": [
-        ["overall rating of teaching", "overall rating", "overall effectiveness", "what is your overall rating"],
-        ["clearly communicated", "clear communication", "clearly"],
-    ]},
-    {"metric": "Organization", "patterns": [
-        ["online course materials were organized", "online course materials"],
-        ["syllabus was accurate", "syllabus"],
-        ["used class time effectively", "effective time"],
-    ]},
-    {"metric": "Rigor", "patterns": [
-        ["intellectually challenging", "this course was intellectually", "challenging"],
-        ["learned a lot", "i learned a lot"],
-    ]},
-    {"metric": "Grading", "patterns": [
-        ["fairly evaluated", "fair evaluation", "fair grades"],
-        ["sufficient feedback", "provided sufficient feedback", "feedback"],
-    ]},
-    {"metric": "Accessibility", "patterns": [
-        ["available to assist students outside", "outside assist"],
-        ["respectful and inclusive", "facilitated a respectful", "respect"],
-    ]},
-]
-
-
-def _get_radar_metric_value(scores, pattern_groups):
-    values = []
-    for group in pattern_groups:
-        match = next((s for s in scores if any(p in s["question"].lower() for p in group)), None)
-        if match and match["mean"] > 0:
-            values.append(match["mean"])
-    return round(sum(values) / len(values), 2) if values else None
-
-
 def _department_colleagues(department, exclude_slug):
     """Up to 8 other professors_catalog rows in the same department, highest
     review-count first. Cached per department (shared across every professor
@@ -830,589 +892,26 @@ def _department_colleagues(department, exclude_slug):
 # ──────────────────────────────────────────────
 #  Professor profile page
 # ──────────────────────────────────────────────
-@app.route("/api/professors/<slug>")
-def professor_profile(slug):
-    is_authed = False
-    token = _get_auth_token()
-    if token:
-        try:
-            pyjwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-            is_authed = True
-        except (pyjwt.ExpiredSignatureError, pyjwt.InvalidTokenError):
-            pass
-
-    cache_key = f"prof:{slug}:{'a' if is_authed else 'u'}"
-    cached = cache_get(cache_key)
-    if cached:
-        resp = jsonify(cached)
-        resp.headers["Cache-Control"] = "private, max-age=3600" if is_authed else "public, max-age=3600"
-        resp.headers["Vary"] = "Authorization"
-        return resp
-
-    # Look up professor from catalog
-    prof = query_one("SELECT * FROM professors_catalog WHERE slug = %s", (slug,))
-
-    if not prof:
-        # Try resolving slug to name_key
-        name_key = slug.strip().lower().replace("-", " ")
-        name_key = ALIAS_MAP.get(name_key, name_key)
-        prof = query_one("SELECT * FROM professors_catalog WHERE name_key = %s", (name_key,))
-
-    if not prof:
-        return jsonify({"error": "Professor not found"}), 404
-
-    name_key = prof["name_key"]
-
-    profile = {
-        "name": prof["name"],
-        "department": prof["department"],
-        "rmpRating": round(prof["rmp_rating"], 2) if prof["rmp_rating"] else None,
-        "traceRating": round(prof["trace_rating"], 2) if prof["trace_rating"] else None,
-        "avgRating": round(prof["avg_rating"], 2) if prof["avg_rating"] else 0.0,
-        "wouldTakeAgainPct": round(prof["would_take_again_pct"], 1) if prof["would_take_again_pct"] else None,
-        "difficulty": round(prof["difficulty"], 2) if prof["difficulty"] else None,
-        "totalRatings": prof["total_reviews"],
-        "professorUrl": prof["professor_url"],
-        "imageUrl": prof["image_url"],
-        "focusX": prof.get("focus_x") if prof.get("focus_x") is not None else 50.0,
-        "focusY": prof.get("focus_y") if prof.get("focus_y") is not None else 30.0,
-        "hoursPerWeek": round(prof["avg_hours"], 1) if prof["avg_hours"] else None,
-    }
-
-    # ── TRACE courses + scores ──
-    # Authenticated: full scores. Unauthenticated: metadata + precomputed traceAvgDifficulty only.
-    trace_course_list = []
-    trace_course_rows = query("""
-        SELECT course_id, term_id, term_title, department_name, display_name,
-               section, enrollment, instructor_id
-        FROM trace_courses WHERE name_key = %s
-        ORDER BY term_id DESC
-    """, (name_key,))
-
-    if is_authed:
-        if trace_course_rows:
-            keys = tuple((int(c["course_id"]), int(c["instructor_id"]), int(c["term_id"] or 0)) for c in trace_course_rows)
-
-            # ── SQL-aggregated per-course hours & challenge (replaces scores_by_key iteration) ──
-            # Note: CockroachDB requires explicit float casts for mixed-type arithmetic
-            per_course_agg = query("""
-                SELECT course_id, instructor_id, term_id,
-                       SUM(CASE WHEN LOWER(question) LIKE '%%hours%%' THEN
-                           CASE WHEN COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0) > 0
-                                THEN (1.0*COALESCE(count_1,0)::float+3.5*COALESCE(count_2,0)::float+6.0*COALESCE(count_3,0)::float+9.0*COALESCE(count_4,0)::float+12.0*COALESCE(count_5,0)::float)
-                                ELSE COALESCE(mean::float, 0) END
-                           ELSE 0 END)::float AS hours_sum,
-                       SUM(CASE WHEN LOWER(question) LIKE '%%hours%%' THEN
-                           CASE WHEN COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0) > 0
-                                THEN (COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0))::float
-                                ELSE CASE WHEN mean IS NOT NULL THEN 1.0 ELSE 0 END END
-                           ELSE 0 END)::float AS hours_weight,
-                       SUM(CASE WHEN LOWER(question) LIKE '%%challeng%%' THEN
-                           CASE WHEN COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0) > 0
-                                THEN (1.0*COALESCE(count_1,0)::float+2.0*COALESCE(count_2,0)::float+3.0*COALESCE(count_3,0)::float+4.0*COALESCE(count_4,0)::float+5.0*COALESCE(count_5,0)::float)
-                                ELSE COALESCE(mean::float, 0) END
-                           ELSE 0 END)::float AS challeng_sum,
-                       SUM(CASE WHEN LOWER(question) LIKE '%%challeng%%' THEN
-                           CASE WHEN COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0) > 0
-                                THEN (COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0))::float
-                                ELSE CASE WHEN mean IS NOT NULL THEN 1.0 ELSE 0 END END
-                           ELSE 0 END)::float AS challeng_weight,
-                       SUM(CASE WHEN LOWER(question) LIKE '%%overall%%' AND LOWER(question) != 'overall effectiveness' THEN
-                           CASE WHEN COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0) > 0
-                                THEN (1.0*COALESCE(count_1,0)::float+2.0*COALESCE(count_2,0)::float+3.0*COALESCE(count_3,0)::float+4.0*COALESCE(count_4,0)::float+5.0*COALESCE(count_5,0)::float)
-                                ELSE COALESCE(mean::float, 0) END
-                           ELSE 0 END)::float AS overall_sum,
-                       SUM(CASE WHEN LOWER(question) LIKE '%%overall%%' AND LOWER(question) != 'overall effectiveness' THEN
-                           CASE WHEN COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0) > 0
-                                THEN (COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0))::float
-                                ELSE CASE WHEN mean IS NOT NULL THEN 1.0 ELSE 0 END END
-                           ELSE 0 END)::float AS overall_weight
-                FROM trace_scores
-                WHERE (course_id, instructor_id, term_id) IN %s
-                GROUP BY course_id, instructor_id, term_id
-            """, (keys,))
-            pca_lookup = {(int(r["course_id"]), int(r["instructor_id"]), int(r["term_id"] or 0)): r for r in per_course_agg}
-
-            # ── SQL-aggregated rating distribution by course code (overall questions only) ──
-            rating_dist_rows = query("""
-                SELECT tc.display_name,
-                       SUM(COALESCE(ts.count_1,0)) AS c1,
-                       SUM(COALESCE(ts.count_2,0)) AS c2,
-                       SUM(COALESCE(ts.count_3,0)) AS c3,
-                       SUM(COALESCE(ts.count_4,0)) AS c4,
-                       SUM(COALESCE(ts.count_5,0)) AS c5,
-                       SUM(COALESCE(ts.completed,0)) AS completed
-                FROM trace_scores ts
-                JOIN trace_courses tc
-                  ON ts.course_id=tc.course_id AND ts.instructor_id=tc.instructor_id AND ts.term_id=tc.term_id
-                WHERE tc.name_key = %s AND LOWER(ts.question) LIKE '%%overall%%'
-                  AND LOWER(ts.question) != 'overall effectiveness'
-                GROUP BY tc.display_name
-            """, (name_key,))
-            rating_dist_by_course = {}
-            for r in rating_dist_rows:
-                dn = str(r["display_name"] or "")
-                m = re.match(r"^([A-Z]+\d+)", dn)
-                course_code = (m.group(1) if m else dn.split(":")[0].split(" ")[0]).upper()
-                if course_code not in rating_dist_by_course:
-                    rating_dist_by_course[course_code] = {"count1": 0, "count2": 0, "count3": 0, "count4": 0, "count5": 0, "completed": 0}
-                rating_dist_by_course[course_code]["count1"] += int(r["c1"] or 0)
-                rating_dist_by_course[course_code]["count2"] += int(r["c2"] or 0)
-                rating_dist_by_course[course_code]["count3"] += int(r["c3"] or 0)
-                rating_dist_by_course[course_code]["count4"] += int(r["c4"] or 0)
-                rating_dist_by_course[course_code]["count5"] += int(r["c5"] or 0)
-                rating_dist_by_course[course_code]["completed"] += int(r["completed"] or 0)
-        else:
-            pca_lookup = {}
-            rating_dist_by_course = {}
-
-        # ── Build trace_course_list from SQL-aggregated data ──
-        challeng_sum, challeng_weight = 0.0, 0
-        for c in trace_course_rows:
-            cid = int(c["course_id"])
-            iid = int(c["instructor_id"])
-            tid = int(c["term_id"]) if c["term_id"] else 0
-            agg = pca_lookup.get((cid, iid, tid))
-            if agg:
-                hw = float(agg["hours_weight"] or 0)
-                hs = float(agg["hours_sum"] or 0)
-                cw = float(agg["challeng_weight"] or 0)
-                cs = float(agg["challeng_sum"] or 0)
-                ow = float(agg["overall_weight"] or 0)
-                os_ = float(agg["overall_sum"] or 0)
-                challeng_sum += cs
-                challeng_weight += cw
-            else:
-                hw, hs, cw, cs, ow, os_ = 0, 0, 0, 0, 0, 0
-            course_hours = round(hs / hw, 1) if hw > 0 else None
-            course_overall = round(os_ / ow, 2) if ow > 0 else None
-            trace_course_list.append({
-                "courseId": cid,
-                "termId": tid,
-                "termTitle": str(c["term_title"] or ""),
-                "departmentName": str(c["department_name"] or ""),
-                "displayName": str(c["display_name"] or ""),
-                "hoursPerWeek": course_hours,
-                "challengeWeightedSum": cs if cw > 0 else None,
-                "challengeResponses": cw if cw > 0 else None,
-                "overallRating": course_overall,
-            })
-
-        trace_avg_difficulty = round(challeng_sum / challeng_weight, 2) if challeng_weight > 0 else None
-        profile["traceRatingCounts"] = rating_dist_by_course
-
-        # ── Precompute radar data for the most recent term with scores ──
-        radar_data = None
-        radar_term_title = None
-        seen_tids: list[int] = []
-        seen_tid_set: set[int] = set()
-        for c in trace_course_rows:
-            tid = int(c["term_id"]) if c["term_id"] else 0
-            if tid not in seen_tid_set:
-                seen_tids.append(tid)
-                seen_tid_set.add(tid)
-
-        for tid in seen_tids:
-            term_keys = tuple(
-                (int(tc["course_id"]), int(tc["instructor_id"]), tid)
-                for tc in trace_course_rows
-                if (int(tc["term_id"]) if tc["term_id"] else 0) == tid
-            )
-            if not term_keys:
-                continue
-            # SQL-aggregated radar data per question for this term
-            # Note: mean*w/w*w simplifies to weighted_sum; CockroachDB needs explicit float casts
-            radar_rows = query("""
-                SELECT question,
-                       SUM(CASE WHEN COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0) > 0
-                            THEN (1.0*COALESCE(count_1,0)::float+2.0*COALESCE(count_2,0)::float+3.0*COALESCE(count_3,0)::float+4.0*COALESCE(count_4,0)::float+5.0*COALESCE(count_5,0)::float)
-                            ELSE COALESCE(mean::float, 0) END)::float AS prof_sum,
-                       SUM(CASE WHEN COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0) > 0
-                            THEN (COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0))::float
-                            ELSE 1.0 END)::float AS prof_w,
-                       SUM(CASE WHEN dept_mean IS NOT NULL THEN
-                            dept_mean::float * CASE WHEN COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0) > 0
-                                             THEN (COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0))::float
-                                             ELSE 1.0 END
-                            ELSE 0 END)::float AS dept_sum,
-                       SUM(CASE WHEN dept_mean IS NOT NULL THEN
-                            CASE WHEN COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0) > 0
-                                 THEN (COALESCE(count_1,0)+COALESCE(count_2,0)+COALESCE(count_3,0)+COALESCE(count_4,0)+COALESCE(count_5,0))::float
-                                 ELSE 1.0 END
-                            ELSE 0 END)::float AS dept_w
-                FROM trace_scores
-                WHERE (course_id, instructor_id, term_id) IN %s
-                GROUP BY question
-            """, (term_keys,))
-
-            if not radar_rows:
-                continue
-
-            agg_scores = [
-                {"question": str(r["question"] or "").strip(), "mean": float(r["prof_sum"]) / float(r["prof_w"])}
-                for r in radar_rows if float(r["prof_w"] or 0) > 0
-            ]
-            dept_scores = [
-                {"question": str(r["question"] or "").strip(), "mean": float(r["dept_sum"]) / float(r["dept_w"])}
-                for r in radar_rows if float(r["dept_w"] or 0) > 0
-            ]
-
-            # Older terms may not have dept_mean in scores rows — fall back to dept avg query
-            if not dept_scores:
-                dept_name = next(
-                    (str(tc["department_name"] or "") for tc in trace_course_rows
-                     if (int(tc["term_id"]) if tc["term_id"] else 0) == tid),
-                    ""
-                )
-                if dept_name and tid:
-                    dept_rows = query("""
-                        SELECT ts.question,
-                               SUM(1*COALESCE(ts.count_1,0)+2*COALESCE(ts.count_2,0)
-                                   +3*COALESCE(ts.count_3,0)+4*COALESCE(ts.count_4,0)
-                                   +5*COALESCE(ts.count_5,0)) AS weighted_sum,
-                               SUM(COALESCE(ts.count_1,0)+COALESCE(ts.count_2,0)
-                                   +COALESCE(ts.count_3,0)+COALESCE(ts.count_4,0)
-                                   +COALESCE(ts.count_5,0)) AS total_responses
-                        FROM trace_scores ts
-                        JOIN trace_courses tc
-                            ON ts.course_id=tc.course_id
-                           AND ts.instructor_id=tc.instructor_id
-                           AND ts.term_id=tc.term_id
-                        WHERE tc.department_name=%s AND tc.term_id=%s
-                        GROUP BY ts.question
-                    """, (dept_name, tid))
-                    for r in dept_rows:
-                        total = int(r["total_responses"] or 0)
-                        wsum = float(r["weighted_sum"] or 0)
-                        if total > 0:
-                            dept_scores.append({"question": str(r["question"] or ""), "mean": wsum / total})
-
-            points = []
-            has_data = False
-            for m in _RADAR_METRICS:
-                prof_val = _get_radar_metric_value(agg_scores, m["patterns"])
-                dept_val = _get_radar_metric_value(dept_scores, m["patterns"]) if dept_scores else None
-                if prof_val is not None:
-                    has_data = True
-                points.append({
-                    "metric": m["metric"],
-                    "professor": prof_val if prof_val is not None else 0,
-                    "department": dept_val if dept_val is not None else 0,
-                    "profMissing": prof_val is None,
-                    "deptMissing": dept_val is None,
-                })
-
-            if has_data:
-                radar_data = points
-                radar_term_title = next(
-                    (str(tc["term_title"] or "") for tc in trace_course_rows
-                     if (int(tc["term_id"]) if tc["term_id"] else 0) == tid),
-                    ""
-                )
-                break
-
-        profile["radarData"] = radar_data
-        profile["radarTermTitle"] = radar_term_title if radar_data else None
-
-    else:
-        # Lightweight query: only challenging scores to compute the professor-wide avg and per-course avg
-        challeng_rows = query("""
-            SELECT ts.course_id, ts.term_id, ts.mean, ts.count_1, ts.count_2, ts.count_3, ts.count_4, ts.count_5
-            FROM trace_scores ts
-            JOIN trace_courses tc
-              ON ts.course_id = tc.course_id
-             AND ts.instructor_id = tc.instructor_id
-             AND ts.term_id = tc.term_id
-            WHERE tc.name_key = %s AND lower(ts.question) LIKE '%%challeng%%'
-        """, (name_key,))
-
-        challeng_sum, challeng_weight = 0.0, 0
-        challeng_by_ct = {}
-        for s in challeng_rows:
-            c1 = int(s["count_1"] or 0)
-            c2 = int(s["count_2"] or 0)
-            c3 = int(s["count_3"] or 0)
-            c4 = int(s["count_4"] or 0)
-            c5 = int(s["count_5"] or 0)
-            total_resp = c1 + c2 + c3 + c4 + c5
-            key = (int(s["course_id"]), int(s["term_id"] or 0))
-            if key not in challeng_by_ct:
-                challeng_by_ct[key] = {"sum": 0.0, "weight": 0}
-            if total_resp > 0:
-                computed_mean = (1*c1 + 2*c2 + 3*c3 + 4*c4 + 5*c5) / total_resp
-                challeng_sum += computed_mean * total_resp
-                challeng_weight += total_resp
-                challeng_by_ct[key]["sum"] += computed_mean * total_resp
-                challeng_by_ct[key]["weight"] += total_resp
-            elif s["mean"]:
-                challeng_sum += float(s["mean"])
-                challeng_weight += 1
-                challeng_by_ct[key]["sum"] += float(s["mean"])
-                challeng_by_ct[key]["weight"] += 1
-
-        trace_avg_difficulty = round(challeng_sum / challeng_weight, 2) if challeng_weight > 0 else None
-
-        # Compute rating distribution from overall rating question for unauthenticated users
-        overall_rows = query("""
-            SELECT tc.display_name, ts.completed, ts.count_1, ts.count_2, ts.count_3, ts.count_4, ts.count_5
-            FROM trace_scores ts
-            JOIN trace_courses tc
-              ON ts.course_id = tc.course_id
-             AND ts.instructor_id = tc.instructor_id
-             AND ts.term_id = tc.term_id
-            WHERE tc.name_key = %s AND lower(ts.question) LIKE '%%overall%%'
-              AND lower(ts.question) != 'overall effectiveness'
-        """, (name_key,))
-        rating_dist_by_course = {}
-        for s in overall_rows:
-            dn = str(s["display_name"] or "")
-            m = re.match(r"^([A-Z]+\d+)", dn)
-            course_code = (m.group(1) if m else dn.split(":")[0].split(" ")[0]).upper()
-            if course_code not in rating_dist_by_course:
-                rating_dist_by_course[course_code] = {"count1": 0, "count2": 0, "count3": 0, "count4": 0, "count5": 0, "completed": 0}
-            rating_dist_by_course[course_code]["count1"] += int(s["count_1"] or 0)
-            rating_dist_by_course[course_code]["count2"] += int(s["count_2"] or 0)
-            rating_dist_by_course[course_code]["count3"] += int(s["count_3"] or 0)
-            rating_dist_by_course[course_code]["count4"] += int(s["count_4"] or 0)
-            rating_dist_by_course[course_code]["count5"] += int(s["count_5"] or 0)
-            rating_dist_by_course[course_code]["completed"] += int(s["completed"] or 0)
-        profile["traceRatingCounts"] = rating_dist_by_course
-        profile["radarData"] = None
-
-        hours_rows = query("""
-            SELECT ts.course_id, ts.term_id, ts.mean,
-                   ts.count_1, ts.count_2, ts.count_3, ts.count_4, ts.count_5
-            FROM trace_scores ts
-            JOIN trace_courses tc
-              ON ts.course_id = tc.course_id
-             AND ts.instructor_id = tc.instructor_id
-             AND ts.term_id = tc.term_id
-            WHERE tc.name_key = %s AND lower(ts.question) LIKE '%%hours%%'
-        """, (name_key,))
-        hours_by_ct = {}
-        for s in hours_rows:
-            key = (int(s["course_id"]), int(s["term_id"] or 0))
-            c1 = int(s["count_1"] or 0); c2 = int(s["count_2"] or 0)
-            c3 = int(s["count_3"] or 0); c4 = int(s["count_4"] or 0)
-            c5 = int(s["count_5"] or 0)
-            total_resp = c1 + c2 + c3 + c4 + c5
-            if key not in hours_by_ct:
-                hours_by_ct[key] = {"sum": 0.0, "weight": 0}
-            if total_resp > 0:
-                hours_by_ct[key]["sum"] += (1*c1 + 3.5*c2 + 6*c3 + 9*c4 + 12*c5)
-                hours_by_ct[key]["weight"] += total_resp
-            elif s["mean"]:
-                hours_by_ct[key]["sum"] += float(s["mean"])
-                hours_by_ct[key]["weight"] += 1
-
-        for c in trace_course_rows:
-            cid = int(c["course_id"]); tid = int(c["term_id"]) if c["term_id"] else 0
-            h = hours_by_ct.get((cid, tid))
-            course_hours = round(h["sum"] / h["weight"], 1) if h and h["weight"] > 0 else None
-            ch = challeng_by_ct.get((cid, tid))
-            trace_course_list.append({
-                "courseId": cid,
-                "termId": tid,
-                "termTitle": str(c["term_title"] or ""),
-                "departmentName": str(c["department_name"] or ""),
-                "displayName": str(c["display_name"] or ""),
-                "hoursPerWeek": course_hours,
-                "challengeWeightedSum": ch["sum"] if ch and ch["weight"] > 0 else None,
-                "challengeResponses": ch["weight"] if ch and ch["weight"] > 0 else None,
-            })
-
-    # Blend RMP difficulty with TRACE challenging avg into a single difficulty value
-    rmp_diff = round(prof["difficulty"], 2) if prof["difficulty"] else None
-    if rmp_diff is not None and trace_avg_difficulty is not None:
-        profile["difficulty"] = round((rmp_diff + trace_avg_difficulty) / 2, 2)
-    elif trace_avg_difficulty is not None:
-        profile["difficulty"] = trace_avg_difficulty
-    # else: profile["difficulty"] already set to rmp_diff (or None) above
-
-    profile["traceCourses"] = trace_course_list
-    profile["colleagues"] = _department_colleagues(prof["department"], prof["slug"])
-
-    cache_set(cache_key, profile)
-    resp = jsonify(profile)
-    resp.headers["Cache-Control"] = "private, max-age=3600" if is_authed else "public, max-age=3600"
-    resp.headers["Vary"] = "Authorization"
-    return resp
-
-
-@app.route("/api/professors/<slug>/reviews")
-def professor_reviews(slug):
-    is_authed = False
-    token = _get_auth_token()
-    if token:
-        try:
-            pyjwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-            is_authed = True
-        except (pyjwt.ExpiredSignatureError, pyjwt.InvalidTokenError):
-            pass
-
-    cache_key = f"prof_reviews:{slug}:{'a' if is_authed else 'u'}"
-    cached = cache_get(cache_key)
-    if cached:
-        resp = jsonify(cached)
-        resp.headers["Cache-Control"] = "private, max-age=3600" if is_authed else "public, max-age=3600"
-        resp.headers["Vary"] = "Authorization"
-        return resp
-
-    prof = query_one("SELECT name_key FROM professors_catalog WHERE slug = %s", (slug,))
-    if not prof:
-        name_key = slug.strip().lower().replace("-", " ")
-        name_key = ALIAS_MAP.get(name_key, name_key)
-        prof = query_one("SELECT name_key FROM professors_catalog WHERE name_key = %s", (name_key,))
-    if not prof:
-        return jsonify({"error": "Professor not found"}), 404
-
-    name_key = prof["name_key"]
-
-    # ── RMP reviews ──
-    review_rows = query("""
-        SELECT course, quality, difficulty, date, tags, attendance, grade,
-               textbook, online_class, comment
-        FROM rmp_reviews WHERE name_key = %s
-    """, (name_key,))
-
-    reviews = []
-    for r in review_rows:
-        reviews.append({
-            "course": str(r["course"] or ""),
-            "quality": int(r["quality"]) if r["quality"] else 0,
-            "difficulty": int(r["difficulty"]) if r["difficulty"] else 0,
-            "date": str(r["date"] or ""),
-            "tags": str(r["tags"] or ""),
-            "attendance": str(r["attendance"] or ""),
-            "grade": str(r["grade"] or ""),
-            "textbook": str(r["textbook"] or ""),
-            "online_class": str(r["online_class"] or ""),
-            "comment": sanitize(r["comment"]) if r["comment"] else "",
-        })
-
-    # ── TRACE comments ──
-    trace_course_rows = query(
-        "SELECT course_id, term_id, instructor_id FROM trace_courses WHERE name_key = %s",
-        (name_key,)
-    )
-
-    comments = []
-    if trace_course_rows:
-        keys = set()
-        for c in trace_course_rows:
-            keys.add((int(c["course_id"]), int(c["instructor_id"]), int(c["term_id"]) if c["term_id"] else 0))
-
-        if keys:
-            comment_rows = query(
-                "SELECT tc_term_id, tc_course_id, question, comment FROM trace_comments "
-                "WHERE (tc_course_id, tc_instructor_id, tc_term_id) IN %s",
-                (tuple(keys),)
-            )
-            # Group by question so we can deduplicate near-identical comments per group
-            by_question: dict = {}
-            for c in comment_rows:
-                comment_text = sanitize(c["comment"]) if c["comment"] else ""
-                if not comment_text.strip():
-                    continue
-                q = str(c["question"] or "")
-                by_question.setdefault(q, []).append({
-                    "question": q,
-                    "comment": comment_text,
-                    "termId": int(c["tc_term_id"]) if c["tc_term_id"] else 0,
-                    "courseId": int(c["tc_course_id"]) if c["tc_course_id"] else 0,
-                })
-
-            def _normalize(s: str) -> str:
-                return re.sub(r'\s+', ' ', s.lower()).strip()
-
-            def _dedup_group(items: list) -> list:
-                seen: set[str] = set()
-                result = []
-                for item in items:
-                    norm = _normalize(item["comment"])
-                    # Use truncated prefix as hash key for O(1) lookup instead of O(n) scan
-                    prefix_key = norm[:80]
-                    if prefix_key in seen:
-                        continue
-                    seen.add(prefix_key)
-                    result.append(item)
-                return result
-
-            for q, items in by_question.items():
-                for item in _dedup_group(items):
-                    comments.append({
-                        "question": item["question"],
-                        "comment": item["comment"] if is_authed else "",
-                        "termId": item["termId"],
-                        "courseId": item["courseId"],
-                    })
-
-    reddit_mentions = fetch_reddit_mentions(slug, query)
-    for m in reddit_mentions:
-        m["body"] = sanitize(m["body"]) if m["body"] else ""
-
-    result = {"reviews": reviews, "traceComments": comments, "redditMentions": reddit_mentions}
-    cache_set(cache_key, result)
-    resp = jsonify(result)
-    resp.headers["Cache-Control"] = "private, max-age=3600" if is_authed else "public, max-age=3600"
-    resp.headers["Vary"] = "Authorization"
-    return resp
+def professor_payload(slug):
+    """The §4.2 payload for `slug` (cached), or None when no professor matches.
+    Shared by /full and render.py so the crawler page and the app agree."""
+    cache_key = f"prof_full:{slug}"
+    data = cache_get(cache_key)
+    if data is None:
+        data = build_payload(slug, query, query_one, sanitize, fetch_reddit_mentions)
+        if data is None:
+            return None
+        cache_set(cache_key, data)
+    return data
 
 
 @app.route("/api/professors/<slug>/full")
 def professor_full(slug):
-    """Combined profile + reviews in one request.
-
-    Unauthenticated (the public cold path): build_full shares the catalog +
-    trace_courses lookups and runs a single trace_scores scan, cutting the
-    cold-cache round-trips from ~10 to ~6. Authenticated requests keep the
-    radar-bearing profile branch via the two sub-endpoints.
-    """
-    is_authed = False
-    token = _get_auth_token()
-    if token:
-        try:
-            pyjwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-            is_authed = True
-        except (pyjwt.ExpiredSignatureError, pyjwt.InvalidTokenError):
-            pass
-
-    cache_key = f"prof_full:{slug}:{'a' if is_authed else 'u'}"
-    cached = cache_get(cache_key)
-    if cached:
-        resp = jsonify(cached)
-        resp.headers["Cache-Control"] = "private, max-age=3600" if is_authed else "public, max-age=3600"
-        resp.headers["Vary"] = "Authorization"
-        return resp
-
-    if not is_authed:
-        profile_data = build_full(slug, query, query_one, sanitize,
-                                  fetch_reddit_mentions=fetch_reddit_mentions,
-                                  is_authed=False)
-        if profile_data is None:
-            return jsonify({"error": "Professor not found"}), 404
-        # Same colleagues field the authed branch gets via professor_profile —
-        # served from the per-department cache, no per-request DB cost.
-        profile_data["colleagues"] = _department_colleagues(profile_data["department"], slug)
-    else:
-        profile_resp = professor_profile(slug)
-        if isinstance(profile_resp, tuple):
-            return profile_resp  # propagate 404/errors
-
-        reviews_resp = professor_reviews(slug)
-        if isinstance(reviews_resp, tuple):
-            reviews_data = {"reviews": [], "traceComments": [], "redditMentions": []}
-        else:
-            reviews_data = reviews_resp.get_json()
-
-        profile_data = profile_resp.get_json()
-        profile_data["reviews"] = reviews_data.get("reviews", [])
-        profile_data["traceComments"] = reviews_data.get("traceComments", [])
-        profile_data["redditMentions"] = reviews_data.get("redditMentions", [])
-
-    cache_set(cache_key, profile_data)
-    resp = jsonify(profile_data)
-    resp.headers["Cache-Control"] = "private, max-age=3600" if is_authed else "public, max-age=3600"
+    data = professor_payload(slug)
+    if data is None:
+        return jsonify({"error": "Professor not found"}), 404
+    resp = jsonify(data)
+    resp.headers["Cache-Control"] = "private, max-age=3600" if _is_authed() else "public, max-age=3600"
     resp.headers["Vary"] = "Authorization"
     return resp
 
@@ -1425,7 +924,7 @@ def departments():
     if cached:
         return jsonify(cached)
     if college and college != "All":
-        college_list = [c.strip() for c in college.split(",") if c.strip()]
+        college_list = split_filter(college)
         if len(college_list) == 1:
             rows = query("""
                 SELECT DISTINCT department FROM professors_catalog
@@ -1587,7 +1086,7 @@ def professors_catalog():
     params = []
 
     if college and college != "All":
-        college_list = [c.strip() for c in college.split(",") if c.strip()]
+        college_list = split_filter(college)
         if len(college_list) == 1:
             conditions.append("college = %s")
             params.append(college_list[0])
@@ -1599,7 +1098,7 @@ def professors_catalog():
         "Counseling & Educational Psych": ["Counseling amp Educational Psych", "Counseling  Educational Psych"],
     }
     if dept and dept != "All":
-        dept_list = [d.strip() for d in dept.split(",") if d.strip()]
+        dept_list = split_filter(dept)
         expanded = []
         for d in dept_list:
             expanded.append(d)
@@ -1679,7 +1178,6 @@ def professors_catalog():
             "college": row["college"],
             "avgRating": round(row["avg_rating"], 2) if row["avg_rating"] else None,
             "rmpRating": round(row["rmp_rating"], 2) if row["rmp_rating"] else None,
-            "traceRating": round(row["trace_rating"], 2) if row["trace_rating"] else None,
             "totalReviews": row["total_reviews"],
             "totalComments": row.get("total_comments", 0) or 0,
             "wouldTakeAgainPct": round(row["would_take_again_pct"], 1) if row["would_take_again_pct"] else None,
@@ -1742,7 +1240,7 @@ def courses_catalog():
     params = []
 
     if dept and dept != "All":
-        dept_list = [d.strip() for d in dept.split(",") if d.strip()]
+        dept_list = split_filter(dept)
         if len(dept_list) == 1:
             conditions.append("department = %s")
             params.append(dept_list[0])
@@ -1762,7 +1260,7 @@ def courses_catalog():
     where_str = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
     if sort == "rating":
-        order = "avg_rating DESC NULLS LAST"
+        order = "avg_rating DESC NULLS LAST, lower(code) ASC"
     else:
         order = "lower(code) ASC"
 
@@ -1800,298 +1298,29 @@ def courses_catalog():
     return jsonify(result)
 
 
-@app.route("/api/courses/<code>")
-def course_profile(code):
+def course_payload(code):
+    """The §4.3 payload for `code` (cached), or None when it is not in the catalog.
+    Shared by /api/courses/<code> and render.py."""
     code_norm = _format_course_code(code)
     if not code_norm:
+        return None
+    cache_key = f"course:{code_norm}"
+    data = cache_get(cache_key)
+    if data is None:
+        data = build_course(code_norm, query, query_one)
+        if data is None:
+            return None
+        cache_set(cache_key, data)
+    return data
+
+
+@app.route("/api/courses/<code>")
+def course_profile(code):
+    data = course_payload(code)
+    if data is None:
         return jsonify({"error": "Course not found"}), 404
-
-    is_authed = False
-    token = _get_auth_token()
-    if token:
-        try:
-            pyjwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-            is_authed = True
-        except (pyjwt.ExpiredSignatureError, pyjwt.InvalidTokenError):
-            pass
-
-    cache_key = f"course:{code_norm}:{'a' if is_authed else 'u'}"
-    cached = cache_get(cache_key)
-    if cached:
-        resp = jsonify(cached)
-        resp.headers["Cache-Control"] = "private, max-age=3600" if is_authed else "public, max-age=3600"
-        resp.headers["Vary"] = "Authorization"
-        return resp
-
-    # Look up course in catalog
-    course = query_one("SELECT code, name, department FROM course_catalog WHERE code = %s", (code_norm,))
-    if not course:
-        return jsonify({"error": "Course not found"}), 404
-
-    # Get all sections for this course from trace_courses using indexed course_code column
-    sections = query("""
-        SELECT DISTINCT ON (tc.course_id, tc.instructor_id, tc.term_id)
-            tc.course_id, tc.instructor_id, tc.term_id, tc.term_title,
-            tc.department_name, tc.display_name, tc.section, tc.enrollment,
-            tc.instructor_first_name, tc.instructor_last_name
-        FROM trace_courses tc
-        WHERE tc.course_code = %s
-        ORDER BY tc.course_id, tc.instructor_id, tc.term_id, tc.term_id DESC
-    """, (code_norm,))
-
-    if not sections:
-        return jsonify({"error": "Course not found"}), 404
-
-    # Single query for all score types using conditional aggregation (replaces 3 separate queries)
-    section_keys = tuple((s["course_id"], s["instructor_id"], s["term_id"]) for s in sections)
-    combined_scores = query(
-        "SELECT course_id, instructor_id, term_id, "
-        "SUM(CASE WHEN lower(question) LIKE '%%overall%%' AND lower(question) != 'overall effectiveness' THEN CAST(mean AS FLOAT) * CAST(total_responses AS FLOAT) ELSE 0 END) as overall_weighted, "
-        "SUM(CASE WHEN lower(question) LIKE '%%overall%%' AND lower(question) != 'overall effectiveness' THEN CAST(total_responses AS INT) ELSE 0 END) as overall_responses, "
-        "SUM(CASE WHEN lower(question) LIKE '%%overall%%' AND lower(question) != 'overall effectiveness' THEN completed ELSE 0 END) as overall_completed, "
-        "SUM(CASE WHEN lower(question) LIKE '%%challeng%%' THEN CAST(mean AS FLOAT) * CAST(total_responses AS FLOAT) ELSE 0 END) as challeng_weighted, "
-        "SUM(CASE WHEN lower(question) LIKE '%%challeng%%' THEN CAST(total_responses AS INT) ELSE 0 END) as challeng_responses, "
-        "SUM(CASE WHEN lower(question) LIKE '%%hours%%' THEN CAST(mean AS FLOAT) * CAST(total_responses AS FLOAT) ELSE 0 END) as hours_weighted, "
-        "SUM(CASE WHEN lower(question) LIKE '%%hours%%' THEN CAST(total_responses AS INT) ELSE 0 END) as hours_responses "
-        "FROM trace_scores "
-        "WHERE (course_id, instructor_id, term_id) IN %s "
-        "AND ((lower(question) LIKE '%%overall%%' AND lower(question) != 'overall effectiveness') OR lower(question) LIKE '%%challeng%%' OR lower(question) LIKE '%%hours%%') "
-        "GROUP BY course_id, instructor_id, term_id",
-        (section_keys,)
-    )
-
-    # Build score maps from combined result
-    score_map = {}
-    challenging_map = {}
-    hours_map = {}
-    for row in combined_scores:
-        key = (row["course_id"], row["instructor_id"], row["term_id"])
-        if row["overall_responses"]:
-            score_map[key] = {
-                "weighted_sum": row["overall_weighted"],
-                "total_responses": row["overall_responses"],
-                "completed": row["overall_completed"],
-            }
-        if row["challeng_responses"]:
-            challenging_map[key] = {
-                "weighted_sum": row["challeng_weighted"],
-                "total_responses": row["challeng_responses"],
-            }
-        if row["hours_responses"]:
-            hours_map[key] = {
-                "weighted_sum": row["hours_weighted"],
-                "total_responses": row["hours_responses"],
-            }
-
-    # Compute summary
-    total_weighted = 0.0
-    total_responses = 0
-    total_enrollment = 0
-    total_sections_with_enrollment = 0
-    latest_term_id = 0
-    latest_term_title = ""
-    latest_term_sort = -1
-
-    for s in sections:
-        enrollment = _safe_int(s["enrollment"])
-        if enrollment > 0:
-            total_enrollment += enrollment
-            total_sections_with_enrollment += 1
-        tid = _safe_int(s["term_id"])
-        tsort = term_sort_key(s["term_title"] or "")
-        if tsort > latest_term_sort:
-            latest_term_sort = tsort
-            latest_term_id = tid
-            latest_term_title = s["term_title"] or ""
-        key = (s["course_id"], s["instructor_id"], s["term_id"])
-        if key in score_map:
-            total_weighted += _safe_float(score_map[key]["weighted_sum"])
-            total_responses += _safe_int(score_map[key]["total_responses"])
-
-    avg_rating = (total_weighted / total_responses) if total_responses > 0 else None
-
-    summary = {
-        "code": course["code"],
-        "name": course["name"],
-        "department": course["department"] or "",
-        "avgRating": round(avg_rating, 2) if avg_rating is not None else None,
-        "avgEnrollment": round(total_enrollment / total_sections_with_enrollment) if total_sections_with_enrollment > 0 else None,
-        "latestTermTitle": latest_term_title,
-        # Count of TRACE "overall" question responses backing avgRating, for
-        # AggregateRating JSON-LD (schema.org requires ratingCount alongside ratingValue).
-        "ratingCount": total_responses if total_responses > 0 else None,
-    }
-
-    # Build instructor aggregates
-    instructor_data = {}
-    for s in sections:
-        fname = (s["instructor_first_name"] or "").strip()
-        lname = (s["instructor_last_name"] or "").strip()
-        name = f"{fname} {lname}".strip()
-        if not name:
-            continue
-        if name not in instructor_data:
-            instructor_data[name] = {
-                "sections": 0, "enrollment": 0,
-                "weighted": 0.0, "responses": 0,
-                "challeng_weighted": 0.0, "challeng_responses": 0,
-                "hours_weighted": 0.0, "hours_responses": 0,
-                "latest_term_title": "", "latest_term_sort": -1,
-            }
-        tsort = term_sort_key(s["term_title"] or "")
-        if tsort > instructor_data[name]["latest_term_sort"]:
-            instructor_data[name]["latest_term_sort"] = tsort
-            instructor_data[name]["latest_term_title"] = s["term_title"] or ""
-        instructor_data[name]["sections"] += 1
-        instructor_data[name]["enrollment"] += _safe_int(s["enrollment"])
-        key = (s["course_id"], s["instructor_id"], s["term_id"])
-        if key in score_map:
-            instructor_data[name]["weighted"] += _safe_float(score_map[key]["weighted_sum"])
-            instructor_data[name]["responses"] += _safe_int(score_map[key]["total_responses"])
-        if key in challenging_map:
-            instructor_data[name]["challeng_weighted"] += _safe_float(challenging_map[key]["weighted_sum"])
-            instructor_data[name]["challeng_responses"] += _safe_int(challenging_map[key]["total_responses"])
-        if key in hours_map:
-            instructor_data[name]["hours_weighted"] += _safe_float(hours_map[key]["weighted_sum"])
-            instructor_data[name]["hours_responses"] += _safe_int(hours_map[key]["total_responses"])
-
-    # Look up instructor metadata from professors_catalog (batched)
-    name_key_map = {normalize_name(name): name for name in instructor_data}
-    name_keys = list(name_key_map.keys())
-    prof_map = {}
-    comment_counts = {}
-    rmp_course_diff_map = {}
-    if name_keys:
-        placeholders = ",".join(["%s"] * len(name_keys))
-        prof_rows = query(
-            f"SELECT name_key, slug, image_url, total_reviews, would_take_again_pct, difficulty, rmp_rating "
-            f"FROM professors_catalog WHERE name_key IN ({placeholders})", name_keys
-        )
-        prof_map = {r["name_key"]: r for r in prof_rows}
-        # Fuzzy match RMP course: exact normalized match, or match on numeric portion
-        # (RMP course names are often misspelled, e.g. "C1100" instead of "CS1100")
-        code_num = re.sub(r"[^0-9]", "", code_norm)
-        rmp_course_diff_rows = query(
-            f"SELECT name_key, AVG(CAST(difficulty AS FLOAT)) as avg_diff "
-            f"FROM rmp_reviews "
-            f"WHERE name_key IN ({placeholders}) AND difficulty IS NOT NULL "
-            f"AND (UPPER(REPLACE(course, ' ', '')) = %s OR REGEXP_REPLACE(course, '[^0-9]', '', 'g') = %s) "
-            f"GROUP BY name_key",
-            name_keys + [code_norm, code_num]
-        )
-        rmp_course_diff_map = {r["name_key"]: round(float(r["avg_diff"]), 2) for r in rmp_course_diff_rows if r["avg_diff"] is not None}
-        combined_counts = query(
-            f"SELECT name_key, SUM(cnt) as cnt FROM ("
-            f"  SELECT name_key, COUNT(*) as cnt FROM rmp_reviews "
-            f"  WHERE name_key IN ({placeholders}) AND comment IS NOT NULL AND comment != '' "
-            f"  GROUP BY name_key"
-            f"  UNION ALL "
-            f"  SELECT tc2.name_key, COUNT(*) as cnt "
-            f"  FROM trace_comments tc "
-            f"  JOIN trace_courses tc2 ON tc.tc_course_id = tc2.course_id "
-            f"    AND tc.tc_instructor_id = tc2.instructor_id "
-            f"    AND tc.tc_term_id = tc2.term_id "
-            f"  WHERE tc2.name_key IN ({placeholders}) "
-            f"  AND tc.comment IS NOT NULL AND tc.comment != '' "
-            f"  GROUP BY tc2.name_key"
-            f") sub GROUP BY name_key",
-            name_keys + name_keys
-        )
-        for r in combined_counts:
-            comment_counts[r["name_key"]] = int(r["cnt"])
-
-    instructor_rows = []
-    for name, data in instructor_data.items():
-        prof = prof_map.get(normalize_name(name))
-        nk = normalize_name(name)
-        meta_slug = prof["slug"] if prof else ""
-        meta_image = prof["image_url"] if prof else None
-        meta_reviews = prof["total_reviews"] if prof else 0
-        meta_wta = round(prof["would_take_again_pct"], 1) if prof and prof["would_take_again_pct"] else None
-        meta_diff = round(prof["difficulty"], 2) if prof and prof["difficulty"] else None
-        meta_comments = comment_counts.get(nk, 0)
-
-        resp = data["responses"]
-        challeng_resp = data["challeng_responses"]
-        hours_resp = data["hours_responses"]
-        trace_diff = round(data["challeng_weighted"] / challeng_resp, 2) if challeng_resp > 0 else None
-        rmp_course_diff = rmp_course_diff_map.get(nk)
-        if trace_diff is not None and rmp_course_diff is not None:
-            course_diff = round((trace_diff + rmp_course_diff) / 2, 2)
-        elif trace_diff is not None:
-            course_diff = trace_diff
-        else:
-            course_diff = rmp_course_diff
-        instructor_rows.append({
-            "name": name,
-            "slug": meta_slug,
-            "imageUrl": meta_image,
-            "difficulty": meta_diff,
-            "wouldTakeAgainPct": meta_wta,
-            "totalReviews": meta_reviews or 0,
-            "totalComments": meta_comments,
-            "_sections": data["sections"],
-            "latestTermTitle": data["latest_term_title"],
-            "avgRating": round(data["weighted"] / resp, 2) if resp > 0 else None,
-            "courseAvgDifficulty": course_diff,
-            "courseAvgHoursPerWeek": round(data["hours_weighted"] / hours_resp, 2) if hours_resp > 0 else None,
-        })
-    instructor_rows.sort(key=lambda r: (r["avgRating"] is None, -(r["avgRating"] or 0), -r["_sections"]))
-    for row in instructor_rows:
-        del row["_sections"]
-
-    # Build section rows
-    section_rows = []
-    for s in sorted(sections, key=lambda x: -(x["term_id"] or 0)):
-        key = (s["course_id"], s["instructor_id"], s["term_id"])
-        sc = score_map.get(key)
-        fname = (s["instructor_first_name"] or "").strip()
-        lname = (s["instructor_last_name"] or "").strip()
-        name = f"{fname} {lname}".strip()
-        overall_mean = None
-        if sc and _safe_int(sc["total_responses"]) > 0:
-            overall_mean = round(_safe_float(sc["weighted_sum"]) / _safe_int(sc["total_responses"]), 2)
-        prof = prof_map.get(normalize_name(name))
-        rmp_rating = round(prof["rmp_rating"], 2) if prof and prof.get("rmp_rating") else None
-        section_rows.append({
-            "termId": _safe_int(s["term_id"]),
-            "termTitle": s["term_title"] or "",
-            "instructor": name,
-            "overallRating": overall_mean if is_authed else None,
-            "rmpRating": rmp_rating if is_authed else None,
-        })
-
-    # Get question-level scores
-    question_rows = []
-    q_scores = query(
-        "SELECT question, "
-        "SUM(CAST(mean AS FLOAT) * CAST(total_responses AS FLOAT)) as weighted_sum, "
-        "SUM(total_responses) as total_responses "
-        "FROM trace_scores "
-        "WHERE (course_id, instructor_id, term_id) IN %s "
-        "GROUP BY question",
-        (section_keys,)
-    )
-    for qs in q_scores:
-        resp = _safe_int(qs["total_responses"])
-        question_rows.append({
-            "question": qs["question"],
-            "avgRating": round(_safe_float(qs["weighted_sum"]) / resp, 2) if resp > 0 else None,
-            "_totalResponses": resp,
-        })
-    question_rows.sort(key=lambda r: (-r["_totalResponses"], r["question"].lower()))
-    for row in question_rows:
-        del row["_totalResponses"]
-
-    result = {
-        "summary": summary,
-        "instructors": instructor_rows,
-        "sections": section_rows if is_authed else [],
-        "questionScores": question_rows if is_authed else [],
-    }
-    cache_set(cache_key, result)
-    resp = jsonify(result)
-    resp.headers["Cache-Control"] = "private, max-age=3600" if is_authed else "public, max-age=3600"
+    resp = jsonify(data)
+    resp.headers["Cache-Control"] = "private, max-age=3600" if _is_authed() else "public, max-age=3600"
     resp.headers["Vary"] = "Authorization"
     return resp
 
@@ -2194,6 +1423,19 @@ def _get_auth_token():
     if auth_header.startswith("Bearer "):
         return auth_header[7:]
     return request.cookies.get("auth_token")
+
+
+def _is_authed():
+    """True when the request carries a valid session token. Pages serve the same
+    payload either way; only the Cache-Control header differs."""
+    token = _get_auth_token()
+    if not token:
+        return False
+    try:
+        pyjwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        return True
+    except (pyjwt.ExpiredSignatureError, pyjwt.InvalidTokenError):
+        return False
 
 
 @app.route("/api/auth/me")
@@ -2396,79 +1638,6 @@ def submit_feedback():
         return jsonify({"error": "Failed to send email"}), 500
 
     return jsonify({"ok": True})
-
-
-@app.route("/api/trace-dept-avg")
-def trace_dept_avg():
-    department = request.args.get("department", "").strip()
-    try:
-        term_id = int(request.args.get("term_id", "0"))
-    except (ValueError, TypeError):
-        term_id = 0
-
-    if not department or not term_id:
-        return jsonify([])
-
-    cache_key = f"trace_dept_avg:{department}:{term_id}"
-    cached = cache_get(cache_key)
-    if cached:
-        resp = jsonify(cached)
-        resp.headers["Cache-Control"] = "public, max-age=3600"
-        return resp
-
-    rows = query("""
-        SELECT ts.question,
-               SUM(COALESCE(ts.count_1, 0) + COALESCE(ts.count_2, 0) + COALESCE(ts.count_3, 0)
-                   + COALESCE(ts.count_4, 0) + COALESCE(ts.count_5, 0)) AS total_responses,
-               SUM(1 * COALESCE(ts.count_1, 0) + 2 * COALESCE(ts.count_2, 0)
-                   + 3 * COALESCE(ts.count_3, 0) + 4 * COALESCE(ts.count_4, 0)
-                   + 5 * COALESCE(ts.count_5, 0)) AS weighted_sum
-        FROM trace_scores ts
-        JOIN trace_courses tc
-            ON ts.course_id = tc.course_id
-           AND ts.instructor_id = tc.instructor_id
-           AND ts.term_id = tc.term_id
-        WHERE tc.department_name = %s AND tc.term_id = %s
-        GROUP BY ts.question
-    """, (department, term_id))
-
-    result = []
-    for r in rows:
-        total = int(r["total_responses"] or 0)
-        wsum = float(r["weighted_sum"] or 0)
-        if total > 0:
-            result.append({
-                "question": str(r["question"] or ""),
-                "avgMean": round(wsum / total, 2),
-            })
-
-    # Fallback: if count columns are unpopulated for this term, use mean directly
-    if not result:
-        rows = query("""
-            SELECT ts.question,
-                   SUM(COALESCE(ts.mean, 0) * COALESCE(ts.completed, 1)::FLOAT) AS weighted_sum,
-                   SUM(COALESCE(ts.completed, 1))::FLOAT AS total_weight
-            FROM trace_scores ts
-            JOIN trace_courses tc
-                ON ts.course_id = tc.course_id
-               AND ts.instructor_id = tc.instructor_id
-               AND ts.term_id = tc.term_id
-            WHERE tc.department_name = %s AND tc.term_id = %s AND ts.mean IS NOT NULL
-            GROUP BY ts.question
-        """, (department, term_id))
-        for r in rows:
-            total_weight = float(r["total_weight"] or 0)
-            wsum = float(r["weighted_sum"] or 0)
-            if total_weight > 0:
-                result.append({
-                    "question": str(r["question"] or ""),
-                    "avgMean": round(wsum / total_weight, 2),
-                })
-
-    cache_set(cache_key, result)
-    resp = jsonify(result)
-    resp.headers["Cache-Control"] = "public, max-age=3600"
-    return resp
 
 
 from render import render_bp

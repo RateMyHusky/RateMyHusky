@@ -14,7 +14,6 @@ const ASK_FROM_STATE = { fromPage: { label: 'Ask', url: '/' }, restoreAsk: true 
 const SOURCE_LABEL: Record<string, string> = {
   reddit: "Reddit",
   rmp: "RateMyProfessor",
-  trace: "TRACE",
 };
 
 const searchOptions = [

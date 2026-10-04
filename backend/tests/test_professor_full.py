@@ -1,221 +1,209 @@
-"""Unit tests for the extracted, injectable /full SQL orchestration.
+"""The professor page payload (/api/professors/<slug>/full, spec §4.2).
 
-These prove the round-trip reduction (a fake `query` records every call) and
-guard the unauthenticated response shape. server.py can't be imported in tests
-(it needs live env vars), so the logic lives in professor_full.py with the same
-injectable-`query` pattern as chat_retrieve.py.
+A fake query records every statement, so the round-trip budget and the tables
+touched are pinned alongside the contract's exact key sets.
 """
 
-from professor_full import build_full, _resolve_professor
+from professor_full import build_payload
+
+CATALOG = {"slug": "olin-guha", "name": "Olin Guha", "name_key": "olin guha",
+           "department": "Khoury", "college": "Khoury", "avg_rating": 4.2,
+           "rmp_rating": 4.2, "num_ratings": 57, "total_reviews": 57,
+           "would_take_again_pct": 88.0, "difficulty": 3.1,
+           "professor_url": "https://www.ratemyprofessors.com/professor/1",
+           "image_url": None, "focus_x": None, "focus_y": None, "total_comments": 3}
+
+REVIEWS = [
+    {"course": "CS3500", "course_code": "CS3500", "quality": 5, "difficulty": 3, "date": "2024", "tags": "",
+     "attendance": "", "grade": "A", "textbook": "", "online_class": "", "comment": "Great."},
+    {"course": "cs 3500", "course_code": "CS3500", "quality": 3, "difficulty": 4, "date": "2023", "tags": "",
+     "attendance": "", "grade": "B", "textbook": "", "online_class": "", "comment": ""},
+    {"course": "CS2500 ", "course_code": "CS2500", "quality": 4, "difficulty": 2, "date": "2022", "tags": "",
+     "attendance": "", "grade": "", "textbook": "", "online_class": "", "comment": "Fine."},
+    {"course": "FUNDIES", "course_code": None, "quality": 2, "difficulty": 5, "date": "2021", "tags": "",
+     "attendance": "", "grade": "", "textbook": "", "online_class": "", "comment": "Hard."},
+]
+
+MENTIONS = [{"body": "guha is great", "sentiment": "positive", "sentiment_score": 0.6,
+             "score": 12, "subreddit": "NEU", "permalink": "/r/x", "created_utc": None}]
 
 
-class RecordingQuery:
-    """Fake query()/query_one() that records each SQL it is asked to run and
-    returns canned rows based on which table the SQL targets."""
+SUMMARY_ROWS = [
+    {"course_code": "", "source": "rmp", "rating": 4.2, "difficulty": 3.1, "would_take_again_pct": 88.0,
+     "num_ratings": 57, "num_comments": 3, "hours_per_week": None,
+     "rating_distribution": {"1": 1, "2": 2, "3": 4, "4": 20, "5": 30}, "grade_distribution": {"A": 9},
+     "course_name": None},
+    {"course_code": "", "source": "blend", "rating": 4.2, "difficulty": 3.1, "would_take_again_pct": 88.0,
+     "num_ratings": 57, "num_comments": 3, "hours_per_week": None,
+     "rating_distribution": {"1": 1, "2": 2, "3": 4, "4": 20, "5": 30}, "grade_distribution": {"A": 9},
+     "course_name": None},
+    {"course_code": "CS3500", "source": "blend", "rating": 4.0, "difficulty": 3.5, "would_take_again_pct": None,
+     "num_ratings": 2, "num_comments": 1, "hours_per_week": None,
+     "rating_distribution": {"3": 1, "5": 1}, "grade_distribution": {}, "course_name": "Object-Oriented Design"},
+    {"course_code": "CS2500", "source": "blend", "rating": 4.0, "difficulty": 2.0, "would_take_again_pct": None,
+     "num_ratings": 1, "num_comments": 1, "hours_per_week": None,
+     "rating_distribution": {"4": 1}, "grade_distribution": {}, "course_name": None},
+    {"course_code": "CS3500", "source": "rmp", "rating": 4.0, "difficulty": 3.5, "would_take_again_pct": None,
+     "num_ratings": 2, "num_comments": 1, "hours_per_week": None,
+     "rating_distribution": {"3": 1, "5": 1}, "grade_distribution": {}, "course_name": "Object-Oriented Design"},
+]
 
-    def __init__(self):
-        self.calls = []  # list of SQL strings, in order
 
-    def _rows_for(self, sql):
-        s = sql.lower()
-        # Order matters: trace_comments/reddit before the generic trace_courses.
-        if "from professors_catalog" in s:
-            return [{"name": "Olin Guha", "slug": "olin-guha", "name_key": "olin guha",
-                     "department": "Khoury", "rmp_rating": 4.1, "trace_rating": 4.3,
-                     "avg_rating": 4.2, "difficulty": 3.5, "would_take_again_pct": 88.0,
-                     "total_reviews": 31, "professor_url": None, "image_url": None,
-                     "avg_hours": 6.0}]
-        if "from rmp_reviews" in s:
-            return [{"course": "CS3500", "quality": 5, "difficulty": 3, "date": "2024",
-                     "tags": "", "attendance": "", "grade": "A", "textbook": "",
-                     "online_class": "", "comment": "Great teacher."}]
-        if "from trace_comments" in s:
-            return [{"tc_term_id": 901, "tc_course_id": 1, "question": "Comments",
-                     "comment": "Tough but fair."}]
-        if "from reddit_mentions" in s:
-            return [{"body": "guha is hard", "subreddit": "NEU", "permalink": "/r/x",
-                     "created_utc": None, "reddit_score": 12, "sentiment": "negative",
-                     "sentiment_score": -0.4}]
-        if "from trace_scores" in s:
-            # One overall + one challenge + one hours row for the same course/term.
-            base = {"course_id": 1, "term_id": 901, "display_name": "CS3500: OOD"}
-            return [
-                {**base, "question": "Overall rating", "mean": 4.5,
-                 "count_1": 0, "count_2": 0, "count_3": 1, "count_4": 2,
-                 "count_5": 7, "completed": 10},
-                {**base, "question": "How challenging", "mean": 3.5,
-                 "count_1": 0, "count_2": 1, "count_3": 4, "count_4": 3,
-                 "count_5": 2, "completed": 10},
-                {**base, "question": "Hours per week", "mean": 6.0,
-                 "count_1": 1, "count_2": 2, "count_3": 4, "count_4": 2,
-                 "count_5": 1, "completed": 10},
-            ]
-        if "from trace_courses" in s:
-            return [{"course_id": 1, "term_id": 901, "term_title": "Fall 2023",
-                     "department_name": "Khoury", "display_name": "CS3500: OOD",
-                     "section": "1", "enrollment": 40, "instructor_id": 7}]
-        return []
+class FakeDB:
+    def __init__(self, catalog=CATALOG, reviews=REVIEWS, summaries=SUMMARY_ROWS):
+        self.catalog, self.reviews, self.summaries = catalog, reviews, summaries
+        self.calls = []
 
     def query(self, sql, params=None):
-        self.calls.append(sql)
-        return self._rows_for(sql)
+        self.calls.append((sql, params))
+        s = " ".join(sql.split()).lower()
+        if "from rmp_reviews" in s:
+            return [dict(r) for r in self.reviews]
+        if "from source_summary" in s:
+            return [dict(r) for r in self.summaries]
+        raise AssertionError(f"unexpected query: {sql}")
 
     def query_one(self, sql, params=None):
-        self.calls.append(sql)
-        rows = self._rows_for(sql)
-        return rows[0] if rows else None
-
-    # ── assertion helpers ──
-    def count_hitting(self, table):
-        return sum(1 for c in self.calls if table.lower() in c.lower())
-
-
-def _fake_fetch_reddit_mentions(slug, query_fn):
-    # Mirror server's fetch_reddit_mentions: a real round-trip through query().
-    rows = query_fn("SELECT t.body, t.subreddit FROM reddit_mentions m "
-                    "JOIN reddit_text t ON t.source_id = m.source_id "
-                    "WHERE m.professor_slug = %s", (slug,))
-    return [{"body": r.get("body") or "", "sentiment": r.get("sentiment"),
-             "sentiment_score": r.get("sentiment_score"), "score": r.get("reddit_score"),
-             "subreddit": r.get("subreddit"), "permalink": r.get("permalink"),
-             "created_utc": r.get("created_utc")} for r in rows]
+        self.calls.append((sql, params))
+        s = " ".join(sql.split()).lower()
+        if "from professors_catalog where slug" in s:
+            return dict(self.catalog) if self.catalog and params[0] == self.catalog["slug"] else None
+        if "from professors_catalog where name_key" in s:
+            return dict(self.catalog) if self.catalog and params[0] == self.catalog["name_key"] else None
+        raise AssertionError(f"unexpected query_one: {sql}")
 
 
-def _build(slug="olin-guha"):
-    rq = RecordingQuery()
-    data = build_full(slug, rq.query, rq.query_one, sanitize=lambda t: t,
-                      fetch_reddit_mentions=_fake_fetch_reddit_mentions,
-                      is_authed=False)
-    return data, rq
+def _build(slug="olin-guha", db=None, mentions=MENTIONS):
+    db = db or FakeDB()
+    seen = {}
+
+    def fetch_reddit_mentions(s, query_fn, mod_filter=""):
+        # The Reddit round trip itself is counted by the route test.
+        seen["slug"] = s
+        return [dict(m) for m in mentions]
+
+    data = build_payload(slug, db.query, db.query_one, lambda t: t, fetch_reddit_mentions)
+    return data, db, seen
 
 
-# ── Round-trip reduction (the whole point) ──
+# ── contract key sets (spec §4.2) ──
 
-def test_full_unauthed_makes_at_most_six_round_trips():
-    _, rq = _build()
-    assert len(rq.calls) <= 6, f"expected <=6 round-trips, got {len(rq.calls)}: {rq.calls}"
-
-
-def test_catalog_looked_up_only_once():
-    # professor_profile + professor_reviews used to each fetch the catalog row.
-    _, rq = _build()
-    assert rq.count_hitting("from professors_catalog") == 1
+def test_top_level_keys():
+    data, _, _ = _build()
+    assert set(data) == {"version", "identity", "summary", "sources", "courses", "redditMentions"}
+    assert data["version"] == 2
 
 
-def test_trace_courses_fetched_only_once():
-    # Both old functions fetched trace_courses by name_key separately.
-    _, rq = _build()
-    assert rq.count_hitting("from trace_courses") == 1
+def test_identity_keys():
+    data, _, _ = _build()
+    assert data["identity"] == {"slug": "olin-guha", "name": "Olin Guha", "department": "Khoury",
+                                "college": "Khoury", "imageUrl": None, "focusX": 50.0, "focusY": 30.0}
 
 
-def test_trace_scores_scanned_only_once():
-    # Old unauthed path ran 3 separate scans (challenge / overall / hours).
-    _, rq = _build()
-    assert rq.count_hitting("from trace_scores") == 1
+def test_summary_keys_and_values():
+    data, _, _ = _build()
+    assert data["summary"] == {
+        "rating": 4.2, "difficulty": 3.1, "wouldTakeAgainPct": 88.0, "numRatings": 57,
+        "numComments": 4,   # 3 RMP comments + 1 Reddit mention
+        "hoursPerWeek": None,
+        "bySource": {"rmp": {"rating": 4.2, "numRatings": 57}},
+    }
 
 
-# ── Response shape is preserved ──
-
-def test_full_returns_profile_fields():
-    data, _ = _build()
-    assert data["name"] == "Olin Guha"
-    assert data["department"] == "Khoury"
-    assert data["avgRating"] == 4.2
-    assert data["totalRatings"] == 31
-    assert data["wouldTakeAgainPct"] == 88.0
+def test_sources_holds_rmp_only_with_exact_keys():
+    data, _, _ = _build()
+    assert set(data["sources"]) == {"rmp"}
+    assert set(data["sources"]["rmp"]) == {
+        "available", "rating", "difficulty", "wouldTakeAgainPct", "numRatings",
+        "professorUrl", "ratingDistribution", "gradeDistribution", "reviews"}
 
 
-def test_full_includes_reviews_trace_comments_and_reddit():
-    data, _ = _build()
-    assert "reviews" in data and "traceComments" in data and "redditMentions" in data
-    assert data["reviews"][0]["course"] == "CS3500"
-    # Unauthed: TRACE comment text is gated to "".
-    assert data["traceComments"][0]["comment"] == ""
-    assert data["redditMentions"][0]["sentiment"] == "negative"
+def test_course_row_keys():
+    data, _, _ = _build()
+    assert all(set(c) == {"code", "name", "rating", "difficulty", "numRatings", "ratingDistribution"}
+               for c in data["courses"])
 
 
-def test_full_builds_trace_courses_with_hours_and_overall():
-    data, _ = _build()
-    courses = data["traceCourses"]
-    assert len(courses) == 1
-    c = courses[0]
-    assert c["displayName"] == "CS3500: OOD"
-    # hours weighted mean: (1*1+3.5*2+6*4+9*2+12*1)/(1+2+4+2+1)=62/10=6.2
-    assert c["hoursPerWeek"] == 6.2
+# ── courses[] ──
+
+def test_courses_come_from_the_course_rows():
+    data, _, _ = _build()
+    by_code = {c["code"]: c for c in data["courses"]}
+    assert [c["code"] for c in data["courses"]] == ["CS3500", "CS2500"]
+    assert by_code["CS3500"]["numRatings"] == 2
+    assert by_code["CS3500"]["rating"] == 4.0
+    assert by_code["CS3500"]["name"] == "Object-Oriented Design"
+    assert by_code["CS3500"]["ratingDistribution"] == {"1": 0, "2": 0, "3": 1, "4": 0, "5": 1}
+    assert by_code["CS2500"]["name"] is None
 
 
-def test_full_rating_distribution_bucketed_by_course_code():
-    data, _ = _build()
-    dist = data["traceRatingCounts"]
-    assert "CS3500" in dist
-    assert dist["CS3500"]["count5"] == 7
-    assert dist["CS3500"]["completed"] == 10
+def test_courses_ordered_by_rating_count_then_code():
+    data, _, _ = _build()
+    assert [c["code"] for c in data["courses"]] == ["CS3500", "CS2500"]
 
 
-def test_full_blends_difficulty_from_rmp_and_trace():
-    # rmp difficulty 3.5; trace challenge weighted mean:
-    # (1*0+2*1+3*4+4*3+5*2)/(0+1+4+3+2)=36/10=3.6 → blended (3.5+3.6)/2=3.55→3.55
-    data, _ = _build()
-    assert data["difficulty"] == 3.55
+def test_reviews_carry_their_pipeline_course_code():
+    data, _, _ = _build()
+    assert [r["courseCode"] for r in data["sources"]["rmp"]["reviews"]] == ["CS3500", "CS3500", "CS2500", None]
 
 
-def test_full_ratings_use_overall_course_not_law_overall_effectiveness():
-    # Law sections carry TWO overall questions: 'Overall Course' and 'Overall
-    # Effectiveness'. Ratings must count only 'Overall Course' — but the exclusion
-    # must be exact, because the Bluera-era label ("What is your overall rating of
-    # this instructor teaching effectiveness?") also contains "effectiveness" and
-    # must keep counting.
-    class LawQuery(RecordingQuery):
-        def _rows_for(self, sql):
-            s = sql.lower()
-            if "from trace_scores" in s:
-                base = {"course_id": 2, "term_id": 159, "display_name": "LAW6101: Con Law"}
-                return [
-                    {**base, "question": "Overall Course", "mean": 2.5,
-                     "count_1": 1, "count_2": 0, "count_3": 0, "count_4": 1,
-                     "count_5": 0, "completed": 2},
-                    {**base, "question": "Overall Effectiveness", "mean": 3.0,
-                     "count_1": 0, "count_2": 1, "count_3": 0, "count_4": 1,
-                     "count_5": 0, "completed": 2},
-                    {**base, "question": "What is your overall rating of this "
-                     "instructor teaching effectiveness?", "mean": 4.5,
-                     "count_1": 0, "count_2": 0, "count_3": 0, "count_4": 1,
-                     "count_5": 1, "completed": 2},
-                ]
-            if "from trace_courses" in s:
-                return [{"course_id": 2, "term_id": 159, "term_title": "Fall 2022 Law",
-                         "department_name": "Law", "display_name": "LAW6101: Con Law",
-                         "section": "1", "enrollment": 20, "instructor_id": 8}]
-            return super()._rows_for(sql)
-
-    rq = LawQuery()
-    data = build_full("olin-guha", rq.query, rq.query_one, sanitize=lambda t: t,
-                      fetch_reddit_mentions=_fake_fetch_reddit_mentions, is_authed=False)
-    dist = data["traceRatingCounts"]["LAW6101"]
-    assert dist["count4"] == 2, "Overall Course + Bluera overall only"
-    assert dist["count2"] == 0, "Overall Effectiveness counts must not leak into ratings"
-    assert dist["completed"] == 4
+def test_rmp_distributions_come_from_the_summary_row():
+    data, _, _ = _build()
+    assert data["sources"]["rmp"]["ratingDistribution"] == {"1": 1, "2": 2, "3": 4, "4": 20, "5": 30}
+    assert data["sources"]["rmp"]["gradeDistribution"] == {"A": 9}
 
 
-def test_full_404_when_professor_missing():
-    rq = RecordingQuery()
-    rq._rows_for = lambda sql: []  # nothing found
-    result = build_full("nobody", rq.query, rq.query_one, sanitize=lambda t: t,
-                        is_authed=False)
-    assert result is None  # caller turns None into a 404
+# ── edge cases ──
+
+def test_unrated_professor_is_all_null():
+    empty = {"rating": None, "difficulty": None, "would_take_again_pct": None, "num_ratings": 0,
+             "num_comments": 0, "rating_distribution": {}, "grade_distribution": {}}
+    unrated = {**CATALOG, "avg_rating": None, "rmp_rating": None, "num_ratings": 0,
+               "total_reviews": 0, "would_take_again_pct": None, "difficulty": None,
+               "professor_url": None}
+    summaries = [{**SUMMARY_ROWS[0], **empty}, {**SUMMARY_ROWS[1], **empty}]
+    data, _, _ = _build(db=FakeDB(catalog=unrated, reviews=[], summaries=summaries), mentions=[])
+    s = data["summary"]
+    assert (s["rating"], s["difficulty"], s["wouldTakeAgainPct"], s["numRatings"]) == (None, None, None, 0)
+    assert s["bySource"] == {"rmp": {"rating": None, "numRatings": 0}}
+    rmp = data["sources"]["rmp"]
+    assert rmp["available"] is False
+    assert (rmp["rating"], rmp["difficulty"], rmp["wouldTakeAgainPct"]) == (None, None, None)
+    assert data["courses"] == []
 
 
-def test_resolve_professor_applies_alias_map_to_slug_fallback():
-    # /professor/chris-bosso was live before "Chris Bosso" -> "Christopher Bosso"
-    # was added to ALIAS_MAP; the slug->name_key fallback must apply the alias so
-    # the old link still resolves instead of 404ing on the stale "chris bosso" key.
-    calls = []
+def test_zero_ratings_are_null_not_zero():
+    zeros = [{**r, "rating": 0.0, "difficulty": 0.0} for r in SUMMARY_ROWS]
+    data, _, _ = _build(db=FakeDB(summaries=zeros))
+    assert data["summary"]["rating"] is None
+    assert data["summary"]["difficulty"] is None
 
-    def fake_query_one(sql, params=None):
-        calls.append(params)
-        if "where slug" in sql.lower():
-            return None  # force the name_key fallback
-        return {"name_key": "christopher bosso"}
 
-    _resolve_professor("chris-bosso", fake_query_one)
-    assert calls[-1] == ("christopher bosso",), calls
+def test_zero_would_take_again_is_a_real_percentage():
+    zeros = [{**r, "would_take_again_pct": 0.0} for r in SUMMARY_ROWS]
+    data, _, _ = _build(db=FakeDB(summaries=zeros))
+    assert data["summary"]["wouldTakeAgainPct"] == 0.0
+    assert data["sources"]["rmp"]["wouldTakeAgainPct"] == 0.0
+
+
+def test_alias_fallback_serves_the_canonical_slug():
+    # No row has slug "olin-guha", so the lookup falls back to name_key "olin guha".
+    db = FakeDB(catalog={**CATALOG, "slug": "olin-guha-2"})
+    data, db, seen = _build(slug="olin-guha", db=db)
+    assert data["identity"]["slug"] == "olin-guha-2"
+    assert seen["slug"] == "olin-guha-2"
+
+
+def test_missing_professor_is_none():
+    data, _, _ = _build(slug="nobody", db=FakeDB())
+    assert data is None
+
+
+# ── round trips ──
+
+def test_at_most_four_statements_and_only_live_tables():
+    _, db, _ = _build()
+    assert len(db.calls) <= 4
+    tables = " ".join(sql.lower() for sql, _ in db.calls)
+    for table in ("professors_catalog", "rmp_reviews", "source_summary"):
+        assert table in tables

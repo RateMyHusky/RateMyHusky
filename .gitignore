@@ -5,6 +5,7 @@ scraper/reddit_data
 backend/.env
 .vercel
 backend/backups/
+backend/reports/
 __pycache__/
 *.pyc
 docs/

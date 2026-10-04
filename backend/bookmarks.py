@@ -61,7 +61,6 @@ def _professor_row(row, bookmarked_at):
         "college": row["college"],
         "avgRating": round(row["avg_rating"], 2) if row["avg_rating"] else None,
         "rmpRating": round(row["rmp_rating"], 2) if row["rmp_rating"] else None,
-        "traceRating": round(row["trace_rating"], 2) if row["trace_rating"] else None,
         "totalReviews": row["total_reviews"],
         "totalComments": row.get("total_comments", 0) or 0,
         "wouldTakeAgainPct": round(row["would_take_again_pct"], 1) if row["would_take_again_pct"] else None,

@@ -165,22 +165,6 @@
 	margin-top: auto;
 }
 
-.course-stat-last-taught .course-stat-value {
-	display: block;
-	width: 100%;
-	max-width: 100%;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	text-align: center;
-	font-size: clamp(1.6rem, 2.5vw, 2.3rem);
-}
-
-.course-stat-card.course-stat-last-taught {
-	padding-left: 10px;
-	padding-right: 10px;
-}
-
 .course-difficulty-bar {
 	width: 100%;
 	align-self: stretch;
@@ -196,6 +180,9 @@
 	border-radius: 3px;
 	transition: width 1.2s cubic-bezier(0.4, 0, 0.2, 1), background 0.5s ease;
 }
+
+.course-empty { margin: 0; color: #888; font-weight: 700; }
+.dark .course-empty { color: #999; }
 
 .course-panel {
 	background: #fff;
@@ -275,7 +262,6 @@
 	width: 100%;
 	height: 100%;
 	object-fit: cover;
-	object-position: center 30%;
 }
 
 .course-top-prof-rank {
@@ -345,20 +331,8 @@
 	word-break: break-word;
 }
 
-.course-top-prof-footer--center {
-	flex: 0 0 auto !important;
-	margin: 0 auto;
-	text-align: center;
-}
-
 .course-top-prof-footer--right {
 	text-align: right;
-}
-
-.course-top-prof-card.disabled {
-	cursor: default;
-	pointer-events: none;
-	opacity: 0.92;
 }
 
 .instructor-scroll-wrap {
@@ -630,16 +604,6 @@
 		white-space: normal;
 	}
 
-	.course-stat-last-taught .course-stat-value {
-		font-size: 1.5rem;
-		white-space: nowrap;
-	}
-
-	.course-stat-card.course-stat-last-taught {
-		padding-left: 8px;
-		padding-right: 8px;
-	}
-
 	/* Top prof cards: 2 columns on small screens */
 	.course-top-prof-grid {
 		grid-template-columns: repeat(2, 1fr);
@@ -841,79 +805,73 @@
 }
 .back-to-top svg { width: 20px; height: 20px; }
 
+/* Catalog description, credits, prerequisites and NUpath. */
+.course-catalog-desc {
+	margin: 0 0 14px;
+	color: #3a3a3a;
+	line-height: 1.55;
+}
+
+.course-catalog-facts {
+	display: grid;
+	gap: 10px;
+	margin: 0;
+}
+
+.course-catalog-facts > div {
+	display: grid;
+	grid-template-columns: 120px 1fr;
+	gap: 12px;
+}
+
+.course-catalog-facts dt {
+	color: #767676;
+	font-weight: 700;
+	font-size: 0.85rem;
+}
+
+.course-catalog-facts dd {
+	margin: 0;
+	color: #3a3a3a;
+	font-size: 0.9rem;
+	overflow-wrap: anywhere;
+}
+
+.course-catalog-nupath {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.course-catalog-tag {
+	padding: 2px 10px;
+	border-radius: 999px;
+	background: #e8f3f0;
+	color: #1b6d5e;
+	font-size: 0.8rem;
+	font-weight: 600;
+}
+
+@media (max-width: 600px) {
+	.course-catalog-facts > div {
+		grid-template-columns: 1fr;
+		gap: 2px;
+	}
+}
+
+.dark .course-catalog-desc,
+.dark .course-catalog-facts dd {
+	color: #c8c8c8;
+}
+
+.dark .course-catalog-tag {
+	background: #1f3a34;
+	color: #7fd1bd;
+}
+
 /* Top prof cards: 1 column on very narrow phones */
 @media (max-width: 420px) {
 	.course-top-prof-grid {
 		grid-template-columns: 1fr;
 	}
-}
-
-/* ── Rating History Paywall ── */
-.course-rating-history-paywall {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	text-align: center;
-	padding: 48px 24px;
-	background: #fff;
-	border-radius: 16px;
-	border: 1.5px dashed #e0e0e0;
-	margin-top: 8px;
-}
-
-.course-rating-history-paywall .paywall-lock-icon {
-	width: 40px;
-	height: 40px;
-	color: #d6394c;
-	margin-bottom: 16px;
-}
-
-.course-rating-history-paywall h3 {
-	font-size: 1.1rem;
-	font-weight: 800;
-	color: #1a1a1a;
-	margin-bottom: 8px;
-}
-
-.course-rating-history-paywall p {
-	font-size: 0.88rem;
-	color: #888;
-	line-height: 1.5;
-	max-width: 340px;
-	margin-bottom: 20px;
-}
-
-.course-rating-history-paywall p strong {
-	color: #d6394c;
-	font-weight: 800;
-}
-
-.course-rating-history-paywall .paywall-signin-btn {
-	background: #d6394c;
-	color: #fff;
-	border: none;
-	padding: 11px 32px;
-	border-radius: 12px;
-	font-size: 0.9rem;
-	font-weight: 700;
-	cursor: pointer;
-	transition: background 0.15s, transform 0.15s;
-}
-
-.course-rating-history-paywall .paywall-signin-btn:hover {
-	background: #b82e3f;
-	transform: scale(1.03);
-}
-
-.dark .course-rating-history-paywall {
-	background: #1e1e1e;
-	border-color: #333;
-}
-
-.dark .course-rating-history-paywall h3 {
-	color: #e0e0e0;
-}
-
-.dark .course-rating-history-paywall p {
-	color: #777;
 }

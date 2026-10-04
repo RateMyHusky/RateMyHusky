@@ -1,0 +1,19 @@
+FAIL | Show TRACE ratings on the card
+FAIL | SELECT * FROM trace_courses
+FAIL | const traceRating = 1;
+FAIL | profile.traceCourses.map(render)
+FAIL | <input className="trace-search-input" />
+FAIL | # read the trace scores first
+PASS | Traceback (most recent call last):
+PASS | import traceback
+PASS | node --trace-deprecation build.js
+PASS | print the stack trace on failure
+PASS | the model's reasoning trace
+PASS | Professor Tracey Smith
+PASS | Tracy Chapman teaches here
+PASS | RateMyProfessor + Reddit
+PASS | retrace your steps
+PASS | the bug was traced to a stale cache
+PASS | two traces were recorded
+PASS | a tracer bullet test
+PASS | the value is untraceable

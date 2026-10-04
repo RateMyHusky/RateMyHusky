@@ -2,22 +2,17 @@ import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } fr
 import { useParams, Link, useLocation } from 'react-router-dom';
 import Footer from '../components/Footer';
 import NotFound from './NotFound';
-
+import LoadError from '../components/LoadError';
 import Dropdown from '../components/Dropdown';
 import StarRating from '../components/StarRating';
 import RatingBar from '../components/RatingBar';
 import Breadcrumbs from '../components/Breadcrumbs';
 import Seo from '../components/Seo';
-import {
-  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  ResponsiveContainer, Legend, Tooltip as RechartsTooltip,
-} from 'recharts';
 import { fetchProfessorFull } from '../api/api';
-import type { ProfessorProfile, ProfessorReview, TraceComment, RedditMention } from '../api/api';
+import type { ProfessorPage, ProfessorCourse, RatingDistribution, RedditMention } from '../api/api';
+import { SHOW_SURVEY_STATS } from '../config';
 import { termSortKey } from '../utils/termUtils';
 import { isPinned, pinnedFirst } from '../utils/askPinMatch';
-import { useAuth } from '../context/AuthContext';
-import SignInModal from '../components/SignInModal';
 import BookmarkButton from '../components/BookmarkButton';
 import neuIcon from '../assets/neu-circle-icon.png';
 import './Professor.css';
@@ -117,11 +112,6 @@ const sortOptions = [
   { value: 'lowest', label: 'Lowest Rated' },
 ];
 
-const traceSortOptions = [
-  { value: 'popular', label: 'Most Popular' },
-  { value: 'newest', label: 'Most Recent' },
-];
-
 const redditSentimentOptions = [
   { value: 'all', label: 'All Sentiment' },
   { value: 'positive', label: 'Positive' },
@@ -203,36 +193,41 @@ function deduplicateByText<T>(items: T[], getText: (item: T) => string): T[] {
   return result;
 }
 
-/* ═══════════════════════════════════════ */
+/* Display names for summary.bySource keys; an unlisted source shows its key. */
+const SOURCE_LABELS: Record<string, string> = { rmp: 'RMP' };
+
+/* A review's course as the backend groups it (whitespace stripped, uppercased); codes the backend rejects never appear in courses[]. */
+const courseCode = (raw: string) => raw.replace(/\s+/g, '').toUpperCase();
+
+const STARS = ['5', '4', '3', '2', '1'] as const;
+const emptyDistribution = (): RatingDistribution => ({ '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 });
+
+const difficultyColor = (d: number) => {
+  if (d <= 1.5) return '#27ae60';
+  if (d <= 2.5) return '#66bd63';
+  if (d <= 3.0) return '#f39c12';
+  if (d <= 3.5) return '#e67e22';
+  if (d <= 4.0) return '#e74c3c';
+  return '#c0392b';
+};
+
+const COURSES_COLLAPSED_LIMIT = 5;
+const MAX_VISIBLE_TERMS = 3;
+
 const Professor = () => {
   const { slug } = useParams<{ slug: string }>();
-  const { user } = useAuth();
-  const [showSignIn, setShowSignIn] = useState(false);
   const reviewsRef = useRef<HTMLElement>(null);
   const chartsRef = useRef<HTMLElement>(null);
   const gradesRef = useRef<HTMLDivElement>(null);
   const reviewTabsRef = useRef<HTMLDivElement>(null);
-  const questionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  const [profile, setProfile] = useState<ProfessorProfile | null>(null);
-  const [reviews, setReviews] = useState<ProfessorReview[]>([]);
-  const [traceComments, setTraceComments] = useState<TraceComment[]>([]);
-  const [redditMentions, setRedditMentions] = useState<RedditMention[]>([]);
+  const [profile, setProfile] = useState<ProfessorPage | null>(null);
+  const [loadError, setLoadError] = useState<'not_found' | 'failed' | null>(null);
+  const [loading, setLoading] = useState(true);
   const [redditSentiment, setRedditSentiment] = useState('all');
   const [redditSearch, setRedditSearch] = useState('');
   const [visibleRedditMentions, setVisibleRedditMentions] = useState(10);
-  const [loading, setLoading] = useState(true);
-  const [reviewsLoading, setReviewsLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [reviewTabRestored] = useState(() => sessionStorage.getItem('prof_review_tab') === 'trace');
-  const [reviewTab, setReviewTab] = useState<'rmp' | 'trace' | 'reddit'>(() => {
-    const saved = sessionStorage.getItem('prof_review_tab');
-    if (saved === 'trace') {
-      sessionStorage.removeItem('prof_review_tab');
-      return 'trace';
-    }
-    return 'rmp';
-  });
+  const [reviewTab, setReviewTab] = useState<'rmp' | 'reddit'>('rmp');
   const [sortBy, setSortBy] = useState('newest');
   const [visibleReviews, setVisibleReviews] = useState(10);
   const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set());
@@ -240,17 +235,11 @@ const Professor = () => {
   const [gradesAnimated, setGradesAnimated] = useState(false);
   const [reviewPillStyle, setReviewPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
   const [isReviewPillReady, setIsReviewPillReady] = useState(false);
-  const [traceSearch, setTraceSearch] = useState('');
-  const [traceSort, setTraceSort] = useState('popular');
-  const [expandedQuestions, setExpandedQuestions] = useState<Record<string, boolean>>({});
-  const [visibleCommentsPerQuestion, setVisibleCommentsPerQuestion] = useState<Record<string, number>>({});
   const [showAllCourses, setShowAllCourses] = useState(false);
   const [expandedTerms, setExpandedTerms] = useState<Set<string>>(new Set());
   const [closingTerms, setClosingTerms] = useState<Set<string>>(new Set());
-  const COURSES_COLLAPSED_LIMIT = 5;
-  const MAX_VISIBLE_TERMS = 3;
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
-const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('prof_course_tip_dismissed') !== '1');
+  const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('prof_course_tip_dismissed') !== '1');
 
   const location = useLocation();
   // Ask pins arrive via navigation state from a clicked citation. Keyed by askedAt so a new
@@ -308,58 +297,24 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
     };
   }, [updateReviewPill, loading]);
 
-  /* ── profile loading ── */
-  /* ── combined profile + reviews load (single round-trip) ── */
+  /* ── load: one round-trip, the same payload for every visitor ── */
   useEffect(() => {
-    if (!slug) {
-      setLoading(false);
-      setError('Professor not found.');
-      return;
-    }
+    if (!slug) { setLoading(false); setLoadError('not_found'); return; }
     let cancelled = false;
-    async function load() {
-      setLoading(true); setReviewsLoading(true); setError('');
-      try {
-        const data = await fetchProfessorFull(slug!);
-        if (cancelled) return;
-        if (!data) {
-          setError('Professor not found.');
-        } else {
-          setProfile(data);
-          setReviews(data.reviews || []);
-          setTraceComments(data.traceComments || []);
-          setRedditMentions(data.redditMentions || []);
-        }
-      } catch { if (!cancelled) setError('Failed to load professor data.'); }
-      finally { if (!cancelled) { setLoading(false); setReviewsLoading(false); } }
-    }
-    load();
+    setLoading(true);
+    setLoadError(null);
+    fetchProfessorFull(slug).then((res) => {
+      if (cancelled) return;
+      if (res.ok) { setProfile(res.data); setSelectedCourses(new Set(res.data.courses.map(c => c.code))); }
+      else setLoadError(res.status === 404 ? 'not_found' : 'failed');
+      setLoading(false);
+    });
     return () => { cancelled = true; };
   }, [slug]);
 
-  /* ── re-fetch profile + reviews on auth change ── */
-  const isInitialMount = useRef(true);
-  useEffect(() => {
-    if (isInitialMount.current) { isInitialMount.current = false; return; }
-    if (!slug) return;
-    let cancelled = false;
-    async function loadOnAuthChange() {
-      setReviewsLoading(true);
-      try {
-        const data = await fetchProfessorFull(slug!);
-        if (cancelled) return;
-        if (data) {
-          setProfile(data);
-          setReviews(data.reviews || []);
-          setTraceComments(data.traceComments || []);
-          setRedditMentions(data.redditMentions || []);
-        }
-      } catch { /* non-critical */ }
-      finally { if (!cancelled) setReviewsLoading(false); }
-    }
-    loadOnAuthChange();
-    return () => { cancelled = true; };
-  }, [slug, user]);
+  const reviews = useMemo(() => profile?.sources.rmp.reviews ?? [], [profile]);
+  const redditMentions = useMemo(() => profile?.redditMentions ?? [], [profile]);
+  const courses = useMemo(() => profile?.courses ?? [], [profile]);
 
   /* ── Ask citation pins: switch to the cited source's tab and scroll to reviews ── */
   useEffect(() => {
@@ -386,39 +341,18 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
     if (pins.askedAt !== pinnedAskedAt.current) {
       pinnedAskedAt.current = pins.askedAt;
       setPinnedSources(pins.sources);
-      const src = pins.clicked.source;
-      const tab: 'rmp' | 'trace' | 'reddit' =
-        src === 'rmp' ? 'rmp' : src === 'trace' ? 'trace' : 'reddit';
+      const tab: 'rmp' | 'reddit' = pins.clicked.source === 'rmp' ? 'rmp' : 'reddit';
       setReviewTab(tab);
     }
 
-    // Scroll once per askedAt, but only after reviews have rendered (reviewsLoading false).
-    // On first mount reviewsLoading starts true; this effect re-runs when it flips false
+    // Scroll once per askedAt, but only after reviews have rendered (loading false).
+    // On first mount loading starts true; this effect re-runs when it flips false
     // (it's in the deps) and the scroll fires then.
-    if (!reviewsLoading && scrolledAskedAt.current !== pins.askedAt) {
+    if (!loading && scrolledAskedAt.current !== pins.askedAt) {
       scrolledAskedAt.current = pins.askedAt;
       setTimeout(() => reviewsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
     }
-  }, [location.state, reviewsLoading]);
-
-  /* ── scroll to reviews after sign-in redirect (mobile: page reload) ── */
-  useEffect(() => {
-    if (reviewTabRestored && !loading && user && reviewsRef.current) {
-      reviewsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, [reviewTabRestored, loading, user]);
-
-  /* ── scroll to reviews after sign-in popup (desktop: no reload) ── */
-  const prevUserRef = useRef<typeof user>(undefined);
-  useEffect(() => {
-    const wasLoggedOut = !prevUserRef.current;
-    prevUserRef.current = user;
-    if (wasLoggedOut && user && sessionStorage.getItem('prof_review_tab') === 'trace') {
-      sessionStorage.removeItem('prof_review_tab');
-      setReviewTab('trace');
-      setTimeout(() => reviewsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
-    }
-  }, [user]);
+  }, [location.state, loading]);
 
   /* ── back to top ── */
   useEffect(() => {
@@ -427,233 +361,82 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
     return () => window.removeEventListener('scroll', handler);
   }, []);
 
-  /* ── logic ── */
-  const courseCodeMap = useMemo(() => {
-    const map = new Map<string, string>();
-    profile?.traceCourses?.forEach((c) => {
-      const codeMatch = c.displayName.match(/^([A-Z]+)(\d+)/i);
-      if (codeMatch) {
-        const fullCode = codeMatch[0].toUpperCase();
-        map.set(fullCode, fullCode);
-        map.set(codeMatch[2], fullCode);
-      } else {
-        const code = c.displayName.split(':')[0].split(' ')[0].toUpperCase();
-        if (code) map.set(code, code);
-      }
-    });
-    return map;
-  }, [profile]);
+  /* ── course filter ── */
+  const allCourseCodes = useMemo(() => courses.map(c => c.code), [courses]);
 
-  const getFormattedCourseCode = useCallback((input: string) => {
-    if (!input) return '';
-    const clean = input.replace(/\s+/g, '').toUpperCase();
-    if (courseCodeMap.has(clean)) return courseCodeMap.get(clean)!;
-    const match = clean.match(/\d+/);
-    if (match && courseCodeMap.has(match[0])) return courseCodeMap.get(match[0])!;
-    return clean;
-  }, [courseCodeMap]);
+  const unfiltered = allCourseCodes.length === 0 || selectedCourses.size === allCourseCodes.length;
+  const noneSelected = allCourseCodes.length > 0 && selectedCourses.size === 0;
 
-  const allCourseCodes = useMemo(() => {
-    const codes = new Set<string>();
-    profile?.traceCourses?.forEach(c => {
-      const m = c.displayName.match(/^([A-Z]+\d+)/);
-      const code = (m ? m[1] : c.displayName.split(':')[0].split(' ')[0]).toUpperCase();
-      if (code) codes.add(code);
-    });
-    reviews.forEach(r => {
-      const code = getFormattedCourseCode(r.course);
-      if (code) codes.add(code.toUpperCase());
-    });
-    return Array.from(codes).sort();
-  }, [profile, reviews, getFormattedCourseCode]);
+  /* Every stored RMP rating in the selection; the card list below dedupes these for display. */
+  const rmpRatingsInSelection = useMemo(
+    () => unfiltered ? reviews : reviews.filter(r => r.courseCode !== null && selectedCourses.has(r.courseCode)),
+    [reviews, selectedCourses, unfiltered]);
 
-  const hasInitializedSelection = useRef(false);
-  useEffect(() => {
-    if (allCourseCodes.length === 0) return;
-    if (!hasInitializedSelection.current) {
-      setSelectedCourses(new Set(allCourseCodes));
-      hasInitializedSelection.current = true;
-    } else {
-      // Merge any new course codes from reviews into the existing selection
-      setSelectedCourses(prev => {
-        const next = new Set(prev);
-        let changed = false;
-        allCourseCodes.forEach(c => { if (!next.has(c)) { next.add(c); changed = true; } });
-        return changed ? next : prev;
-      });
-    }
-  }, [allCourseCodes]);
+  const filteredRmpReviews = useMemo(
+    () => deduplicateByText(rmpRatingsInSelection, r => r.comment),
+    [rmpRatingsInSelection]);
 
-  const filteredRmpReviews = useMemo(() => {
-    const filtered = reviews.filter(r => selectedCourses.has(getFormattedCourseCode(r.course).toUpperCase()));
-    return deduplicateByText(filtered, r => r.comment);
-  }, [reviews, selectedCourses, getFormattedCourseCode]);
-
-  const filteredTraceCourses = useMemo(() => {
-    return (profile?.traceCourses || []).filter(c => {
-      const m = c.displayName.match(/^([A-Z]+\d+)/);
-      const code = (m ? m[1] : c.displayName.split(':')[0].split(' ')[0]).toUpperCase();
-      return selectedCourses.has(code);
-    });
-  }, [profile, selectedCourses]);
-
-  /* ── TRACE radar: precomputed by backend for most-recent term ── */
-  const radarData = useMemo(() => {
-    if (!profile?.radarData) return null;
-    const hasData = profile.radarData.some(p => !p.profMissing);
-    return hasData ? profile.radarData : null;
-  }, [profile?.radarData]);
-
-  const radarDomainMin = useMemo(() => {
-    if (!radarData) return 4;
-    const allVals = radarData.flatMap(p => [
-      p.profMissing ? null : p.professor,
-      p.deptMissing ? null : p.department,
-    ]).filter((v): v is number => v !== null && v > 0);
-    const min = allVals.length > 0 ? Math.min(...allVals) : 4;
-    if (min < 3) return 2;
-    if (min < 4) return 3;
-    return 4;
-  }, [radarData]);
-
+  /* The cards. Unfiltered: the backend's summary. Filtered: the selected courses[] rows
+     combined, weighted by rating count, distributions summed. The per-source hover only
+     shows unfiltered, since courses[] rows are already blended. */
   const stats = useMemo(() => {
     if (!profile) return null;
-
-    const noneSelected = selectedCourses.size === 0;
-    const allSelected = allCourseCodes.length > 0 && selectedCourses.size === allCourseCodes.length;
-
+    const s = profile.summary;
     if (noneSelected) {
+      return { rating: null, difficulty: null, numRatings: 0,
+               breakdown: [] as [string, number][], distribution: emptyDistribution() };
+    }
+    if (unfiltered) {
       return {
-        avgRating: null,
-        rmpRating: null,
-        traceRating: null,
-        difficulty: null,
-        totalRatings: null,
-        wouldTakeAgainPct: profile.wouldTakeAgainPct,
-        hoursPerWeek: null,
+        rating: s.rating, difficulty: s.difficulty, numRatings: s.numRatings,
+        breakdown: Object.entries(s.bySource)
+          .filter(([, v]) => v.rating !== null)
+          .map(([k, v]) => [k, v.rating as number] as [string, number]),
+        distribution: profile.sources.rmp.ratingDistribution,
       };
     }
-
-    if (allSelected) {
-      const traceCompleted = profile.traceRatingCounts
-        ? Object.values(profile.traceRatingCounts).reduce((sum, rc) => sum + (rc.completed || 0), 0)
-        : 0;
-      return {
-        avgRating: profile.avgRating,
-        rmpRating: profile.rmpRating,
-        traceRating: profile.traceRating,
-        difficulty: profile.difficulty ?? 0,
-        totalRatings: filteredRmpReviews.length + traceCompleted,
-        wouldTakeAgainPct: profile.wouldTakeAgainPct,
-        hoursPerWeek: profile.hoursPerWeek,
-      };
-    }
-
-    // Course-filtered: use RMP data for rating/difficulty; fall back to profile-level for TRACE values
-    const rmpRating = filteredRmpReviews.length > 0
-      ? filteredRmpReviews.reduce((acc, r) => acc + r.quality, 0) / filteredRmpReviews.length
-      : null;
-    const rmpDifficulty = filteredRmpReviews.length > 0
-      ? filteredRmpReviews.reduce((acc, r) => acc + r.difficulty, 0) / filteredRmpReviews.length
-      : null;
-
-    const traceRating = profile.traceRating;
-    let avgRating = 0;
-    if (rmpRating !== null && traceRating !== null) {
-      avgRating = (rmpRating + traceRating) / 2;
-    } else if (rmpRating !== null) {
-      avgRating = rmpRating;
-    } else if (traceRating !== null) {
-      avgRating = traceRating;
-    }
-
-    const coursesWithHours = filteredTraceCourses.filter(c => c.hoursPerWeek != null);
-    const filteredHoursPerWeek = coursesWithHours.length > 0
-      ? Math.round(coursesWithHours.reduce((acc, c) => acc + c.hoursPerWeek!, 0) / coursesWithHours.length * 10) / 10
-      : null;
-
-    let traceWeightedSum = 0, traceResponses = 0;
-    for (const c of filteredTraceCourses) {
-      if (c.challengeWeightedSum != null && c.challengeResponses != null) {
-        traceWeightedSum += c.challengeWeightedSum;
-        traceResponses += c.challengeResponses;
+    const rows = courses.filter(c => selectedCourses.has(c.code));
+    const weighted = (pick: (c: ProfessorCourse) => number | null) => {
+      let sum = 0, n = 0;
+      for (const c of rows) {
+        const v = pick(c);
+        if (v !== null) { sum += v * c.numRatings; n += c.numRatings; }
       }
-    }
-    const traceDifficulty = traceResponses > 0 ? traceWeightedSum / traceResponses : null;
-
-    let difficulty: number;
-    if (rmpDifficulty !== null && traceDifficulty !== null) {
-      difficulty = (rmpDifficulty + traceDifficulty) / 2;
-    } else if (rmpDifficulty !== null) {
-      difficulty = rmpDifficulty;
-    } else if (traceDifficulty !== null) {
-      difficulty = traceDifficulty;
-    } else {
-      difficulty = profile.difficulty ?? 0;
-    }
-
-    return {
-      avgRating,
-      rmpRating,
-      traceRating,
-      difficulty,
-      totalRatings: filteredRmpReviews.length + (profile.traceRatingCounts
-        ? Array.from(selectedCourses).reduce((sum, code) => sum + (profile.traceRatingCounts![code]?.completed || 0), 0)
-        : 0),
-      wouldTakeAgainPct: profile.wouldTakeAgainPct,
-      hoursPerWeek: filteredHoursPerWeek,
+      return n > 0 ? sum / n : null;
     };
-  }, [profile, filteredRmpReviews, filteredTraceCourses, allCourseCodes, selectedCourses]);
+    const distribution = emptyDistribution();
+    for (const c of rows) for (const k of STARS) distribution[k] += c.ratingDistribution[k];
+    return {
+      rating: weighted(c => c.rating),
+      difficulty: weighted(c => c.difficulty),
+      numRatings: rows.reduce((a, c) => a + c.numRatings, 0),
+      breakdown: [] as [string, number][],
+      distribution,
+    };
+  }, [profile, courses, selectedCourses, unfiltered, noneSelected]);
 
-  const ratingDistribution = useMemo(() => {
-    const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-
-    if (selectedCourses.size === 0) {
-      return [5, 4, 3, 2, 1].map(star => ({ star, count: 0 }));
-    }
-
-    // RMP
-    filteredRmpReviews.forEach(r => {
-      if (r.quality >= 1 && r.quality <= 5) {
-        const q = Math.round(r.quality) as 1 | 2 | 3 | 4 | 5;
-        counts[q]++;
-      }
-    });
-
-    // TRACE — use course-keyed rating counts, filtered by selected courses
-    if (profile?.traceRatingCounts) {
-      for (const code of selectedCourses) {
-        const rc = profile.traceRatingCounts[code];
-        if (rc) {
-          counts[1] += rc.count1;
-          counts[2] += rc.count2;
-          counts[3] += rc.count3;
-          counts[4] += rc.count4;
-          counts[5] += rc.count5;
-        }
-      }
-    }
-
-    return [5, 4, 3, 2, 1].map(star => ({
-      star,
-      count: counts[star as 1 | 2 | 3 | 4 | 5],
-    }));
-  }, [filteredRmpReviews, selectedCourses, profile?.traceRatingCounts]);
-
+  const ratingDistribution = useMemo(
+    () => STARS.map(k => ({ star: Number(k), count: stats?.distribution[k] ?? 0 })), [stats]);
   const maxCount = useMemo(() => Math.max(...ratingDistribution.map(d => d.count), 1), [ratingDistribution]);
 
+  /* Grades over the same rows as the rating distribution. */
   const gradeDistribution = useMemo(() => {
-    const counts: Record<string, number> = {};
-    filteredRmpReviews.forEach(r => {
-      const g = r.grade?.trim();
-      if (g && g !== 'N/A' && g !== 'Not sure yet' && g !== 'Rather not say') {
-        counts[g] = (counts[g] || 0) + 1;
-      }
-    });
+    let counts: Record<string, number> = {};
+    if (unfiltered && profile) {
+      counts = { ...profile.sources.rmp.gradeDistribution };
+    } else if (!noneSelected) {
+      rmpRatingsInSelection.forEach(r => {
+        const g = r.grade?.trim();
+        if (g && g !== 'N/A' && g !== 'Not sure yet' && g !== 'Rather not say') {
+          counts[g] = (counts[g] || 0) + 1;
+        }
+      });
+    }
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     if (total === 0) return [];
     // Find the range of grades that appear and include all in-between
     const presentIndices = GRADE_ORDER.map((g, i) => counts[g] ? i : -1).filter(i => i >= 0);
+    if (presentIndices.length === 0) return [];
     const minIdx = Math.min(...presentIndices);
     const maxIdx = Math.max(...presentIndices);
     return GRADE_ORDER.slice(minIdx, maxIdx + 1).map(g => ({
@@ -662,7 +445,7 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
       pct: ((counts[g] || 0) / total) * 100,
       color: GRADE_COLORS[g] || '#999'
     }));
-  }, [filteredRmpReviews]);
+  }, [profile, rmpRatingsInSelection, unfiltered, noneSelected]);
 
   useEffect(() => {
     const el = gradesRef.current;
@@ -679,7 +462,6 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
 
   const pinSnippets = useMemo(() => ({
     rmp: pinnedSources.filter((p) => p.source === 'rmp').map((p) => p.snippet),
-    trace: pinnedSources.filter((p) => p.source === 'trace').map((p) => p.snippet),
     // sources with null/unknown source came from Reddit historically (see SOURCE_LABEL default)
     reddit: pinnedSources.filter((p) => p.source === 'reddit' || p.source == null).map((p) => p.snippet),
   }), [pinnedSources]);
@@ -693,99 +475,6 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
     });
     return pinnedFirst(sorted, (r) => r.comment || '', pinSnippets.rmp);
   }, [filteredRmpReviews, sortBy, pinSnippets.rmp]);
-
-  const termIdMap = useMemo(() => {
-    const map = new Map<number, string>();
-    profile?.traceCourses?.forEach(c => {
-      if (!map.has(c.termId)) map.set(c.termId, c.termTitle);
-    });
-    return map;
-  }, [profile]);
-
-  // Map courseId → course code for TRACE comments
-  const commentCourseMap = useMemo(() => {
-    const map = new Map<number, string>();
-    if (!profile?.traceCourses) return map;
-
-    profile.traceCourses.forEach(c => {
-      const m = c.displayName.match(/^([A-Z]+\d+)/i);
-      const code = m ? m[1].toUpperCase() : '';
-      if (code) map.set(c.courseId, code);
-    });
-
-    return map;
-  }, [profile]);
-
-  const groupedTrace = useMemo(() => {
-    const groups: Record<string, TraceComment[]> = {};
-    const ids = new Set(filteredTraceCourses.map(c => c.courseId));
-    traceComments.forEach(c => {
-      if (ids.has(c.courseId)) {
-        if (!groups[c.question]) groups[c.question] = [];
-        groups[c.question].push(c);
-      }
-    });
-    // Deduplicate near-identical comments within each question group
-    for (const q of Object.keys(groups)) {
-      groups[q] = deduplicateByText(groups[q], c => c.comment);
-    }
-    const termKey = (termId: number) => termSortKey(termIdMap.get(termId) || '');
-    const searchLower = traceSearch.toLowerCase();
-    return Object.entries(groups).map(([q, cs]) => {
-      const sortedComments = [...cs].sort((a, b) => {
-        if (searchLower) {
-          const aMatch = a.comment.toLowerCase().includes(searchLower);
-          const bMatch = b.comment.toLowerCase().includes(searchLower);
-          if (aMatch && !bMatch) return -1;
-          if (!aMatch && bMatch) return 1;
-        }
-        if (traceSort === 'newest') return termKey(b.termId || 0) - termKey(a.termId || 0);
-        return b.comment.length - a.comment.length;
-      });
-      const withPins = pinnedFirst(sortedComments, (c) => c.comment || '', pinSnippets.trace);
-      const hasPin = pinSnippets.trace.length > 0 && withPins.some((c) => isPinned(c.comment || '', pinSnippets.trace));
-      return {
-        question: q,
-        maxTermSortKey: Math.max(...cs.map(c => termKey(c.termId || 0))),
-        count: cs.length,
-        hasPin,
-        comments: withPins,
-      };
-    }).filter(g =>
-      !traceSearch ||
-      g.question.toLowerCase().includes(searchLower) ||
-      g.comments.some(c => c.comment.toLowerCase().includes(searchLower))
-    ).sort((a, b) => {
-      if (a.hasPin !== b.hasPin) return a.hasPin ? -1 : 1;
-      if (traceSearch) {
-        const aM = a.question.toLowerCase().includes(searchLower);
-        const bM = b.question.toLowerCase().includes(searchLower);
-        if (aM && !bM) return -1;
-        if (!aM && bM) return 1;
-      }
-      if (traceSort === 'newest') return b.maxTermSortKey - a.maxTermSortKey;
-      if (traceSort === 'popular') return b.count - a.count;
-      return a.question.localeCompare(b.question);
-    });
-  }, [traceComments, traceSearch, traceSort, filteredTraceCourses, termIdMap, pinSnippets.trace]);
-
-  /* ── Ask citation pins: auto-expand the matching TRACE category (TRACE is gated on `user`) ── */
-  useEffect(() => {
-    if (pinSnippets.trace.length === 0 || !user) return;
-    const hits = groupedTrace.filter((g) => g.hasPin);
-    if (hits.length > 0) {
-      setExpandedQuestions((p) => {
-        const next = { ...p };
-        hits.forEach((h) => { next[h.question] = true; });
-        return next;
-      });
-      setVisibleCommentsPerQuestion((p) => {
-        const next = { ...p };
-        hits.forEach((h) => { next[h.question] = p[h.question] || 5; });
-        return next;
-      });
-    }
-  }, [pinSnippets.trace, groupedTrace, user]);
 
   const redditQuery = redditSearch.trim().toLowerCase();
   const filteredRedditMentions = useMemo(() => {
@@ -825,20 +514,6 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
     });
   };
 
-  const toggleQuestion = (q: string) => {
-    const wasExpanded = expandedQuestions[q];
-    setExpandedQuestions(p => ({ ...p, [q]: !wasExpanded }));
-    // Always reset to 5 when opening (or reopening)
-    if (!wasExpanded) {
-      setVisibleCommentsPerQuestion(p => ({ ...p, [q]: 5 }));
-    }
-  };
-
-  const showMoreComments = (e: React.MouseEvent, q: string) => {
-    e.stopPropagation();
-    setVisibleCommentsPerQuestion(p => ({ ...p, [q]: (p[q] || 5) + 10 }));
-  };
-
   useEffect(() => { setVisibleReviews(10); }, [sortBy, reviewTab]);
   // Reset visible reviews when course filter changes, but only if the filtered list got smaller
   useEffect(() => { setVisibleReviews(v => Math.min(v, Math.max(10, filteredRmpReviews.length))); }, [selectedCourses.size, filteredRmpReviews.length]);
@@ -866,12 +541,21 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
     </div>
   );
 
-  if (error || !profile || !stats) return <NotFound />;
+  if (loadError === 'not_found') return <NotFound />;
+  if (loadError || !profile || !stats) return <div className="prof-page"><LoadError /></div>;
 
-  const seoDescription =
-    `${profile.name} professor reviews and ratings: ${profile.avgRating.toFixed(1)}/5 from ${profile.totalRatings} student reviews at Northeastern` +
-    (profile.wouldTakeAgainPct != null ? ` (${profile.wouldTakeAgainPct}% would take again)` : '') +
-    `. TRACE + RateMyProfessor + Reddit.`;
+  const identity = profile.identity;
+  const summary = profile.summary;
+  const rmp = profile.sources.rmp;
+
+  /* Mirrors render.professor_html's two forms character for character (the crawler copy
+     and the page must agree). Two decimals: toFixed(2) reproduces Python's .2f. */
+  const seoDescription = rmp.available && rmp.rating !== null
+    ? `${identity.name} professor reviews and ratings: ${rmp.rating.toFixed(2)}/5 from ${rmp.numRatings} RMP ratings at Northeastern` +
+      (rmp.wouldTakeAgainPct != null ? ` (${rmp.wouldTakeAgainPct}% would take again)` : '') +
+      `. RateMyProfessor + Reddit.`
+    : `${identity.name}, Northeastern ${identity.department} professor: no Rate My Professors ratings yet. RateMyProfessor + Reddit.`;
+
   const profCanonical = `https://ratemyhusky.com/professors/${slug}`;
   const profJsonLd = {
     '@context': 'https://schema.org',
@@ -879,17 +563,17 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
     dateModified: new Date().toISOString().slice(0, 10),
     mainEntity: {
       '@type': 'Person',
-      name: profile.name,
+      name: identity.name,
       jobTitle: 'Professor',
       worksFor: {
         '@type': 'CollegeOrUniversity',
         name: 'Northeastern University',
         sameAs: 'https://www.northeastern.edu',
       },
-      knowsAbout: profile.department,
+      knowsAbout: identity.department,
       url: profCanonical,
-      ...(profile.imageUrl ? { image: profile.imageUrl } : {}),
-      ...(profile.professorUrl ? { sameAs: [profile.professorUrl] } : {}),
+      ...(identity.imageUrl ? { image: identity.imageUrl } : {}),
+      ...(rmp.professorUrl ? { sameAs: [rmp.professorUrl] } : {}),
       // schema.org Person does not support aggregateRating (Google rejects it
       // as an invalid object type in Rich Results), so it is intentionally omitted.
     },
@@ -900,17 +584,87 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://ratemyhusky.com/' },
       { '@type': 'ListItem', position: 2, name: 'Professors', item: 'https://ratemyhusky.com/professors' },
-      { '@type': 'ListItem', position: 3, name: profile.name, item: profCanonical },
+      { '@type': 'ListItem', position: 3, name: identity.name, item: profCanonical },
     ],
+  };
+
+  const renderCourseRow = (c: ProfessorCourse) => {
+    const code = c.code;
+    const terms = [...new Set((c.terms ?? []).map(cleanTerm))].filter(t => /\b20\d{2}\b/.test(t)).sort((a, b) => termSortKey(b) - termSortKey(a));
+    const termsExpanded = expandedTerms.has(code);
+    const hiddenTermCount = terms.length - MAX_VISIBLE_TERMS;
+    return (
+    <div
+      key={c.code}
+      className={`prof-course-row ${selectedCourses.has(c.code) ? 'selected' : ''}`}
+      onClick={() => toggleCourse(c.code)}
+    >
+      <div className="prof-course-row-main">
+        <span className="prof-course-code">{c.code}</span>
+        <span className="prof-course-title">{c.name ?? ''}</span>
+        <span className="prof-course-terms">{c.numRatings.toLocaleString()} rating{c.numRatings === 1 ? '' : 's'}</span>
+      </div>
+      {(c.name || terms.length > 0) && (
+        <div className="prof-course-lower">
+          {terms.length > 0 && (
+            <div className="prof-course-term-tags">
+              {terms.slice(0, MAX_VISIBLE_TERMS).map(t => <span key={t} className="prof-course-term-tag">{t}</span>)}
+              {hiddenTermCount > 0 && !termsExpanded && !closingTerms.has(code) && (
+                <span
+                  className="prof-course-term-tag prof-course-term-more"
+                  onClick={(e) => { e.stopPropagation(); setExpandedTerms(prev => { const next = new Set(prev); next.add(code); return next; }); }}
+                >
+                  +{hiddenTermCount} more
+                </span>
+              )}
+              {terms.slice(MAX_VISIBLE_TERMS).map((t, i) => {
+                const isClosing = closingTerms.has(code);
+                const reverseI = hiddenTermCount - 1 - i;
+                return <span key={t} className={`prof-course-term-tag prof-course-term-hidden ${termsExpanded || isClosing ? 'visible' : ''} ${isClosing ? 'closing' : ''}`} style={isClosing ? { animationDelay: `${reverseI * 0.04}s` } : termsExpanded ? { animationDelay: `${i * 0.04}s` } : undefined}>{t}</span>;
+              })}
+              {hiddenTermCount > 0 && (termsExpanded || closingTerms.has(code)) && (
+                <span
+                  className={`prof-course-term-tag prof-course-term-more ${closingTerms.has(code) ? 'closing' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (closingTerms.has(code)) return;
+                    setClosingTerms(prev => { const next = new Set(prev); next.add(code); return next; });
+                    setTimeout(() => {
+                      setExpandedTerms(prev => { const next = new Set(prev); next.delete(code); return next; });
+                      setClosingTerms(prev => { const next = new Set(prev); next.delete(code); return next; });
+                    }, hiddenTermCount * 40 + 200);
+                  }}
+                >
+                  <TermCollapseChevron />
+                </span>
+              )}
+            </div>
+          )}
+          {c.name && (
+          <div className="prof-course-view">
+            <Link
+              to={`/courses/${c.code.toLowerCase()}`}
+              state={{ fromPage: { label: identity.name, url: `/professors/${slug}` } }}
+              className="prof-course-view-btn"
+              onClick={(e) => e.stopPropagation()}
+            >
+              View Course
+            </Link>
+          </div>
+          )}
+        </div>
+      )}
+    </div>
+    );
   };
 
   return (
     <div className="prof-page">
       <Seo
-        title={`${profile.name} Reviews & Ratings — Northeastern ${profile.department}`}
+        title={`${identity.name} Reviews & Ratings — Northeastern ${identity.department}`}
         description={seoDescription}
         canonical={profCanonical}
-        image={profile.imageUrl}
+        image={identity.imageUrl}
         ogType="profile"
         jsonLd={[profJsonLd, profBreadcrumbJsonLd]}
       />
@@ -919,31 +673,31 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
         <div className="prof-hero-glow" />
         <Breadcrumbs items={[
           { label: 'Professors', to: '/professors' },
-          { label: profile.name },
+          { label: identity.name },
         ]} />
         <div className="prof-hero-inner">
           <div
-            className={`prof-avatar ${profile.imageUrl ? 'prof-avatar-clickable' : ''}`}
+            className={`prof-avatar ${identity.imageUrl ? 'prof-avatar-clickable' : ''}`}
             onClick={() => {
-              if (profile.imageUrl) setIsImageModalOpen(true);
+              if (identity.imageUrl) setIsImageModalOpen(true);
             }}
-            role={profile.imageUrl ? 'button' : undefined}
-            tabIndex={profile.imageUrl ? 0 : undefined}
+            role={identity.imageUrl ? 'button' : undefined}
+            tabIndex={identity.imageUrl ? 0 : undefined}
             onKeyDown={(e) => {
-              if (!profile.imageUrl) return;
+              if (!identity.imageUrl) return;
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 setIsImageModalOpen(true);
               }
             }}
-            aria-label={profile.imageUrl ? `Open larger photo of ${profile.name}` : undefined}
+            aria-label={identity.imageUrl ? `Open larger photo of ${identity.name}` : undefined}
           >
-            {profile.imageUrl ? (
+            {identity.imageUrl ? (
               <img
-                src={profile.imageUrl}
-                alt={profile.name}
+                src={identity.imageUrl}
+                alt={identity.name}
                 className="prof-avatar-img"
-                style={{ objectPosition: `${profile.focusX ?? 50}% ${profile.focusY ?? 30}%` }}
+                style={{ objectPosition: `${identity.focusX ?? 50}% ${identity.focusY ?? 30}%` }}
                 onError={(e) => {
                   const target = e.currentTarget;
                   target.style.display = 'none';
@@ -954,89 +708,87 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
             ) : null}
             <span
               className="prof-avatar-initials"
-              style={profile.imageUrl ? { display: 'none' } : undefined}
+              style={identity.imageUrl ? { display: 'none' } : undefined}
             >
-              {profile.name.split(' ').map(n => n[0]).join('')}
+              {identity.name.split(' ').map(n => n[0]).join('')}
             </span>
           </div>
           <div className="prof-hero-info">
             <h1 className="prof-name">
-              {profile.name}
+              {identity.name}
               <BookmarkButton itemType="professor" itemKey={slug!} size="md" className="prof-hero-bookmark" />
             </h1>
-            <p className="prof-dept">{profile.department}</p>
+            <p className="prof-dept">{identity.department}</p>
           </div>
         </div>
       </header>
 
       <section className="prof-stats">
         <div className="prof-stat-card prof-stat-clickable">
-          <span className="prof-stat-value">{stats.avgRating !== null ? <AnimatedNumber value={stats.avgRating} /> : '—'}</span>
+          <span className="prof-stat-value">{stats.rating !== null ? <AnimatedNumber value={stats.rating} /> : '—'}</span>
           <span className="prof-stat-label" style={{ display: 'block', textAlign: 'center', position: 'relative' }}>
             Overall Rating
-            {(stats.rmpRating !== null || stats.traceRating !== null) && (
+            {stats.breakdown.length > 0 && (
               <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', marginLeft: '4px', opacity: 0.6 }}><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
             )}
           </span>
-          <StarRating rating={stats.avgRating ?? 0} size="lg" />
-          {(stats.rmpRating !== null || stats.traceRating !== null) && (
+          <StarRating rating={stats.rating ?? 0} size="lg" />
+          {stats.breakdown.length > 0 && (
             <div className="prof-stat-breakdown">
-              {stats.rmpRating !== null && <span>RMP: {stats.rmpRating.toFixed(2)}</span>}
-              {stats.traceRating !== null && <span>TRACE: {stats.traceRating.toFixed(2)}</span>}
+              {stats.breakdown.map(([source, rating]) => (
+                <span key={source}>{SOURCE_LABELS[source] ?? source.toUpperCase()}: {rating.toFixed(2)}</span>
+              ))}
             </div>
           )}
         </div>
         <div className="prof-stat-card">
-          <span className="prof-stat-value">{stats.difficulty != null && stats.difficulty > 0 ? <AnimatedNumber value={stats.difficulty} /> : '—'}</span>
+          <span className="prof-stat-value">{stats.difficulty !== null ? <AnimatedNumber value={stats.difficulty} /> : '—'}</span>
           <span className="prof-stat-label">Difficulty</span>
           <div className="prof-difficulty-bar">
-            <div className="prof-difficulty-fill" style={{ 
+            <div className="prof-difficulty-fill" style={{
               width: `${((stats.difficulty ?? 0) / 5) * 100}%`,
-              background: (() => {
-                const d = stats.difficulty ?? 0;
-                if (d <= 1.5) return '#27ae60';
-                if (d <= 2.5) return '#66bd63';
-                if (d <= 3.0) return '#f39c12';
-                if (d <= 3.5) return '#e67e22';
-                if (d <= 4.0) return '#e74c3c';
-                return '#c0392b';
-              })()
+              background: difficultyColor(stats.difficulty ?? 0),
             }} />
           </div>
         </div>
         <div className="prof-stat-card">
-          <span className={`prof-stat-value ${stats.wouldTakeAgainPct !== null ? 'green' : ''}`}>
-            {stats.wouldTakeAgainPct !== null ? <AnimatedNumber value={stats.wouldTakeAgainPct} decimals={0} suffix="%" /> : '—'}
+          <span className={`prof-stat-value ${summary.wouldTakeAgainPct !== null ? 'green' : ''}`}>
+            {summary.wouldTakeAgainPct !== null ? <AnimatedNumber value={summary.wouldTakeAgainPct} decimals={0} suffix="%" /> : '—'}
           </span>
           <span className="prof-stat-label">Would Take Again</span>
+          {!unfiltered && <span className="prof-stat-hint">All courses</span>}
         </div>
-        <div className="prof-stat-card">
-          <span className="prof-stat-value">
-            {stats.hoursPerWeek !== null && stats.hoursPerWeek !== undefined ? <AnimatedNumber value={stats.hoursPerWeek} decimals={1} suffix="h" /> : '—'}
-          </span>
-          <span className="prof-stat-label">Hrs / Week</span>
-        </div>
+        {SHOW_SURVEY_STATS && (
+          <div className="prof-stat-card">
+            <span className="prof-stat-value">
+              {summary.hoursPerWeek !== null ? <AnimatedNumber value={summary.hoursPerWeek} decimals={1} suffix="h" /> : '—'}
+            </span>
+            <span className="prof-stat-label">Hrs / Week</span>
+          </div>
+        )}
         <div className="prof-stat-card prof-stat-clickable" onClick={() => chartsRef.current?.scrollIntoView({ behavior: 'smooth' })}>
-          <span className="prof-stat-value">{stats.totalRatings ? stats.totalRatings.toLocaleString() : '—'}</span>
+          <span className="prof-stat-value">{stats.numRatings ? stats.numRatings.toLocaleString() : '—'}</span>
           <span className="prof-stat-label">Total Ratings</span>
           <span className="prof-stat-hint">View distribution ↓</span>
         </div>
-        <div className="prof-stat-card prof-stat-clickable" onClick={() => reviewsRef.current?.scrollIntoView({ behavior: 'smooth' })}>
-          <span className="prof-stat-value">{(filteredRmpReviews.length + groupedTrace.reduce((acc, g) => acc + g.count, 0)).toLocaleString()}</span>
-          <span className="prof-stat-label">Total Comments</span>
-          <span className="prof-stat-hint">Read reviews ↓</span>
-        </div>
+        {SHOW_SURVEY_STATS && (
+          <div className="prof-stat-card prof-stat-clickable" onClick={() => reviewsRef.current?.scrollIntoView({ behavior: 'smooth' })}>
+            <span className="prof-stat-value">{summary.numComments.toLocaleString()}</span>
+            <span className="prof-stat-label">Total Comments</span>
+            <span className="prof-stat-hint">Read reviews ↓</span>
+          </div>
+        )}
       </section>
 
       <div className="prof-hero-actions-row">
-        <Link 
-          to={`/compare?a=${profile.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`} 
+        <Link
+          to={`/compare?a=${identity.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`}
           className="prof-compare-btn"
         >
           Compare
         </Link>
-        {profile.professorUrl && (
-          <a href={profile.professorUrl} target="_blank" rel="noreferrer" className="prof-rmp-btn">
+        {rmp.professorUrl && (
+          <a href={rmp.professorUrl} target="_blank" rel="noreferrer" className="prof-rmp-btn">
             View on RMP →
           </a>
         )}
@@ -1054,145 +806,22 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
         {gradeDistribution.length > 0 && (
           <div className="prof-chart-card" ref={gradesRef}>
             <h3 className="prof-chart-title">Grade Distribution</h3>
-            <div className="prof-grades">
-              {gradeDistribution.map((g) => (
-                <div key={g.grade} className="prof-grade-row">
-                  <span className="prof-grade-label" style={{ color: g.color }}>{g.grade}</span>
-                  <div className="prof-grade-track">
-                    <div className="prof-grade-fill" style={{ width: gradesAnimated ? `${g.pct}%` : '0%', background: g.color }} />
+                  <div className="prof-grades">
+                    {gradeDistribution.map((g) => (
+                      <div key={g.grade} className="prof-grade-row">
+                        <span className="prof-grade-label" style={{ color: g.color }}>{g.grade}</span>
+                        <div className="prof-grade-track">
+                          <div className="prof-grade-fill" style={{ width: gradesAnimated ? `${g.pct}%` : '0%', background: g.color }} />
+                        </div>
+                        <span className="prof-grade-count">{g.count}</span>
+                      </div>
+                    ))}
                   </div>
-                  <span className="prof-grade-count">{g.count}</span>
-                </div>
-              ))}
-            </div>
           </div>
         )}
       </section>
 
-      {!user && (profile?.traceCourses?.length ?? 0) > 0 && (
-        <section className="prof-radar-section">
-          <div className="prof-radar-header">
-            <h2 className="prof-section-title">TRACE In-Depth Evaluation</h2>
-          </div>
-          <div className="prof-trace-paywall">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="paywall-lock-icon">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-            <p>Sign in with your <span className="husky-email">husky.neu.edu</span> account to view the full radar breakdown.</p>
-            <button className="paywall-signin-btn" onClick={() => { sessionStorage.setItem('prof_review_tab', 'trace'); setShowSignIn(true); }}>Sign In</button>
-          </div>
-        </section>
-      )}
-
-      {radarData && user && (
-        <section className="prof-radar-section">
-          <div className="prof-radar-header">
-            <h2 className="prof-section-title">TRACE In-Depth Evaluation</h2>
-            {profile?.radarTermTitle && (
-              <span className="prof-radar-term">{cleanTerm(profile.radarTermTitle)}</span>
-            )}
-          </div>
-          <p className="prof-radar-subtitle">
-            How this professor scores across key teaching dimensions compared to their department.
-          </p>
-          <div className="prof-radar-charts">
-            <ResponsiveContainer width="100%" height={340}>
-              <RadarChart
-                data={radarData}
-                margin={{ top: 20, right: 40, bottom: 20, left: 40 }}
-              >
-                <PolarGrid stroke="var(--radar-grid, #e0e0e0)" />
-                <PolarAngleAxis
-                  dataKey="metric"
-                  tick={(props: any) => {
-                    const { x, y, cy, payload, textAnchor } = props;
-                    const point = radarData?.find(p => p.metric === payload.value);
-                    const rating = point && !point.profMissing ? point.professor.toFixed(2) : null;
-                    // Shift the whole label up when it's above center; extra offset for the topmost label
-                    const isTop = y < cy;
-                    const adjustedY = rating && isTop ? y - (payload.value === 'Teaching' ? 22 : 10) : y;
-                    return (
-                      <text x={x} y={adjustedY} textAnchor={textAnchor} fill="var(--radar-label, #555)" fontFamily="Nunito, sans-serif">
-                        <tspan x={x} fontSize={12} fontWeight={600}>{payload.value}</tspan>
-                        {rating && (
-                          <tspan x={x} dy={15} fontSize={11} fontWeight={400} fill="var(--radar-label, #777)">{rating} / 5.0</tspan>
-                        )}
-                      </text>
-                    );
-                  }}
-                />
-                <PolarRadiusAxis
-                  domain={[radarDomainMin, 5]}
-                  tick={(props: any) => {
-                    const { x, y, payload } = props;
-                    return (
-                      <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={600} fontFamily="Nunito, sans-serif" fill="#444" stroke="#fff" strokeWidth={2} paintOrder="stroke">{payload.value}</text>
-                    );
-                  }}
-                  axisLine={false}
-                  ticks={radarDomainMin === 2 ? [2, 3, 4, 5] : radarDomainMin === 3 ? [3, 4, 5] : [4, 5]}
-                  angle={90}
-                />
-                <RechartsTooltip
-                  contentStyle={{
-                    background: 'var(--radar-tooltip-bg, #fff)',
-                    border: '1px solid var(--radar-tooltip-border, #e0e0e0)',
-                    borderRadius: 8,
-                    fontSize: 13,
-                    color: 'var(--radar-tooltip-text, #333)',
-                    fontFamily: 'Nunito, sans-serif',
-                  }}
-                  formatter={(value, name) =>
-                    typeof value === 'number' && value > 0 ? [`${value.toFixed(2)} / 5`, String(name)] : ['N/A', String(name)]
-                  }
-                />
-                <Legend
-                  wrapperStyle={{ fontFamily: 'Nunito, sans-serif', fontSize: 13, fontWeight: 700, paddingTop: 8 }}
-                />
-                {/* Professor — red, rendered first (behind) */}
-                <Radar
-                  name="This Professor"
-                  dataKey="professor"
-                  stroke="#d6394c"
-                  fill="#d6394c"
-                  fillOpacity={0.35}
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: '#d6394c', strokeWidth: 0 }}
-                />
-                {/* Department average — gray, rendered on top */}
-                {radarData && radarData.some(p => !p.deptMissing) && (
-                  <Radar
-                    name="Dept. Average"
-                    dataKey="department"
-                    stroke="#888"
-                    fill="#888"
-                    fillOpacity={0.45}
-                    strokeWidth={2}
-                    dot={{ r: 3, fill: '#888', strokeWidth: 0 }}
-                  />
-                )}
-              </RadarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="prof-radar-legend-labels">
-            {([
-              { short: 'Teaching', desc: 'Overall teaching effectiveness & clear communication' },
-              { short: 'Organization', desc: 'Course materials, syllabus accuracy & time usage' },
-              { short: 'Rigor', desc: 'Intellectual challenge & how much students learned' },
-              { short: 'Grading', desc: 'Fair evaluation & quality of feedback' },
-              { short: 'Accessibility', desc: 'Office hours availability & inclusive environment' },
-            ] as const).map(m => (
-              <div key={m.short} className="prof-radar-metric-info">
-                <span className="prof-radar-metric-name">{m.short}</span>
-                <span className="prof-radar-metric-desc">{m.desc}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {isImageModalOpen && profile.imageUrl && (
+      {isImageModalOpen && identity.imageUrl && (
         <div className="prof-image-modal-overlay" onClick={() => setIsImageModalOpen(false)}>
           <div className="prof-image-modal" onClick={(e) => e.stopPropagation()}>
             <button
@@ -1202,220 +831,38 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
             >
               ×
             </button>
-            <img src={profile.imageUrl} alt={profile.name} className="prof-image-modal-img" />
+            <img src={identity.imageUrl} alt={identity.name} className="prof-image-modal-img" />
           </div>
         </div>
       )}
 
-      {allCourseCodes.length > 0 && (() => {
-        const grouped = new Map<string, typeof profile.traceCourses>();
-        profile.traceCourses?.forEach(c => {
-          const match = c.displayName.match(/^([A-Z]+\d+)/);
-          const code = (match ? match[1] : c.displayName.split(':')[0].split(' ')[0]).toUpperCase();
-          if (!grouped.has(code)) grouped.set(code, []);
-          grouped.get(code)!.push(c);
-        });
-        reviews.forEach(r => {
-          const code = getFormattedCourseCode(r.course).toUpperCase();
-          if (code && !grouped.has(code)) grouped.set(code, []);
-        });
-        // Build a map of course code -> most recent review date
-        const recentReviewDate = new Map<string, number>();
-        reviews.forEach(r => {
-          const code = getFormattedCourseCode(r.course).toUpperCase();
-          if (code && r.date) {
-            const ts = new Date(r.date).getTime();
-            if (!recentReviewDate.has(code) || ts > recentReviewDate.get(code)!) {
-              recentReviewDate.set(code, ts);
-            }
-          }
-        });
-        const sorted = Array.from(grouped.entries()).sort(([a, secA], [b, secB]) => {
-          // Primary: most recent review date (descending)
-          const reviewA = recentReviewDate.get(a) || 0;
-          const reviewB = recentReviewDate.get(b) || 0;
-          if (reviewA !== reviewB) return reviewB - reviewA;
-          // Secondary: most recent term from trace data (descending by proper chronological order)
-          const termA = secA.length > 0 ? Math.max(...secA.map(s => termSortKey(s.termTitle))) : 0;
-          const termB = secB.length > 0 ? Math.max(...secB.map(s => termSortKey(s.termTitle))) : 0;
-          if (termA !== termB) return termB - termA;
-          // Tertiary: alphabetical
-          return a.localeCompare(b);
-        });
-        return (
-          <section className="prof-section">
-            <div className="prof-section-header">
-              <h2 className="prof-section-title">Courses Taught</h2>
-              <div className="prof-section-actions">
-                <button className="prof-action-link" onClick={() => setSelectedCourses(new Set(allCourseCodes))}>Select All</button>
-                <button className="prof-action-link" onClick={() => setSelectedCourses(new Set())}>Clear All</button>
-              </div>
+      {courses.length > 0 && (
+        <section className="prof-section">
+          <div className="prof-section-header">
+            <h2 className="prof-section-title">Courses Taught</h2>
+            <div className="prof-section-actions">
+              <button className="prof-action-link" onClick={() => setSelectedCourses(new Set(allCourseCodes))}>Select All</button>
+              <button className="prof-action-link" onClick={() => setSelectedCourses(new Set())}>Clear All</button>
             </div>
-            <div className="prof-courses-compact">
-              {sorted.slice(0, COURSES_COLLAPSED_LIMIT).map(([code, sections]) => {
-                const nameMatch = sections[0]?.displayName.match(/\((.+?)\)/);
-                const courseName = nameMatch ? nameMatch[1] : '';
-                const terms = [...new Set(sections.map(s => cleanTerm(s.termTitle)))].filter(t => /\b20\d{2}\b/.test(t)).sort((a, b) => termSortKey(b) - termSortKey(a));
-                const termsExpanded = expandedTerms.has(code);
-                const hiddenTermCount = terms.length - MAX_VISIBLE_TERMS;
-                const isSelected = selectedCourses.has(code);
-                return (
-                  <div
-                    key={code}
-                    className={`prof-course-row ${isSelected ? 'selected' : ''}`}
-                    onClick={() => toggleCourse(code)}
-                  >
-                    <div className="prof-course-row-main">
-                      <span className="prof-course-code">{code}</span>
-                      <span className="prof-course-title">{courseName || 'Course data from reviews'}</span>
-                      <span className="prof-course-terms">
-                        {sections.length > 0 ? `${sections.length} section${sections.length > 1 ? 's' : ''}` : 'RMP reviews only'}
-                      </span>
-                    </div>
-                    <div className="prof-course-lower">
-                      {terms.length > 0 && (
-                        <div className="prof-course-term-tags">
-                          {terms.slice(0, MAX_VISIBLE_TERMS).map(t => <span key={t} className="prof-course-term-tag">{t}</span>)}
-                          {hiddenTermCount > 0 && !termsExpanded && !closingTerms.has(code) && (
-                            <span
-                              className="prof-course-term-tag prof-course-term-more"
-                              onClick={(e) => { e.stopPropagation(); setExpandedTerms(prev => { const next = new Set(prev); next.add(code); return next; }); }}
-                            >
-                              +{hiddenTermCount} more
-                            </span>
-                          )}
-                          {terms.slice(MAX_VISIBLE_TERMS).map((t, i) => {
-                            const isClosing = closingTerms.has(code);
-                            const reverseI = hiddenTermCount - 1 - i;
-                            return <span key={t} className={`prof-course-term-tag prof-course-term-hidden ${termsExpanded || isClosing ? 'visible' : ''} ${isClosing ? 'closing' : ''}`} style={isClosing ? { animationDelay: `${reverseI * 0.04}s` } : termsExpanded ? { animationDelay: `${i * 0.04}s` } : undefined}>{t}</span>;
-                          })}
-                          {hiddenTermCount > 0 && (termsExpanded || closingTerms.has(code)) && (
-                            <span
-                              className={`prof-course-term-tag prof-course-term-more ${closingTerms.has(code) ? 'closing' : ''}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (closingTerms.has(code)) return;
-                                setClosingTerms(prev => { const next = new Set(prev); next.add(code); return next; });
-                                setTimeout(() => {
-                                  setExpandedTerms(prev => { const next = new Set(prev); next.delete(code); return next; });
-                                  setClosingTerms(prev => { const next = new Set(prev); next.delete(code); return next; });
-                                }, hiddenTermCount * 40 + 200);
-                              }}
-                            >
-                              <TermCollapseChevron />
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      {sections.length > 0 && (
-                        <div className="prof-course-view">
-                          <Link
-                            to={`/courses/${code.toLowerCase()}`}
-                            state={{ fromPage: { label: profile.name, url: `/professors/${slug}` } }}
-                            className="prof-course-view-btn"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            View Course
-                          </Link>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              {sorted.length > COURSES_COLLAPSED_LIMIT && (
-                <>
-                  <div className={`prof-courses-extra ${showAllCourses ? 'open' : ''}`}>
-                    <div>{sorted.slice(COURSES_COLLAPSED_LIMIT).map(([code, sections]) => {
-                      const nameMatch = sections[0]?.displayName.match(/\((.+?)\)/);
-                      const courseName = nameMatch ? nameMatch[1] : '';
-                      const terms = [...new Set(sections.map(s => cleanTerm(s.termTitle)))].filter(t => /\b20\d{2}\b/.test(t)).sort((a, b) => termSortKey(b) - termSortKey(a));
-                      const termsExpanded = expandedTerms.has(code);
-                            const hiddenTermCount = terms.length - MAX_VISIBLE_TERMS;
-                      const isSelected = selectedCourses.has(code);
-                      return (
-                        <div
-                          key={code}
-                          className={`prof-course-row ${isSelected ? 'selected' : ''}`}
-                          onClick={() => toggleCourse(code)}
-                        >
-                          <div className="prof-course-row-main">
-                            <span className="prof-course-code">{code}</span>
-                            <span className="prof-course-title">{courseName || 'Course data from reviews'}</span>
-                            <span className="prof-course-terms">
-                              {sections.length > 0 ? `${sections.length} section${sections.length > 1 ? 's' : ''}` : 'RMP reviews only'}
-                            </span>
-                          </div>
-                          <div className="prof-course-lower">
-                            {terms.length > 0 && (
-                              <div className="prof-course-term-tags">
-                                {terms.slice(0, MAX_VISIBLE_TERMS).map(t => <span key={t} className="prof-course-term-tag">{t}</span>)}
-                                {hiddenTermCount > 0 && !termsExpanded && !closingTerms.has(code) && (
-                                  <span
-                                    className="prof-course-term-tag prof-course-term-more"
-                                    onClick={(e) => { e.stopPropagation(); setExpandedTerms(prev => { const next = new Set(prev); next.add(code); return next; }); }}
-                                  >
-                                    +{hiddenTermCount} more
-                                  </span>
-                                )}
-                                {terms.slice(MAX_VISIBLE_TERMS).map((t, i) => {
-                                  const isClosing = closingTerms.has(code);
-                                  const reverseI = hiddenTermCount - 1 - i;
-                                  return <span key={t} className={`prof-course-term-tag prof-course-term-hidden ${termsExpanded || isClosing ? 'visible' : ''} ${isClosing ? 'closing' : ''}`} style={isClosing ? { animationDelay: `${reverseI * 0.04}s` } : termsExpanded ? { animationDelay: `${i * 0.04}s` } : undefined}>{t}</span>;
-                                })}
-                                {hiddenTermCount > 0 && (termsExpanded || closingTerms.has(code)) && (
-                                  <span
-                                    className={`prof-course-term-tag prof-course-term-more ${closingTerms.has(code) ? 'closing' : ''}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (closingTerms.has(code)) return;
-                                      setClosingTerms(prev => { const next = new Set(prev); next.add(code); return next; });
-                                      setTimeout(() => {
-                                        setExpandedTerms(prev => { const next = new Set(prev); next.delete(code); return next; });
-                                        setClosingTerms(prev => { const next = new Set(prev); next.delete(code); return next; });
-                                      }, hiddenTermCount * 40 + 200);
-                                    }}
-                                  >
-                                    <TermCollapseChevron />
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                            {sections.length > 0 && (
-                              <div className="prof-course-view">
-                                <Link
-                                  to={`/courses/${code.toLowerCase()}`}
-                                  state={{ fromPage: { label: profile.name, url: `/professors/${slug}` } }}
-                                  className="prof-course-view-btn"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  View Course
-                                </Link>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}</div>
-                  </div>
-                  <button
-                    className="prof-courses-toggle"
-                    onClick={() => setShowAllCourses(v => !v)}
-                  >
-                    {showAllCourses ? 'Show fewer' : `+${sorted.length - COURSES_COLLAPSED_LIMIT} more courses`}
-                    <svg
-                      className={`prof-courses-toggle-icon ${showAllCourses ? 'expanded' : ''}`}
-                      width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                    >
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                  </button>
-                </>
-              )}
-            </div>
-          </section>
-        );
-      })()}
+          </div>
+          <div className="prof-courses-compact">
+            {courses.slice(0, COURSES_COLLAPSED_LIMIT).map(renderCourseRow)}
+            {courses.length > COURSES_COLLAPSED_LIMIT && (
+              <>
+                <div className={`prof-courses-extra ${showAllCourses ? 'open' : ''}`}>
+                  <div>{courses.slice(COURSES_COLLAPSED_LIMIT).map(renderCourseRow)}</div>
+                </div>
+                <button className="prof-courses-toggle" onClick={() => setShowAllCourses(v => !v)}>
+                  {showAllCourses ? 'Show fewer' : `+${courses.length - COURSES_COLLAPSED_LIMIT} more courses`}
+                  <svg className={`prof-courses-toggle-icon ${showAllCourses ? 'expanded' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+              </>
+            )}
+          </div>
+        </section>
+      )}
 
       {showCourseTip && allCourseCodes.length > 0 && (
         <div className="prof-course-tip-wrapper">
@@ -1460,10 +907,6 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
               <span className="prof-review-tab-full">RateMyProfessor ({filteredRmpReviews.length})</span>
               <span className="prof-review-tab-short">RMP ({filteredRmpReviews.length})</span>
             </button>
-            <button className={`prof-review-tab ${reviewTab === 'trace' ? 'active' : ''}`} onClick={() => setReviewTab('trace')}>
-              <span className="prof-review-tab-full">TRACE ({groupedTrace.reduce((acc, g) => acc + g.count, 0)})</span>
-              <span className="prof-review-tab-short">TRACE ({groupedTrace.reduce((acc, g) => acc + g.count, 0)})</span>
-            </button>
             <button className={`prof-review-tab ${reviewTab === 'reddit' ? 'active' : ''}`} onClick={() => setReviewTab('reddit')}>
               <span className="prof-review-tab-full">Reddit ({redditMentions.length})</span>
               <span className="prof-review-tab-short">Reddit ({redditMentions.length})</span>
@@ -1471,13 +914,7 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
           </div>
         </div>
 
-        {reviewsLoading && (
-          <div className="prof-loading" style={{ padding: '2rem 0' }}>
-            <div className="prof-loading-spinner" />
-          </div>
-        )}
-
-        {!reviewsLoading && reviewTab === 'rmp' && (
+        {reviewTab === 'rmp' && (
           <>
             <div className="prof-reviews-filters">
               <Dropdown className="feedback-dropdown" options={sortOptions} value={sortBy} onChange={setSortBy} placeholder="Sort by…" />
@@ -1501,7 +938,7 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
                         </div>
                       </div>
                       <div className="prof-review-meta">
-                        <span className="prof-review-course">{getFormattedCourseCode(r.course)}</span>
+                        <span className="prof-review-course">{courseCode(r.course)}</span>
                         <span className="prof-review-date">{formatReviewDate(r.date)}</span>
                       </div>
                     </div>
@@ -1533,21 +970,21 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
           </>
         )}
 
-        {!reviewsLoading && reviewTab === 'reddit' && (
+        {reviewTab === 'reddit' && (
           <>
-            <div className="prof-trace-controls">
-              <div className="trace-search-container">
+            <div className="prof-reddit-controls">
+              <div className="reddit-search-container">
                 <input
                   type="text"
-                  className="trace-search-input"
+                  className="reddit-search-input"
                   placeholder="Search Reddit mentions..."
                   value={redditSearch}
                   onChange={e => { setRedditSearch(e.target.value); setVisibleRedditMentions(10); }}
                 />
               </div>
-              <Dropdown className="trace-sort-dropdown" options={redditSentimentOptions} value={redditSentiment} onChange={(v) => { setRedditSentiment(v); setVisibleRedditMentions(10); }} />
+              <Dropdown className="reddit-sort-dropdown" options={redditSentimentOptions} value={redditSentiment} onChange={(v) => { setRedditSentiment(v); setVisibleRedditMentions(10); }} />
             </div>
-            <div className="prof-trace-categories">
+            <div className="prof-reddit-list">
               {filteredRedditMentions.length === 0 ? (
                 <p className="prof-no-reviews">No Reddit mentions found for this professor.</p>
               ) : (
@@ -1590,92 +1027,9 @@ const [showCourseTip, setShowCourseTip] = useState(() => localStorage.getItem('p
             )}
           </>
         )}
-
-        {!reviewsLoading && reviewTab === 'trace' && (
-          <div className="prof-trace-container">
-            {user && (
-              <div className="prof-trace-controls">
-                <div className="trace-search-container">
-                  <input
-                    type="text"
-                    className="trace-search-input"
-                    placeholder="Search comments or questions..."
-                    value={traceSearch}
-                    onChange={e => setTraceSearch(e.target.value)}
-                  />
-                </div>
-                <Dropdown className="trace-sort-dropdown" options={traceSortOptions} value={traceSort} onChange={setTraceSort} />
-              </div>
-            )}
-            <div className="prof-trace-categories">
-              {groupedTrace.map(g => {
-                const isExpanded = expandedQuestions[g.question];
-                const visibleCount = visibleCommentsPerQuestion[g.question] || 5;
-                return (
-                  <div key={g.question} className={`trace-category-item ${isExpanded ? 'expanded' : ''}`} ref={el => { questionRefs.current[g.question] = el; }}>
-                    <div className="trace-category-header" onClick={() => toggleQuestion(g.question)}>
-                      <div className="trace-category-title-wrap">
-                        <h4 className="trace-category-title">{g.question}</h4>
-                        <div className="trace-category-subtitle">
-                          <span className="trace-comment-count">{g.count} comments</span>
-                        </div>
-                      </div>
-                      <svg className="trace-chevron" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                    </div>
-                    {isExpanded && !user && (
-                      <div className="trace-category-paywall">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="paywall-lock-icon-sm">
-                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                        </svg>
-                        <p>Sign in with your <span className="husky-email">husky.neu.edu</span> account to read these comments.</p>
-                        <button className="paywall-signin-btn small" onClick={(e) => { e.stopPropagation(); sessionStorage.setItem('prof_review_tab', 'trace'); setShowSignIn(true); }}>Sign In</button>
-                      </div>
-                    )}
-                    {isExpanded && user && (
-                      <div className="trace-category-content">
-                        {g.comments.slice(0, visibleCount).map((c, ci) => {
-                          const termRaw = termIdMap.get(c.termId) || '';
-                          const term = cleanTerm(termRaw);
-                          const hasYear = /\b20\d{2}\b/.test(term);
-                          return (
-                          <div
-                            key={ci}
-                            className={`trace-comment-bubble ${isPinned(c.comment || '', pinSnippets.trace) ? 'is-ask-pinned' : ''}`}
-                          >
-                            {isPinned(c.comment || '', pinSnippets.trace) && <span className="ask-pinned-label">From your question</span>}
-                            <div className="trace-comment-meta">
-                              {hasYear && <span className="trace-comment-term">{term}</span>}
-                              {(() => {
-                                const courseCode = commentCourseMap.get(c.courseId) || '';
-                                return courseCode ? <span className="trace-comment-course">{courseCode}</span> : null;
-                              })()}
-                            </div>
-                            {c.comment}
-                          </div>
-                          );
-                        })}
-                        <div className="trace-category-actions">
-                          {visibleCount < g.count && (
-                            <button className="trace-action-btn primary" onClick={e => showMoreComments(e, g.question)}>Show More ({g.count - visibleCount} left)</button>
-                          )}
-                          {visibleCount > 5 && (
-                            <button className="trace-action-btn" onClick={e => { e.stopPropagation(); setVisibleCommentsPerQuestion(p => ({ ...p, [g.question]: 5 })); questionRefs.current[g.question]?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>Show Less</button>
-                          )}
-                          <button className="trace-action-btn" onClick={e => { e.stopPropagation(); toggleQuestion(g.question); questionRefs.current[g.question]?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>Collapse</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </section>
 
       <Footer />
-      <SignInModal open={showSignIn} onClose={() => setShowSignIn(false)} />
       <button
         className={`prof-back-to-top ${showBackToTop ? 'visible' : ''}`} 
         onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} 
