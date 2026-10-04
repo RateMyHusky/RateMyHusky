@@ -54,6 +54,29 @@ STATEMENTS = [
     SOURCE_SUMMARY_DDL.format(name="IF NOT EXISTS source_summary"),
     "ALTER TABLE rmp_reviews ADD COLUMN IF NOT EXISTS course_code TEXT",
     "CREATE INDEX IF NOT EXISTS idx_rr_course_code ON rmp_reviews (course_code)",
+    # review tags (pipeline/review_tags.py)
+    """CREATE TABLE IF NOT EXISTS review_tags (
+      source      TEXT NOT NULL,
+      source_id   INT8 NOT NULL,
+      tag         TEXT NOT NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (source, source_id, tag)
+    )""",
+    # reviews already checked, including ones that got no tags, so they aren't re-sent
+    """CREATE TABLE IF NOT EXISTS review_tags_processed (
+      source        TEXT NOT NULL,
+      source_id     INT8 NOT NULL,
+      processed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (source, source_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS professor_tags (
+      name_key      TEXT NOT NULL,
+      tag           TEXT NOT NULL,
+      review_count  INT NOT NULL DEFAULT 0,
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (name_key, tag),
+      INDEX professor_tags_tag (tag, review_count DESC)
+    )""",
 ]
 
 

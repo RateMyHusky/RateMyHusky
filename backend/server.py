@@ -916,6 +916,46 @@ def professor_full(slug):
     return resp
 
 
+MIN_TAG_REVIEWS = 3  # a tag needs this many reviews before it shows
+
+
+@app.route("/api/professors/<slug>/tags")
+def professor_tags(slug):
+    cache_key = f"prof_tags:{slug}"
+    data = cache_get(cache_key)
+    if data is None:
+        prof = query_one("SELECT name_key FROM professors WHERE slug = %s", (slug,))
+        if not prof:
+            return jsonify({"error": "Professor not found"}), 404
+        rows = query(
+            "SELECT tag, review_count FROM professor_tags "
+            "WHERE name_key = %s AND review_count >= %s ORDER BY review_count DESC",
+            (prof["name_key"], MIN_TAG_REVIEWS),
+        )
+        data = [{"tag": r["tag"], "count": r["review_count"]} for r in rows]
+        cache_set(cache_key, data)
+    resp = jsonify(data)
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
+
+
+@app.route("/api/tags/popular")
+def popular_tags():
+    data = cache_get("tags_popular")
+    if data is None:
+        rows = query(
+            "SELECT tag, COUNT(*) AS profs FROM professor_tags "
+            "WHERE review_count >= %s GROUP BY tag ORDER BY profs DESC LIMIT 20",
+            (MIN_TAG_REVIEWS,),
+        )
+        # count = how many professors have the tag, which is what search cares about
+        data = [{"tag": r["tag"], "count": int(r["profs"])} for r in rows]
+        cache_set("tags_popular", data)
+    resp = jsonify(data)
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
+
+
 @app.route("/api/departments")
 def departments():
     college = request.args.get("college", "")

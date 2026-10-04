@@ -23,6 +23,7 @@ LIVE_TABLES = {
     "stats_cache", "bookmarks", "reddit_mentions", "reddit_text", "reddit_sentiment",
     "ask_log", "evidence", "evidence_embeddings", "usage_alerts",
     "professors", "rmp_links", "source_summary", "catalog_courses", "catalog_nupath",
+    "professor_tags",
 }
 _TABLE_REF = re.compile(r"\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)", re.IGNORECASE)
 
@@ -36,6 +37,7 @@ ROW = {
     "course": "CS3500", "quality": 5, "date": "2024-01-01", "tags": "", "attendance": "",
     "grade": "A", "textbook": "", "online_class": "", "comment": "Great.", "rating": 4.2,
     "item_type": "professor", "item_key": "olin-guha",
+    "tag": "curved_grading", "review_count": 3, "profs": 1,
     "created_at": datetime.datetime(2026, 9, 1, tzinfo=datetime.timezone.utc),
     "body": "text", "subreddit": "NEU", "permalink": "/r/x", "created_utc": None,
     "professor_slug": "olin-guha", "course_code": "CS3500", "source": "blend",
