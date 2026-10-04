@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { fetchProfessorData, fetchProfessorsCatalog, fetchSearchSuggestions } from '../api/api';
-import { useAuth } from '../context/AuthContext';
-import { termSortKey } from '../utils/termUtils';
-import type { CatalogProfessor, ProfessorProfile, ProfessorSuggestion } from '../api/api';
+import { fetchProfessorFull, fetchProfessorsCatalog, fetchSearchSuggestions } from '../api/api';
+import type { CatalogProfessor, ProfessorPage, ProfessorSuggestion } from '../api/api';
 import StarRating from '../components/StarRating';
 import Footer from '../components/Footer';
 
@@ -18,21 +16,14 @@ const MAX_SLOTS = SLOT_KEYS.length;
 const MIN_OPEN_SLOTS = 2; // A and B always show a search box
 
 const CATALOG_LIMIT = 10000;
-const SIGN_IN_SENTINEL = '__sign_in__';
 const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four'];
 
 // Module-level cache so catalog survives component unmounts
 let cachedCatalog: CatalogProfessor[] | null = null;
 
-interface TraceSnapshot {
-	term: string;
-	course: string;
-	score: number;
-}
-
 interface ProfileEntry {
 	status: 'loading' | 'ready' | 'error';
-	profile: ProfessorProfile | null;
+	profile: ProfessorPage | null;
 }
 
 interface SlotData {
@@ -40,7 +31,7 @@ interface SlotData {
 	label: string;
 	slug: string;
 	catalogProf: CatalogProfessor | null;
-	profile: ProfessorProfile | null;
+	profile: ProfessorPage | null;
 	loading: boolean;
 	failed: boolean;
 	name: string;
@@ -94,28 +85,6 @@ const pickWinnerIndex = (
 const joinNames = (names: string[]) => {
 	if (names.length <= 2) return names.join(' and ');
 	return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
-};
-
-const cleanTermTitle = (t: string): string => t.replace(/^\d{6}:\s*/, '').replace(/\s*\d{6}/g, '').trim();
-
-const getRecentTraceSnapshot = (profile: ProfessorProfile | null): TraceSnapshot | null => {
-	if (!profile?.traceCourses?.length) return null;
-
-	const sorted = [...profile.traceCourses].sort((a, b) => {
-		const ka = termSortKey(a.termTitle);
-		const kb = termSortKey(b.termTitle);
-		if (ka !== kb) return kb - ka;
-		return b.courseId - a.courseId;
-	});
-
-	const mostRecent = sorted.find((c) => c.overallRating != null);
-	if (!mostRecent || mostRecent.overallRating == null) return null;
-
-	return {
-		term: cleanTermTitle(mostRecent.termTitle),
-		course: mostRecent.displayName,
-		score: mostRecent.overallRating,
-	};
 };
 
 /* ---- One search box (replaces the duplicated left/right search code) ---- */
@@ -289,7 +258,6 @@ function SlotSearch({
 /* ---- Page ---- */
 function Compare() {
 	const [searchParams, setSearchParams] = useSearchParams();
-	const { user, loading: authLoading } = useAuth();
 
 	const [catalog, setCatalog] = useState<CatalogProfessor[]>(cachedCatalog ?? []);
 	const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -344,7 +312,7 @@ function Compare() {
 		return map;
 	}, [catalog]);
 
-	// Load a profile for every selected slug. Refetches on sign-in/out for TRACE detail.
+	// Load a profile for every selected slug
 	useEffect(() => {
 		let cancelled = false;
 		const active = Array.from(new Set(slugKey.split('|').filter(Boolean)));
@@ -358,18 +326,18 @@ function Compare() {
 		});
 
 		active.forEach(async (slug) => {
-			const profile = await fetchProfessorData(slug);
+			const res = await fetchProfessorFull(slug);
 			if (cancelled) return;
 			setEntries((prev) => ({
 				...prev,
-				[slug]: profile ? { status: 'ready', profile } : { status: 'error', profile: null },
+				[slug]: res.ok ? { status: 'ready', profile: res.data } : { status: 'error', profile: null },
 			}));
 		});
 
 		return () => {
 			cancelled = true;
 		};
-	}, [slugKey, user]);
+	}, [slugKey]);
 
 	/* Returns the professor's canonical slug, or null if we can't be sure who it is.
 	   The search API should always send a slug. If one is missing, only accept a
@@ -431,7 +399,7 @@ function Compare() {
 			profile,
 			loading: Boolean(slug) && (!entry || entry.status === 'loading'),
 			failed: entry?.status === 'error',
-			name: catalogProf?.name ?? profile?.name ?? '',
+			name: catalogProf?.name ?? profile?.identity.name ?? '',
 		};
 	});
 
@@ -446,20 +414,23 @@ function Compare() {
 	};
 	const firstName = (slot: SlotData) => slot.name.trim().split(/\s+/)[0] || `Prof. ${slot.label}`;
 
-	const overall = slots.map((s) => (isReady(s) ? s.profile?.avgRating ?? s.catalogProf?.avgRating ?? null : null));
-	const rmp = slots.map((s) => (isReady(s) ? s.profile?.rmpRating ?? s.catalogProf?.rmpRating ?? null : null));
-	const trace = slots.map((s) => (isReady(s) ? s.profile?.traceRating ?? s.catalogProf?.traceRating ?? null : null));
-	const difficulty = slots.map((s) => (isReady(s) ? s.profile?.difficulty ?? null : null));
-	const reviews = slots.map((s) => (isReady(s) ? s.profile?.totalComments ?? s.catalogProf?.totalComments ?? null : null));
+	/* Professor data shape (api.ts v2): summary = blended numbers, sources.rmp = RMP only,
+	   summary.bySource = per-source ratings. Catalog values are the fallback. */
+	const overall = slots.map((s) => (isReady(s) ? s.profile?.summary.rating ?? s.catalogProf?.avgRating ?? null : null));
+	const rmp = slots.map((s) => (isReady(s) ? s.profile?.sources.rmp.rating ?? s.catalogProf?.rmpRating ?? null : null));
+	const trace = slots.map((s) => (isReady(s) ? s.profile?.summary.bySource.trace?.rating ?? null : null));
+	const difficulty = slots.map((s) => (isReady(s) ? s.profile?.summary.difficulty ?? null : null));
+	const reviews = slots.map((s) => (isReady(s) ? s.profile?.summary.numRatings ?? s.catalogProf?.totalReviews ?? null : null));
 	const takeAgain = slots.map((s) =>
-		isReady(s) ? s.profile?.wouldTakeAgainPct ?? s.catalogProf?.wouldTakeAgainPct ?? null : null,
+		isReady(s) ? s.profile?.summary.wouldTakeAgainPct ?? s.catalogProf?.wouldTakeAgainPct ?? null : null,
 	);
-	const snapshots = slots.map((s) => (isReady(s) ? getRecentTraceSnapshot(s.profile) : null));
 
 	const departments = slots.map((s) => {
 		if (!isReady(s)) return '—';
 		if (s.catalogProf) return `${s.catalogProf.department} (${s.catalogProf.college})`;
-		return s.profile?.department || '—';
+		const identity = s.profile?.identity;
+		if (!identity) return '—';
+		return identity.college ? `${identity.department} (${identity.college})` : identity.department;
 	});
 
 	const compareRows: CompareRow[] = [
@@ -489,18 +460,6 @@ function Compare() {
 			values: takeAgain.map((v) => (v === null ? '—' : `${v.toFixed(0)}%`)),
 			winner: pickWinnerIndex(takeAgain, 'higher', 0),
 			weight: 2,
-		},
-		{
-			label: 'Recent TRACE Snapshot',
-			values: slots.map((s, i) => {
-				if (!isReady(s)) return '—';
-				const snap = snapshots[i];
-				if (snap) return `${snap.score.toFixed(2)} (${snap.term})`;
-				return user ? '—' : SIGN_IN_SENTINEL;
-			}),
-			footnotes: snapshots.map((snap) => snap?.course),
-			winner: pickWinnerIndex(snapshots.map((snap) => snap?.score)),
-			weight: 1.5,
 		},
 	];
 
@@ -555,9 +514,9 @@ function Compare() {
 		}
 
 		const { catalogProf, profile } = slot;
-		const dept = catalogProf?.department ?? profile?.department ?? '';
-		const imgUrl = profile?.imageUrl ?? catalogProf?.imageUrl ?? null;
-		const rating = profile?.avgRating ?? catalogProf?.avgRating ?? null;
+		const dept = catalogProf?.department ?? profile?.identity.department ?? '';
+		const imgUrl = profile?.identity.imageUrl ?? catalogProf?.imageUrl ?? null;
+		const rating = profile?.summary.rating ?? catalogProf?.avgRating ?? null;
 		const profSlug = catalogProf?.slug ?? slot.slug;
 
 		const fallbackIcon = (
@@ -607,23 +566,7 @@ function Compare() {
 		);
 	};
 
-	const renderValue = (value: string) => {
-		if (value === SIGN_IN_SENTINEL) {
-			if (authLoading) return <span>—</span>;
-			return (
-				<span className="compare-lock-prompt">
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="compare-lock-icon" aria-hidden="true">
-						<rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-						<path d="M7 11V7a5 5 0 0 1 10 0v4" />
-					</svg>
-					<span>
-						Sign in with your <span className="husky-email">husky.neu.edu</span> account to view
-					</span>
-				</span>
-			);
-		}
-		return <span>{value}</span>;
-	};
+	const renderValue = (value: string) => <span>{value}</span>;
 
 	return (
 		<>
@@ -641,7 +584,7 @@ function Compare() {
 						{slots
 							.filter((slot) => slot.slug)
 							.map((slot) => {
-								const imgUrl = slot.profile?.imageUrl ?? slot.catalogProf?.imageUrl ?? null;
+								const imgUrl = slot.profile?.identity.imageUrl ?? slot.catalogProf?.imageUrl ?? null;
 								return (
 									<div className="compare-chip" key={slot.label}>
 										<Link
@@ -773,7 +716,7 @@ function Compare() {
 
 								{compareRows.map((row, rowIndex) => (
 									<div
-										className={`compare-row ${row.label === 'Department' || row.label === 'Recent TRACE Snapshot' ? 'is-desktop-only' : ''}`}
+										className={`compare-row ${row.label === 'Department' ? 'is-desktop-only' : ''}`}
 										role="row"
 										key={row.label}
 										style={{ animationDelay: `${rowIndex * 0.05}s` }}
