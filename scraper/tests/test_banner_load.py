@@ -466,6 +466,44 @@ def test_push_refuses_an_open_snapshot_over_a_closed_term(db, tmp_path):
         "SELECT instructor_key FROM banner_section_instructors").fetchall() == [("pat hurley",)]
 
 
+def _stage_open_term(tmp_path, scraped_at):
+    stage = str(tmp_path / "stage.db")
+    run(FakeClient({"202710": [section("1")]}, {"1": ANNIE}, terms=TERMS),
+        lambda: sqlite3.connect(stage), "current")
+    conn = sqlite3.connect(stage)
+    conn.execute("UPDATE banner_terms SET scraped_at = ?", (scraped_at,))
+    conn.commit()
+    return stage
+
+
+def test_push_refuses_a_stage_older_than_prods_scrape(db, tmp_path, capsys):
+    """An old stage used to overwrite the weekly run's newer scrape of an open
+    term, and the push stamped it now(), so it then read as fresh."""
+    stage = _stage_open_term(tmp_path, "2026-09-01 08:00:00")
+    conn = db()
+    c = conn.cursor()
+    apply_ddl(c)
+    write_term(c, "202710", FALL, None, scrape([sec("1")], [ins("202710", "1", "pat hurley")]))
+    c.execute("UPDATE banner_terms SET scraped_at = '2026-09-28 08:00:00'")
+    conn.commit()
+
+    assert push(stage, db) == 1
+    assert "older than prod's" in capsys.readouterr().err
+    cur = db().cursor()
+    assert cur.execute("SELECT instructor_key FROM banner_section_instructors").fetchall() == [
+        ("pat hurley",)]
+    assert cur.execute("SELECT scraped_at FROM banner_terms").fetchone() == (
+        "2026-09-28 08:00:00",)
+
+
+def test_push_keeps_the_stages_own_scraped_at(db, tmp_path):
+    stage = _stage_open_term(tmp_path, "2026-09-01 08:00:00")
+    assert push(stage, db) == 0
+    assert push(stage, db) == 0     # same scrape again is not "older"
+    assert db().cursor().execute("SELECT scraped_at FROM banner_terms").fetchone() == (
+        "2026-09-01T08:00:00+00:00",)
+
+
 # ── connect ───────────────────────────────────────────────────────────────
 
 def test_connect_retries_the_dns_flake(monkeypatch):
@@ -489,3 +527,17 @@ def test_connect_does_not_retry_other_errors(monkeypatch):
     monkeypatch.setattr(load_banner_to_crdb.psycopg2, "connect", refused)
     with pytest.raises(psycopg2.OperationalError, match="password"):
         connect("postgres://x", sleep=lambda _: pytest.fail("must not retry"))
+
+
+# ── main ──────────────────────────────────────────────────────────────────
+
+def test_main_exits_75_on_a_rate_limit_so_the_workflow_skips_finalize(
+        monkeypatch, tmp_path, capsys):
+    from banner_client import BannerRateLimited
+
+    def rate_limited(*_a, **_k):
+        raise BannerRateLimited("429 from term/search")
+
+    monkeypatch.setattr(load_banner_to_crdb, "run", rate_limited)
+    assert load_banner_to_crdb.main(["--local-db", str(tmp_path / "x.db")]) == 75
+    assert "RATE LIMITED" in capsys.readouterr().err

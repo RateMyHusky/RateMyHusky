@@ -139,6 +139,10 @@ def build_course_instructors(rows, match):
     term's roster. Unmatched instructors are kept with a null slug: a course
     page can still name them.
 
+    Spellings that match the same professor ("Williams, Tom" and "Williams,
+    Thomas") are merged into one row per course, as build_rows merges them for
+    the chip; the row keeps the newest spelling. Unmatched spellings stay apart.
+
     Cancelled sections (is_cancelled) are dropped before grouping.
     """
     artifacts = roster_artifacts(rows)
@@ -165,9 +169,30 @@ def build_course_instructors(rows, match):
         if r.get("instructional_method"):
             g["methods"].add(r["instructional_method"])
 
-    out = []
+    merged = {}   # (course, name_key, or the raw key when unmatched) -> group
     for (course, key), g in sorted(groups.items()):
         slug, name_key, method = match(key, course, {c for c, _ in g["terms"]})
+        newest = max(int(c) for c, _ in g["terms"])
+        m = merged.get((course, name_key or ("unmatched", key)))
+        if m is None:
+            merged[(course, name_key or ("unmatched", key))] = {
+                **g, "key": key, "newest": newest,
+                "slug": slug, "name_key": name_key, "method": method}
+            continue
+        if newest > m["newest"]:
+            m.update(key=key, name=g["name"], newest=newest)
+        m["terms"] |= g["terms"]
+        for sec in g["sections"]:
+            if (sec["term_code"], sec["crn"]) not in m["crns"]:
+                m["crns"].add((sec["term_code"], sec["crn"]))
+                m["sections"].append(sec)
+        m["primary"] = m["primary"] or g["primary"]
+        m["campuses"] |= g["campuses"]
+        m["methods"] |= g["methods"]
+
+    out = []
+    for (course, _), g in sorted(merged.items(), key=lambda kv: (kv[0][0], kv[1]["key"])):
+        key, slug, name_key, method = g["key"], g["slug"], g["name_key"], g["method"]
         codes = sorted((int(c) for c, _ in g["terms"]))
         labels = _labels_newest_first(g["terms"])
         size = _size_sample(g["sections"])

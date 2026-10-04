@@ -57,7 +57,7 @@ from datetime import datetime, timezone
 import psycopg2
 from psycopg2.extras import execute_values
 
-from banner_client import BannerRequestFailed
+from banner_client import BannerRateLimited, BannerRequestFailed
 from banner_scrape import (DEFAULT_INSTRUCTORS_FROM, DEFAULT_SINCE_TERM,
                            MIN_SECTION_RATIO, SanityGateFailed, plan_terms,
                            scrape_term)
@@ -72,6 +72,10 @@ RETRY_ATTEMPTS = 6
 # Backfill runs gentler than the weekly refresh: it is ~200k requests in total
 # with no deadline, so there is no reason to run it at the measured optimum.
 BACKFILL_CONCURRENCY = 2
+
+# Exit status for a Banner 429/403 (EX_TEMPFAIL), distinct from a gate's 1, so
+# the workflow can skip the finalize step's Banner traffic after one.
+RATE_LIMITED_EXIT = 75
 
 DDL = """
 CREATE TABLE IF NOT EXISTS banner_terms (
@@ -418,6 +422,25 @@ STAGED_TABLES = (("banner_terms", TERM_COLUMNS),
                  ("banner_section_instructors", INSTRUCTOR_COLUMNS))
 
 
+# push carries the stage's scraped_at; write_term leaves it to the column default.
+PUSH_TERM_COLUMNS = TERM_COLUMNS + ("scraped_at",)
+
+
+def _as_utc(value):
+    """A scraped_at as an aware UTC datetime, or None.
+
+    sqlite hands back text ("2026-10-01 12:00:00", UTC, from CURRENT_TIMESTAMP)
+    and psycopg2 an aware datetime; naive values are taken as UTC.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def push(stage_path, open_conn):
     """Copy a staged sqlite file into CockroachDB, one transaction per term.
 
@@ -433,9 +456,13 @@ def push(stage_path, open_conn):
 
     The stage's own gates ran against the stage's baseline, which a fresh
     file doesn't have, so each term is gated again against prod: a staged
-    term more than MIN_SECTION_RATIO below prod's section count, or an open
-    snapshot over a term prod already holds as closed, is refused. Returns
-    non-zero if any term was refused.
+    term more than MIN_SECTION_RATIO below prod's section count, an open
+    snapshot over a term prod already holds as closed, or a scrape older than
+    the one prod holds (an old stage pushed after a newer weekly run) is
+    refused. Returns non-zero if any term was refused.
+
+    Each term keeps the stage's scraped_at, not the push time: the chip's
+    staleness check reads it, and an old stage must not look fresh.
     """
     stage = sqlite3.connect(stage_path)
     codes = [r[0] for r in stage.execute(
@@ -451,7 +478,7 @@ def push(stage_path, open_conn):
         apply_ddl(cur)
         conn.commit()
         cur.execute("SELECT term_code, section_count, scraped_closed, instructors_source, "
-                    "attributed_sections, instructor_count FROM banner_terms")
+                    "attributed_sections, instructor_count, scraped_at FROM banner_terms")
         prod = {r[0]: r[1:] for r in cur.fetchall()}
     finally:
         conn.close()
@@ -472,10 +499,19 @@ def push(stage_path, open_conn):
 
     total, refused = 0, []
     for code in codes:
-        terms = as_bool(rows("banner_terms", TERM_COLUMNS, code), "view_only", "scraped_closed")
+        terms = as_bool(rows("banner_terms", PUSH_TERM_COLUMNS, code),
+                        "view_only", "scraped_closed")
         term = terms[0]
+        staged_at = _as_utc(term["scraped_at"])
+        term["scraped_at"] = staged_at.isoformat() if staged_at else None
         prior = prod.get(code)
         if prior:
+            prod_at = _as_utc(prior[5])
+            if prod_at and (staged_at is None or staged_at < prod_at):
+                print(f"REFUSED {code}: staged scrape from {staged_at or 'an unknown time'} is "
+                      f"older than prod's from {prod_at} — a stale stage", file=sys.stderr)
+                refused.append(code)
+                continue
             prod_count, prod_closed = prior[0] or 0, bool(prior[1])
             if term["section_count"] < prod_count * MIN_SECTION_RATIO:
                 print(f"REFUSED {code}: staged {term['section_count']} sections against "
@@ -510,7 +546,8 @@ def push(stage_path, open_conn):
             if with_instructors:
                 _insert(cur, "banner_section_instructors", INSTRUCTOR_COLUMNS, instructors)
                 _insert(cur, "banner_roster_duplicates", DUPLICATE_COLUMNS, duplicates)
-            _insert(cur, "banner_terms", TERM_COLUMNS, terms)
+            _insert(cur, "banner_terms",
+                    PUSH_TERM_COLUMNS if terms[0]["scraped_at"] else TERM_COLUMNS, terms)
             return len(sections)
 
         n = with_retry(open_conn, work)
@@ -592,9 +629,14 @@ def main(argv=None):
     mode = "backfill" if args.backfill else "current"
     concurrency = args.concurrency or (BACKFILL_CONCURRENCY if args.backfill
                                        else WEEKLY_CONCURRENCY)
-    ok, failed = run(BannerClient(concurrency=concurrency), open_conn,
-                     mode, since_term=args.since, max_sections=args.max_sections,
-                     dry_run=args.dry_run, instructors_from=args.instructors_from)
+    try:
+        ok, failed = run(BannerClient(concurrency=concurrency), open_conn,
+                         mode, since_term=args.since, max_sections=args.max_sections,
+                         dry_run=args.dry_run, instructors_from=args.instructors_from)
+    except BannerRateLimited as e:
+        # Terms finished before this were committed; the rest wait for next week.
+        print(f"RATE LIMITED {e}", file=sys.stderr)
+        return RATE_LIMITED_EXIT
     print(f"{mode}: {len(ok)} term(s) loaded, {len(failed)} refused by a gate"
           + (f" ({', '.join(failed)})" if failed else ""))
     return 1 if failed else 0

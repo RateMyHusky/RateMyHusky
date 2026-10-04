@@ -45,15 +45,25 @@ jobs:
       # the history tables describe the previous run. A chip whose own term
       # keeps failing still goes stale, because the matcher stamps it with
       # that term's last scrape, not with its own clock.
+      # A rate limit (exit 75) is different: the client's rule is to stop
+      # and re-probe later, so finalize, which scrapes Banner again, is
+      # skipped. The matcher reads only the database and still runs.
       - name: Refresh open terms
+        id: refresh
         env:
           CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
-        run: cd scraper && python load_banner_to_crdb.py
+        run: |
+          cd scraper
+          set +e
+          python load_banner_to_crdb.py
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit $code
       # A term that closed since last week was last scraped while still open;
       # give it one final scrape. History before that is already stored and
       # closed terms never change, so most weeks this finds nothing to do.
       - name: Finalize newly closed terms
-        if: ${{ !cancelled() && steps.selftest.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.selftest.outcome == 'success' && steps.refresh.outputs.exit_code != '75' }}
         env:
           CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
         run: cd scraper && python load_banner_to_crdb.py --backfill

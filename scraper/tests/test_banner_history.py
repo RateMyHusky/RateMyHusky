@@ -161,6 +161,32 @@ def test_co_teachers_each_get_a_row():
         ("annie witte", True), ("patrick hurley", False)}
 
 
+def test_spellings_of_one_professor_merge_into_one_row():
+    """Same rule as build_rows for the chip: "tom williams" and "thomas
+    williams" both matched to one professor used to split their terms."""
+    def match(key, course=None, term_codes=()):
+        if key in ("tom williams", "thomas williams"):
+            return "thomas-williams", "thomas williams", "alias"
+        return None, None, "no_match"
+
+    rows = [ins("202530", "1", key="tom williams"),
+            ins("202610", "2", key="thomas williams"),
+            ins("202630", "3", key="tom williams", enrollment=20)]
+    got = build_course_instructors(rows, match)
+    assert len(got) == 1
+    r = got[0]
+    assert (r["professor_slug"], r["instructor_key"]) == ("thomas-williams", "tom williams")
+    assert (r["terms_taught"], r["sections"]) == (3, 3)
+    assert (r["first_term_code"], r["last_term_code"]) == ("202530", "202630")
+    assert r["avg_enrollment"] == 26.7
+
+
+def test_unmatched_spellings_stay_apart():
+    rows = [ins("202610", "1", key="tom williams"),
+            ins("202630", "2", key="thomas williams")]
+    assert len(build_course_instructors(rows, matcher({}))) == 2
+
+
 def test_non_place_campus_is_dropped():
     rows = [ins("202610", "1", campus="No campus, no room needed"),
             ins("202630", "2", campus="Online")]
