@@ -916,7 +916,7 @@ def professor_full(slug):
     return resp
 
 
-MIN_TAG_REVIEWS = 3  # a tag needs this many reviews before it shows
+MIN_TAG_REVIEWS = 3  # need at least this many reviews before showing a tag
 
 
 @app.route("/api/professors/<slug>/tags")
@@ -948,7 +948,7 @@ def popular_tags():
             "WHERE review_count >= %s GROUP BY tag ORDER BY profs DESC LIMIT 20",
             (MIN_TAG_REVIEWS,),
         )
-        # count = how many professors have the tag, which is what search cares about
+        # count is number of profs with the tag
         data = [{"tag": r["tag"], "count": int(r["profs"])} for r in rows]
         cache_set("tags_popular", data)
     resp = jsonify(data)

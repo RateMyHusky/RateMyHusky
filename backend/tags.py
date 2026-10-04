@@ -1,10 +1,5 @@
-"""
-Fixed taxonomy for teaching-style tags. Keep it closed — the extractor only
-returns tags from here, anything else gets dropped.
-
-To add a tag: add it to TAG_TAXONOMY, give it a few words in TAG_HINTS so the
-pre-filter lets reviews through, and map any matching RMP tag in RMP_TAG_MAP.
-"""
+# Tags we pull out of reviews. The model can only pick from TAG_TAXONOMY,
+# anything else gets dropped. To add a tag, add it here + a few keywords in TAG_HINTS.
 
 TAG_TAXONOMY = {
     "requires_textbook": "Professor requires or strongly recommends buying a textbook",
@@ -23,8 +18,7 @@ TAG_TAXONOMY = {
     "accommodating": "Flexible with deadlines or accommodations",
 }
 
-# Loose keywords for the pre-filter. A review with none of these can't really
-# support any tag, so it never goes to the model. Broad on purpose.
+# if a comment has none of these words we don't bother sending it to the model
 TAG_HINTS = {
     "requires_textbook": ["textbook", "book", "reading", "readings"],
     "mandatory_attendance": ["attendance", "attend", "show up", "roll call", "clicker", "iclicker"],
@@ -42,8 +36,7 @@ TAG_HINTS = {
     "accommodating": ["extension", "extensions", "flexible", "deadline", "deadlines", "accommodating", "accommodations", "lenient", "understanding"],
 }
 
-# RMP's own review tags (rmp_reviews.tags) that line up with ours. Matched as
-# lowercase substrings so the separator RMP uses doesn't matter.
+# RMP's own tags that match ours
 RMP_TAG_MAP = {
     "participation matters": "participation_grade",
     "extra credit": "extra_credit",

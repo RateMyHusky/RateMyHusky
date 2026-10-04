@@ -62,7 +62,7 @@ STATEMENTS = [
       created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (source, source_id, tag)
     )""",
-    # reviews already checked, including ones that got no tags, so they aren't re-sent
+    # so reviews that got no tags don't get checked again every run
     """CREATE TABLE IF NOT EXISTS review_tags_processed (
       source        TEXT NOT NULL,
       source_id     INT8 NOT NULL,

@@ -9,39 +9,29 @@ import tag_extractor  # noqa: E402
 from tag_extractor import might_have_tags, parse_tag_response, structured_tags  # noqa: E402
 
 
-# ── structured RMP fields ──
-
-def test_structured_attendance_and_textbook():
+def test_structured_tags():
     assert structured_tags({"attendance": "Mandatory", "textbook": "Yes"}) == {
         "mandatory_attendance", "requires_textbook"}
-
-
-def test_structured_negatives_and_blanks():
     assert structured_tags({"attendance": "Not Mandatory", "textbook": "No", "tags": ""}) == set()
     assert structured_tags({"attendance": None, "textbook": None, "tags": None}) == set()
     assert structured_tags({}) == set()
 
 
-def test_structured_rmp_tags():
+def test_structured_tags_from_rmp_tags():
     row = {"tags": "Tough Grader--Participation matters--EXTRA CREDIT"}
     assert structured_tags(row) == {"participation_grade", "extra_credit"}
 
 
-# ── model output handling (no model, no DB) ──
-
-def test_parse_drops_unknown_tags_and_ids():
+def test_parse_drops_bad_tags_and_ids():
     raw = {"1": ["mandatory_attendance", "made_up_tag"], "2": ["curved_grading"], "999": ["easy_a"]}
     assert parse_tag_response(raw, ["1", "2"]) == {"1": ["mandatory_attendance"], "2": ["curved_grading"]}
 
 
-def test_parse_handles_junk():
+def test_parse_junk():
     assert parse_tag_response("not json", ["1"]) == {}
     assert parse_tag_response(["a list"], ["1"]) == {}
     assert parse_tag_response({"1": "easy_a"}, ["1"]) == {}
     assert parse_tag_response({"1": []}, ["1"]) == {}
-
-
-def test_parse_accepts_json_string_and_int_ids():
     assert parse_tag_response('{"5": ["easy_a", "easy_a"]}', [5]) == {"5": ["easy_a"]}
 
 
@@ -53,21 +43,19 @@ def test_prefilter():
     assert not might_have_tags(None)
 
 
-def test_extract_returns_none_when_call_fails(monkeypatch):
-    def boom(_):
+def test_extract_tags_ollama_down(monkeypatch):
+    def fail(_):
         raise ConnectionError("ollama not running")
-    monkeypatch.setattr(tag_extractor, "_call_ollama", boom)
+    monkeypatch.setattr(tag_extractor, "_call_ollama", fail)
     assert tag_extractor.extract_tags([{"id": "1", "text": "curved"}]) is None
 
 
-def test_extract_validates_model_output(monkeypatch):
+def test_extract_tags_filters_output(monkeypatch):
     monkeypatch.setattr(tag_extractor, "_call_ollama",
                         lambda _: '{"1": ["curved_grading", "vibes"], "2": []}')
     out = tag_extractor.extract_tags([{"id": "1", "text": "a"}, {"id": "2", "text": "b"}])
     assert out == {"1": ["curved_grading"]}
 
-
-# ── routes ──
 
 @pytest.fixture
 def srv(monkeypatch):
