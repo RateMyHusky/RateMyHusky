@@ -20,6 +20,12 @@ YES = {"yes", "y", "true", "mandatory"}
 all_hints = sorted({h for hints in TAG_HINTS.values() for h in hints}, key=len, reverse=True)
 HINT_RE = re.compile(r"\b(" + "|".join(re.escape(h) for h in all_hints) + r")\b", re.IGNORECASE)
 
+# same thing but per tag, used to throw out tags the review never mentions
+TAG_RES = {
+    tag: re.compile(r"\b(" + "|".join(re.escape(h) for h in sorted(hints, key=len, reverse=True)) + r")\b", re.IGNORECASE)
+    for tag, hints in TAG_HINTS.items()
+}
+
 
 def structured_tags(row):
     tags = set()
@@ -44,7 +50,7 @@ def build_prompt(reviews):
     return (
         "Tag these student reviews of professors.\n\n"
         f"Only use these tags:\n{tag_list}\n\n"
-        "Only add a tag if the review clearly says it. If it says the opposite "
+        "Only add a tag if the review clearly says it, most reviews have one or two tags or none. If it says the opposite "
         "(like \"doesn't take attendance\") don't tag it.\n\n"
         f"Reviews:\n{review_list}\n\n"
         'Reply with only JSON like {"<review_id>": ["tag1", "tag2"]}. Skip reviews with no tags.'
@@ -97,4 +103,14 @@ def extract_tags(reviews):
     except Exception as e:
         print(f"  ollama call failed: {e}")
         return None
-    return parse_tag_response(content, [r["id"] for r in reviews])
+    texts = {str(r["id"]): r["text"] for r in reviews}
+    parsed = parse_tag_response(content, texts.keys())
+
+    # the model sometimes makes up tags (extra_credit on reviews that never say it),
+    # so only keep a tag if the review has at least one of its keywords
+    result = {}
+    for rid, tags in parsed.items():
+        kept = [t for t in tags if TAG_RES[t].search(texts[rid])]
+        if kept:
+            result[rid] = kept
+    return result

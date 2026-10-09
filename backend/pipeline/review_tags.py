@@ -17,20 +17,22 @@ from tag_extractor import extract_tags, might_have_tags, structured_tags
 
 from .db import connect, fetch_all
 
-BATCH_SIZE = 15
+BATCH_SIZE = 5
 MAX_CHARS = 1000
 
 
-def fetch_unprocessed(conn, limit):
+def fetch_unprocessed(conn, limit, dry_run=False):
+    # dry run is read only, so it shouldn't need the tags tables to exist
+    not_done = "" if dry_run else """
+          AND NOT EXISTS (
+              SELECT 1 FROM review_tags_processed p
+              WHERE p.source = 'rmp' AND p.source_id = rmp_reviews.id
+          )"""
     return fetch_all(conn, f"""
         SELECT id, name_key, comment, attendance, textbook, tags
         FROM rmp_reviews
         WHERE true{moderation.sql_filter()}
-          AND name_key IS NOT NULL
-          AND NOT EXISTS (
-              SELECT 1 FROM review_tags_processed p
-              WHERE p.source = 'rmp' AND p.source_id = rmp_reviews.id
-          )
+          AND name_key IS NOT NULL{not_done}
         LIMIT %s
     """, (limit,))
 
@@ -78,7 +80,8 @@ def tag_reviews(conn, rows, dry_run=False):
             touched.add(r["name_key"])
             tag_rows += [("rmp", r["id"], t) for t in sorted(tags)]
             if dry_run:
-                print(f"    {sorted(tags)}  <- {r['comment'][:80]!r}")
+                print(f"\n    rmp: {sorted(structured_tags(r))}  model: {results.get(str(r['id']), [])}")
+                print(f"    {r['comment'][:300]}")
 
         if not dry_run:
             save(conn, tag_rows, [r["id"] for r in batch])
@@ -141,7 +144,7 @@ def main(argv=None):
     if args.dry_run:
         show_field_values(conn)
 
-    touched = tag_reviews(conn, fetch_unprocessed(conn, args.limit), args.dry_run)
+    touched = tag_reviews(conn, fetch_unprocessed(conn, args.limit, args.dry_run), args.dry_run)
 
     if args.dry_run:
         print("dry run, nothing written")

@@ -53,8 +53,15 @@ def test_extract_tags_ollama_down(monkeypatch):
 def test_extract_tags_filters_output(monkeypatch):
     monkeypatch.setattr(tag_extractor, "_call_ollama",
                         lambda _: '{"1": ["curved_grading", "vibes"], "2": []}')
-    out = tag_extractor.extract_tags([{"id": "1", "text": "a"}, {"id": "2", "text": "b"}])
+    out = tag_extractor.extract_tags([{"id": "1", "text": "he curves the final"}, {"id": "2", "text": "b"}])
     assert out == {"1": ["curved_grading"]}
+
+
+def test_extract_tags_drops_tags_not_in_text(monkeypatch):
+    monkeypatch.setattr(tag_extractor, "_call_ollama",
+                        lambda _: '{"1": ["extra_credit", "easy_a"]}')
+    out = tag_extractor.extract_tags([{"id": "1", "text": "Super easy class, he is very chill"}])
+    assert out == {"1": ["easy_a"]}
 
 
 @pytest.fixture
