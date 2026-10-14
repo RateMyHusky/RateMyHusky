@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "RateMyHusky",
+  "version": "0.0.1",
+  "description": "Search and compare Northeastern professors without leaving the page you're on.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0F43N/mjbsm31chtOJswhEGe08Ox7jSQ4TISpKBdzJaQ12+qOXn2A6R2N5yqlpzuvQeJHjRwJW9+Ggt3j14cJli8ybGbqGLftJU8I3Z4YeWLzwYhLlaN6tA3xOBb02E/IP+9hX7txAGV4SrsF/VSbnsTIAD+84spGNa3DvRTrH28N60vIF/6JW4ez7OkC0wgLhOpfvzRZR0XcpUA03rGXFTRY6BDqwPlwZ1I2Rgi9YZZTwlLdoDGeTlCO6E/DDNAfzdRZYdfUvAX9cxU1DScpYJgHgCZSKcM7SLGZ5MdWiD94wwMtpjlnQ/ftN2LIBU25n4H+wBWtHv3gy2DYdEXVQIDAQAB",
+  "host_permissions": ["https://ratemyhusky.com/*"]
+}

@@ -116,7 +116,19 @@ app.config["COMPRESS_MIMETYPES"] = ["application/json", "text/html"]
 app.config["COMPRESS_MIN_SIZE"] = 256
 Compress(app)
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
-CORS(app, supports_credentials=True, origins=[FRONTEND_URL])
+
+# The browser extension (extension/manifest.json) is a second read-only client.
+# Its id is pinned by the `key` field in that manifest, so it is stable across
+# dev reloads; the Chrome Web Store assigns its own id at publish, which gets
+# added here then. Comma-separated so both can be listed during that handover.
+EXTENSION_ORIGINS = [
+    o.strip() for o in os.getenv(
+        "EXTENSION_ORIGINS",
+        "chrome-extension://efcamhdgilkmhojinbolmldbngbcmoph",
+    ).split(",") if o.strip()
+]
+
+CORS(app, supports_credentials=True, origins=[FRONTEND_URL, *EXTENSION_ORIGINS])
 def get_real_ip():
     """Get the real client IP from X-Forwarded-For (set by Vercel/Railway proxy)."""
     xff = request.headers.get("X-Forwarded-For", "")
@@ -158,6 +170,7 @@ ALLOWED_ORIGINS = {
         FRONTEND_URL,
         "http://localhost:5173",
         "http://localhost:3000",
+        *EXTENSION_ORIGINS,
     ) if _origin_host(o)
 }
 
