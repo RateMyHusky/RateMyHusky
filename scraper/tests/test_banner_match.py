@@ -514,7 +514,7 @@ def test_healthy_run_passes_gate_and_writes_normally(cur, store_cur):
 
 from banner_history import (build_course_instructors,  # noqa: E402
                             build_course_offerings)
-from load_banner_to_crdb import apply_ddl, write_term  # noqa: E402
+from load_banner import apply_ddl, write_term  # noqa: E402
 from match_banner_instructors import (HISTORY_DDL, chip_rows,  # noqa: E402
                                       current_season, read_banner,
                                       write_history)

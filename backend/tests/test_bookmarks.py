@@ -1,7 +1,7 @@
 """Unit tests for the injectable bookmarks SQL orchestration in bookmarks.py.
 
 Uses fake query/query_one/write callables so nothing here touches a live DB —
-these can run even while the shared CockroachDB cluster is unavailable.
+these can run even while the shared database is unavailable.
 """
 
 import datetime

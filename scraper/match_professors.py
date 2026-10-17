@@ -105,7 +105,7 @@ def parse_sql_values(body: str) -> List[List[Optional[str]]]:
                 # formatting, not data. It used to land in `chars` and then
                 # survive, because a quoted token is deliberately not stripped
                 # (a trailing space inside quotes is real): "(1, 'ada')" parsed
-                # as " ada". Harmless in a CockroachDB backup, which emits no
+                # as " ada". Harmless in the older backup_db.py dumps, which emit no
                 # space after the comma — and silent in anything that does, since
                 # a slug or name_key with a leading space simply matches nothing.
                 if not "".join(chars).strip():
@@ -207,7 +207,7 @@ def _catalog_index(stmt: str) -> Optional[Dict[str, int]]:
     Returns None when the statement lists no columns, leaving the caller on the
     hardcoded fallback.
     """
-    m = re.match(r"INSERT INTO professors_catalog\s*\(([^)]*)\)", stmt)
+    m = re.match(r"INSERT INTO (?:public\.)?professors_catalog\s*\(([^)]*)\)", stmt)
     if not m:
         return None
     cols = [c.strip().strip('"').strip() for c in m.group(1).split(",")]
@@ -241,7 +241,7 @@ def load_catalog(backup_path: str) -> List[Professor]:
         buf: List[str] = []
         capturing = False
         for line in f:
-            if not capturing and re.match(r"INSERT INTO professors_catalog[ (]", line):
+            if not capturing and re.match(r"INSERT INTO (?:public\.)?professors_catalog[ (]", line):
                 capturing = True
                 buf = [line]
             elif capturing:

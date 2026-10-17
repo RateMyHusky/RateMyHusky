@@ -34,7 +34,7 @@ import zipfile
 
 # Logical name -> the filenames that may hold it, in preference order. A big
 # export may ship zipped, because GitHub rejects a file over 100MB; precompute.py
-# and migrate_to_crdb.py read both forms through csv_store.
+# and load_rmp.py read both forms through csv_store.
 FILES = {
     "rmp_professors": ("rmp_professors.csv",),
     "rmp_reviews": ("rmp_reviews.csv", "rmp_reviews.zip"),

@@ -6,7 +6,7 @@ import os
 import pytest
 import psycopg2.errors
 
-os.environ.setdefault("CRDB_DATABASE_URL", "postgresql://stub")
+os.environ.setdefault("ORACLE_DATABASE_URL", "postgresql://stub")
 import server  # noqa: E402
 from course_page import build_course  # noqa: E402
 

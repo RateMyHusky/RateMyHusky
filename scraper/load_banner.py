@@ -1,7 +1,12 @@
-"""Load NUBanner sections to CockroachDB.
+"""Load NUBanner sections to PostgreSQL.
+
+The PostgreSQL tables come from db/postgres/02_tables.sql; this loader creates
+and alters nothing there and stops with a list of what is missing if the schema
+is behind (schema_check.py). It creates its tables only on sqlite stage files
+(--local-db) and in tests, from the DDL below.
 
 Own tables, disjoint from everything backend/pipeline rebuilds. That separation
-is the point: the pipeline swaps its tables in fresh every run,
+is the point: the pipeline replaces its read-model rows in one transaction every run,
 while this history is expensive to re-fetch (one request per section) and
 closed terms never change.
 
@@ -20,7 +25,7 @@ outside the term being written is touched, so history accumulates.
 `connect()` deliberately overrides the DSN's `sslmode=verify-full` with
 `sslmode="require"` — the deployment does not distribute a root cert, so
 verify-full fails outright before any query runs. This matches existing
-precedent (`load_reddit_to_crdb.py`, `backend/pipeline/db.py`); do not "fix"
+precedent (`load_reddit.py`, `backend/pipeline/db.py`); do not "fix"
 it back to the bare DSN.
 
 Instructors for closed terms before --instructors-from (default Fall 2025)
@@ -32,28 +37,28 @@ lower re-plans every closed term at or after it whose instructors aren't
 Banner's, and writing that term swaps its import rows for Banner's.
 --rescrape CODE[,CODE...] forces terms into the plan whatever their state.
 
-Staging: --local-db PATH writes to a sqlite file instead of CockroachDB, so the
+Staging: --local-db PATH writes to a sqlite file instead of the database, so the
 Banner traffic can happen once, offline from the database. --push-from PATH then
-copies a staged file into CockroachDB without touching Banner.
+copies a staged file into the database without touching Banner.
 
 Usage
 -----
-    python load_banner_to_crdb.py --selftest                 # offline DDL check
-    python load_banner_to_crdb.py                            # open terms (weekly)
-    python load_banner_to_crdb.py --backfill                 # closed terms since Fall 2021
-    python load_banner_to_crdb.py --backfill --max-sections 30000 --since 202410
-    python load_banner_to_crdb.py --local-db stage.db --backfill
-    python load_banner_to_crdb.py --push-from stage.db
-    python load_banner_to_crdb.py --backfill --rescrape 202650
+    python load_banner.py --selftest                 # offline DDL check
+    python load_banner.py                            # open terms (weekly)
+    python load_banner.py --backfill                 # closed terms since Fall 2021
+    python load_banner.py --backfill --max-sections 30000 --since 202410
+    python load_banner.py --local-db stage.db --backfill
+    python load_banner.py --push-from stage.db
+    python load_banner.py --backfill --rescrape 202650
 
 Bringing Fall 2021 - Summer 2025 instructors in from Banner, locally (2-3 hours,
 resumes term by term if interrupted):
 
-    python load_banner_to_crdb.py --local-db stage.db --backfill --instructors-from 202210 --rescrape 202650
+    python load_banner.py --local-db stage.db --backfill --instructors-from 202210 --rescrape 202650
     python match_banner_instructors.py --local-db stage.db --dry-run
         (copy professors_catalog's slug, name, name_key, department in first,
          or nothing matches a profile)
-    python load_banner_to_crdb.py --push-from stage.db
+    python load_banner.py --push-from stage.db
     python match_banner_instructors.py
 
 A stage pushed over prod is gated against prod's own counts, and a staged
@@ -74,10 +79,12 @@ from banner_client import BannerRateLimited, BannerRequestFailed
 from banner_scrape import (DEFAULT_INSTRUCTORS_FROM, DEFAULT_SINCE_TERM,
                            MIN_SECTION_RATIO, SanityGateFailed, plan_terms,
                            scrape_term)
+from schema_check import (expected_columns, require_columns,
+                          sqlite_flavour)
 
-# CockroachDB runs SERIALIZABLE. A write that overlaps the live site's reads
-# can be aborted with 40001 and has to be replayed by the client — the same
-# hazard load_evidence_to_crdb.py added retries for after hitting it.
+# PostgreSQL can abort a write that overlaps the live site's reads or other
+# writers (40001 serialization failure, 40P01 deadlock) and the client has to
+# replay it — the same hazard load_evidence.py added retries for after hitting it.
 RETRYABLE_ERRORS = (psycopg2.errors.SerializationFailure,
                     psycopg2.errors.DeadlockDetected)
 RETRY_ATTEMPTS = 6
@@ -144,8 +151,8 @@ CREATE TABLE IF NOT EXISTS banner_roster_duplicates (
 """
 
 # Columns added after their table first shipped. CREATE TABLE IF NOT EXISTS
-# leaves an existing table as it is, so prod and older stage files only get
-# these from add_columns.
+# leaves an existing table as it is, so older sqlite stage files only get
+# these from add_columns. PostgreSQL gets them from db/postgres/.
 ADDED_COLUMNS = (("banner_sections", "part_of_term", "TEXT"),)
 
 TERM_COLUMNS = ("term_code", "term_desc_raw", "term_label", "season",
@@ -166,20 +173,23 @@ CONNECT_ATTEMPTS = 20
 
 
 def connect(dsn, attempts=CONNECT_ATTEMPTS, sleep=time.sleep):
-    """Open a CRDB connection, retrying the resolver flake.
+    """Open a PostgreSQL connection, retrying the resolver flake.
 
     sslmode="require" overrides the DSN's verify-full, matching
-    load_reddit_to_crdb.py and backend/pipeline/db.py — the deployment does not
-    distribute a root cert, so verify-full fails outright.
+    load_reddit.py and backend/pipeline/db.py — the deployment does not
+    distribute a root cert, so verify-full fails outright. Sessions run in UTC
+    (`options="-c timezone=UTC"`), like every other connect helper.
 
-    "could not translate host name" is a known flake on *.cockroachlabs.cloud;
-    backend/pipeline/db.connect retries it the same way. Every connect in the
+    "could not translate host name" is a known flake: the local resolver has
+    flaked on the database host before. backend/pipeline/db.connect retries it
+    the same way. Every connect in the
     loader and the matcher goes through here, so one flake can't skip a
     week's refresh. Any other connection error is raised at once.
     """
     for attempt in range(1, attempts + 1):
         try:
-            return psycopg2.connect(dsn, sslmode="require")
+            return psycopg2.connect(dsn, sslmode="require",
+                                    options="-c timezone=UTC")
         except psycopg2.OperationalError as e:
             if "could not translate host name" not in str(e) or attempt == attempts:
                 raise
@@ -194,9 +204,9 @@ def with_retry(open_conn, work, attempts=RETRY_ATTEMPTS, sleep=time.sleep):
     and its inserts are only correct together, so re-committing without
     re-running `work` would leave the term half-written.
 
-    A fresh connection per attempt: CockroachDB leaves the aborted
-    connection's transaction unusable, so reusing it just fails again with a
-    misleading error. Anything that is not retryable propagates immediately —
+    A fresh connection per attempt: a failed statement leaves the transaction
+    aborted until it is rolled back, so reusing the connection just fails again
+    with a misleading error. Anything that is not retryable propagates immediately —
     a bug in the row builder must not be retried six times before surfacing.
     """
     for attempt in range(1, attempts + 1):
@@ -222,28 +232,39 @@ def _placeholder(cur):
     return "?" if isinstance(cur, sqlite3.Cursor) else "%s"
 
 
+def expected_schema():
+    """{table: [column, ...]} this module's DDL defines, for schema_check."""
+    return expected_columns(DDL.split(";"), ADDED_COLUMNS)
+
+
 def apply_ddl(cur):
+    """Create the tables on sqlite; on PostgreSQL only check that they exist.
+
+    db/postgres/02_tables.sql owns the PostgreSQL schema, so no CREATE or ALTER
+    is issued there: a missing table or column raises RuntimeError instead.
+    """
+    if not isinstance(cur, sqlite3.Cursor):
+        require_columns(cur, expected_schema())
+        return
     for stmt in DDL.split(";"):
         if stmt.strip():
-            if isinstance(cur, sqlite3.Cursor):
-                stmt = (stmt.replace("TIMESTAMPTZ", "TIMESTAMP")
-                            .replace("DEFAULT now()", "DEFAULT CURRENT_TIMESTAMP"))
-            cur.execute(stmt)
+            cur.execute(sqlite_flavour(stmt))
     add_columns(cur, ADDED_COLUMNS)
 
 
 def add_columns(cur, columns):
-    """Add each (table, column, type) the table doesn't have yet.
+    """Add each (table, column, type) a sqlite table doesn't have yet.
 
     sqlite has no ADD COLUMN IF NOT EXISTS, so it checks PRAGMA table_info first.
+    PostgreSQL is never altered here: it is checked against db/postgres/.
     """
+    if not isinstance(cur, sqlite3.Cursor):
+        require_columns(cur, expected_columns([], columns))
+        return
     for table, column, decl in columns:
-        if isinstance(cur, sqlite3.Cursor):
-            have = {r[1] for r in cur.execute(f"PRAGMA table_info({table})")}
-            if column not in have:
-                cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
-        else:
-            cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {decl}")
+        have = {r[1] for r in cur.execute(f"PRAGMA table_info({table})")}
+        if column not in have:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 def known_terms(cur):
@@ -483,7 +504,7 @@ def _as_utc(value):
 
 
 def push(stage_path, open_conn):
-    """Copy a staged sqlite file into CockroachDB, one transaction per term.
+    """Copy a staged sqlite file into the database, one transaction per term.
 
     No Banner traffic: everything comes from the file. Each term is replaced
     whole, like write_term, so pushing the same file twice is a no-op and
@@ -612,7 +633,7 @@ def sqlite_opener(path):
 
 
 def selftest():
-    """Run the DDL and one term write against in-memory sqlite. No network, no CRDB."""
+    """Run the DDL and one term write against in-memory sqlite. No network, no database."""
     conn = sqlite3.connect(":memory:")
     cur = conn.cursor()
     # banner_sections as prod has it, from before part_of_term: apply_ddl must add it.
@@ -652,8 +673,8 @@ def main(argv=None):
                     help="parallel faculty lookups (default 2 current, "
                          f"{BACKFILL_CONCURRENCY} backfill)")
     ap.add_argument("--dry-run", action="store_true", help="scrape and gate, write nothing")
-    ap.add_argument("--local-db", help="write to this sqlite file instead of CockroachDB")
-    ap.add_argument("--push-from", help="copy a staged sqlite file into CockroachDB, then exit")
+    ap.add_argument("--local-db", help="write to this sqlite file instead of the database")
+    ap.add_argument("--push-from", help="copy a staged sqlite file into the database, then exit")
     args = ap.parse_args(argv)
 
     if args.selftest:
@@ -662,15 +683,15 @@ def main(argv=None):
     if args.local_db:
         open_conn = sqlite_opener(args.local_db)
     else:
-        dsn = os.environ.get("CRDB_DATABASE_URL")
+        dsn = os.environ.get("ORACLE_DATABASE_URL")
         if not dsn:
-            print("CRDB_DATABASE_URL is not set", file=sys.stderr)
+            print("ORACLE_DATABASE_URL is not set", file=sys.stderr)
             return 1
         open_conn = lambda: connect(dsn)  # noqa: E731
 
     if args.push_from:
         if args.local_db:
-            print("--push-from copies into CockroachDB; drop --local-db", file=sys.stderr)
+            print("--push-from copies into the database; drop --local-db", file=sys.stderr)
             return 1
         return push(args.push_from, open_conn)
 

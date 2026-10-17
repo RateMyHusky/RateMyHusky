@@ -6,8 +6,8 @@ false-positives as 'strikes'. Accumulated strikes cap/ban an account on the dail
 question limit even when no real question ever went through. This script lets you
 see the strike rows per account and clear them for a specific account.
 
-Reads NEW_CRDB_DATABASE_URL from backend/.env (per crdb-dns-retry gotcha) and wraps
-connect() in the DNS-retry loop. Never prints the connection string.
+Reads ORACLE_DATABASE_URL from backend/.env and wraps connect() in a DNS-retry
+loop. Never prints the connection string.
 
 USAGE (from backend/):
   python rag/clear_ask_strikes.py --show                       # list strikes per account
@@ -24,9 +24,9 @@ from dotenv import load_dotenv
 import psycopg2
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
-URL = os.getenv("NEW_CRDB_DATABASE_URL") or os.getenv("CRDB_DATABASE_URL")
+URL = os.getenv("ORACLE_DATABASE_URL")
 if not URL:
-    sys.exit("Need NEW_CRDB_DATABASE_URL (or CRDB_DATABASE_URL) in backend/.env")
+    sys.exit("Need ORACLE_DATABASE_URL in backend/.env")
 
 STRIKE_STATUSES = ("injection_blocked", "off_topic", "defamation_framing")
 
@@ -35,14 +35,14 @@ def connect(attempts=20):
     last = None
     for i in range(1, attempts + 1):
         try:
-            return psycopg2.connect(URL, sslmode="require")
+            return psycopg2.connect(URL, sslmode="require", options="-c timezone=UTC")
         except psycopg2.OperationalError as e:
             if "could not translate host name" not in str(e):
                 raise
             last = str(e)
             print(f"  DNS lookup flaked; retrying ({i}/{attempts})...")
             time.sleep(3)
-    sys.exit(f"Could not resolve CRDB host after {attempts} attempts.\n{last}")
+    sys.exit(f"Could not resolve the database host after {attempts} attempts.\n{last}")
 
 
 def show(cur, account=None):

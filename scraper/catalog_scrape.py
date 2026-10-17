@@ -8,7 +8,7 @@ as a success everywhere except the row count. Every gate below turns one of
 those into a refusal.
 
 Writes JSON and nothing else — this module imports no database driver, so it
-cannot reach CRDB even by accident. Loading is a separate step, the same split
+cannot reach the database even by accident. Loading is a separate step, the same split
 the Banner scraper uses.
 
 Usage

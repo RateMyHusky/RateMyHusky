@@ -16,9 +16,9 @@ import psycopg2  # noqa: E402
 
 import banner_client  # noqa: E402
 import banner_scrape  # noqa: E402
-import load_banner_to_crdb  # noqa: E402
+import load_banner  # noqa: E402
 from banner_client import BannerRequestFailed  # noqa: E402
-from load_banner_to_crdb import (ADDED_COLUMNS, SECTION_COLUMNS,  # noqa: E402
+from load_banner import (ADDED_COLUMNS, SECTION_COLUMNS,  # noqa: E402
                                  add_columns, apply_ddl, connect, known_terms,
                                  push, run, selftest, sync_view_only,
                                  with_retry, write_term)
@@ -327,10 +327,10 @@ def test_run_rescrape_scrapes_a_finished_term_again(db):
 
 def test_main_passes_rescrape_codes_to_run(monkeypatch, tmp_path):
     seen = {}
-    monkeypatch.setattr(load_banner_to_crdb, "run",
+    monkeypatch.setattr(load_banner, "run",
                         lambda *a, **kw: seen.update(kw) or ([], []))
     monkeypatch.setattr(banner_client, "BannerClient", lambda concurrency: None)
-    assert load_banner_to_crdb.main(["--local-db", str(tmp_path / "s.db"), "--backfill",
+    assert load_banner.main(["--local-db", str(tmp_path / "s.db"), "--backfill",
                                      "--rescrape", "202650, 202550"]) == 0
     assert seen["rescrape"] == ["202650", "202550"]
 
@@ -356,9 +356,9 @@ def test_run_dry_run_writes_no_rows(db):
     assert count(db().cursor(), "banner_sections") == 0
 
 
-# CockroachDB runs SERIALIZABLE, so a write that overlaps the live site's
-# reads can be aborted with 40001 and has to be replayed by the client.
-# load_evidence_to_crdb.py learned this the hard way; these pin the same behaviour for the Banner write path.
+# PostgreSQL can abort a write that overlaps the live site's reads (40001) or
+# deadlocks with another writer (40P01), and the client has to replay it.
+# load_evidence.py learned this the hard way; these pin the same behaviour for the Banner write path.
 
 class _FakeConn:
     """One connection attempt. Raises on the statements it was told to."""
@@ -548,23 +548,26 @@ def test_push_keeps_the_stages_own_scraped_at(db, tmp_path):
 
 def test_connect_retries_the_dns_flake(monkeypatch):
     attempts = []
+    options = []
 
-    def flaky(dsn, sslmode):
+    def flaky(dsn, sslmode, **kwargs):
         attempts.append(sslmode)
+        options.append(kwargs.get("options"))
         if len(attempts) < 3:
             raise psycopg2.OperationalError('could not translate host name "x" to address')
         return "conn"
 
-    monkeypatch.setattr(load_banner_to_crdb.psycopg2, "connect", flaky)
+    monkeypatch.setattr(load_banner.psycopg2, "connect", flaky)
     assert connect("postgres://x", sleep=lambda _: None) == "conn"
     assert attempts == ["require"] * 3
+    assert all("-c timezone=UTC" in (o or "") for o in options)
 
 
 def test_connect_does_not_retry_other_errors(monkeypatch):
-    def refused(dsn, sslmode):
+    def refused(dsn, sslmode, **kwargs):
         raise psycopg2.OperationalError("password authentication failed")
 
-    monkeypatch.setattr(load_banner_to_crdb.psycopg2, "connect", refused)
+    monkeypatch.setattr(load_banner.psycopg2, "connect", refused)
     with pytest.raises(psycopg2.OperationalError, match="password"):
         connect("postgres://x", sleep=lambda _: pytest.fail("must not retry"))
 
@@ -578,8 +581,8 @@ def test_main_exits_75_on_a_rate_limit_so_the_workflow_skips_finalize(
     def rate_limited(*_a, **_k):
         raise BannerRateLimited("429 from term/search")
 
-    monkeypatch.setattr(load_banner_to_crdb, "run", rate_limited)
-    assert load_banner_to_crdb.main(["--local-db", str(tmp_path / "x.db")]) == 75
+    monkeypatch.setattr(load_banner, "run", rate_limited)
+    assert load_banner.main(["--local-db", str(tmp_path / "x.db")]) == 75
     assert "RATE LIMITED" in capsys.readouterr().err
 
 
@@ -604,17 +607,22 @@ def test_apply_ddl_adds_part_of_term_to_a_table_that_predates_it():
     assert "part_of_term" in _columns(cur, "banner_sections")
 
 
-def test_add_columns_uses_if_not_exists_on_cockroach():
+def test_add_columns_never_alters_a_postgres_table():
     class Recorder:
-        def __init__(self):
-            self.sql = []
+        def __init__(self, rows):
+            self.sql, self.rows = [], rows
 
         def execute(self, sql, params=None):
             self.sql.append(sql)
 
-    rec = Recorder()
-    add_columns(rec, ADDED_COLUMNS)
-    assert rec.sql == ["ALTER TABLE banner_sections ADD COLUMN IF NOT EXISTS part_of_term TEXT"]
+        def fetchall(self):
+            return self.rows
+
+    have = Recorder([("banner_sections", "part_of_term")])
+    add_columns(have, ADDED_COLUMNS)
+    assert not any("ALTER" in s.upper() for s in have.sql)
+    with pytest.raises(RuntimeError, match="banner_sections.part_of_term"):
+        add_columns(Recorder([("banner_sections", "crn")]), ADDED_COLUMNS)
 
 
 def test_selftest_passes_against_a_table_that_predates_part_of_term():

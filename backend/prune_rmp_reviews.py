@@ -1,16 +1,16 @@
 """Delete rmp_reviews rows that no longer exist on RateMyProfessors.
 
-migrate_to_crdb.py inserts with ON CONFLICT DO NOTHING and never deletes, so a
+load_rmp.py inserts with ON CONFLICT DO NOTHING and never deletes, so a
 review removed on RMP stayed in the table and kept rendering — while the count
 beside it, which precompute derives from the fresh CSV, had already dropped.
 The list and the number described different sets.
 
 Truncate-and-reload also converges, but it regenerates every rmp_reviews.id,
-and evidence.source_ref for RMP *is* that rowid
-(scraper/load_evidence_to_crdb.py:208) — so each full replace orphans the RMP
-half of the RAG corpus and forces a re-embed. It also leaves the table empty
-mid-load, because the TRUNCATE commits by itself. Pruning deletes only the rows
-that actually went away, weekly, and leaves ids alone.
+and evidence.source_ref for RMP *is* that id
+(scraper/load_evidence.py, build_rmp_rows) — so each full replace orphans the RMP
+half of the RAG corpus and forces a re-embed. It would also lock the table for
+the whole reload. Pruning deletes only the rows that actually went away,
+weekly, and leaves ids alone.
 
 Deleting one review still orphans its own evidence row, for the same reason a
 truncate orphans all of them, so each batch deletes the matching evidence rows
@@ -47,8 +47,7 @@ DEFAULT_CSV = os.path.join(
     "Better_Scraper", "output_data", "rmp_reviews.csv",
 )
 
-# Rows per DELETE. Matches migrate_to_crdb.py's BATCH_SIZE rationale: stay
-# under CockroachDB's lock-tracking budget for a single statement.
+# Rows per DELETE: keeps each statement's lock set and WAL burst small.
 BATCH_SIZE = 5000
 
 # A prune bigger than this share of the table means the CSV is wrong, not that
@@ -123,11 +122,11 @@ def has_evidence_table(conn):
     """Is the RAG evidence corpus present in this database?
 
     Probed once, in its own transaction, rather than by catching the failure
-    inside the delete loop: on CockroachDB a failed statement aborts the whole
+    inside the delete loop: in PostgreSQL a failed statement aborts the whole
     transaction, so a missing table would take the rmp_reviews DELETE down with
     it and the prune would do nothing at all.
 
-    The corpus is built by a separate job (scraper/load_evidence_to_crdb.py), and
+    The corpus is built by a separate job (scraper/load_evidence.py), and
     an install that has never run it should still be able to prune reviews.
     """
     try:
@@ -145,7 +144,7 @@ def has_evidence_table(conn):
 def _delete_evidence(cur, review_ids):
     """Delete the evidence rows (and embeddings) quoting `review_ids`.
 
-    Returns how many evidence rows went. source_ref is TEXT — load_evidence_to_crdb
+    Returns how many evidence rows went. source_ref is TEXT — load_evidence
     writes `str(source_ref)` — so the ids are stringified rather than passed as
     ints, which would match nothing and silently delete none.
 
@@ -255,7 +254,7 @@ def main(argv=None):
 
     # Imported here so the pure functions above stay testable without psycopg2
     # and without the module reading DATABASE_URL at import time.
-    from migrate_to_crdb import get_connection
+    from load_rmp import get_connection
 
     conn = get_connection()
     try:

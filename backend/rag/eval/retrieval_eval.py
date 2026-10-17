@@ -1,31 +1,9 @@
-import os, sys, json, argparse, time, socket
+import os, sys, json, argparse
 from psycopg2.extras import RealDictCursor
-import psycopg2
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from rag.chat_retrieve import retrieve
-
-_HOST = "ratemyhusky-27066.j77.aws-us-east-1.cockroachlabs.cloud"
-
-
-def _connect():
-    from dotenv import load_dotenv
-    load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
-    url = os.environ["CRDB_DATABASE_URL"]
-    for _ in range(6):
-        try:
-            socket.gethostbyname(_HOST)
-            break
-        except Exception:
-            time.sleep(3)
-    last = None
-    for _ in range(5):
-        try:
-            return psycopg2.connect(url, sslmode="require", connect_timeout=20)
-        except Exception as e:
-            last = e
-            time.sleep(4)
-    raise last
+from rag.eval.eval_common import connect as _connect
 
 
 def make_query_fns(conn):

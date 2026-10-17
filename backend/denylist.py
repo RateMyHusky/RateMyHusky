@@ -2,14 +2,14 @@
 
 A data-deletion request has to survive the pipeline, and nothing else here does:
 precompute DROPs and rebuilds professors_catalog from the CSVs on every run, and
-migrate_to_crdb re-inserts rmp_reviews from the store. Deleting
+load_rmp re-inserts rmp_reviews from the store. Deleting
 someone's rows by hand removes them until the next refresh puts them back. So the
 list lives in the repo, is read by every loader, and is applied before a row is
 ever written.
 
 Three enforcement points, because the data arrives by three routes:
 
-  migrate_to_crdb   drops their rows at CSV load (raw tables)
+  load_rmp   drops their rows at CSV load (raw tables)
   precompute        drops them from the catalog build (their page)
   load_evidence     keeps them out of the RAG corpus (chat cannot quote them)
 
@@ -71,8 +71,8 @@ DENYLIST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "denyli
 def normalize_name(name):
     """Same rule as precompute.normalize_name, duplicated to stay import-light.
 
-    precompute imports pandas and numpy; migrate_to_crdb and
-    scraper/load_evidence_to_crdb.py do not, and this module is imported by all
+    precompute imports pandas and numpy; load_rmp and
+    scraper/load_evidence.py do not, and this module is imported by all
     three. test_denylist pins the two implementations together.
     """
     s = str(name).strip().lower()
@@ -122,7 +122,7 @@ _cache = {}
 def denied_hashes(path=None, refresh=False):
     """The hash set, read once per process.
 
-    Cached because migrate_to_crdb consults it per CSV row — tens of thousands of
+    Cached because load_rmp consults it per CSV row — tens of thousands of
     times for rmp_reviews — and re-reading the file there would dominate the load.
     """
     path = path or DENYLIST_PATH

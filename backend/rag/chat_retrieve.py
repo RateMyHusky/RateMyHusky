@@ -569,7 +569,7 @@ def selftest():
                 {"name": "Ghost Prof", "rating": None, "difficulty": 4.0, "latest_date": "2020-01-01 10:00:00"},
             ]
         if "plainto_tsquery" in sql:  # fetch_evidence lexical (replaces reddit_text for retrieve())
-            check("evidence avoids unsupported websearch_to_tsquery", "websearch_to_tsquery" not in sql)
+            check("evidence query does not use websearch_to_tsquery", "websearch_to_tsquery" not in sql)
             return [{"id": "x1", "r": 0.8}]
         if "FROM evidence" in sql and "WHERE id IN" in sql:  # fetch_evidence hydrate
             return [{"id": "x1", "source": "reddit", "body": "DS3000 is a lot of work",

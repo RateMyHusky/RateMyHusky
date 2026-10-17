@@ -92,7 +92,7 @@ jobs:
 
           1. `python catalog_scrape.py --json-out ../../RateMyHusky-data/catalog_courses.json --previous-count <course_count from the last scrape>` (that path is where the loader reads by default).
           2. `python catalog_edition.py --record`. This has to come before the load: the loader stamps every row with the edition in `catalog_edition.json`.
-          3. `python load_catalog_to_crdb.py` with `NEW_CRDB_DATABASE_URL` set (`--dry-run` first to see the gates).
+          3. `python load_catalog.py` with `ORACLE_DATABASE_URL` set (`--dry-run` first to see the gates).
           4. Commit `scraper/catalog_edition.json`. The next green run of this job closes this issue, or close it by hand.
           EOF
               ) ;;

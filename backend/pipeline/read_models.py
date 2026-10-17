@@ -1,15 +1,15 @@
 """Rebuild professors_catalog, course_catalog and source_summary (spec §5.3.5-6).
 
-Build into *_new tables, verify, then swap each in. stats_cache gets the
-homepage counts and data_version += 1, which invalidates the API's caches.
+All three are replaced in one transaction (DELETE + INSERT), together with the
+homepage counts in stats_cache and data_version += 1, which invalidates the
+API's caches. Readers keep the previous snapshot until COMMIT.
 """
 
 from psycopg2.extras import Json
 
 from denylist import is_denied_key
 
-from .db import chunk_insert, swap_in
-from .schema import SOURCE_SUMMARY_DDL
+from .db import chunk_insert
 
 MIN_PROFESSORS = 3000
 MIN_COURSES = 5000
@@ -23,22 +23,18 @@ SUMMARY_COLUMNS = ("professor_slug", "course_code", "source", "rating", "difficu
                    "would_take_again_pct", "num_ratings", "num_comments", "hours_per_week",
                    "rating_distribution", "grade_distribution")
 
-PROFESSORS_CATALOG_DDL = """
-CREATE TABLE professors_catalog_new (
-  slug TEXT PRIMARY KEY, name TEXT NOT NULL, name_key TEXT NOT NULL,
-  department TEXT, college TEXT, avg_rating FLOAT, rmp_rating FLOAT,
-  num_ratings INT DEFAULT 0, total_reviews INT DEFAULT 0, would_take_again_pct FLOAT,
-  difficulty FLOAT, professor_url TEXT, image_url TEXT, focus_x FLOAT, focus_y FLOAT,
-  total_comments INT DEFAULT 0,
-  INDEX idx_pc_name_key (name_key), INDEX idx_pc_college (college), INDEX idx_pc_dept (department)
-)"""
+READ_MODELS = ("professors_catalog", "course_catalog", "source_summary")
 
-COURSE_CATALOG_DDL = """
-CREATE TABLE course_catalog_new (
-  code TEXT PRIMARY KEY, name TEXT, department TEXT, subject TEXT, search_text TEXT,
-  avg_rating FLOAT, difficulty FLOAT, num_ratings INT DEFAULT 0,
-  INDEX idx_cc_dept (department)
-)"""
+STATS_SQL = (
+    "INSERT INTO stats_cache (key, value) VALUES "
+    "('professors', %s), ('courses', %s), ('comments', %s), ('departments', %s) "
+    "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+
+DATA_VERSION_SQL = (
+    "INSERT INTO stats_cache (key, value) "
+    "SELECT 'data_version', COALESCE(max(value), 0) + 1 FROM stats_cache "
+    "WHERE key = 'data_version' "
+    "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
 
 
 def _index(summary_rows, source):
@@ -115,23 +111,25 @@ def _insert(cur, table, columns, rows, json_columns=()):
 
 
 def write(conn, catalog, courses, summary_rows, counts):
-    cur = conn.cursor()
-    for table, ddl, columns, rows, json_cols in (
-        ("professors_catalog", PROFESSORS_CATALOG_DDL, CATALOG_COLUMNS, catalog, ()),
-        ("course_catalog", COURSE_CATALOG_DDL, COURSE_COLUMNS, courses, ()),
-        ("source_summary", SOURCE_SUMMARY_DDL.format(name="source_summary_new"), SUMMARY_COLUMNS,
-         summary_rows, ("rating_distribution", "grade_distribution")),
-    ):
-        cur.execute(f"DROP TABLE IF EXISTS {table}_new")
-        cur.execute(ddl)
-        _insert(cur, f"{table}_new", columns, rows, json_cols)
+    """Replace the read models and bump data_version, committing once.
+
+    Any failure rolls the whole thing back, so the site keeps serving the last
+    good data. No DDL: the tables keep db/postgres/'s schema exactly.
+    """
+    try:
+        with conn.cursor() as cur:
+            for table, columns, rows, json_cols in (
+                ("professors_catalog", CATALOG_COLUMNS, catalog, ()),
+                ("course_catalog", COURSE_COLUMNS, courses, ()),
+                ("source_summary", SUMMARY_COLUMNS, summary_rows,
+                 ("rating_distribution", "grade_distribution")),
+            ):
+                cur.execute(f"DELETE FROM {table}")
+                _insert(cur, table, columns, rows, json_cols)
+            cur.execute(STATS_SQL, (counts["professors"], counts["courses"],
+                                    counts["comments"], counts["departments"]))
+            cur.execute(DATA_VERSION_SQL)
         conn.commit()
-    for table in ("professors_catalog", "course_catalog", "source_summary"):
-        swap_in(conn, table)
-    cur = conn.cursor()
-    cur.execute("UPSERT INTO stats_cache VALUES ('professors', %s), ('courses', %s), "
-                "('comments', %s), ('departments', %s)",
-                (counts["professors"], counts["courses"], counts["comments"], counts["departments"]))
-    cur.execute("UPSERT INTO stats_cache (key, value) SELECT 'data_version', COALESCE(max(value), 0) + 1 "
-                "FROM stats_cache WHERE key = 'data_version'")
-    conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise

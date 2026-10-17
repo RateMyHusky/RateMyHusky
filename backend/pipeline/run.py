@@ -98,7 +98,7 @@ def main(argv=None):
     print(f"name keys changed: {name_keys.apply_name_keys(conn, key_pairs)}")
     review_tags.rebuild_if_present(conn)  # tags follow name_key remaps, pruned reviews, moderation
     read_models.write(conn, catalog, courses, rows, counts)
-    print("swapped in professors_catalog, course_catalog, source_summary; data_version bumped")
+    print("replaced professors_catalog, course_catalog, source_summary; data_version bumped")
     return 0
 
 

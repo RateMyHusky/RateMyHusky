@@ -16,7 +16,7 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
-from load_catalog_to_crdb import (DDL, SanityGateFailed,  # noqa: E402
+from load_catalog import (DDL, SanityGateFailed,  # noqa: E402
                                   build_rows, check_gates, normalize_text,
                                   previous_count, prune_stale, replace_nupath,
                                   upsert_courses)

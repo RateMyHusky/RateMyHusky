@@ -22,9 +22,9 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from moderation import score_texts, ModerationUnavailable, BATCH_SIZE  # noqa: E402
 
-DATABASE_URL = os.getenv("NEW_CRDB_DATABASE_URL") or os.getenv("CRDB_DATABASE_URL")
+DATABASE_URL = os.getenv("ORACLE_DATABASE_URL")
 if not DATABASE_URL:
-    sys.exit("Missing NEW_CRDB_DATABASE_URL (or CRDB_DATABASE_URL) in backend/.env")
+    sys.exit("Missing ORACLE_DATABASE_URL in backend/.env")
 
 import psycopg2  # noqa: E402
 import psycopg2.extras  # noqa: E402
@@ -52,7 +52,7 @@ def connect(attempts=5):
     last = None
     for attempt in range(1, attempts + 1):
         try:
-            return psycopg2.connect(DATABASE_URL, sslmode="require")
+            return psycopg2.connect(DATABASE_URL, sslmode="require", options="-c timezone=UTC")
         except psycopg2.OperationalError as exc:
             if "could not translate host name" not in str(exc):
                 raise

@@ -101,24 +101,23 @@ jobs:
       # rmp_professors is full-replaced every run: 3,889 rows, and its columns
       # are aggregates RMP recomputes constantly (rating, num_ratings,
       # would_take_again_pct), which an upsert's DO NOTHING would never update.
-      # Nothing in the request path reads this table — only pipeline.run, later in
-      # this same job — so the reload window is invisible to users, and no
-      # foreign key or source_ref points at its ids.
+      # The TRUNCATE and the reload commit as one transaction (load_rmp.load_table),
+      # and nothing in the request path reads this table anyway — only
+      # pipeline.run, later in this job. No foreign key or source_ref points at its ids.
       #
       # rmp_reviews is upserted, then pruned by the next step. It must NOT be
-      # truncated: evidence.source_ref for RMP is the review's rowid
-      # (scraper/load_evidence_to_crdb.py:208), so regenerating ids orphans the
-      # RMP half of the RAG corpus and forces a re-embed. Truncating also empties
-      # a table the site reads on every professor page, since the TRUNCATE
-      # commits before the reload starts.
-      - name: Load fresh RMP rows into CockroachDB
+      # truncated: evidence.source_ref for RMP is the review's id
+      # (scraper/load_evidence.py, build_rmp_rows), so regenerating ids orphans the
+      # RMP half of the RAG corpus and forces a re-embed. A TRUNCATE would also lock
+      # a table the site reads on every professor page for the whole reload.
+      - name: Load fresh RMP rows
         if: ${{ !inputs.dry_run }}
         working-directory: backend
         env:
-          CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
+          ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
         run: |
-          python migrate_to_crdb.py rmp_professors --replace
-          python migrate_to_crdb.py rmp_reviews
+          python load_rmp.py rmp_professors --replace
+          python load_rmp.py rmp_reviews
 
       # Reviews deleted on RMP have to leave the table too, or the list keeps
       # rendering rows the count beside it (rebuilt from the DB by
@@ -132,18 +131,19 @@ jobs:
         if: ${{ !inputs.dry_run }}
         working-directory: backend
         env:
-          CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
+          ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
         run: |
           python prune_rmp_reviews.py \
             --csv Better_Scraper/output_data/rmp_reviews.csv
 
       # Rebuilds the read models from the fresh rows and bumps data_version, which
-      # retires every cached page. Exits non-zero, writing nothing, if verify fails.
+      # retires every cached page. One transaction: the site sees the old models
+      # until it commits. Exits non-zero, writing nothing, if verify fails.
       - name: Rebuild read models
         if: ${{ !inputs.dry_run }}
         working-directory: backend
         env:
-          CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
+          ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
         run: python -m pipeline.run
 
       # Post-write verification: the pre-scrape floors validate the input CSVs;
@@ -153,11 +153,11 @@ jobs:
         if: ${{ !inputs.dry_run }}
         working-directory: backend
         env:
-          CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
+          ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
         run: |
           python - <<'EOF'
           import os, sys, psycopg2
-          conn = psycopg2.connect(os.environ["CRDB_DATABASE_URL"], sslmode="require")
+          conn = psycopg2.connect(os.environ["ORACLE_DATABASE_URL"], sslmode="require")
           cur = conn.cursor()
           cur.execute("SELECT count(*) FROM professors_catalog")
           n = cur.fetchone()[0]
@@ -225,7 +225,7 @@ jobs:
             -q "[.[] | select(.title == \"$title\")][0].number // empty")
           body="A data refresh run ended as $RESULT: $RUN_URL
 
-          Check which step failed. If it was at or after \"Load fresh RMP rows into CockroachDB\", prod may hold partially refreshed data: RMP reviews may already be upserted, and if \"Verify DB state after write\" failed, the site is already serving the data that failed the check. If it failed earlier, prod is untouched and the site keeps serving the last good RMP data."
+          Check which step failed. If it was at or after \"Load fresh RMP rows\", prod may hold partially refreshed data: RMP reviews may already be upserted, and if \"Verify DB state after write\" failed, the site is already serving the data that failed the check. If it failed earlier, prod is untouched and the site keeps serving the last good RMP data."
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"
           else

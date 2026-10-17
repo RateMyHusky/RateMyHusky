@@ -138,9 +138,10 @@ ALIAS_MAP = {
 
 
 # Hand-reviewed corrections to how an RMP listing links to a professor, keyed
-# by RMP's spelling of the name. Recorded in prof_rmp_link.match_method as
+# by RMP's spelling of the name. rmp_link_key reports such a match as
 # "manual", which is what separates a reviewer's decision from the ALIAS_MAP
-# spellings ("alias") and a plain normalized-name match ("exact").
+# spellings ("alias") and a plain normalized-name match ("exact"); callers do
+# not persist that method today.
 #
 # Keyed by name rather than RMP's legacy id because rmp_reviews carries no id:
 # reviews reach a professor through their professor_name, so an override keyed

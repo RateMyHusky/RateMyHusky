@@ -3,7 +3,7 @@ import pytest
 
 @pytest.fixture
 def chat_client(monkeypatch):
-    os.environ.setdefault("CRDB_DATABASE_URL", "postgresql://stub")
+    os.environ.setdefault("ORACLE_DATABASE_URL", "postgresql://stub")
     os.environ.setdefault("JWT_SECRET", "test-secret")
     import server
     # Stop the real pool from ever opening a connection during this test.

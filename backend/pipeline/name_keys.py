@@ -27,7 +27,6 @@ def plan_name_keys(reviews, page_slug, key_by_slug):
 
 def apply_name_keys(conn, pairs):
     cur = conn.cursor()
-    cur.execute("SET experimental_enable_temp_tables = 'on'")
     cur.execute("CREATE TEMP TABLE _name_key_map (id INT8 PRIMARY KEY, name_key TEXT)")
     chunk_insert(cur, "INSERT INTO _name_key_map (id, name_key) VALUES %s", pairs)
     cur.execute("""

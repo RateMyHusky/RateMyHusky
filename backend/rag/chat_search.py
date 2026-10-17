@@ -92,8 +92,8 @@ def selftest():
         captured_main_sql.append(sql)
         check("query excludes flagged rows", "flagged = false" in sql or "NOT flagged" in sql)
         check("query is parameterized", "%s" in sql)
-        check("query uses CRDB-supported tsquery (plainto_tsquery)", "plainto_tsquery" in sql)
-        check("query avoids unsupported websearch_to_tsquery", "websearch_to_tsquery" not in sql)
+        check("query uses plainto_tsquery", "plainto_tsquery" in sql)
+        check("query does not use websearch_to_tsquery", "websearch_to_tsquery" not in sql)
         return [
             {"source_id": "c1", "body": "great grader", "subreddit": "NEU",
              "permalink": "/r/x", "professor_slugs": ["ada-lovelace"], "rank": 0.9},

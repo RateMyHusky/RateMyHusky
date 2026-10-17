@@ -1,10 +1,10 @@
 """
-Build the unified `evidence` corpus (RMP + Reddit) in CockroachDB for Ask retrieval.
-Idempotent. Reads existing source tables; writes only `evidence` + `evidence_embeddings` schema.
+Build the unified `evidence` corpus (RMP + Reddit) in PostgreSQL for Ask retrieval.
+Idempotent. Reads existing source tables; writes only `evidence` (embeddings are scraper/embed_evidence.py's job).
 
 Usage:
-    python load_evidence_to_crdb.py --selftest        # offline checks, exit
-    python load_evidence_to_crdb.py --build-evidence  # populate evidence (Task 2)
+    python load_evidence.py --selftest        # offline checks, exit
+    python load_evidence.py --build-evidence  # populate evidence (Task 2)
 """
 import argparse, itertools, os, sys, time, re, hashlib, unicodedata
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
@@ -13,61 +13,21 @@ from dotenv import load_dotenv
 import psycopg2
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), "backend", ".env"))
-URL = os.getenv("NEW_CRDB_DATABASE_URL") or os.getenv("CRDB_DATABASE_URL")
+URL = os.getenv("ORACLE_DATABASE_URL")
 
 _counter = itertools.count()
 
-EVIDENCE_DDL = """
-CREATE TABLE IF NOT EXISTS evidence (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    source        TEXT NOT NULL,
-    source_ref    TEXT NOT NULL,
-    professor_slug TEXT,
-    -- empty-string sentinel, never NULL (see dedupe note below)
-    course_code   TEXT NOT NULL DEFAULT '',
-    body          TEXT NOT NULL,
-    body_tsv      TSVECTOR,
-    body_sha      TEXT NOT NULL,
-    sentiment     TEXT,
-    reddit_score  INT,
-    permalink     TEXT,
-    rmp_meta      JSONB,
-    flagged       BOOLEAN DEFAULT false,
-    subreddit     TEXT,
-    created_utc   TIMESTAMPTZ,
-    -- CockroachDB rejects an expression (COALESCE(...)) in an ON CONFLICT target, so the dedupe
-    -- key is a PLAIN 4-column unique index and course_code is an empty-string sentinel (never
-    -- NULL) — a professor-only row is course_code='' and still dedupes, and
-    -- ON CONFLICT (source, source_ref, professor_slug, course_code) parses on CRDB.
-    UNIQUE (source, source_ref, professor_slug, course_code)
-);
-CREATE INDEX IF NOT EXISTS ev_tsv    ON evidence USING GIN (body_tsv);
-CREATE INDEX IF NOT EXISTS ev_prof   ON evidence (professor_slug);
-CREATE INDEX IF NOT EXISTS ev_course ON evidence (course_code);
-
-CREATE TABLE IF NOT EXISTS evidence_embeddings (
-    evidence_id   UUID PRIMARY KEY REFERENCES evidence(id) ON DELETE CASCADE,
-    embedding     VECTOR(384) NOT NULL,
-    model_version TEXT NOT NULL,
-    body_sha      TEXT,
-    embedded_at   TIMESTAMPTZ DEFAULT now()
-);
-"""
-# NO vector index on evidence_embeddings — deliberate. Retrieval is entity-scoped (filter by
-# ev_prof/ev_course, then brute-force cosine over that entity's rows; EXPLAIN-verified lookup
-# join), so a global C-SPANN index buys nothing AND is a write-contention hotspot: its backfill
-# serialization-killed both the embedding backfill (2026-06-30) and a --build-evidence run
-# (2026-07-02, index accidentally re-created by this DDL after being dropped live). Recreate
-# only if a future EXPLAIN shows a query that actually needs it.
-
-def all_ddl():
-    return EVIDENCE_DDL
+# The evidence / evidence_embeddings schema lives in db/postgres/ (02_tables.sql,
+# 03_constraints.sql); this loader never creates tables. There is deliberately no
+# vector index on evidence_embeddings: retrieval is entity-scoped (filter on
+# ev_prof / ev_course, then exact cosine over that entity's rows), so a global
+# index would buy nothing and only slow the embedding backfill's writes.
 
 def connect(attempts=20):
     last = None
     for i in range(1, attempts + 1):
         try:
-            return psycopg2.connect(URL, sslmode="require")
+            return psycopg2.connect(URL, sslmode="require", options="-c timezone=UTC")
         except psycopg2.OperationalError as e:
             if "could not translate host name" not in str(e):
                 raise
@@ -76,12 +36,7 @@ def connect(attempts=20):
             time.sleep(1.5)
     raise SystemExit(f"Could not connect after {attempts} attempts: {last}")
 
-def ensure_schema(conn):
-    with conn.cursor() as cur:
-        cur.execute(EVIDENCE_DDL)
-    conn.commit()
-
-# ── Sanitization + injection screening (mirrored from load_reddit_to_crdb.py) ──
+# ── Sanitization + injection screening (mirrored from load_reddit.py) ──
 
 _ZERO_WIDTH = dict.fromkeys(map(ord, "​‌‍﻿"), None)
 
@@ -141,8 +96,9 @@ def _row(source, source_ref, slug, code, body, sentiment=None, score=None,
         "source": source,
         "source_ref": str(source_ref),
         "professor_slug": slug,
-        # empty-string sentinel, never NULL — the dedupe unique index is plain 4-column
-        # (CRDB rejects an expression conflict target), so a course-less row is '' not None.
+        # empty-string sentinel, never NULL — ev_dedupe is a plain 4-column unique
+        # index, and a NULL course_code would never conflict, so re-runs would
+        # duplicate every course-less row.
         "course_code": code or "",
         "body": clean,
         "body_sha": body_sha(clean),
@@ -268,9 +224,9 @@ def upsert_evidence(conn, rows, batch=1000):
                 "rmp_meta": _jsonb(r.get("rmp_meta")),
                 "flagged": bool(r.get("flagged")),
             })
-        # CockroachDB uses SERIALIZABLE isolation and asks clients to retry transient
-        # SerializationFailure (40001) with backoff. Each batch commits independently, so a
-        # retried batch is safe (the ON CONFLICT upsert is idempotent).
+        # A batch can hit a transient SerializationFailure (40001) under concurrent
+        # writes; retry with backoff. Each batch commits independently, so a retried
+        # batch is safe (the ON CONFLICT upsert is idempotent).
         for attempt in range(6):
             try:
                 with conn.cursor() as cur:
@@ -327,27 +283,6 @@ def selftest():
     def check(label, cond):
         if not cond: fails.append(label)
         print(("PASS" if cond else "FAIL") + ": " + label)
-
-    ddl = all_ddl()
-    check("evidence table in DDL", "CREATE TABLE IF NOT EXISTS evidence" in ddl)
-    check("evidence_embeddings table in DDL", "CREATE TABLE IF NOT EXISTS evidence_embeddings" in ddl)
-    check("evidence has source col", "source " in ddl and "source_ref" in ddl)
-    check("evidence has professor_slug + course_code", "professor_slug" in ddl and "course_code" in ddl)
-    check("evidence has body_tsv TSVECTOR", "body_tsv" in ddl and "TSVECTOR" in ddl)
-    check("evidence has body_sha", "body_sha" in ddl)
-    check("embeddings track body_sha (in embeddings table, not just evidence)", "body_sha" in ddl.split("evidence_embeddings")[1])
-    check("evidence has rmp_meta JSONB", "rmp_meta" in ddl and "JSONB" in ddl)
-    check("evidence has subreddit + created_utc", "subreddit" in ddl and "created_utc" in ddl)
-    check("evidence dedupe UNIQUE is plain 4-col (CRDB rejects expr conflict target)",
-          "UNIQUE (source, source_ref, professor_slug, course_code)" in ddl and "COALESCE(course_code" not in ddl)
-    check("course_code is NOT NULL empty-string sentinel", "course_code   TEXT NOT NULL DEFAULT ''" in ddl)
-    check("GIN index on body_tsv", "USING GIN" in ddl and "body_tsv" in ddl)
-    check("btree index on professor_slug", "ev_prof" in ddl)
-    check("btree index on course_code", "ev_course" in ddl)
-    check("embeddings VECTOR(384)", "VECTOR(384)" in ddl)
-    check("embeddings model_version", "model_version" in ddl)
-    check("NO global vector index (entity-scoped brute-force by design; backfill contention)",
-          "ev_embed_idx" not in ddl and "VECTOR INDEX" not in ddl)
 
     # ── norm_code ──
     check("norm_code uppercases + strips space", norm_code("cs 3500") == "CS3500")
@@ -491,8 +426,8 @@ def selftest():
     return 1 if fails else 0
 
 def main():
-    parser = argparse.ArgumentParser(description="Build evidence corpus in CockroachDB")
-    parser.add_argument("--selftest", action="store_true", help="Run offline DDL checks")
+    parser = argparse.ArgumentParser(description="Build the evidence corpus in PostgreSQL")
+    parser.add_argument("--selftest", action="store_true", help="Run offline checks")
     parser.add_argument("--build-evidence", action="store_true", help="Populate evidence from all sources")
     parser.add_argument("--prune", action="store_true",
                          help="After building, delete evidence rows (+ their embeddings) whose "
@@ -505,7 +440,6 @@ def main():
     if args.build_evidence:
         import psycopg2.extras
         conn = connect()
-        ensure_schema(conn)
 
         def query_fn(sql, params=None):
             with conn.cursor(name=f"ev_cur_{next(_counter)}", cursor_factory=psycopg2.extras.RealDictCursor) as cur:

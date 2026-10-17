@@ -203,7 +203,7 @@ def test_filter_honours_review_hides(enforcing):
 
 @pytest.fixture
 def reviews_client(monkeypatch):
-    os.environ.setdefault("CRDB_DATABASE_URL", "postgresql://stub")
+    os.environ.setdefault("ORACLE_DATABASE_URL", "postgresql://stub")
     os.environ.setdefault("JWT_SECRET", "test-secret")
     import server
 
@@ -272,7 +272,7 @@ def test_reviews_route_unfiltered_when_not_enforcing(reviews_client, not_enforci
 
 @pytest.fixture
 def chat_client(monkeypatch):
-    os.environ.setdefault("CRDB_DATABASE_URL", "postgresql://stub")
+    os.environ.setdefault("ORACLE_DATABASE_URL", "postgresql://stub")
     os.environ.setdefault("JWT_SECRET", "test-secret")
     import server
 

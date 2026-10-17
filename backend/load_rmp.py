@@ -1,14 +1,15 @@
 """
-Migrate CSV data into CockroachDB.
-Idempotent — safe to re-run. Pre-filters rows client-side to avoid sending
-data the DB already has, minimizing Request Units.
+Load the RMP CSV exports into PostgreSQL.
+Idempotent — safe to re-run. Pre-filters rows client-side so rows the DB
+already has are never sent.
 
-Run:  python backend/migrate_to_crdb.py <table> [<table> ...] [--replace]
-      python backend/migrate_to_crdb.py all
-      python backend/migrate_to_crdb.py add-constraints
+Run:  python backend/load_rmp.py <table> [<table> ...] [--replace]
+      python backend/load_rmp.py all
 
 Tables must be named: a bare run upserts nothing. Uploading every table from a
 stale local CSV would re-insert reviews prune_rmp_reviews.py already removed.
+
+The tables are defined in db/postgres/; this script never creates or alters them.
 """
 
 import os, csv, sys, time
@@ -19,33 +20,28 @@ from denylist import denied_hashes, is_denied
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-DATABASE_URL = os.getenv("NEW_CRDB_DATABASE_URL") or os.getenv("CRDB_DATABASE_URL")
+DATABASE_URL = os.getenv("ORACLE_DATABASE_URL")
 
 if not DATABASE_URL:
-    sys.exit("Missing NEW_CRDB_DATABASE_URL / CRDB_DATABASE_URL in backend/.env")
+    sys.exit("Missing ORACLE_DATABASE_URL in backend/.env")
 
 import psycopg2
 from psycopg2.extras import execute_values
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "Better_Scraper", "output_data")
-BATCH_SIZE = 25000  # smaller batches to stay under CockroachDB lock-tracking budget
+BATCH_SIZE = 25000  # rows per INSERT; each batch commits on its own except under --replace
 
 
 def get_connection(attempts=20):
-    """The local resolver flakes on *.cockroachlabs.cloud; retry on DNS failure."""
+    """Open a UTC session, retrying on DNS failure (the local resolver has
+    flaked on the database host before)."""
     for i in range(attempts):
         try:
-            return psycopg2.connect(DATABASE_URL, sslmode="require")
+            return psycopg2.connect(DATABASE_URL, sslmode="require", options="-c timezone=UTC")
         except psycopg2.OperationalError as e:
             if "could not translate host name" not in str(e) or i == attempts - 1:
                 raise
             time.sleep(2)
-
-
-def create_table(conn, sql: str):
-    with conn.cursor() as cur:
-        cur.execute(sql)
-    conn.commit()
 
 
 def fetch_existing_keys(conn, table: str, key_columns: list[str], key_query: str = None) -> set:
@@ -66,8 +62,8 @@ def fetch_existing_keys(conn, table: str, key_columns: list[str], key_query: str
     except Exception as e:
         conn.rollback()
         # Returning an empty set silently disables the client-side pre-filter and
-        # re-sends the whole CSV through server-side conflict checks — an
-        # unattended RU burn. Fail loud; the weekly run self-heals next attempt.
+        # re-sends the whole CSV through server-side conflict checks. Fail loud;
+        # the weekly run self-heals next attempt.
         raise RuntimeError(f"fetch_existing_keys failed for {table}: {e}") from e
 
 
@@ -103,7 +99,7 @@ def _row_is_denied(row, raw, deny_name) -> bool:
 def upload_csv(conn, table: str, columns: list[str], csv_path: str,
                transform=None, on_conflict: str = "",
                key_columns: list[str] = None, existing_keys: set = None,
-               deny_name: tuple = None):
+               deny_name: tuple = None, commit_batches: bool = True):
     if not os.path.exists(csv_path):
         print(f"  File not found: {csv_path}")
         return
@@ -144,7 +140,7 @@ def upload_csv(conn, table: str, columns: list[str], csv_path: str,
                 continue
             values = tuple(row[col] for col in columns)
 
-            # Skip rows that already exist in DB (saves RUs on conflict checks)
+            # Skip rows that already exist in the DB rather than sending them for conflict checks
             if key_indices is not None and existing_keys:
                 if single_key:
                     key = values[key_indices[0]]
@@ -159,7 +155,8 @@ def upload_csv(conn, table: str, columns: list[str], csv_path: str,
             if len(batch) >= BATCH_SIZE:
                 with conn.cursor() as cur:
                     execute_values(cur, insert_sql, batch, page_size=BATCH_SIZE)
-                conn.commit()
+                if commit_batches:
+                    conn.commit()
                 total += len(batch)
                 print(f"  Uploaded {total:,} new rows (skipped {skipped:,} existing)...", end="\r")
                 batch = []
@@ -167,7 +164,8 @@ def upload_csv(conn, table: str, columns: list[str], csv_path: str,
         if batch:
             with conn.cursor() as cur:
                 execute_values(cur, insert_sql, batch, page_size=BATCH_SIZE)
-            conn.commit()
+            if commit_batches:
+                conn.commit()
             total += len(batch)
     print(f"  Done: {total:,} rows inserted, {skipped:,} skipped (already in DB)."
           + (f" {denied_rows:,} withheld (denylist)." if denied_rows else ""))
@@ -179,19 +177,6 @@ def upload_csv(conn, table: str, columns: list[str], csv_path: str,
 
 TABLES = {
     "rmp_professors": {
-        "create_sql": """
-            CREATE TABLE IF NOT EXISTS rmp_professors (
-                id INT8 DEFAULT unique_rowid() PRIMARY KEY,
-                name TEXT NOT NULL,
-                department TEXT,
-                rating REAL,
-                num_ratings INT,
-                would_take_again_pct TEXT,
-                level_of_difficulty REAL,
-                professor_url TEXT,
-                UNIQUE (name, department)
-            );
-        """,
         "columns": ["name", "department", "rating", "num_ratings", "would_take_again_pct", "level_of_difficulty", "professor_url"],
         "key_columns": ["name", "department"],
         "csv": "rmp_professors.csv",
@@ -208,25 +193,6 @@ TABLES = {
         },
     },
     "rmp_reviews": {
-        "create_sql": """
-            CREATE TABLE IF NOT EXISTS rmp_reviews (
-                id INT8 DEFAULT unique_rowid() PRIMARY KEY,
-                professor_name TEXT NOT NULL,
-                department TEXT,
-                overall_rating REAL,
-                course TEXT,
-                quality REAL,
-                difficulty REAL,
-                date TEXT,
-                tags TEXT,
-                attendance TEXT,
-                grade TEXT,
-                textbook TEXT,
-                online_class TEXT,
-                comment TEXT,
-                UNIQUE (professor_name, course, date, comment)
-            );
-        """,
         "columns": ["professor_name", "department", "overall_rating", "course", "quality", "difficulty", "date", "tags", "attendance", "grade", "textbook", "online_class", "comment"],
         # Lightweight proxy: skip by (professor, course, date) — avoids fetching full comment text
         "key_columns": ["professor_name", "course", "date"],
@@ -251,19 +217,6 @@ TABLES = {
         },
     },
     "professor_photos": {
-        "create_sql": """
-            CREATE TABLE IF NOT EXISTS professor_photos (
-                id INT8 DEFAULT unique_rowid() PRIMARY KEY,
-                name TEXT NOT NULL,
-                image_url TEXT,
-                focus_x FLOAT,
-                focus_y FLOAT,
-                source_page TEXT,
-                UNIQUE (name, source_page)
-            );
-            ALTER TABLE professor_photos ADD COLUMN IF NOT EXISTS focus_x FLOAT;
-            ALTER TABLE professor_photos ADD COLUMN IF NOT EXISTS focus_y FLOAT;
-        """,
         "columns": ["name", "image_url", "focus_x", "focus_y", "source_page"],
         "key_columns": ["name", "source_page"],
         "csv": "professor_photos.csv",
@@ -285,37 +238,47 @@ TABLES = {
 # cumulative artifact — replacing from it would destroy data.
 #
 # rmp_reviews meets the snapshot half but fails the second: evidence.source_ref
-# for RMP is the review's rowid (scraper/load_evidence_to_crdb.py:208), so
-# truncating orphans the RMP half of the RAG corpus and forces a re-embed. The
-# TRUNCATE also commits before the reload starts, emptying a table the site
-# reads on every professor page. prune_rmp_reviews.py converges the table
-# without either cost — use that instead.
+# for RMP is the review's id (scraper/load_evidence.py, build_rmp_rows), so
+# truncating orphans the RMP half of the RAG corpus and forces a re-embed, and
+# the TRUNCATE would lock a table the site reads on every professor page for
+# the whole reload. prune_rmp_reviews.py converges the table without either
+# cost — use that instead.
 REPLACE_ALLOWED = {"rmp_professors"}
 
 
-UNIQUE_CONSTRAINTS = {
-    "rmp_professors": ("uq_rmp_professors", "(name, department)"),
-    "rmp_reviews": ("uq_rmp_reviews", "(professor_name, course, date, comment)"),
-    "professor_photos": ("uq_professor_photos", "(name, source_page)"),
-}
+def load_table(conn, table_name, csv_path, replace=False):
+    """Load one table from its CSV.
 
-
-def add_constraints(conn):
-    """Add unique constraints to existing tables (idempotent — skips if already present)."""
-    cur = conn.cursor()
-    for table, (name, cols) in UNIQUE_CONSTRAINTS.items():
+    With replace, the TRUNCATE and the reload commit as one transaction: a failed
+    reload rolls the TRUNCATE back, and nothing in the request path reads this
+    table, so the lock it takes until COMMIT blocks no page.
+    """
+    conf = TABLES[table_name]
+    if replace:
+        if not os.path.exists(csv_path):
+            sys.exit(f"--replace: {csv_path} missing; refusing to truncate {table_name}")
+        print(f"  Truncating {table_name} for full replace (commits with the reload)...")
         try:
-            cur.execute(f"ALTER TABLE {table} ADD CONSTRAINT {name} UNIQUE {cols}")
+            with conn.cursor() as cur:
+                cur.execute(f"TRUNCATE TABLE {table_name}")
+            upload_csv(conn, table_name, conf["columns"], csv_path,
+                       conf.get("transform"), conf.get("on_conflict", ""),
+                       None, None, conf.get("deny_name"), commit_batches=False)
             conn.commit()
-            print(f"  Added {name} to {table}")
-        except Exception as e:
+        except BaseException:
             conn.rollback()
-            cur = conn.cursor()
-            if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
-                print(f"  {name} already exists on {table}, skipping")
-            else:
-                print(f"  Warning: could not add {name} to {table}: {e}")
-    cur.close()
+            raise
+        return
+
+    key_columns = conf.get("key_columns")
+    existing_keys = set()
+    if key_columns:
+        print("  Fetching existing keys for client-side filtering...")
+        existing_keys = fetch_existing_keys(conn, table_name, key_columns, conf.get("key_query"))
+        print(f"  Found {len(existing_keys):,} existing keys")
+    upload_csv(conn, table_name, conf["columns"], csv_path,
+               conf.get("transform"), conf.get("on_conflict", ""),
+               key_columns, existing_keys, conf.get("deny_name"))
 
 
 def main():
@@ -324,17 +287,8 @@ def main():
     targets = [a for a in args if not a.startswith("--")]
     if not targets:
         # No default: "all" writes every table to prod, so it has to be asked for.
-        sys.exit("usage: migrate_to_crdb.py <table> [<table> ...] [--replace] | all | add-constraints\n"
+        sys.exit("usage: load_rmp.py <table> [<table> ...] [--replace] | all\n"
                  f"tables: {', '.join(TABLES)}")
-
-    if targets == ["add-constraints"]:
-        conn = get_connection()
-        print("Connected to CockroachDB!")
-        print("\nAdding unique constraints...")
-        add_constraints(conn)
-        conn.close()
-        print("Done!")
-        return
 
     if targets == ["all"]:
         targets = list(TABLES.keys())
@@ -345,58 +299,20 @@ def main():
             sys.exit(f"--replace only supported for {sorted(REPLACE_ALLOWED)}, got: {bad}")
 
     conn = get_connection()
-    print("Connected to CockroachDB!")
+    print("Connected to the database.")
 
     for table_name in targets:
         if table_name not in TABLES:
             print(f"Unknown table: {table_name}")
             continue
-
-        conf = TABLES[table_name]
-        csv_path = csv_store.resolve(DATA_DIR, conf["csv"])
-
-        print(f"\n{'='*50}")
-        print(f"Uploading: {table_name}")
-        print(f"{'='*50}")
-
-        print(f"  Creating table if not exists...")
-        create_table(conn, conf["create_sql"])
-
-        # Full replace: empty the table so RMP-side edits stop drifting, since
-        # the upsert path never updates. Reachable only for rmp_professors (see
-        # REPLACE_ALLOWED), whose columns are aggregates RMP recomputes and which
-        # no request path reads. Runs only after the workflow's scrape floors
-        # passed, so the CSV is known-good.
-        if replace:
-            if not os.path.exists(csv_path):
-                sys.exit(f"--replace: {csv_path} missing; refusing to truncate {table_name}")
-            print(f"  Truncating {table_name} for full replace...")
-            with conn.cursor() as cur:
-                cur.execute(f"TRUNCATE TABLE {table_name}")
-            conn.commit()
-
-        # Pre-fetch existing keys to filter client-side (saves RUs)
-        key_columns = conf.get("key_columns")
-        existing_keys = set()
-        if key_columns and not replace:
-            print(f"  Fetching existing keys for client-side filtering...")
-            existing_keys = fetch_existing_keys(
-                conn, table_name, key_columns, conf.get("key_query")
-            )
-            print(f"  Found {len(existing_keys):,} existing keys")
-
-        print(f"  Reading {conf['csv']}...")
+        csv_path = csv_store.resolve(DATA_DIR, TABLES[table_name]["csv"])
+        print(f"\n{'='*50}\nUploading: {table_name}\n{'='*50}")
         start = time.time()
-        upload_csv(
-            conn, table_name, conf["columns"], csv_path,
-            conf.get("transform"), conf.get("on_conflict", ""),
-            key_columns, existing_keys, conf.get("deny_name")
-        )
-        elapsed = time.time() - start
-        print(f"  Time: {elapsed:.1f}s")
+        load_table(conn, table_name, csv_path, replace=replace)
+        print(f"  Time: {time.time() - start:.1f}s")
 
     conn.close()
-    print("\nDone! All tables migrated.")
+    print("\nDone! All tables loaded.")
 
 
 if __name__ == "__main__":

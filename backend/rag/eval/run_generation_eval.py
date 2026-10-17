@@ -119,7 +119,7 @@ def run(questions, label, run_dir_arg):
             time.sleep(1)  # be gentle to the Groq free tier
     finally:
         # Always write whatever answers were collected, even if handle_question raised
-        # mid-loop (the CRDB serverless connection is known to flake) -- otherwise a failure
+        # mid-loop (e.g. the DB connection drops) -- otherwise a failure
         # at question N discards N completed, paid Groq answers with nothing on disk.
         save_json_atomic(os.path.join(run_dir, "answers.json"),
                          {"created_at": datetime.datetime.now().isoformat(timespec="seconds"),

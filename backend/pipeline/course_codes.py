@@ -24,7 +24,6 @@ def plan_codes(reviews, valid):
 
 def apply_codes(conn, pairs):
     cur = conn.cursor()
-    cur.execute("SET experimental_enable_temp_tables = 'on'")
     cur.execute("CREATE TEMP TABLE _course_code_map (id INT8 PRIMARY KEY, course_code TEXT)")
     chunk_insert(cur, "INSERT INTO _course_code_map (id, course_code) VALUES %s", pairs)
     cur.execute("""

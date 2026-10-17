@@ -1,4 +1,4 @@
-"""Shared plumbing for backend/rag/eval scripts: live-DB connection (DNS-retry, NEW cluster),
+"""Shared plumbing for backend/rag/eval scripts: live-DB connection (DNS-retry),
 query fns, professor-search stand-in, natural-key label resolution, and run-folder helpers."""
 import os, sys, json, time, argparse, datetime, subprocess
 
@@ -15,20 +15,21 @@ def connect(attempts=20):
     import psycopg2
     from dotenv import load_dotenv
     load_dotenv(os.path.join(BACKEND_DIR, ".env"))
-    url = os.getenv("NEW_CRDB_DATABASE_URL") or os.getenv("CRDB_DATABASE_URL")
+    url = os.getenv("ORACLE_DATABASE_URL")
     if not url:
-        sys.exit("Need NEW_CRDB_DATABASE_URL (or CRDB_DATABASE_URL) in backend/.env")
+        sys.exit("Need ORACLE_DATABASE_URL in backend/.env")
     last = None
     for i in range(1, attempts + 1):
         try:
-            return psycopg2.connect(url, sslmode="require", connect_timeout=20)
+            return psycopg2.connect(url, sslmode="require", connect_timeout=20,
+                                    options="-c timezone=UTC")
         except psycopg2.OperationalError as e:
             if "could not translate host name" not in str(e):
                 raise
             last = str(e)
             print(f"  DNS lookup flaked; retrying ({i}/{attempts})...")
             time.sleep(3)
-    sys.exit(f"Could not resolve CRDB host after {attempts} attempts.\n{last}")
+    sys.exit(f"Could not resolve the database host after {attempts} attempts.\n{last}")
 
 
 def make_query_fns(conn):

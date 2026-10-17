@@ -24,6 +24,10 @@ Only Banner's own instructor rows (source = 'banner') are read. The one-off
 import that filled Fall 2021 to Summer 2025 is not Banner data and stays out
 of the public history until those terms are scraped from Banner.
 
+The PostgreSQL tables come from db/postgres/02_tables.sql; this matcher creates
+and alters nothing there and stops with a list of what is missing if the schema
+is behind (schema_check.py). It creates its tables only on sqlite stage files.
+
 Usage
 -----
     python match_banner_instructors.py
@@ -47,11 +51,12 @@ from banner_history import (academic_year,  # noqa: E402
                             is_teaching, place, rename_candidates)
 from prof_aliases import ALIAS_MAP  # noqa: E402
 
-# One definition of how to reach CRDB, shared with the loader: sslmode must
+# One definition of how to reach the database, shared with the loader: sslmode must
 # override the DSN's verify-full or the connection fails outright, and the DNS
 # flake is retried. with_retry comes from the same place so both write paths
 # replay a 40001 identically.
-from load_banner_to_crdb import add_columns, apply_ddl, connect, with_retry  # noqa: E402
+from load_banner import add_columns, apply_ddl, connect, with_retry  # noqa: E402
+from schema_check import expected_columns, require_columns  # noqa: E402
 
 # A run must keep at least this share of the previous run's matches. Not a
 # share of Banner: the catalog only holds professors with an RMP page, so most
@@ -250,13 +255,20 @@ CREATE TABLE IF NOT EXISTS banner_course_renames (
 )
 """
 
-# Added after banner_course_offerings first shipped; see load_banner_to_crdb.add_columns.
+# Added after banner_course_offerings first shipped; see load_banner.add_columns.
 HISTORY_ADDED_COLUMNS = (
-    ("banner_course_offerings", "summer1_years", "INT NOT NULL DEFAULT 0"),
-    ("banner_course_offerings", "summer2_years", "INT NOT NULL DEFAULT 0"),
+    ("banner_course_offerings", "summer1_years", "BIGINT NOT NULL DEFAULT 0"),
+    ("banner_course_offerings", "summer2_years", "BIGINT NOT NULL DEFAULT 0"),
     ("banner_course_offerings", "first_term_label", "TEXT"),
     ("banner_course_offerings", "offering_years", "TEXT"),
 )
+
+
+def expected_schema():
+    """{table: [column, ...]} this module's DDL defines, for schema_check."""
+    stmts = [s for ddl in (TEACHING_DDL, UNMATCHED_DDL, HISTORY_DDL)
+             for s in ddl.split(";")]
+    return expected_columns(stmts, HISTORY_ADDED_COLUMNS)
 
 # Approved renumberings: old code -> the code it became. A course page for the
 # new code shows the old code's history too, labelled with the old code; the
@@ -697,7 +709,7 @@ def check_match_gate(groups, teaching, previous=None, dry_run=False):
     """Refuse to write when this looks like a broken run, not a quiet season.
 
     Extracted out of `main` so the gate is testable offline: `main` needs a
-    live CRDB connection to reach this point, and the gate itself needs none.
+    live database connection to reach this point, and the gate itself needs none.
 
     `previous` is how many professor_teaching rows the last run wrote (None
     on a first run). Two refusals:
@@ -748,7 +760,7 @@ def current_season(term_rows):
         seasons.setdefault(label, []).append(str(r["term_code"]))
     if not seasons:
         raise ValueError("banner_terms has no open Fall/Spring term — run "
-                         "load_banner_to_crdb.py first")
+                         "load_banner.py first")
     chosen = min(seasons, key=lambda label: min(int(c) for c in seasons[label]))
     return chosen, sorted(seasons[chosen], key=int)
 
@@ -871,7 +883,7 @@ def chip_scraped_at(term_rows, codes):
     has been failing for a month.
     """
     def as_utc(stamp):
-        # CockroachDB hands back datetimes; sqlite, "YYYY-MM-DD HH:MM:SS" text in UTC.
+        # PostgreSQL hands back datetimes; sqlite, "YYYY-MM-DD HH:MM:SS" text in UTC.
         dt = stamp if isinstance(stamp, datetime) else datetime.fromisoformat(str(stamp))
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
@@ -891,36 +903,41 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Match Banner instructors to the catalog")
     ap.add_argument("--dry-run", action="store_true", help="report counts, write nothing")
     ap.add_argument("--local-db", help="read and write a sqlite staging file instead of "
-                                       "CockroachDB (no professors_catalog there, so "
+                                       "PostgreSQL (no professors_catalog there, so "
                                        "nothing matches a profile)")
     args = ap.parse_args(argv)
 
     if args.local_db:
         open_conn = lambda: sqlite3.connect(args.local_db)  # noqa: E731
     else:
-        dsn = os.environ.get("CRDB_DATABASE_URL")
+        dsn = os.environ.get("ORACLE_DATABASE_URL")
         if not dsn:
-            print("CRDB_DATABASE_URL is not set", file=sys.stderr)
+            print("ORACLE_DATABASE_URL is not set", file=sys.stderr)
             return 1
         open_conn = lambda: connect(dsn)  # noqa: E731
 
     conn = open_conn()
     cur = conn.cursor()
+    # sqlite stage files get their tables here; on PostgreSQL both calls only
+    # check that db/postgres/ already defines everything this run reads and writes.
     apply_ddl(cur)    # the loader's tables, so a stage file from before a new one still reads
-    for ddl in (TEACHING_DDL, UNMATCHED_DDL, HISTORY_DDL):
-        for stmt in ddl.split(";"):
-            if stmt.strip():
-                cur.execute(stmt.replace("TIMESTAMPTZ", "TIMESTAMP") if args.local_db else stmt)
-    add_columns(cur, HISTORY_ADDED_COLUMNS)
+    if args.local_db:
+        for ddl in (TEACHING_DDL, UNMATCHED_DDL, HISTORY_DDL):
+            for stmt in ddl.split(";"):
+                if stmt.strip():
+                    cur.execute(stmt.replace("TIMESTAMPTZ", "TIMESTAMP"))
+        add_columns(cur, HISTORY_ADDED_COLUMNS)
+    else:
+        require_columns(cur, expected_schema())
     conn.commit()
 
     term_rows, sections, instructors = read_banner(cur)
     if not sections:
-        print("banner_sections is empty — run load_banner_to_crdb.py first",
+        print("banner_sections is empty — run load_banner.py first",
               file=sys.stderr)
         return 1
     # A staging file has no catalog unless one was copied in (slug, name_key
-    # from CockroachDB) to test profile links offline.
+    # from PostgreSQL) to test profile links offline.
     local_catalog = bool(args.local_db) and cur.execute(
         "SELECT 1 FROM sqlite_master WHERE name = 'professors_catalog'").fetchone()
     if args.local_db and not local_catalog:

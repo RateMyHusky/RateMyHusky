@@ -256,7 +256,7 @@ def main(argv=None):
                         help="Report what would be deleted, delete nothing")
     args = parser.parse_args(argv)
 
-    from migrate_to_crdb import get_connection
+    from load_rmp import get_connection
     conn = get_connection()
     try:
         purge(conn, dry_run=args.dry_run)

@@ -100,7 +100,7 @@ def test_open_text_survives_undecodable_bytes(tmp_path):
 def test_open_text_yields_line_iteration_for_dictreader(tmp_path):
     # csv.DictReader consumes the handle as an iterator of lines, not via
     # .read(); a wrapper that only supports read() would pass the tests above
-    # and still break every migrate_to_crdb load.
+    # and still break every load_rmp load.
     import csv
 
     path = write_zip(tmp_path / "f.zip", "f.csv", 2)

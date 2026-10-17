@@ -161,3 +161,20 @@ def test_quoted_values_do_not_keep_the_whitespace_before_their_quote():
     assert parse_sql_values("(NULL, 3.5, 'x')") == [[None, "3.5", "x"]]
     # Escaped quotes still work.
     assert parse_sql_values("(1, 'O''Brien')") == [["1", "O'Brien"]]
+
+
+def test_reads_pg_dump_multi_row_inserts_with_schema_prefix(tmp_path):
+    """backup_db.py now writes pg_dump --column-inserts --rows-per-insert output."""
+    cols = ", ".join(REAL_COLUMNS)
+    stmt = (f"INSERT INTO public.professors_catalog ({cols}) VALUES\n"
+            f"\t{_row('alice-smith', 'Alice Smith', 10, 12, 5)},\n"
+            f"\t{_row('bob-jones', 'Bob Jones', 3, 4, 1)};\n")
+    path = tmp_path / "pg.sql.gz"
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        f.write("--\n-- PostgreSQL database dump\n--\n\n")
+        f.write("--\n-- Data for Name: professors_catalog_bak_20260803; Type: TABLE DATA; Schema: public; Owner: -\n--\n\n")
+        f.write(f"INSERT INTO public.professors_catalog_bak_20260803 ({cols}) VALUES\n\t{_row('stale', 'Stale Row', 1, 1, 1)};\n\n")
+        f.write(stmt)
+    profs = load_catalog(str(path))
+    assert sorted(p.slug for p in profs) == ["alice-smith", "bob-jones"]
+    assert {p.slug: p.total_comments for p in profs} == {"alice-smith": 5, "bob-jones": 1}

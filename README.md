@@ -12,7 +12,7 @@ RateMyProfessors ratings and Reddit chatter for 3,800+ Northeastern professors �
 [![React](https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](frontend)
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](frontend)
 [![Flask](https://img.shields.io/badge/Flask-000000?style=for-the-badge&logo=flask&logoColor=white)](backend)
-[![CockroachDB](https://img.shields.io/badge/CockroachDB-6933FF?style=for-the-badge&logo=cockroachlabs&logoColor=white)](#architecture)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL_16-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](#architecture)
 
 [**Visit the site**](https://ratemyhusky.com) · [Features](#features) · [Architecture](#architecture) · [Getting Started](#getting-started)
 
@@ -68,7 +68,7 @@ flowchart LR
     API --> ASK["Ask pipeline: gate, hybrid retrieval, synthesis, validation"]
     API -. "sign-in redirect" .-> OAUTH["Google OAuth 2.0"]
     ASK --> AI["Groq LLMs and ONNX BGE-small embeddings"]
-    API --> DB[("CockroachDB Serverless")]
+    API --> DB[("PostgreSQL 16 + pgvector<br/>Oracle Cloud VM")]
     ASK --> DB
 
     SCRAPE["Scrapers: RMP, Reddit"] --> INGEST["Match, score, dedupe"]
@@ -86,7 +86,7 @@ flowchart LR
 |---|---|
 | Frontend | React 19, TypeScript, Vite, React Router |
 | Backend | Python, Flask, Flask-CORS, Flask-Limiter |
-| Database | CockroachDB Serverless (psycopg2), native `VECTOR` search |
+| Database | PostgreSQL 16 + pgvector (psycopg2), self-hosted on an Oracle Cloud VM |
 | AI / Retrieval | Groq (Llama 3.1 8B, GPT-OSS-120B), ONNX Runtime, BGE-small-en-v1.5, RRF hybrid retrieval |
 | Auth | Google OAuth 2.0, JWT |
 | Data pipeline | Python scrapers, professor-mention matching, sentiment scoring, embedding backfill |
@@ -120,7 +120,7 @@ flowchart LR
 
 ### Prerequisites
 
-- Python 3.8+ · Node.js 18+ · a reachable CockroachDB instance
+- Python 3.8+ · Node.js 18+ · a reachable PostgreSQL 16 database with the pgvector extension (schema in [`db/postgres/`](db/postgres))
 
 ### Backend
 
@@ -131,7 +131,8 @@ pip install -r backend/requirements.txt
 Create `backend/.env`:
 
 ```env
-CRDB_DATABASE_URL=<your-cockroachdb-connection-string>
+# The value is a PostgreSQL URL (the database runs on an Oracle Cloud VM).
+ORACLE_DATABASE_URL=postgresql://appuser:<password>@<host>:5432/appdb?sslmode=require
 JWT_SECRET=<generate-with-openssl-rand-hex-32>
 
 # Optional — Google OAuth login flow
@@ -150,6 +151,29 @@ GROQ_API_KEYS=<key1>,<key2>
 ```bash
 python backend/server.py     # → http://localhost:5001
 ```
+
+### Backups
+
+`backend/backup_db.py` writes a data-only `pg_dump` to `backend/backups/`, and
+`backend/restore_db.py` reloads chosen tables from one inside a single
+transaction (`--list`, `--tables a,b`, `--all`). Both need the PostgreSQL **16**
+command-line tools (`pg_dump`, `psql`) on `PATH`, matching the server: the backup
+refuses any other `pg_dump` version, because newer ones write settings
+PostgreSQL 16 rejects. On Windows, install them from
+the EDB installer at postgresql.org/download/windows (select only *Command Line
+Tools*) and add its `bin` folder to `PATH`.
+
+### PostgreSQL integration tests
+
+`backend/tests/pg/` runs the real SQL against a local PostgreSQL 16 + pgvector
+server and skips unless `PG_TEST_URL` is set:
+
+```bash
+docker run -d --name rmh-pg-test -p 54329:5432 -e POSTGRES_PASSWORD=test pgvector/pgvector:pg16 -c ssl=on -c ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+cd backend && PG_TEST_URL='postgresql://postgres:test@localhost:54329/postgres?sslmode=require' python -m pytest tests/pg -q
+```
+
+In Git Bash on Windows, prefix the `docker run` with `MSYS_NO_PATHCONV=1`; otherwise Git Bash rewrites the `/etc/ssl/...` paths and PostgreSQL fails to start.
 
 ### Frontend
 

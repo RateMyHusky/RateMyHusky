@@ -36,7 +36,7 @@ import re
 
 import pytest
 
-os.environ.setdefault("CRDB_DATABASE_URL", "postgresql://stub")
+os.environ.setdefault("ORACLE_DATABASE_URL", "postgresql://stub")
 import server
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
@@ -50,7 +50,7 @@ GOAT_TEST = REPO / "backend" / "tests" / "test_goat_ranking.py"
 def _live_url():
     """The real connection string, read from .env rather than the environment.
 
-    Every DB-touching test module pins os.environ["CRDB_DATABASE_URL"] to
+    Every DB-touching test module pins os.environ["ORACLE_DATABASE_URL"] to
     "postgresql://stub" via setdefault, and modules are collected alphabetically,
     so by the time this one runs the variable is almost always the stub --
     load_dotenv() will not override an existing value. dotenv_values() parses the
@@ -61,10 +61,10 @@ def _live_url():
         from dotenv import dotenv_values
     except ImportError:
         return None
-    url = dotenv_values(REPO / "backend" / ".env").get("CRDB_DATABASE_URL")
+    url = dotenv_values(REPO / "backend" / ".env").get("ORACLE_DATABASE_URL")
     if url:
         return url
-    env_url = os.getenv("CRDB_DATABASE_URL")
+    env_url = os.getenv("ORACLE_DATABASE_URL")
     return None if env_url == "postgresql://stub" else env_url
 
 
@@ -127,7 +127,7 @@ class Corpus:
 def corpus():
     url = _live_url()
     if not url:
-        pytest.skip("no CRDB_DATABASE_URL in backend/.env -- claims unverified")
+        pytest.skip("no ORACLE_DATABASE_URL in backend/.env -- claims unverified")
     try:
         import psycopg2
         conn = psycopg2.connect(url, sslmode="require", connect_timeout=15)
@@ -161,9 +161,8 @@ CLAIMS = [
     ("share of those under 15 reviews", SERVER_PY,
      r"and (\d+)% of them have under 15 reviews",
      lambda c: 100.0 * c.val(
-         # Both sides cast: CockroachDB has no implicit numeric coercion, and
-         # count(*) comes back DECIMAL, so a bare float/count division fails with
-         # "unsupported binary operator: <float> / <decimal>".
+         # Both sides cast: count(*) is BIGINT, and integer division would
+         # truncate the share to 0.
          "SELECT count(*) FILTER (WHERE total_reviews < 15)::float "
          "     / count(*)::float "
          "FROM professors_catalog WHERE avg_rating = 5.0"),

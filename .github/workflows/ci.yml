@@ -1,6 +1,8 @@
 # CI for every push and PR. Mirrors what the real deploys gate:
 #   frontend  -> tsc + vite build (what fails a Vercel deploy)
 #   backend   -> pip install + pytest (deps + "does server.py import")
+#   backend-pg -> pytest tests/pg against PostgreSQL 16 + pgvector (SSL on)
+#   scraper   -> pytest scraper/tests (offline fixtures + in-memory sqlite)
 #   secrets   -> gitleaks over the PR's / push's new commits + tracked-.env guard
 #   legacy    -> PRs only: no added line names the retired review source
 # Lint is non-blocking until the existing ESLint errors are cleaned up.
@@ -105,8 +107,44 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: python -m pytest tests -q
 
+  backend-pg:
+    name: Backend tests (PostgreSQL)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      # A plain `docker run`, not a service container: services cannot pass
+      # server flags, and the connect helpers all require SSL.
+      - name: Start PostgreSQL 16 + pgvector
+        run: |
+          docker run -d --name pg -p 5432:5432 -e POSTGRES_PASSWORD=test             pgvector/pgvector:pg16             -c ssl=on             -c ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem             -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+      - name: Install PostgreSQL 16 client tools
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
+      - name: Wait for PostgreSQL
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -p 5432 -U postgres && exit 0
+            sleep 2
+          done
+          docker logs pg
+          exit 1
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest tests/pg -q
+        env:
+          PG_TEST_URL: postgresql://postgres:test@localhost:5432/postgres?sslmode=require
+
   # The Banner and catalog scrapers. Offline: every test runs against saved
-  # fixtures and in-memory sqlite, never the live sites or CockroachDB.
+  # fixtures and in-memory sqlite, never the live sites or the database.
   scraper:
     name: Scraper tests
     runs-on: ubuntu-latest

@@ -8,7 +8,7 @@ import os
 # happens at pytest collection time — pin the env vars the other test files'
 # fixtures rely on FIRST so the real .env can't override them (python-dotenv
 # never overwrites already-set vars).
-os.environ.setdefault("CRDB_DATABASE_URL", "postgresql://stub")
+os.environ.setdefault("ORACLE_DATABASE_URL", "postgresql://stub")
 os.environ.setdefault("JWT_SECRET", "test-secret")
 
 from rag.clear_ask_strikes import purge_account

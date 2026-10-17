@@ -8,7 +8,7 @@ const Terms = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Terms &amp; Conditions</h1>
-            <p className="terms-meta">Effective October 3, 2026 &middot; RateMyHusky</p>
+            <p className="terms-meta">Effective October 10, 2026 &middot; RateMyHusky</p>
           </header>
 
           <div className="terms-body">
@@ -160,7 +160,7 @@ const Terms = () => {
                   </a>.
                 </li>
                 <li>
-                  <strong>Vercel, Railway &amp; Cockroach Labs</strong>: host the site, the API,
+                  <strong>Vercel, Railway &amp; Oracle Cloud Infrastructure</strong>: host the site, the API,
                   and the database. Availability of RateMyHusky depends on these providers.
                 </li>
                 <li>

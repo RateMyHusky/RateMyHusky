@@ -1,8 +1,12 @@
-"""Load the NEU academic catalog scrape to CockroachDB.
+"""Load the NEU academic catalog scrape to PostgreSQL.
+
+The PostgreSQL tables come from db/postgres/02_tables.sql; this loader creates
+nothing there and stops with a list of what is missing if the schema is behind
+(schema_check.py). The DDL below runs only on sqlite, in the tests and selftest.
 
 Own tables, disjoint from the read models the pipeline rebuilds — a separation
 the Banner section loader also keeps, and here it is not optional. The
-pipeline rebuilds `course_catalog` wholesale (build into `_new`, then swap), so
+pipeline replaces every `course_catalog` row on each run, so
 any column written onto that table is destroyed by the next rebuild. Catalog
 fields therefore live in `catalog_courses`, and merging them into the course
 page is a read-side join, not a column graft.
@@ -18,9 +22,9 @@ distributes no root cert, so verify-full fails before any query runs. Do not
 
 Usage
 -----
-    python load_catalog_to_crdb.py --selftest        # offline DDL + row build, then exit
-    python load_catalog_to_crdb.py                   # load the default scrape JSON
-    python load_catalog_to_crdb.py --json path.json --dry-run
+    python load_catalog.py --selftest        # offline DDL + row build, then exit
+    python load_catalog.py                   # load the default scrape JSON
+    python load_catalog.py --json path.json --dry-run
 """
 
 import argparse
@@ -35,8 +39,10 @@ import psycopg2
 from dotenv import load_dotenv
 from psycopg2.extras import execute_values
 
-# Same hazard as the Banner loader: CockroachDB runs SERIALIZABLE and a write
-# overlapping the live site's reads can be aborted with 40001.
+from schema_check import expected_columns, require_columns
+
+# Same hazard as the Banner loader: a write overlapping the live site's reads can
+# fail with a serialization failure (40001) or a deadlock; replay the transaction.
 RETRYABLE_ERRORS = (psycopg2.errors.SerializationFailure,
                     psycopg2.errors.DeadlockDetected)
 RETRY_ATTEMPTS = 6
@@ -111,6 +117,12 @@ CREATE TABLE IF NOT EXISTS catalog_nupath (
 CREATE INDEX IF NOT EXISTS cn_attribute ON catalog_nupath (attribute)
 """
 
+
+def expected_schema():
+    """{table: [column, ...]} this module's DDL defines, for schema_check."""
+    return expected_columns(DDL.split(";"))
+
+
 COLUMNS = ("code", "subject", "number", "name", "department", "credit_hours",
            "credit_min", "credit_max", "description", "prerequisites",
            "corequisites", "search_text", "subject_slug", "catalog_year",
@@ -122,7 +134,7 @@ class SanityGateFailed(RuntimeError):
 
 
 def connect(dsn):
-    return psycopg2.connect(dsn, sslmode="require")
+    return psycopg2.connect(dsn, sslmode="require", options="-c timezone=UTC")
 
 
 def with_retry(open_conn, work, attempts=RETRY_ATTEMPTS, sleep=time.sleep):
@@ -360,7 +372,7 @@ def selftest():
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Load the NEU catalog scrape to CockroachDB")
+    ap = argparse.ArgumentParser(description="Load the NEU catalog scrape to PostgreSQL")
     ap.add_argument("--selftest", action="store_true", help="offline DDL check, then exit")
     ap.add_argument("--json", default=DEFAULT_JSON, help="catalog_scrape.py output")
     ap.add_argument("--dry-run", action="store_true", help="gate and report, write nothing")
@@ -391,18 +403,15 @@ def main(argv=None):
         return 0
 
     load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend", ".env"))
-    dsn = os.environ.get("NEW_CRDB_DATABASE_URL") or os.environ.get("CRDB_DATABASE_URL")
+    dsn = os.environ.get("ORACLE_DATABASE_URL")
     if not dsn:
-        print("NEW_CRDB_DATABASE_URL (or CRDB_DATABASE_URL) is not set", file=sys.stderr)
+        print("ORACLE_DATABASE_URL is not set", file=sys.stderr)
         return 1
 
     conn = connect(dsn)
     try:
         cur = conn.cursor()
-        for stmt in DDL.split(";"):
-            if stmt.strip():
-                cur.execute(stmt)
-        conn.commit()
+        require_columns(cur, expected_schema())
         baseline = previous_count(cur)
     finally:
         conn.close()

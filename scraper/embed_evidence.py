@@ -7,7 +7,7 @@ Usage:
 """
 import argparse, sys, os, time
 sys.path.insert(0, os.path.dirname(__file__))
-from load_evidence_to_crdb import connect
+from load_evidence import connect
 
 MODEL_VERSION = "bge-small-en-v1.5-q8-maskedmean"
 _EMBEDDER = None
@@ -26,7 +26,7 @@ def load_embedder():
         import onnxruntime as ort
         repo = "onnx-community/bge-small-en-v1.5-ONNX"
         # Load from the local HF cache without hitting the network: this machine's DNS flakes on
-        # huggingface.co (same resolver flakiness as *.cockroachlabs.cloud), which killed the
+        # huggingface.co, which killed the
         # backfill at startup every relaunch. Fall back to a networked fetch only if not cached
         # yet (first run downloads once, then offline forever). Also right for Railway.
         def _get(fn):
@@ -89,9 +89,8 @@ def write_embeddings(conn, tuples, batch=500):
            "VALUES %s ON CONFLICT (evidence_id) DO UPDATE SET "
            "embedding=excluded.embedding, model_version=excluded.model_version, "
            "body_sha=excluded.body_sha, embedded_at=now()")
-    # Commit per batch (durable + idempotent re-run). CockroachDB uses SERIALIZABLE isolation and
-    # asks clients to retry transient SerializationFailure (40001) with backoff — vector-index
-    # partition updates are a contention hotspot, so retry is mandatory here just like the loader.
+    # Commit per batch (durable + idempotent re-run). Retry a transient
+    # SerializationFailure (40001) with backoff, just like the evidence loader.
     for i in range(0, len(tuples), batch):
         chunk = [(t[0], str(t[1]), t[2], t[3]) for t in tuples[i:i+batch]]
         for attempt in range(6):
@@ -197,20 +196,15 @@ def main():
         t_start = time.time()
         total_written = 0
 
-        # Self-healing outer loop: the CockroachDB host has flaky DNS (see crdb-dns-retry gotcha),
-        # so a connection CAN drop mid-stream. On any connection error we reconnect and RE-ISSUE
-        # the query — because it only returns not-yet-embedded rows, it naturally resumes from
-        # the DB's state (no lost/redone work; upsert is idempotent). Loops until 0 rows remain.
-        # This makes the overnight run truly fire-and-forget through DNS blips.
+        # Self-healing outer loop: a connection CAN drop mid-stream (DNS blips on this
+        # machine). On any connection error we reconnect and RE-ISSUE the query — because it
+        # only returns not-yet-embedded rows, it naturally resumes from the DB's state (no
+        # lost/redone work; upsert is idempotent). Loops until 0 rows remain.
         #
-        # SNAPSHOT RECYCLE: the named cursor pins ONE read snapshot for the whole pass, and
-        # CockroachDB Serverless garbage-collects old MVCC versions after gc.ttlseconds
-        # (serverless default 4500s = 75 min) — a pass older than that dies with "batch
-        # timestamp ... must be after replica GC threshold" (SQLSTATE XX000, killed 3 real
-        # runs at the 80-90 min mark; XX000 is NOT an OperationalError, so the reconnect
-        # handler never saw it). So every RECYCLE_SECONDS we voluntarily close the stream
-        # and re-issue it, taking a fresh snapshot via the exact resume path the reconnect
-        # case already uses — the snapshot's age stays bounded well under the GC TTL.
+        # SNAPSHOT RECYCLE: the named cursor pins ONE read snapshot for the whole pass, and a
+        # long-lived snapshot holds back vacuum on the tables it reads. So every
+        # RECYCLE_SECONDS we voluntarily close the stream and re-issue it, taking a fresh
+        # snapshot via the exact resume path the reconnect case already uses.
         RECYCLE_SECONDS = 20 * 60
         while True:
             read_conn = write_conn = None

@@ -5,8 +5,9 @@
     python -m pipeline.review_tags --rebuild    # just redo the counts
 
 Run this locally, not on Railway (the model is too heavy for it).
-The tables come from python -m pipeline.schema --apply, which has to run before
-a server with the tags routes gets deployed.
+The tables are declared in db/postgres/02_tables.sql; a database loaded before
+they were added needs the cutover SQL in db/postgres/README.md before a server
+with the tags routes gets deployed.
 """
 
 import argparse
@@ -19,6 +20,7 @@ from tag_extractor import extract_tags, might_have_tags, structured_tags
 from tags import TAXONOMY_VERSION
 
 from .db import connect, fetch_all
+from .read_models import DATA_VERSION_SQL
 
 BATCH_SIZE = 5
 MAX_CHARS = 1000
@@ -145,8 +147,7 @@ def rebuild_if_present(conn):
 def bump_data_version(conn):
     # same statement read_models.write uses, flushes the site's caches so new tags show up
     cur = conn.cursor()
-    cur.execute("UPSERT INTO stats_cache (key, value) SELECT 'data_version', COALESCE(max(value), 0) + 1 "
-                "FROM stats_cache WHERE key = 'data_version'")
+    cur.execute(DATA_VERSION_SQL)
     conn.commit()
     cur.close()
 

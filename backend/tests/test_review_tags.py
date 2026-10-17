@@ -1,6 +1,6 @@
 import os
 
-os.environ.setdefault("CRDB_DATABASE_URL", "postgresql://stub")
+os.environ.setdefault("ORACLE_DATABASE_URL", "postgresql://stub")
 os.environ.setdefault("JWT_SECRET", "test-secret")
 
 import pytest  # noqa: E402

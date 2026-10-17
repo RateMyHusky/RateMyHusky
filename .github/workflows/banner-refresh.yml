@@ -14,8 +14,8 @@ concurrency:
   group: banner-refresh
   cancel-in-progress: false
 
-# Nothing here reads or writes the repo through GITHUB_TOKEN; the only
-# credential used is the CRDB secret.
+# Nothing here reads or writes the repo through GITHUB_TOKEN; the
+# only credential used is the ORACLE_DATABASE_URL secret.
 permissions:
   contents: read
 
@@ -38,7 +38,7 @@ jobs:
         run: pip install -r scraper/requirements.txt
       - name: Offline selftest
         id: selftest
-        run: cd scraper && python load_banner_to_crdb.py --selftest
+        run: cd scraper && python load_banner.py --selftest
       # A refused term makes this step fail, but the steps below still run
       # (`!cancelled()`, once the selftest has passed): the other terms were written, and skipping the
       # matcher would leave banner_sections fresh while professor_teaching and
@@ -51,11 +51,11 @@ jobs:
       - name: Refresh open terms
         id: refresh
         env:
-          CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
+          ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
         run: |
           cd scraper
           set +e
-          python load_banner_to_crdb.py
+          python load_banner.py
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit $code
@@ -65,10 +65,10 @@ jobs:
       - name: Finalize newly closed terms
         if: ${{ !cancelled() && steps.selftest.outcome == 'success' && steps.refresh.outputs.exit_code != '75' }}
         env:
-          CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
-        run: cd scraper && python load_banner_to_crdb.py --backfill
+          ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
+        run: cd scraper && python load_banner.py --backfill
       - name: Build teaching chip and course history
         if: ${{ !cancelled() && steps.selftest.outcome == 'success' }}
         env:
-          CRDB_DATABASE_URL: ${{ secrets.CRDB_DATABASE_URL }}
+          ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
         run: cd scraper && python match_banner_instructors.py

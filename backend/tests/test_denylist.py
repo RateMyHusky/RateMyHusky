@@ -1,6 +1,6 @@
 """A data-deletion request has to survive a pipeline that rebuilds from CSVs.
 
-precompute DROPs and rebuilds professors_catalog every run, and migrate_to_crdb
+precompute DROPs and rebuilds professors_catalog every run, and load_rmp
 re-inserts rmp_reviews from the store, so deleting a professor's
 rows by hand removes them only until the next refresh. The denylist is the part
 that persists: it lives in the repo and every loader consults it before writing.
@@ -176,7 +176,7 @@ def test_check_exit_code_reports_membership(listfile):
 
 def test_migrate_tags_every_table_that_carries_a_name():
     """A table with a professor name in it must be filtered, or data leaks through."""
-    from migrate_to_crdb import TABLES
+    from load_rmp import TABLES
     expected = {
         "rmp_professors": ("name",),
         "rmp_reviews": ("professor_name",),
@@ -188,7 +188,7 @@ def test_migrate_tags_every_table_that_carries_a_name():
 
 def test_migrate_withholds_a_denied_row(listfile, tmp_path, capsys):
     """upload_csv drops the row rather than inserting it."""
-    import migrate_to_crdb
+    import load_rmp
 
     listfile("Julia Garrett")
     csv_path = tmp_path / "rmp_professors.csv"
@@ -213,9 +213,9 @@ def test_migrate_withholds_a_denied_row(listfile, tmp_path, capsys):
     def fake_execute_values(cur, sql, batch, page_size=None):
         inserted.extend(batch)
 
-    migrate_to_crdb.execute_values = fake_execute_values
-    conf = migrate_to_crdb.TABLES["rmp_professors"]
-    migrate_to_crdb.upload_csv(
+    load_rmp.execute_values = fake_execute_values
+    conf = load_rmp.TABLES["rmp_professors"]
+    load_rmp.upload_csv(
         Conn(), "rmp_professors", conf["columns"], str(csv_path),
         conf["transform"], conf["on_conflict"], None, None, conf["deny_name"])
 
@@ -236,8 +236,8 @@ def test_precompute_filters_the_rmp_frame(listfile):
 def test_evidence_builders_import_the_filter():
     """The RAG corpus is what chat quotes; it has to honour the list too."""
     import pathlib
-    src = pathlib.Path(__file__).resolve().parents[2] / "scraper" / "load_evidence_to_crdb.py"
-    text = src.read_text()
+    src = pathlib.Path(__file__).resolve().parents[2] / "scraper" / "load_evidence.py"
+    text = src.read_text(encoding="utf-8")
     assert "from denylist import is_denied_key" in text
     assert 'is_denied_key(r.get("name_key"))' in text, (
         "the RMP evidence builder must check the denylist")
@@ -454,7 +454,7 @@ def test_migrate_filter_survives_a_transform_that_yields_nothing(listfile):
     wave every row through and report nothing wrong — the one failure mode a
     privacy filter must not have.
     """
-    from migrate_to_crdb import _row_is_denied
+    from load_rmp import _row_is_denied
     listfile("Julia Garrett")
     deny = ("first_name", "last_name")
 
@@ -474,7 +474,7 @@ def test_migrate_filter_survives_a_transform_that_yields_nothing(listfile):
 
 
 def test_camel_conversion_matches_the_transform_keys():
-    from migrate_to_crdb import _camel
+    from load_rmp import _camel
     assert _camel("professor_name") == "professorName"
     assert _camel("name") == "name"
 

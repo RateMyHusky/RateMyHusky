@@ -1,12 +1,11 @@
-import os, sys, json, argparse, time, socket, re
+import os, sys, json, argparse, re
 from collections import defaultdict
-import psycopg2
 from psycopg2.extras import RealDictCursor
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from rag.chat_retrieve import retrieve
+from rag.eval.eval_common import connect as _connect
 
-_HOST = "ratemyhusky-27066.j77.aws-us-east-1.cockroachlabs.cloud"
 _STOP = {"is", "a", "an", "the", "professor", "prof", "dr", "good", "how",
          "hard", "does", "what", "are", "of", "for", "to", "should", "i",
          "take", "class", "with", "as", "beginner", "fair", "grader",
@@ -14,24 +13,6 @@ _STOP = {"is", "a", "an", "the", "professor", "prof", "dr", "good", "how",
          "much", "assign", "students", "saying", "about", "summarize",
          "reviews", "only", "negative", "positive", "pros", "cons", "and",
          "exams", "similar", "to", "his", "her", "tell", "me", "good"}
-
-
-def _connect():
-    from dotenv import load_dotenv
-    load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
-    url = os.environ["CRDB_DATABASE_URL"]
-    for _ in range(6):
-        try:
-            socket.gethostbyname(_HOST); break
-        except Exception:
-            time.sleep(3)
-    last = None
-    for _ in range(5):
-        try:
-            return psycopg2.connect(url, sslmode="require", connect_timeout=20)
-        except Exception as e:
-            last = e; time.sleep(4)
-    raise last
 
 
 def make_fns(conn):

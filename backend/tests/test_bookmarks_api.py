@@ -30,7 +30,7 @@ def auth_headers(**kw):
 
 @pytest.fixture
 def bm_client(monkeypatch):
-    os.environ.setdefault("CRDB_DATABASE_URL", "postgresql://stub")
+    os.environ.setdefault("ORACLE_DATABASE_URL", "postgresql://stub")
     os.environ.setdefault("JWT_SECRET", "test-secret")
     import server
     monkeypatch.setattr(server, "JWT_SECRET", TEST_SECRET, raising=False)

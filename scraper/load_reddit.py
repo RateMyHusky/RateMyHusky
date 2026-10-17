@@ -1,12 +1,11 @@
 """
-Load Reddit corpus to CockroachDB.
-
-Handles schema DDL and idempotent table creation for the Reddit corpus,
-including reddit_mentions, reddit_sentiment, reddit_text, and ask_log tables.
+Load the verified Reddit corpus into PostgreSQL: reddit_mentions,
+reddit_sentiment and reddit_text. The tables are defined in db/postgres/;
+this loader never creates them.
 
 Usage
 -----
-    python load_reddit_to_crdb.py --selftest  # offline DDL checks, then exit
+    python load_reddit.py --selftest  # offline checks, then exit
 """
 
 import argparse
@@ -19,77 +18,9 @@ import tempfile
 import unicodedata
 
 import psycopg2
+from dotenv import load_dotenv
 
-DDL = """
-CREATE TABLE IF NOT EXISTS reddit_mentions (
-    mention_id     TEXT PRIMARY KEY,
-    source_type    TEXT NOT NULL,
-    source_id      TEXT NOT NULL,
-    thread_id      TEXT,
-    professor_slug TEXT NOT NULL,
-    name_key       TEXT NOT NULL,
-    method         TEXT NOT NULL,
-    confidence     FLOAT,
-    verify_verdict TEXT,
-    verify_quote   TEXT
-);
-CREATE INDEX IF NOT EXISTS rm_slug ON reddit_mentions (professor_slug);
-CREATE INDEX IF NOT EXISTS rm_name_key ON reddit_mentions (name_key);
-
-CREATE TABLE IF NOT EXISTS reddit_sentiment (
-    source_type    TEXT NOT NULL,
-    source_id      TEXT NOT NULL,
-    professor_slug TEXT NOT NULL,
-    sentiment      TEXT NOT NULL,
-    score          FLOAT NOT NULL,
-    on_topic       BOOLEAN,
-    sarcasm        BOOLEAN,
-    hyperbole      BOOLEAN,
-    rationale      TEXT,
-    PRIMARY KEY (source_type, source_id, professor_slug)
-);
-CREATE INDEX IF NOT EXISTS rs_slug ON reddit_sentiment (professor_slug);
-
-CREATE TABLE IF NOT EXISTS reddit_text (
-    source_id    TEXT PRIMARY KEY,
-    source_type  TEXT NOT NULL,
-    subreddit    TEXT,
-    body         TEXT NOT NULL,
-    score        INT,
-    created_utc  TIMESTAMPTZ,
-    permalink    TEXT,
-    body_tsv     TSVECTOR,
-    flagged      BOOLEAN DEFAULT false,
-    flag_reason  TEXT
-);
-CREATE INDEX IF NOT EXISTS rt_tsv ON reddit_text USING GIN (body_tsv);
-
-CREATE TABLE IF NOT EXISTS ask_log (
-    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_token  TEXT,
-    ip_hash        TEXT,
-    query          TEXT NOT NULL,
-    mode           TEXT NOT NULL,
-    professor_slug TEXT,
-    result_status  TEXT NOT NULL,
-    retrieved_count INT,
-    answer_text    TEXT,
-    tokens_used    INT,
-    response_ms    INT,
-    flagged        BOOLEAN DEFAULT false,
-    created_at     TIMESTAMPTZ DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS al_session ON ask_log (session_token, created_at DESC);
-CREATE INDEX IF NOT EXISTS al_status ON ask_log (result_status, created_at DESC);
-CREATE INDEX IF NOT EXISTS al_created ON ask_log (created_at DESC);
-
-CREATE TABLE IF NOT EXISTS usage_alerts (
-    alert_date  DATE NOT NULL,
-    tier        INT  NOT NULL,
-    sent_at     TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY (alert_date, tier)
-);
-"""
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend", ".env"))
 
 
 _ZERO_WIDTH = dict.fromkeys(map(ord, "​‌‍﻿"), None)
@@ -121,24 +52,12 @@ def injection_flag(text: str) -> "str | None":
     return None
 
 
-def all_ddl() -> str:
-    """Return the full DDL string."""
-    return DDL
-
-
 def connect():
-    """Open a CockroachDB connection with sslmode='require'."""
-    url = os.getenv("CRDB_DATABASE_URL")
+    """Open a UTC database session over SSL."""
+    url = os.getenv("ORACLE_DATABASE_URL")
     if not url:
-        raise RuntimeError("CRDB_DATABASE_URL is required")
-    return psycopg2.connect(url, sslmode="require")
-
-
-def create_tables(conn) -> None:
-    """Run CREATE TABLE IF NOT EXISTS for all tables. Idempotent."""
-    with conn.cursor() as cur:
-        cur.execute(all_ddl())
-    conn.commit()
+        raise RuntimeError("ORACLE_DATABASE_URL is required")
+    return psycopg2.connect(url, sslmode="require", options="-c timezone=UTC")
 
 
 def read_mentions(data_dir):
@@ -284,9 +203,8 @@ def validate(conn):
 
 
 def run():
-    """Connect, create tables, load all data, validate, return 0 if clean else 1."""
+    """Connect, load all data, validate, return 0 if clean else 1."""
     conn = connect()
-    create_tables(conn)
     counts = load_all(conn, os.path.join("scraper", "reddit_data"))
     print("loaded:", counts)
     problems = validate(conn)
@@ -300,23 +218,13 @@ def run():
 
 
 def selftest() -> int:
-    """Offline DDL checks. Returns 0 if all pass, 1 if any fail."""
+    """Offline checks. Returns 0 if all pass, 1 if any fail."""
     fails = []
 
     def check(label, cond):
         if not cond:
             fails.append(label)
         print(("PASS" if cond else "FAIL") + ": " + label)
-
-    ddl = all_ddl()
-    check("reddit_mentions table in DDL", "CREATE TABLE IF NOT EXISTS reddit_mentions" in ddl)
-    check("reddit_sentiment table in DDL", "CREATE TABLE IF NOT EXISTS reddit_sentiment" in ddl)
-    check("reddit_text table in DDL", "CREATE TABLE IF NOT EXISTS reddit_text" in ddl)
-    check("ask_log table in DDL", "CREATE TABLE IF NOT EXISTS ask_log" in ddl)
-    check("usage_alerts table in DDL", "CREATE TABLE IF NOT EXISTS usage_alerts" in ddl)
-    check("reddit_text has body_tsv", "body_tsv" in ddl)
-    check("reddit_text has flagged col", "flagged" in ddl)
-    check("GIN index on body_tsv", "USING GIN" in ddl and "body_tsv" in ddl)
 
     clean = sanitize_body("hello​  world\n\n")
     check("sanitize strips zero-width", "​" not in clean)
@@ -351,7 +259,7 @@ def selftest() -> int:
 
 
 def main():
-    p = argparse.ArgumentParser(description="Load verified Reddit corpus into CockroachDB.")
+    p = argparse.ArgumentParser(description="Load verified Reddit corpus into PostgreSQL.")
     p.add_argument("--selftest", action="store_true", help="Run offline checks and exit")
     args = p.parse_args()
     if args.selftest:
