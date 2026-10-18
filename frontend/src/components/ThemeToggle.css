@@ -1,26 +1,24 @@
+/* Sits in the navbar's right-hand group on desktop. Hidden on mobile, where the
+   hamburger drawer carries its own Dark Mode item (see Navbar.tsx). */
 .theme-toggle {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 200;
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  border: 1.5px solid #ddd;
-  background: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1.5px solid #ddd;
+  background: #fff;
   cursor: pointer;
   padding: 0;
   color: #f5a623;
   transition: background 0.3s, border-color 0.3s, color 0.3s;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 
 .theme-toggle svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
 .theme-toggle:hover {
