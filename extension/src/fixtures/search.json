@@ -1,5 +1,12 @@
 [
   {
+    "dept": "Data Science",
+    "name": "John Rachlin",
+    "rating": 4.63,
+    "slug": "john-rachlin",
+    "type": "professor"
+  },
+  {
     "dept": "Electrical Engineering",
     "name": "David Kaeli",
     "rating": 3.4,

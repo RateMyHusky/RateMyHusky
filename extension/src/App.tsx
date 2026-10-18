@@ -3,7 +3,7 @@ import Overview from './screens/Overview';
 
 // Search lands separately and will pick the slug; until then the popup opens
 // straight onto one professor.
-const DEMO_SLUG = 'david-kaeli';
+const DEMO_SLUG = 'john-rachlin';
 
 export default function App() {
   return (

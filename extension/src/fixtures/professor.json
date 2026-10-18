@@ -1,357 +1,987 @@
 {
-  "awards": [],
+  "awards": [
+    {
+      "award": "Khoury Teacher of the Year",
+      "awardingBody": "Khoury College",
+      "sourceUrl": "https://khoury.northeastern.edu/awards/past-award-winners/",
+      "year": 2020,
+      "yearLabel": "2020"
+    }
+  ],
   "courses": [
     {
-      "code": "EECE5640",
+      "code": "CS3200",
+      "difficulty": 2.64,
+      "hasPage": true,
+      "lastTerm": "Fall 2026",
+      "name": "Introduction to Databases",
+      "numRatings": 11,
+      "rating": 4.73,
+      "ratingDistribution": {
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "4": 3,
+        "5": 8
+      },
+      "terms": [
+        "Fall 2026",
+        "Summer 1 2026",
+        "Spring 2026",
+        "Spring 2025",
+        "Fall 2024",
+        "Fall 2023"
+      ]
+    },
+    {
+      "code": "CS1700",
       "difficulty": null,
       "hasPage": true,
-      "lastTerm": "Spring 2026",
-      "name": "High-Performance Computing",
+      "lastTerm": "Fall 2026",
+      "name": "Society of Minds: AI for Everyone",
       "numRatings": 0,
       "rating": null,
       "ratingDistribution": null,
       "terms": [
+        "Fall 2026"
+      ]
+    },
+    {
+      "code": "DS4300",
+      "difficulty": 2.5,
+      "hasPage": true,
+      "lastTerm": "Summer 1 2026",
+      "name": "Large-Scale Information Storage and Retrieval",
+      "numRatings": 4,
+      "rating": 4.5,
+      "ratingDistribution": {
+        "1": 0,
+        "2": 0,
+        "3": 1,
+        "4": 0,
+        "5": 3
+      },
+      "terms": [
+        "Summer 1 2026",
         "Spring 2026",
+        "Spring 2024",
+        "Spring 2023",
+        "Spring 2022"
+      ]
+    },
+    {
+      "code": "DS3500",
+      "difficulty": 2.79,
+      "hasPage": true,
+      "lastTerm": "Fall 2025",
+      "name": "Advanced Programming with Data",
+      "numRatings": 14,
+      "rating": 4.86,
+      "ratingDistribution": {
+        "1": 0,
+        "2": 0,
+        "3": 1,
+        "4": 0,
+        "5": 13
+      },
+      "terms": [
+        "Fall 2025",
+        "Summer 1 2025",
         "Spring 2025",
+        "Fall 2024",
+        "Spring 2024",
+        "Fall 2023"
+      ]
+    },
+    {
+      "code": "DS4973",
+      "difficulty": null,
+      "hasPage": true,
+      "lastTerm": "Fall 2024",
+      "name": "Society of Mind: AI for Humans",
+      "numRatings": 0,
+      "rating": null,
+      "ratingDistribution": null,
+      "terms": [
+        "Fall 2024"
+      ]
+    },
+    {
+      "code": "DS2000",
+      "difficulty": null,
+      "hasPage": false,
+      "lastTerm": "Summer 1 2024",
+      "name": "Programming with Data",
+      "numRatings": 0,
+      "rating": null,
+      "ratingDistribution": null,
+      "terms": [
+        "Summer 1 2024",
+        "Spring 2024",
         "Fall 2022",
+        "Spring 2022"
+      ]
+    },
+    {
+      "code": "DS2001",
+      "difficulty": null,
+      "hasPage": false,
+      "lastTerm": "Summer 1 2024",
+      "name": "Data Science Programming Practicum",
+      "numRatings": 0,
+      "rating": null,
+      "ratingDistribution": null,
+      "terms": [
+        "Summer 1 2024",
+        "Spring 2024",
+        "Fall 2022",
+        "Spring 2022"
+      ]
+    },
+    {
+      "code": "CS5200",
+      "difficulty": 2.0,
+      "hasPage": true,
+      "lastTerm": "Summer 1 2024",
+      "name": "Database Management Systems",
+      "numRatings": 3,
+      "rating": 3.67,
+      "ratingDistribution": {
+        "1": 1,
+        "2": 0,
+        "3": 0,
+        "4": 0,
+        "5": 2
+      },
+      "terms": [
+        "Summer 1 2024",
+        "Summer 1 2023"
+      ]
+    },
+    {
+      "code": "DS2500",
+      "difficulty": null,
+      "hasPage": false,
+      "lastTerm": "Summer 1 2023",
+      "name": "Intermediate Programming with Data",
+      "numRatings": 0,
+      "rating": null,
+      "ratingDistribution": null,
+      "terms": [
+        "Summer 1 2023",
+        "Fall 2021"
+      ]
+    },
+    {
+      "code": "DS3000",
+      "difficulty": null,
+      "hasPage": true,
+      "lastTerm": "Summer 1 2023",
+      "name": "Mathematical Foundations of Artificial Intelligence",
+      "numRatings": 0,
+      "rating": null,
+      "ratingDistribution": null,
+      "terms": [
+        "Summer 1 2023"
+      ]
+    },
+    {
+      "code": "DS5110",
+      "difficulty": null,
+      "hasPage": true,
+      "lastTerm": "Summer 1 2023",
+      "name": "Essentials of Data Science",
+      "numRatings": 0,
+      "rating": null,
+      "ratingDistribution": null,
+      "terms": [
+        "Summer 1 2023"
+      ]
+    },
+    {
+      "code": "DS4400",
+      "difficulty": null,
+      "hasPage": true,
+      "lastTerm": "Spring 2023",
+      "name": "Machine Learning",
+      "numRatings": 0,
+      "rating": null,
+      "ratingDistribution": null,
+      "terms": [
+        "Spring 2023"
+      ]
+    },
+    {
+      "code": "CS5002",
+      "difficulty": null,
+      "hasPage": true,
+      "lastTerm": "Summer 1 2022",
+      "name": "Discrete Structures",
+      "numRatings": 0,
+      "rating": null,
+      "ratingDistribution": null,
+      "terms": [
+        "Summer 1 2022",
         "Spring 2022",
         "Fall 2021"
       ]
     },
     {
-      "code": "ENGR6010",
-      "difficulty": null,
+      "code": "CS1800",
+      "difficulty": 2.56,
       "hasPage": true,
-      "lastTerm": "Spring 2026",
-      "name": "Fundamentals of the Platform Economy",
-      "numRatings": 0,
-      "rating": null,
-      "ratingDistribution": null,
-      "terms": [
-        "Spring 2026",
-        "Spring 2025"
-      ]
-    },
-    {
-      "code": "EECE7352",
-      "difficulty": 4.0,
-      "hasPage": true,
-      "lastTerm": "Fall 2025",
-      "name": "Computer Architecture",
-      "numRatings": 8,
-      "rating": 3.25,
+      "lastTerm": "Summer 1 2022",
+      "name": "Discrete Structures",
+      "numRatings": 9,
+      "rating": 4.44,
       "ratingDistribution": {
-        "1": 3,
-        "2": 0,
-        "3": 1,
-        "4": 0,
-        "5": 4
-      },
-      "terms": [
-        "Fall 2025",
-        "Fall 2024",
-        "Spring 2023"
-      ]
-    },
-    {
-      "code": "HONR3310",
-      "difficulty": null,
-      "hasPage": true,
-      "lastTerm": "Spring 2023",
-      "name": "America Votes",
-      "numRatings": 0,
-      "rating": null,
-      "ratingDistribution": null,
-      "terms": [
-        "Spring 2023"
-      ]
-    },
-    {
-      "code": "EECE3324",
-      "difficulty": 4.33,
-      "hasPage": true,
-      "lastTerm": null,
-      "name": "Computer Architecture and Organization",
-      "numRatings": 3,
-      "rating": 3.0,
-      "ratingDistribution": {
-        "1": 0,
-        "2": 2,
-        "3": 0,
-        "4": 0,
-        "5": 1
-      },
-      "terms": []
-    },
-    {
-      "code": "EECE2160",
-      "difficulty": 3.0,
-      "hasPage": true,
-      "lastTerm": null,
-      "name": "Embedded Design: Enabling Robotics",
-      "numRatings": 1,
-      "rating": 5.0,
-      "ratingDistribution": {
-        "1": 0,
+        "1": 1,
         "2": 0,
         "3": 0,
-        "4": 0,
-        "5": 1
-      },
-      "terms": []
-    }
-  ],
-  "identity": {
-    "college": "Engineering",
-    "department": "Electrical Engineering",
-    "focusX": 46.6,
-    "focusY": 25.9,
-    "imageUrl": "https://coe.northeastern.edu/wp-content/uploads/profiles/ece/kaeli-d.jpg",
-    "name": "David Kaeli",
-    "slug": "david-kaeli"
-  },
-  "lastTaught": "Spring 2026",
-  "redditMentions": [
-    {
-      "body": "Current CE, just finished my second year. The other posts pretty much cover everything, but I just wanted to say that generally as a CE you can get most CS jobs, provided that you invest some of your own time to learn about more \"core\" CS topics like algorithms, data structures, and runtime analysis which are not covered until \"Fundamentals of Algorithms\" (formerly \"Optimization Methods\" -- excellent class, btw), and are still not covered as thoroughly as they are covered in CS classes. The opposite is not necessarily true; if you are in CS and are interested in a job closer to hardware is it my understanding that you won't have the background in circuits/electronics/digital logic for that (CS people, please do correct me if I'm wrong!). I was in the exact same situation as you two years ago. I wasn't sure which one to choose; I had programming experience and knew I liked programming, but **ultimately I chose CE because I was more interested in learning about how computers work at a practical level, rather than a theoretical level**. That said, CS classes do get very practical later on in the curriculum. At the beginning I was pretty fixed on solely programing and software engineering for my career but as I've taken more classes I've actually grown to enjoy hardware a lot more than I was expecting and find myself really attracted to embedded systems work (the border between hardware and software). A nice mix of both CE and CS. Either way, I highly encourage you to explore both majors in your first semester. Talk to different people in both and even professors to get a better sense of what you're looking for. For more information on CE I recommend shooting Professor David Kaeli an email -- he has a strong background in both CS and CE and is well equipped to give guidance on this matter. Feel free to pm me too. Lastly, /u/rosewillcode mentioned that CE has IEEE and CS has ACM and NU Hacks, but I just wanted to clarify that there isn't strict segregation; I actually go to all of the above and it's totally cool.",
-      "created_utc": "Mon, 05 May 2014 02:50:13 GMT",
-      "permalink": "/r/NEU/comments/t3_24jx98/ch9rbfo",
-      "score": 1,
-      "sentiment": "positive",
-      "sentiment_score": 0.4,
-      "subreddit": "NEU"
-    }
-  ],
-  "sources": {
-    "rmp": {
-      "available": true,
-      "difficulty": 4.2,
-      "gradeDistribution": {
-        "A": 2
-      },
-      "numRatings": 15,
-      "professorUrl": "https://www.ratemyprofessors.com/professor/483225",
-      "rating": 3.4,
-      "ratingDistribution": {
-        "1": 3,
-        "2": 3,
-        "3": 1,
         "4": 1,
         "5": 7
       },
+      "terms": [
+        "Summer 1 2022"
+      ]
+    },
+    {
+      "code": "CS1802",
+      "difficulty": null,
+      "hasPage": true,
+      "lastTerm": "Summer 1 2022",
+      "name": "Seminar for CS 1800",
+      "numRatings": 0,
+      "rating": null,
+      "ratingDistribution": null,
+      "terms": [
+        "Summer 1 2022"
+      ]
+    }
+  ],
+  "identity": {
+    "college": "Khoury",
+    "department": "Data Science",
+    "focusX": 51.3,
+    "focusY": 36.8,
+    "imageUrl": "https://learning.northeastern.edu/wp-content/uploads/2024/12/CATLR-AI-in-Teaching-and-Learning-Portraits-Square_John-Rachlin.png",
+    "name": "John Rachlin",
+    "slug": "john-rachlin"
+  },
+  "lastTaught": "Fall 2026",
+  "sources": {
+    "rmp": {
+      "available": true,
+      "difficulty": 2.7,
+      "gradeDistribution": {
+        "A": 38,
+        "A+": 3,
+        "A-": 6
+      },
+      "numRatings": 52,
+      "professorUrl": "https://www.ratemyprofessors.com/professor/2409062",
+      "rating": 4.63,
+      "ratingDistribution": {
+        "1": 2,
+        "2": 1,
+        "3": 2,
+        "4": 4,
+        "5": 43
+      },
       "reviews": [
         {
-          "attendance": "Mandatory",
-          "comment": "Super boring course, hard to learn anything new... too old...",
-          "course": "EECE7352",
-          "courseCode": "EECE7352",
-          "date": "2020-05-02 21:31:00 +0000 UTC",
-          "difficulty": 4,
-          "grade": "",
-          "online_class": "No",
-          "quality": 1,
-          "tags": "",
-          "textbook": "Yes"
-        },
-        {
-          "attendance": "Mandatory",
-          "comment": "Great professor - really cares about student success. Also I had him twice and didn't have to take a final in either class. Homeworks are long though, but if you complete them, you get a good grade. Also lots of extra credit opportunity.",
-          "course": "EECE7352",
-          "courseCode": "EECE7352",
-          "date": "2017-04-05 23:39:27 +0000 UTC",
-          "difficulty": 4,
-          "grade": "A",
-          "online_class": "No",
-          "quality": 5,
-          "tags": "Respected--BEWARE OF POP QUIZZES--EXTRA CREDIT",
-          "textbook": ""
-        },
-        {
-          "attendance": "Mandatory",
-          "comment": "He cares A LOT about his students. Show up for class and make sure to score well on the quizes and you will do fine. If you're confused, just go in and talk to him. He'll do so even outside of his office hours. Really great guy. Just make sure to pay attention in class. The people who failed quizes misses minor details he'd mention.",
-          "course": "EECE7352",
-          "courseCode": "EECE7352",
-          "date": "2017-01-03 14:39:28 +0000 UTC",
+          "attendance": "Not Mandatory",
+          "comment": "Professor Rachlin is an extremely caring and passionate professor who cares deeply about his students success and understanding. He is extremely flexible on his assignments and any other material which makes the class all the enjoyable. I would highly recommend to anybody taking DS classes to take Professor Rachlin.",
+          "course": "DS3500",
+          "courseCode": "DS3500",
+          "date": "2025-12-05 15:45:13 +0000 UTC",
           "difficulty": 3,
           "grade": "A",
           "online_class": "No",
           "quality": 5,
-          "tags": "Skip class? You won't pass.--Caring--EXTRA CREDIT",
-          "textbook": "Yes"
-        },
-        {
-          "attendance": "",
-          "comment": "Start the homeworks the same day they are assigned.",
-          "course": "ECE7352",
-          "courseCode": null,
-          "date": "2015-12-02 16:50:39 +0000 UTC",
-          "difficulty": 4,
-          "grade": "",
-          "online_class": "No",
-          "quality": 4,
           "tags": "",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Absolute gem of a professor. Is clearly very passionate not only in his field but also at teaching. Lectures do tend to run a little long but the stories are very interesting (if you listen). There were a few assignments over the semester but if you coded along with him in class they run very similar.",
+          "course": "DS3500",
+          "courseCode": "DS3500",
+          "date": "2025-12-05 15:44:30 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Amazing lectures --Caring--Online Savvy",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "prof rachlin is amazing. so passionate abt data science and you'll really learn a lot in this class when it comes to making reusable code. even though it's all online he really does care abt his students and it makes the class enjoyable",
+          "course": "DS3500",
+          "courseCode": "DS3500",
+          "date": "2025-06-27 04:19:47 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Group projects--Amazing lectures --Inspirational",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "easily one of the best prof's at neu. engaging and fun lectures, homework is manageable, he's flexible and understanding. the goat",
+          "course": "DS3500",
+          "courseCode": "DS3500",
+          "date": "2025-04-28 23:07:01 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Group projects--Amazing lectures --Caring",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "Probably one of the best professors I've had at this school. He is super knowledgeable and caring, and wants everyone to learn properly. Make sure to attend class because he talks about everything and that 5% attendance grade can really be a grade difference in the end. We had 6 total assignments that took a while to do, but each taught you a lot.",
+          "course": "DS3500",
+          "courseCode": "DS3500",
+          "date": "2025-04-23 15:22:41 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Clear grading criteria--Inspirational--Lecture heavy",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "there are not enough good things to say about rachlin. this is my second class with him (take cs3200 with him!!!) and i have had yet another phenomenal experience in his course. i wish i could take another course with him honestly. his lectures are great, he has a lot of interesting stories, and is very passionate about teaching. best prof at NU!",
+          "course": "DS3500",
+          "courseCode": "DS3500",
+          "date": "2025-04-10 16:48:21 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A-",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Amazing lectures --Inspirational--Caring",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "Best professor ever! So understanding and helpful if you get the chance to take DS3200 with him - you have to!! He is so nice and kind that you can't pass up the opportunity.",
+          "course": "CS3200",
+          "courseCode": "CS3200",
+          "date": "2025-04-09 21:09:33 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A-",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Caring--Respected--Accessible outside class",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "Prof Rachlin is the goat and his passion is so evident in everything he does. Incredibly kind and caring. His lectures can be slow, but his knowledge and enthusiasm makes that a worthy trade. He shows you how his class is applicable rather than just telling you via interesting HW assignments. I aspire to be as great a teacher as him. 10/10",
+          "course": "CS3200",
+          "courseCode": "CS3200",
+          "date": "2025-04-06 04:51:23 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A-",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Inspirational--Caring--Respected",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "Prof Rachlin is a goat but he does tend to go through lectures like painfully slowly. Super knowledgable and easy tho.",
+          "course": "DS3500",
+          "courseCode": "DS3500",
+          "date": "2025-03-14 20:00:46 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Caring--Respected--Accessible outside class",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "Super nice teacher and loved his class. One of the professors that makes learning enjoyable, I would 100% recommend him.",
+          "course": "CS3200",
+          "courseCode": "CS3200",
+          "date": "2024-12-07 03:48:50 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Amazing lectures --Gives good feedback--Inspirational",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "Professor Rachlin is enthusiastic and cares deeply about the success of his students in the real world. His assignments are oriented towards applicable areas of programming. Class is assignment based and optionally allows to work in groups. Attendance is mandatory to be able to complete assignments but classes are recorded for review.",
+          "course": "DS3500",
+          "courseCode": "DS3500",
+          "date": "2024-12-06 05:59:40 +0000 UTC",
+          "difficulty": 4,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Participation matters--Inspirational--Caring",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "Can't recommend professor Rachlin enough. Incredibly caring and an incredibly good person to talk to about anything CS/career related, very knowledgable guy. Cares a ton about his students and teaches you really useful skills in this class.",
+          "course": "DS3500",
+          "courseCode": "DS3500",
+          "date": "2024-12-03 19:33:54 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Group projects--Amazing lectures --Caring",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "Beware goes on tangents that have NOTHING to do with the actual class and cares too much about ascetics than the actual functionality of the code. He is also prone to showing favoritism towards some students and can completely ignore others.",
+          "course": "DS2000",
+          "courseCode": null,
+          "date": "2024-06-21 00:30:13 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "No",
+          "quality": 2,
+          "tags": "Tough grader--Lots of homework--Lecture heavy",
           "textbook": "Yes"
         },
         {
-          "attendance": "",
-          "comment": "tough tough tough",
-          "course": "EECE7352",
-          "courseCode": "EECE7352",
-          "date": "2015-11-12 20:10:31 +0000 UTC",
-          "difficulty": 5,
-          "grade": "",
+          "attendance": "Mandatory",
+          "comment": "Professor Rachlin is the best. Although being an online class, he still shows so much respect and care for his students. The course is challenging, more so than DS2000/2500 (obvi) but he is always there to help you out.",
+          "course": "DS3500",
+          "courseCode": "DS3500",
+          "date": "2024-05-25 03:43:44 +0000 UTC",
+          "difficulty": 4,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "EXTRA CREDIT--Group projects--Caring",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "awesome. could not be better. no clear so good. U need to put in time",
+          "course": "DS2000",
+          "courseCode": null,
+          "date": "2024-04-27 00:11:42 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
           "online_class": "No",
+          "quality": 5,
+          "tags": "",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "Rachlin is very knowledgable but doesn't talk down to his students at all. He's extremely approachable/understanding and makes class fun whenever he has the opportunity. He uses class time effectively and his assignment expectations are very clear. Highly recommend especially if you're new to python.",
+          "course": "DS2000",
+          "courseCode": null,
+          "date": "2024-04-02 14:08:39 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Hilarious--Caring--Accessible outside class",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "loml! I have had him since my first DS class down to my last. He really expects great things from each one of his students and it shows by his caring nature. Always has a positive attitude and will truly miss him when I graduate. His class is easier if you pay attention but he is quite flexible and always willing to learn himself!",
+          "course": "DS3500",
+          "courseCode": "DS3500",
+          "date": "2024-03-20 05:16:19 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A+",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Amazing lectures --Inspirational--Caring",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Goat",
+          "course": "DS3500",
+          "courseCode": "DS3500",
+          "date": "2024-01-25 16:24:33 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A-",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "I'm not a fan of online classes, but that aside - Professor Rachlin is extremely passionate about what he does, and even more passionate about inspiring students. The lectures can sometimes go a little off track due to this passion, but overall, Professor Rachlin taught the material in a very clear and concise manner.",
+          "course": "CS3200",
+          "courseCode": "CS3200",
+          "date": "2023-12-12 19:49:24 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 4,
+          "tags": "Inspirational--Accessible outside class--Online Savvy",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Prof. Rachlin is probably one of the best professors to have from the CS department. He is extremely knowledgable in the subject and knows how to teach students. He bases his assignments heavily on biology as that's his favorite subject, but you have lots of opportunities to learn and apply. The HW is slightly difficult at first but it gets easier.",
+          "course": "CS3200",
+          "courseCode": "CS3200",
+          "date": "2023-12-10 15:12:54 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 4,
+          "tags": "Hilarious--Caring--Online Savvy",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Rachlin cares a lot about data science and it really shows. That being said, he sometimes forgets that students don't have the same expertise that he does and launches into things that students are not prepared for. The lectures often had little to do with the actual HW assignment material and could often be zoned out in.",
+          "course": "DS4300",
+          "courseCode": "DS4300",
+          "date": "2023-06-28 01:48:00 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 3,
+          "tags": "Caring--Accessible outside class",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Rachlin is only professor you can take for many DS classes, so I had to take multiple classes with him. All classes had boring lectures, were hard to follow & repetitive. Grading is fair & HWs are easy, however, I wish we learned more concepts and there was more clarity on what the class even entails. I feel like he makes up content as he goes.",
+          "course": "DS3500",
+          "courseCode": "DS3500",
+          "date": "2023-05-11 14:42:27 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "Yes",
           "quality": 3,
           "tags": "",
-          "textbook": ""
+          "textbook": "No"
         },
         {
-          "attendance": "",
-          "comment": "Homework is challenging (beginner-intermediate knowledge prior) but Prof. Kaeli and the TA's are helpful and knowledgeable. Labs are very interesting and the write-ups are straightforward. Great class. Material is very interesting.",
-          "course": "EECE2160",
-          "courseCode": "EECE2160",
-          "date": "2014-12-26 22:16:46 +0000 UTC",
-          "difficulty": 3,
-          "grade": "",
-          "online_class": "No",
+          "attendance": "Not Mandatory",
+          "comment": "Took an asynchronous, online course with him over the summer. Stupidly easy and he skipped like half the material because we didn't have time. Seems really passionate about what he does and like a great guy overall, but if you can, take CS1800 over the summer.",
+          "course": "CS1800",
+          "courseCode": "CS1800",
+          "date": "2023-05-03 15:46:04 +0000 UTC",
+          "difficulty": 1,
+          "grade": "A",
+          "online_class": "Yes",
           "quality": 5,
           "tags": "",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Rude and disrespectful. Knows almost nothing about computer science. Avoid him at all costs.",
+          "course": "CS5200",
+          "courseCode": "CS5200",
+          "date": "2023-04-10 20:22:48 +0000 UTC",
+          "difficulty": 1,
+          "grade": "Rather not say",
+          "online_class": "Yes",
+          "quality": 1,
+          "tags": "Tough grader--Lots of homework--Hilarious",
           "textbook": "Yes"
         },
         {
-          "attendance": "",
-          "comment": "Professor David Kaeli is really of great knowledge in computer architecture, and he can express his ideas really clreally to all students. His class is funny and easy to learn. Though the workload is heavy, it's the way you can really learn. Good class, recommend to you!",
-          "course": "EECE7352",
-          "courseCode": "EECE7352",
-          "date": "2014-11-16 15:48:23 +0000 UTC",
+          "attendance": "Not Mandatory",
+          "comment": "Professor Rachlin is the best and nicest professor at Northeastern. I took my first DS class with him 3 years ago and this class is my 3rd one with him. He's passionate about Data Science and is so inspiring. His HW are fun and challenging and you can't find it anywhere else. Take him if you can!",
+          "course": "DS3500",
+          "courseCode": "DS3500",
+          "date": "2023-03-24 15:37:02 +0000 UTC",
+          "difficulty": 3,
+          "grade": "Not sure yet",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Group projects--Amazing lectures --Inspirational",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Rachlin is literally the nicest professor I've ever had. He lives and breathes data science, and his passion is to spark student passion for data science. There are no exams, and the homeworks and projects are reasonable. He really just wants you to succeed and enjoy data science. Great guy.",
+          "course": "DS2000",
+          "courseCode": null,
+          "date": "2022-04-22 02:41:42 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Gives good feedback--Inspirational--Caring",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Professor Rachlin is a really sweet and great teacher. He does a great job at introducing first time students to code. The homework can be a little hard (maybe because I am a first time coder and the class was online), but if ur committed and go to office hours, you can totally do it.",
+          "course": "DS2000",
+          "courseCode": null,
+          "date": "2022-04-14 17:03:40 +0000 UTC",
+          "difficulty": 4,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Hilarious--Caring--Respected",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Rachlin is simply the best professor I have had at Northeastern. His class is perhaps a bit easy, but maybe a better word is just very fair. He is an understanding guy who wants you to understand and is always willing to help. I would strongly reccomend taking classes with Rachlin if you have the option.",
+          "course": "DS2500",
+          "courseCode": null,
+          "date": "2022-04-08 18:08:21 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Caring--Respected--Online Savvy",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Prof. Rachlin single-handedly got me through Discrete Structures. Math is a challenge for me and he did everything in his power to make sure that I got through his class with a clear understanding of the material. He genuinely cares for his students, and makes himself available to help them outside of even his office hours. Highly recommend.",
+          "course": "CS5200",
+          "courseCode": "CS5200",
+          "date": "2021-12-20 15:08:11 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A-",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Accessible outside class--Inspirational--Caring",
+          "textbook": "Yes"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Awesome professor! If you get a chance to take Rachlin, take him. You will have an amazing time and also make sure you go to his office hours. He is incredibly helpful and a nice guy.",
+          "course": "DS2500",
+          "courseCode": null,
+          "date": "2021-12-15 03:25:49 +0000 UTC",
           "difficulty": 2,
           "grade": "",
-          "online_class": "No",
+          "online_class": "Yes",
           "quality": 5,
-          "tags": "",
+          "tags": "Gives good feedback--Accessible outside class--Caring",
+          "textbook": ""
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "I loved Prof Rachlin. Such an amazing professor. Really interesting lectures and you can tell he is passionate about it. I think his amazing teaching skills made the class much easier than it would have been otherwise. 100% recommend",
+          "course": "CS3200",
+          "courseCode": "CS3200",
+          "date": "2021-11-09 00:30:07 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Clear grading criteria--Hilarious--Amazing lectures",
           "textbook": "Yes"
         },
         {
+          "attendance": "Not Mandatory",
+          "comment": "Rachlin has been my favorite professor thus far in the Masters program. He is down to earth, easy to meet privately with, a fair grader, and respects when you put in the effort. I wasn't hype for the final group project but the moment I told him my fears he put me in a group and ensured we would succeed. Easy A if you give a fraction of a sh*t.",
+          "course": "CS5200",
+          "courseCode": "CS5200",
+          "date": "2021-08-05 18:47:12 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Respected--Accessible outside class--Amazing lectures",
+          "textbook": ""
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Incredible Professor. Explained everything perfectly, and gave enough examples for us to solve any homework assignment. If this wasn't enough, he was very easy to reach outside of the class, and super nice about any questions we may have. Can't recommend enough!",
+          "course": "CS1800",
+          "courseCode": "CS1800",
+          "date": "2021-05-03 04:48:16 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Accessible outside class--Amazing lectures--Caring",
+          "textbook": ""
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "He is just the goat. Very good at teaching as well as a genuine caring person. One of my best classes so far!",
+          "course": "CS1800",
+          "courseCode": "CS1800",
+          "date": "2021-04-20 23:29:39 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A+",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Gives good feedback--Clear grading criteria--Amazing lectures",
+          "textbook": ""
+        },
+        {
           "attendance": "",
-          "comment": "Incredibly good at what he does. Seems like he knows all the people in the field. If you can track him down and steal some time, he's very helpful.",
-          "course": "EECE3324",
-          "courseCode": "EECE3324",
-          "date": "2014-01-19 16:30:07 +0000 UTC",
+          "comment": "DS4300 with Prof. Rachlin was definitely my favorite class I've taken at Northeastern. His lectures focus on topics that he thinks students will find interesting or helpful. He also seems like he genuinely wants to see his students succeed, and will make time outside of class to offer guidance, career advice, etc. Couldn't recommend more!",
+          "course": "DS4300",
+          "courseCode": "DS4300",
+          "date": "2021-04-16 21:04:31 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Respected--Amazing lectures--Caring",
+          "textbook": ""
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Rachlin is a very good teacher. I had him asynchronously during COVID, but his lectures were so clear that I had absolutely no trouble keeping up. He gives you a huge amount of examples that he fully solves for you, so any exam or quiz is easy to study for because it's essentially the same problems. Very nice guy, easy grader, highly recommend.",
+          "course": "CS1800",
+          "courseCode": "CS1800",
+          "date": "2021-04-15 15:04:42 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A+",
+          "online_class": "Yes",
+          "quality": 4,
+          "tags": "Hilarious--Amazing lectures",
+          "textbook": ""
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Best professor Ive had here so far by a lot. Amazing guy, gives great lectures, made the class very doable for those with no prior coding experience, and clearly cares/is passionate about teaching.",
+          "course": "DS2000",
+          "courseCode": null,
+          "date": "2021-01-12 17:15:12 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Respected--Accessible outside class--Amazing lectures",
+          "textbook": "Yes"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Professor Rachlin is a GREAT lecturer. If you attend his lectures and go to office hours you WILL get an A in his class. I had NO coding experience when I took DS 2000 and as a Data Science major I can say that he inspired me to continue my study of data science. He's very passionate in a quirky but funny way and is accessible outside of class.",
+          "course": "DS2000",
+          "courseCode": null,
+          "date": "2020-12-19 21:08:52 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Accessible outside class--Amazing lectures--Caring",
+          "textbook": "Yes"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "I took this class completely virtual, and Professor Rachlin is one of the best professors I have had at NEU! He teaches Python in a very accessible and engaging way, I never thought that I would like it so much. He clearly puts in a ton of prep time to every single lecture. He answers every question on Piazza, and is always helpful and available",
+          "course": "DS2000",
+          "courseCode": null,
+          "date": "2020-12-09 16:13:32 +0000 UTC",
+          "difficulty": 4,
+          "grade": "A",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Accessible outside class--Inspirational--Amazing lectures",
+          "textbook": ""
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Prof. Rachlin's lectures were sometimes dry but my class was 1 hr and 40 minutes so and it was more a reflection of the material. He is an amazing guy and you are in good hands taking his course. He rewards for effort and is one of the most helpful, genuine, down to earth people I've met. If you get the opportunity to take a class with him, do it.",
+          "course": "CS1800",
+          "courseCode": "CS1800",
+          "date": "2020-12-01 17:17:59 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Respected--Hilarious--Amazing lectures",
+          "textbook": ""
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Widely regarded as one of the top CS professors at NU. Sadly, he is also regarded as the ONLY good DB design professor (at least during my year) - so you probably don't need to be convinced to try and take this with him. Funny, clear, smart, relatable, compassionate - a breath of fresh air in the Northeastern CS department.",
+          "course": "CS3200",
+          "courseCode": "CS3200",
+          "date": "2020-06-27 03:34:03 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "",
+          "textbook": ""
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "Very rude. While I did well in the course, I will NOT take another class with him. Lacks compassion and is very unreasonable when asking for clarification on grading. Lectures are extremely boring, and a lot of the material can be self taught better than his explanations. Take someone else if at all possible, and if you can't then GOOD LUCK.",
+          "course": "CS1800",
+          "courseCode": "CS1800",
+          "date": "2020-05-20 19:03:39 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
+          "online_class": "No",
+          "quality": 1,
+          "tags": "",
+          "textbook": ""
+        },
+        {
+          "attendance": "",
+          "comment": "Had him for recitation and have him now for database and, while the class is online right now, is one of the best professors I've had. You can tell he really cares about teaching. Sometimes he'll go off on tangents but he's still a great teacher who's very understandable.",
+          "course": "CS3200",
+          "courseCode": "CS3200",
+          "date": "2020-05-12 02:06:34 +0000 UTC",
           "difficulty": 3,
           "grade": "",
           "online_class": "No",
           "quality": 5,
-          "tags": "",
+          "tags": "Respected--Accessible outside class--Caring",
           "textbook": ""
         },
         {
-          "attendance": "",
-          "comment": "Hard to learn in his class. Always speaks irrelevant, discusses his experiences with blah blah companies and blah blah research. No technical lecture",
-          "course": "EECE7352",
-          "courseCode": "EECE7352",
-          "date": "2013-11-03 18:28:10 +0000 UTC",
-          "difficulty": 5,
-          "grade": "",
+          "attendance": "Not Mandatory",
+          "comment": "Great guy with interesting lectures. Really cares about student understanding. Patient and considerate of students experience with the material. Very excited to be in class and explaining new things to students. Would recommend taking this course.",
+          "course": "DS2000",
+          "courseCode": null,
+          "date": "2019-11-07 20:24:40 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
           "online_class": "No",
-          "quality": 1,
-          "tags": "",
-          "textbook": ""
-        },
-        {
-          "attendance": "",
-          "comment": "Teaches almost nothing. Talking about the useless stuff everytime. We feel now it is the point where he would teach something relevent, informative and clear understandable, then we are absolutely wrong!!!",
-          "course": "EECE7352",
-          "courseCode": "EECE7352",
-          "date": "2013-11-03 18:20:38 +0000 UTC",
-          "difficulty": 4,
-          "grade": "",
-          "online_class": "No",
-          "quality": 1,
-          "tags": "",
-          "textbook": ""
-        },
-        {
-          "attendance": "",
-          "comment": "Had comp arch with him, he was SO confusing! Yes, he's a smart guy but does not know how to teach! He assumes students know it all and gives extremely hard assignments with minimum to no help at all! The only good thing about him is that he gives a lot of extra credit",
-          "course": "EECE3324",
-          "courseCode": "EECE3324",
-          "date": "2012-12-22 23:04:00 +0000 UTC",
-          "difficulty": 5,
-          "grade": "",
-          "online_class": "No",
-          "quality": 2,
-          "tags": "",
+          "quality": 5,
+          "tags": "Clear grading criteria--Amazing lectures--Caring",
           "textbook": "Yes"
         },
         {
-          "attendance": "",
-          "comment": "He obviously knows his stuff but he doesn't know how to teach! He assumes everyone knows the material so he assigns insanely hard assignments and never goes over them in class! He expects you to figure it all out on your own! Confusing to no end.",
-          "course": "EECE3324",
-          "courseCode": "EECE3324",
-          "date": "2012-03-29 17:02:19 +0000 UTC",
-          "difficulty": 5,
-          "grade": "",
+          "attendance": "Not Mandatory",
+          "comment": "Professor Rachlin is amazing. You won't be super entertained in all of his lectures, but he makes the material seem less daunting, and explains it well. He is one of the most genuine, caring professors I have ever had. On the last day of class, he puts together a presentation about his life lessons and it's the cutest thing ever. Highly recommend.",
+          "course": "CS1800",
+          "courseCode": "CS1800",
+          "date": "2019-09-25 01:14:51 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
           "online_class": "No",
-          "quality": 2,
-          "tags": "",
-          "textbook": "Yes"
+          "quality": 5,
+          "tags": "Inspirational--Clear grading criteria--Caring",
+          "textbook": ""
         },
         {
-          "attendance": "",
-          "comment": "A high quality professor that knows his stuff.",
-          "course": "EECE7352",
-          "courseCode": "EECE7352",
-          "date": "2010-12-31 15:03:12 +0000 UTC",
-          "difficulty": 5,
+          "attendance": "Not Mandatory",
+          "comment": "Great professor with clear grading criteria. Would definitely take this class again. Difficult to get an A because it's a 95+, but an A- is easily possible.",
+          "course": "CS3200",
+          "courseCode": "CS3200",
+          "date": "2019-04-11 14:05:21 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A-",
+          "online_class": "No",
+          "quality": 4,
+          "tags": "Respected--Group projects--Clear grading criteria",
+          "textbook": ""
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Rachlin really cares about his students and is always accessible. He tries to make the topics interesting and relevant and he makes a lot of dad jokes. I would really recommend taking his classes because I think he will help you will be more successful than if you took them with another professor.",
+          "course": "CS1800",
+          "courseCode": "CS1800",
+          "date": "2019-03-21 15:51:34 +0000 UTC",
+          "difficulty": 3,
           "grade": "",
           "online_class": "No",
           "quality": 5,
-          "tags": "",
-          "textbook": "Yes"
-        },
-        {
-          "attendance": "",
-          "comment": "Had Comp Arch with him. Confusing to no end. Not very understanding at all for students who have trouble in his class. He's always busy with meeting with companies so trying to get him outside his office hours is impossible. When you do go to his office it's almost useless.",
-          "course": "ECEU324",
-          "courseCode": null,
-          "date": "2007-04-18 04:48:24 +0000 UTC",
-          "difficulty": 5,
-          "grade": "",
-          "online_class": "No",
-          "quality": 2,
-          "tags": "",
+          "tags": "Lecture heavy--Caring",
           "textbook": ""
         },
         {
           "attendance": "",
-          "comment": "No Comments",
-          "course": "ECEU324",
-          "courseCode": null,
-          "date": "2005-08-11 13:23:01 +0000 UTC",
-          "difficulty": 5,
-          "grade": "",
+          "comment": "Great professor who really cares about his students. Has a deep interest in the curriculum and shows it during lectures. While the material can be dry at times, he is able to keep things interesting and funny. Would recommend taking 1800 with Rachlin.",
+          "course": "CS1800",
+          "courseCode": "CS1800",
+          "date": "2018-12-07 19:07:14 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
           "online_class": "No",
+          "quality": 5,
+          "tags": "Respected--ACCESSIBLE OUTSIDE CLASS--Caring",
+          "textbook": ""
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "SUPER CARING PROFESSOR! Big HW every week and you can work in groups or work individually. Attendance was part of your grade but it was chill since he is so wholesome :D",
+          "course": "DS4300",
+          "courseCode": "DS4300",
+          "date": "2026-06-16 14:04:26 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Group projects--Amazing lectures --Online Savvy",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "He deeply cares about his students and truly wants to see us succeed. His last lecture of the semester was amazing, and he shared great insights on life, career, and purpose. It was an honor to be a part of his class!",
+          "course": "CS3200",
+          "courseCode": "CS3200",
+          "date": "2026-04-17 20:35:37 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Inspirational--Caring--Respected",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "He is incredibly caring and truly wishes each of his students the absolute best. In his last lecture of the semester, he shared amazing insights on life, career, and purpose. It was an honor to be a part of his class.",
+          "course": "CS3200",
+          "courseCode": "CS3200",
+          "date": "2026-04-17 20:32:36 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "Yes",
+          "quality": 5,
+          "tags": "Inspirational--Caring--Respected",
+          "textbook": "No"
+        },
+        {
+          "attendance": "Not Mandatory",
+          "comment": "Easily the best professor I've ever had at Northeastern. Extremely caring and passionate about what he teaches. I wish he taught in-person but he's based outside of Boston unfortunately.",
+          "course": "DS4300",
+          "courseCode": "DS4300",
+          "date": "2026-04-16 21:29:36 +0000 UTC",
+          "difficulty": 2,
+          "grade": "A",
+          "online_class": "Yes",
           "quality": 5,
           "tags": "",
           "textbook": "No"
         }
       ],
-      "wouldTakeAgainPct": 67.0
+      "wouldTakeAgainPct": 94.0
     }
   },
   "summary": {
     "bySource": {
       "rmp": {
-        "numRatings": 15,
-        "rating": 3.4
+        "numRatings": 52,
+        "rating": 4.63
       }
     },
-    "difficulty": 4.2,
+    "difficulty": 2.7,
     "hoursPerWeek": null,
-    "numComments": 16,
-    "numRatings": 15,
-    "rating": 3.4,
-    "wouldTakeAgainPct": 67.0
+    "numComments": 208,
+    "numRatings": 52,
+    "rating": 4.63,
+    "wouldTakeAgainPct": 94.0
   },
   "version": 2
 }

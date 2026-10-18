@@ -113,7 +113,17 @@ export type Professor = {
   };
   courses: { code: string; name: string | null; hasPage: boolean }[];
   lastTaught: string | null;
-  redditMentions: unknown[];
+  awards: TeachingAward[];
+};
+
+/** Same shape as TeachingAward in frontend/src/api/api.ts. */
+export type TeachingAward = {
+  award: string;
+  awardingBody: string;
+  year: number;
+  /** As the source prints it: "2022–23" for an academic year, "2024" for Khoury's. */
+  yearLabel: string;
+  sourceUrl: string;
 };
 
 export async function fetchProfessor(slug: string): Promise<Professor> {

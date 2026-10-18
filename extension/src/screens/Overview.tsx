@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { fetchProfessor, isUnavailable, isNotFound, professorUrl, type Professor } from '../api';
 import StarRating from '../components/StarRating';
 import StatTile from '../components/StatTile';
+import AwardChips from '../components/AwardChips';
 import { ScaleIcon, ReviewsIcon, InfoIcon } from '../components/icons';
 import { score, percent, plural } from '../utils/format';
 import './Overview.css';
@@ -40,7 +41,7 @@ export default function Overview({ slug }: { slug: string }) {
   if (state.status === 'loading') return <p className="muted">Loading…</p>;
   if (state.status === 'error') return <p className="muted">{state.message}</p>;
 
-  const { identity, summary, courses, lastTaught, redditMentions } = state.prof;
+  const { identity, summary, courses, lastTaught, awards } = state.prof;
 
   return (
     <>
@@ -59,33 +60,19 @@ export default function Overview({ slug }: { slug: string }) {
           <h1 className="name">{identity.name}</h1>
           {identity.department && <p className="dept">{identity.department}</p>}
           {lastTaught && <span className="chip">Last taught {lastTaught}</span>}
+          <AwardChips awards={awards} />
         </div>
       </div>
 
-      {/* Two-source split from the design: RMP on the left, Reddit on the
-          right. */}
-      <div className="scores">
-        <div className="score">
-          <p className="score-label">OVERALL</p>
-          <div className="score-row">
-            <StarRating rating={summary.rating ?? 0} size="md" />
-            <strong>{score(summary.rating)}</strong>
-            <span className="outof">/ 5</span>
-          </div>
-          <p className="score-sub">
-            from {summary.numRatings} {plural(summary.numRatings, 'rating')}
-          </p>
+      <div className="score">
+        <div className="score-row">
+          <StarRating rating={summary.rating ?? 0} size="lg" />
+          <strong>{score(summary.rating)}</strong>
+          <span className="outof">/ 5</span>
         </div>
-
-        <div className="score">
-          <p className="score-label">REDDIT</p>
-          <div className="score-row">
-            <strong>{redditMentions.length}</strong>
-          </div>
-          <p className="score-sub">
-            {plural(redditMentions.length, 'mention')} on r/NEU
-          </p>
-        </div>
+        <p className="score-sub">
+          from {summary.numRatings} {plural(summary.numRatings, 'rating')}
+        </p>
       </div>
 
       <div className="actions">
@@ -108,7 +95,9 @@ export default function Overview({ slug }: { slug: string }) {
 
       <p className="section-label">
         Key Stats
-        <InfoIcon className="info" />
+        <span className="info-wrap" title="From RateMyProfessors ratings, and courses from Banner.">
+          <InfoIcon className="info" />
+        </span>
       </p>
       <div className="tiles">
         <StatTile value={score(summary.difficulty)} label="Difficulty" />

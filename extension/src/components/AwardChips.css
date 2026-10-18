@@ -1,0 +1,38 @@
+/* The site's .prof-award chip, scaled for the popup. */
+.awards {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.award {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #fdf6e7;
+  border: 1px solid #ecd9a8;
+  color: #7a5300;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-decoration: none;
+  max-width: 100%;
+}
+
+.award:not(.more):hover {
+  background: #faeed2;
+  border-color: #e0c88c;
+}
+
+.award-years {
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.award.more {
+  cursor: default;
+}
