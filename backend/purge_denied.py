@@ -195,6 +195,21 @@ def purge(conn, dry_run=False):
             "SELECT count(*) FROM professors WHERE slug = ANY(%s)",
             (slugs,)))
     if name_keys:
+        # review tags (pipeline/review_tags.py). review_tags and review_tags_processed
+        # find their rows through rmp_reviews, so they have to go before it
+        steps.append((
+            "professor_tags",
+            "DELETE FROM professor_tags WHERE name_key = ANY(%s)",
+            "SELECT count(*) FROM professor_tags WHERE name_key = ANY(%s)",
+            (name_keys,)))
+        for table in ("review_tags", "review_tags_processed"):
+            steps.append((
+                table,
+                f"DELETE FROM {table} WHERE source = 'rmp' AND source_id IN "
+                "(SELECT id FROM rmp_reviews WHERE name_key = ANY(%s))",
+                f"SELECT count(*) FROM {table} WHERE source = 'rmp' AND source_id IN "
+                "(SELECT id FROM rmp_reviews WHERE name_key = ANY(%s))",
+                (name_keys,)))
         steps.append((
             "rmp_reviews",
             "DELETE FROM rmp_reviews WHERE name_key = ANY(%s)",
