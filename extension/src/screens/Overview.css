@@ -44,9 +44,9 @@
   color: var(--brand);
 }
 
-/* Two-source split: Angela's RMP | TRACE columns, with Reddit in place of
-   TRACE. Both columns are placed explicitly — the ::before divider is the
-   first grid child, so auto-placement would push the first column past it. */
+/* Two-source split: RMP on the left, Reddit on the right. Both columns are
+   placed explicitly — the ::before divider is the first grid child, so
+   auto-placement would push the first column past it. */
 .scores {
   display: grid;
   grid-template-columns: 1fr 1px 1fr;

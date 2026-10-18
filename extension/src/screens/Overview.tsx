@@ -57,8 +57,8 @@ export default function Overview({ slug }: { slug: string }) {
         </div>
       </div>
 
-      {/* Angela's two-source split. The right column was TRACE; Reddit is the
-          other source we actually have. */}
+      {/* Two-source split from the design: RMP on the left, Reddit on the
+          right. */}
       <div className="scores">
         <div className="score">
           <div className="score-row">

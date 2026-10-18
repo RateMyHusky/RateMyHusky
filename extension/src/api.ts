@@ -101,7 +101,7 @@ export type Professor = {
     wouldTakeAgainPct: number | null;
     numRatings: number;
     numComments: number;
-    hoursPerWeek: number | null; // always null since TRACE was removed
+    hoursPerWeek: number | null; // always null — no source provides it
   };
   courses: { code: string; name: string | null; hasPage: boolean }[];
   lastTaught: string | null;
