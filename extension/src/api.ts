@@ -1,4 +1,5 @@
 import searchFixture from './fixtures/search.json';
+import professorFixture from './fixtures/professor.json';
 
 // Flip once the site is out of maintenance and /api/* returns JSON again.
 export const USE_FIXTURES = true;
@@ -81,4 +82,33 @@ export function isUnavailable(err: unknown): boolean {
 
 export function professorUrl(slug: string): string {
   return `${API_BASE}/professors/${encodeURIComponent(slug)}`;
+}
+
+export type Professor = {
+  version: number;
+  identity: {
+    slug: string;
+    name: string;
+    department: string | null;
+    college: string | null;
+    imageUrl: string | null;
+    focusX: number;
+    focusY: number;
+  };
+  summary: {
+    rating: number | null;
+    difficulty: number | null;
+    wouldTakeAgainPct: number | null;
+    numRatings: number;
+    numComments: number;
+    hoursPerWeek: number | null; // always null since TRACE was removed
+  };
+  courses: { code: string; name: string | null; hasPage: boolean }[];
+  lastTaught: string | null;
+  redditMentions: unknown[];
+};
+
+export async function fetchProfessor(slug: string): Promise<Professor> {
+  if (USE_FIXTURES) return professorFixture as Professor;
+  return get<Professor>(`/api/professors/${encodeURIComponent(slug)}/full`);
 }

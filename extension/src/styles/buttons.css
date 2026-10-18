@@ -1,0 +1,58 @@
+/* The site's .prof-compare-btn / .prof-rmp-btn pair. Used on both <button>
+   and <a>, hence the explicit text-decoration. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+}
+
+.btn svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.btn.primary {
+  background: var(--brand);
+  color: #fff;
+  border: none;
+  box-shadow: 0 2px 8px rgba(214, 57, 76, 0.2);
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--brand-dark);
+  transform: scale(1.03);
+  box-shadow: 0 4px 16px rgba(214, 57, 76, 0.3);
+}
+
+.btn.secondary {
+  background: transparent;
+  color: var(--brand);
+  border: 1.5px solid var(--brand);
+}
+
+.btn.secondary:hover {
+  background: var(--brand-wash);
+  transform: scale(1.03);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}

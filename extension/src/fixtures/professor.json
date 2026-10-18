@@ -1,0 +1,357 @@
+{
+  "awards": [],
+  "courses": [
+    {
+      "code": "EECE5640",
+      "difficulty": null,
+      "hasPage": true,
+      "lastTerm": "Spring 2026",
+      "name": "High-Performance Computing",
+      "numRatings": 0,
+      "rating": null,
+      "ratingDistribution": null,
+      "terms": [
+        "Spring 2026",
+        "Spring 2025",
+        "Fall 2022",
+        "Spring 2022",
+        "Fall 2021"
+      ]
+    },
+    {
+      "code": "ENGR6010",
+      "difficulty": null,
+      "hasPage": true,
+      "lastTerm": "Spring 2026",
+      "name": "Fundamentals of the Platform Economy",
+      "numRatings": 0,
+      "rating": null,
+      "ratingDistribution": null,
+      "terms": [
+        "Spring 2026",
+        "Spring 2025"
+      ]
+    },
+    {
+      "code": "EECE7352",
+      "difficulty": 4.0,
+      "hasPage": true,
+      "lastTerm": "Fall 2025",
+      "name": "Computer Architecture",
+      "numRatings": 8,
+      "rating": 3.25,
+      "ratingDistribution": {
+        "1": 3,
+        "2": 0,
+        "3": 1,
+        "4": 0,
+        "5": 4
+      },
+      "terms": [
+        "Fall 2025",
+        "Fall 2024",
+        "Spring 2023"
+      ]
+    },
+    {
+      "code": "HONR3310",
+      "difficulty": null,
+      "hasPage": true,
+      "lastTerm": "Spring 2023",
+      "name": "America Votes",
+      "numRatings": 0,
+      "rating": null,
+      "ratingDistribution": null,
+      "terms": [
+        "Spring 2023"
+      ]
+    },
+    {
+      "code": "EECE3324",
+      "difficulty": 4.33,
+      "hasPage": true,
+      "lastTerm": null,
+      "name": "Computer Architecture and Organization",
+      "numRatings": 3,
+      "rating": 3.0,
+      "ratingDistribution": {
+        "1": 0,
+        "2": 2,
+        "3": 0,
+        "4": 0,
+        "5": 1
+      },
+      "terms": []
+    },
+    {
+      "code": "EECE2160",
+      "difficulty": 3.0,
+      "hasPage": true,
+      "lastTerm": null,
+      "name": "Embedded Design: Enabling Robotics",
+      "numRatings": 1,
+      "rating": 5.0,
+      "ratingDistribution": {
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "4": 0,
+        "5": 1
+      },
+      "terms": []
+    }
+  ],
+  "identity": {
+    "college": "Engineering",
+    "department": "Electrical Engineering",
+    "focusX": 46.6,
+    "focusY": 25.9,
+    "imageUrl": "https://coe.northeastern.edu/wp-content/uploads/profiles/ece/kaeli-d.jpg",
+    "name": "David Kaeli",
+    "slug": "david-kaeli"
+  },
+  "lastTaught": "Spring 2026",
+  "redditMentions": [
+    {
+      "body": "Current CE, just finished my second year. The other posts pretty much cover everything, but I just wanted to say that generally as a CE you can get most CS jobs, provided that you invest some of your own time to learn about more \"core\" CS topics like algorithms, data structures, and runtime analysis which are not covered until \"Fundamentals of Algorithms\" (formerly \"Optimization Methods\" -- excellent class, btw), and are still not covered as thoroughly as they are covered in CS classes. The opposite is not necessarily true; if you are in CS and are interested in a job closer to hardware is it my understanding that you won't have the background in circuits/electronics/digital logic for that (CS people, please do correct me if I'm wrong!). I was in the exact same situation as you two years ago. I wasn't sure which one to choose; I had programming experience and knew I liked programming, but **ultimately I chose CE because I was more interested in learning about how computers work at a practical level, rather than a theoretical level**. That said, CS classes do get very practical later on in the curriculum. At the beginning I was pretty fixed on solely programing and software engineering for my career but as I've taken more classes I've actually grown to enjoy hardware a lot more than I was expecting and find myself really attracted to embedded systems work (the border between hardware and software). A nice mix of both CE and CS. Either way, I highly encourage you to explore both majors in your first semester. Talk to different people in both and even professors to get a better sense of what you're looking for. For more information on CE I recommend shooting Professor David Kaeli an email -- he has a strong background in both CS and CE and is well equipped to give guidance on this matter. Feel free to pm me too. Lastly, /u/rosewillcode mentioned that CE has IEEE and CS has ACM and NU Hacks, but I just wanted to clarify that there isn't strict segregation; I actually go to all of the above and it's totally cool.",
+      "created_utc": "Mon, 05 May 2014 02:50:13 GMT",
+      "permalink": "/r/NEU/comments/t3_24jx98/ch9rbfo",
+      "score": 1,
+      "sentiment": "positive",
+      "sentiment_score": 0.4,
+      "subreddit": "NEU"
+    }
+  ],
+  "sources": {
+    "rmp": {
+      "available": true,
+      "difficulty": 4.2,
+      "gradeDistribution": {
+        "A": 2
+      },
+      "numRatings": 15,
+      "professorUrl": "https://www.ratemyprofessors.com/professor/483225",
+      "rating": 3.4,
+      "ratingDistribution": {
+        "1": 3,
+        "2": 3,
+        "3": 1,
+        "4": 1,
+        "5": 7
+      },
+      "reviews": [
+        {
+          "attendance": "Mandatory",
+          "comment": "Super boring course, hard to learn anything new... too old...",
+          "course": "EECE7352",
+          "courseCode": "EECE7352",
+          "date": "2020-05-02 21:31:00 +0000 UTC",
+          "difficulty": 4,
+          "grade": "",
+          "online_class": "No",
+          "quality": 1,
+          "tags": "",
+          "textbook": "Yes"
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "Great professor - really cares about student success. Also I had him twice and didn't have to take a final in either class. Homeworks are long though, but if you complete them, you get a good grade. Also lots of extra credit opportunity.",
+          "course": "EECE7352",
+          "courseCode": "EECE7352",
+          "date": "2017-04-05 23:39:27 +0000 UTC",
+          "difficulty": 4,
+          "grade": "A",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Respected--BEWARE OF POP QUIZZES--EXTRA CREDIT",
+          "textbook": ""
+        },
+        {
+          "attendance": "Mandatory",
+          "comment": "He cares A LOT about his students. Show up for class and make sure to score well on the quizes and you will do fine. If you're confused, just go in and talk to him. He'll do so even outside of his office hours. Really great guy. Just make sure to pay attention in class. The people who failed quizes misses minor details he'd mention.",
+          "course": "EECE7352",
+          "courseCode": "EECE7352",
+          "date": "2017-01-03 14:39:28 +0000 UTC",
+          "difficulty": 3,
+          "grade": "A",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "Skip class? You won't pass.--Caring--EXTRA CREDIT",
+          "textbook": "Yes"
+        },
+        {
+          "attendance": "",
+          "comment": "Start the homeworks the same day they are assigned.",
+          "course": "ECE7352",
+          "courseCode": null,
+          "date": "2015-12-02 16:50:39 +0000 UTC",
+          "difficulty": 4,
+          "grade": "",
+          "online_class": "No",
+          "quality": 4,
+          "tags": "",
+          "textbook": "Yes"
+        },
+        {
+          "attendance": "",
+          "comment": "tough tough tough",
+          "course": "EECE7352",
+          "courseCode": "EECE7352",
+          "date": "2015-11-12 20:10:31 +0000 UTC",
+          "difficulty": 5,
+          "grade": "",
+          "online_class": "No",
+          "quality": 3,
+          "tags": "",
+          "textbook": ""
+        },
+        {
+          "attendance": "",
+          "comment": "Homework is challenging (beginner-intermediate knowledge prior) but Prof. Kaeli and the TA's are helpful and knowledgeable. Labs are very interesting and the write-ups are straightforward. Great class. Material is very interesting.",
+          "course": "EECE2160",
+          "courseCode": "EECE2160",
+          "date": "2014-12-26 22:16:46 +0000 UTC",
+          "difficulty": 3,
+          "grade": "",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "",
+          "textbook": "Yes"
+        },
+        {
+          "attendance": "",
+          "comment": "Professor David Kaeli is really of great knowledge in computer architecture, and he can express his ideas really clreally to all students. His class is funny and easy to learn. Though the workload is heavy, it's the way you can really learn. Good class, recommend to you!",
+          "course": "EECE7352",
+          "courseCode": "EECE7352",
+          "date": "2014-11-16 15:48:23 +0000 UTC",
+          "difficulty": 2,
+          "grade": "",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "",
+          "textbook": "Yes"
+        },
+        {
+          "attendance": "",
+          "comment": "Incredibly good at what he does. Seems like he knows all the people in the field. If you can track him down and steal some time, he's very helpful.",
+          "course": "EECE3324",
+          "courseCode": "EECE3324",
+          "date": "2014-01-19 16:30:07 +0000 UTC",
+          "difficulty": 3,
+          "grade": "",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "",
+          "textbook": ""
+        },
+        {
+          "attendance": "",
+          "comment": "Hard to learn in his class. Always speaks irrelevant, discusses his experiences with blah blah companies and blah blah research. No technical lecture",
+          "course": "EECE7352",
+          "courseCode": "EECE7352",
+          "date": "2013-11-03 18:28:10 +0000 UTC",
+          "difficulty": 5,
+          "grade": "",
+          "online_class": "No",
+          "quality": 1,
+          "tags": "",
+          "textbook": ""
+        },
+        {
+          "attendance": "",
+          "comment": "Teaches almost nothing. Talking about the useless stuff everytime. We feel now it is the point where he would teach something relevent, informative and clear understandable, then we are absolutely wrong!!!",
+          "course": "EECE7352",
+          "courseCode": "EECE7352",
+          "date": "2013-11-03 18:20:38 +0000 UTC",
+          "difficulty": 4,
+          "grade": "",
+          "online_class": "No",
+          "quality": 1,
+          "tags": "",
+          "textbook": ""
+        },
+        {
+          "attendance": "",
+          "comment": "Had comp arch with him, he was SO confusing! Yes, he's a smart guy but does not know how to teach! He assumes students know it all and gives extremely hard assignments with minimum to no help at all! The only good thing about him is that he gives a lot of extra credit",
+          "course": "EECE3324",
+          "courseCode": "EECE3324",
+          "date": "2012-12-22 23:04:00 +0000 UTC",
+          "difficulty": 5,
+          "grade": "",
+          "online_class": "No",
+          "quality": 2,
+          "tags": "",
+          "textbook": "Yes"
+        },
+        {
+          "attendance": "",
+          "comment": "He obviously knows his stuff but he doesn't know how to teach! He assumes everyone knows the material so he assigns insanely hard assignments and never goes over them in class! He expects you to figure it all out on your own! Confusing to no end.",
+          "course": "EECE3324",
+          "courseCode": "EECE3324",
+          "date": "2012-03-29 17:02:19 +0000 UTC",
+          "difficulty": 5,
+          "grade": "",
+          "online_class": "No",
+          "quality": 2,
+          "tags": "",
+          "textbook": "Yes"
+        },
+        {
+          "attendance": "",
+          "comment": "A high quality professor that knows his stuff.",
+          "course": "EECE7352",
+          "courseCode": "EECE7352",
+          "date": "2010-12-31 15:03:12 +0000 UTC",
+          "difficulty": 5,
+          "grade": "",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "",
+          "textbook": "Yes"
+        },
+        {
+          "attendance": "",
+          "comment": "Had Comp Arch with him. Confusing to no end. Not very understanding at all for students who have trouble in his class. He's always busy with meeting with companies so trying to get him outside his office hours is impossible. When you do go to his office it's almost useless.",
+          "course": "ECEU324",
+          "courseCode": null,
+          "date": "2007-04-18 04:48:24 +0000 UTC",
+          "difficulty": 5,
+          "grade": "",
+          "online_class": "No",
+          "quality": 2,
+          "tags": "",
+          "textbook": ""
+        },
+        {
+          "attendance": "",
+          "comment": "No Comments",
+          "course": "ECEU324",
+          "courseCode": null,
+          "date": "2005-08-11 13:23:01 +0000 UTC",
+          "difficulty": 5,
+          "grade": "",
+          "online_class": "No",
+          "quality": 5,
+          "tags": "",
+          "textbook": "No"
+        }
+      ],
+      "wouldTakeAgainPct": 67.0
+    }
+  },
+  "summary": {
+    "bySource": {
+      "rmp": {
+        "numRatings": 15,
+        "rating": 3.4
+      }
+    },
+    "difficulty": 4.2,
+    "hoursPerWeek": null,
+    "numComments": 16,
+    "numRatings": 15,
+    "rating": 3.4,
+    "wouldTakeAgainPct": 67.0
+  },
+  "version": 2
+}

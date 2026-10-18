@@ -1,0 +1,47 @@
+/* Light only for now; dark mode comes with the Settings screen.
+
+   Values lifted from the site so the popup reads as the same product: Nunito,
+   #d6394c, and the .prof-compare-btn / .prof-rmp-btn pair. Paddings are scaled
+   down — the site's 22px card padding doesn't fit 380px — but radii, shadows,
+   weights and colours are the site's own. */
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap');
+
+:root {
+  --bg: #faf9f7;
+  --bg-sunken: #f0eeeb;
+  --card: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #666;
+  --line: #e8e8e8;
+  --brand: #d6394c;
+  --brand-dark: #b82e3f;
+  --brand-wash: #fef0f0;
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  /* A Chrome popup has no viewport of its own, so the width is fixed here. */
+  width: 380px;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Nunito', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+.body {
+  padding: 16px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}

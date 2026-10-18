@@ -1,9 +1,44 @@
 [
-  { "type": "professor", "name": "David Kaeli",       "dept": "Electrical and Computer Engineering", "rating": 4.12, "slug": "david-kaeli" },
-  { "type": "professor", "name": "Sarah Ostadabbas",  "dept": "Electrical and Computer Engineering", "rating": 4.45, "slug": "sarah-ostadabbas" },
-  { "type": "professor", "name": "Kristina Lynch",    "dept": "Mechanical and Industrial Engineering", "rating": null, "slug": "kristina-lynch" },
-  { "type": "professor", "name": "Olin Guha",         "dept": "Computer Science", "rating": 3.78, "slug": "olin-guha" },
-  { "type": "professor", "name": "Amal Rahman",       "dept": "Mathematics", "rating": 4.9, "slug": "amal-rahman" },
-  { "type": "course",    "code": "CS3500", "name": "Object-Oriented Design", "dept": "Computer Science" },
-  { "type": "course",    "code": "CS2500", "name": "Fundamentals of Computer Science 1", "dept": "Computer Science" }
+  {
+    "dept": "Psychology",
+    "name": "Karen Spikes",
+    "rating": 3.58,
+    "slug": "karen-spikes",
+    "type": "professor"
+  },
+  {
+    "dept": "Cybersecurity",
+    "name": "Kaan Onarlioglu",
+    "rating": 4.86,
+    "slug": "kaan-onarlioglu",
+    "type": "professor"
+  },
+  {
+    "dept": "Engineering",
+    "name": "Kathryn Schulte-Grahame",
+    "rating": 3.66,
+    "slug": "kathryn-schulte-grahame-2",
+    "type": "professor"
+  },
+  {
+    "dept": "Psychology",
+    "name": "Karina Money",
+    "rating": 4.13,
+    "slug": "karina-money",
+    "type": "professor"
+  },
+  {
+    "dept": "Engineering",
+    "name": "Kal Bugrara",
+    "rating": 1.44,
+    "slug": "kal-bugrara",
+    "type": "professor"
+  },
+  {
+    "dept": "Accounting",
+    "name": "Kamber Vittori",
+    "rating": 4.81,
+    "slug": "kamber-vittori",
+    "type": "professor"
+  }
 ]

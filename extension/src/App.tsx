@@ -1,12 +1,16 @@
+import Header from './components/Header';
+import Overview from './screens/Overview';
+
+// Search lands separately and will pick the slug; until then the popup opens
+// straight onto one professor.
+const DEMO_SLUG = 'david-kaeli';
+
 export default function App() {
   return (
     <>
-      <header className="bar">
-        <span className="pup">RH</span>
-        <span className="wordmark">RateMyHusky</span>
-      </header>
+      <Header />
       <main className="body">
-        <p className="muted">Shell loaded. Screens go here.</p>
+        <Overview slug={DEMO_SLUG} />
       </main>
     </>
   );

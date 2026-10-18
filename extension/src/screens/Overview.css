@@ -1,0 +1,151 @@
+.hero {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.avatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--line);
+  object-fit: cover;
+}
+
+.who {
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.name {
+  font-size: 17px;
+  font-weight: 900;
+  margin: 0;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.dept {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 3px 0 0;
+}
+
+.chip {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--brand-wash);
+  color: var(--brand);
+}
+
+/* Two-source split: Angela's RMP | TRACE columns, with Reddit in place of
+   TRACE. Both columns are placed explicitly — the ::before divider is the
+   first grid child, so auto-placement would push the first column past it. */
+.scores {
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 4px;
+}
+
+.scores::before {
+  content: '';
+  grid-column: 2;
+  align-self: stretch;
+  background: var(--line);
+}
+
+.score {
+  min-width: 0;
+}
+
+.score:nth-of-type(1) {
+  grid-column: 1;
+}
+
+.score:nth-of-type(2) {
+  grid-column: 3;
+  text-align: center;
+}
+
+.score-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  margin: 0 0 2px;
+}
+
+.score-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.score:nth-of-type(2) .score-row {
+  justify-content: center;
+}
+
+.score-row strong {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.score-row .outof {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.score-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 2px 0 0;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin: 16px 0;
+}
+
+.section-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin: 0 0 8px;
+}
+
+.section-label .info {
+  width: 12px;
+  height: 12px;
+  opacity: 0.6;
+}
+
+.tiles {
+  background: var(--bg-sunken);
+  border-radius: 14px;
+  padding: 8px;
+  display: grid;
+  /* minmax(0,…) not 1fr: a long value sets a min-content floor and would
+     otherwise make its column wider than the others. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
