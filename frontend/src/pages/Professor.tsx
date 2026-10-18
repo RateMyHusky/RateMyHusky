@@ -8,7 +8,9 @@ import StarRating from '../components/StarRating';
 import RatingBar from '../components/RatingBar';
 import Breadcrumbs from '../components/Breadcrumbs';
 import Seo from '../components/Seo';
-import { fetchProfessorFull } from '../api/api';
+import { fetchProfessorFull, fetchProfessorTags } from '../api/api';
+import type { ProfessorTag } from '../api/api';
+import { tagLabel } from '../utils/tagLabels';
 import type { ProfessorPage, ProfessorCourse, RatingDistribution, RedditMention, TeachingAward } from '../api/api';
 import { SHOW_SURVEY_STATS } from '../config';
 import { termSortKey } from '../utils/termUtils';
@@ -322,6 +324,16 @@ const Professor = () => {
       else setLoadError(res.status === 404 ? 'not_found' : 'failed');
       setLoading(false);
     });
+    return () => { cancelled = true; };
+  }, [slug]);
+
+  /* ── tags: separate request so a slow or missing tags table never holds up the page ── */
+  const [tags, setTags] = useState<ProfessorTag[]>([]);
+  useEffect(() => {
+    if (!slug) return;
+    let cancelled = false;
+    setTags([]);
+    fetchProfessorTags(slug).then((t) => { if (!cancelled) setTags(t); });
     return () => { cancelled = true; };
   }, [slug]);
 
@@ -774,6 +786,15 @@ const Professor = () => {
                       <span>{label}</span>
                       <span className="prof-award-year">{years.join(', ')}</span>
                     </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {tags.length > 0 && (
+              <ul className="prof-tags" aria-label="What students mention">
+                {tags.map(({ tag, count }) => (
+                  <li key={tag} className="prof-tag" title={`Mentioned in ${count} reviews`}>
+                    {tagLabel(tag)}
                   </li>
                 ))}
               </ul>

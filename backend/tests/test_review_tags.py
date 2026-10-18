@@ -133,3 +133,19 @@ def test_popular_tags(srv, monkeypatch):
     assert r.status_code == 200
     assert r.get_json() == [{"tag": "mandatory_attendance", "count": 41}]
     assert "professors_catalog" in seen["sql"]  # only counts professors that aren't denied
+
+
+def test_catalog_tag_filter(srv, monkeypatch):
+    seen = []
+
+    def fake_query_one(sql, params=None):
+        seen.append((sql, params))
+        return {"cnt": 0}
+
+    monkeypatch.setattr(srv, "query_one", fake_query_one)
+    monkeypatch.setattr(srv, "query", lambda sql, params=None: [])
+    r = srv.app.test_client().get("/api/professors-catalog?tags=easy_a|not_a_tag|curved_grading")
+    assert r.status_code == 200
+    sql, params = seen[0]
+    assert sql.count("professor_tags") == 2  # not_a_tag gets dropped
+    assert "easy_a" in params and "curved_grading" in params and "not_a_tag" not in params

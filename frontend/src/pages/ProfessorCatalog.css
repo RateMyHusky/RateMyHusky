@@ -1811,3 +1811,15 @@
 .dark .sidebar-inner {
   border-right-color: #333;
 }
+/* teaching style tag filter */
+.tag-filter { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-filter-chip {
+  padding: 4px 11px; border-radius: 999px;
+  border: 1px solid #e2e2e5; background: #f4f4f5; color: #444;
+  font-family: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.tag-filter-chip:hover { border-color: #c9c9ce; }
+.tag-filter-chip.active { background: #d6394c; border-color: #d6394c; color: #fff; }
+.dark .tag-filter-chip { background: #262626; border-color: #3a3a3a; color: #cfcfcf; }
+.dark .tag-filter-chip.active { background: #d6394c; border-color: #d6394c; color: #fff; }

@@ -1000,6 +1000,7 @@ def professor_full(slug):
 
 
 from professor_full import _resolve_professor  # same lookup as /full, skips denied profs
+from tags import TAG_TAXONOMY
 
 MIN_TAG_REVIEWS = 3  # need at least this many reviews before showing a tag
 
@@ -1195,7 +1196,10 @@ def professors_catalog():
     except (ValueError, TypeError):
         max_reviews = None
 
-    cache_key = f"profcat:{q}:{college}:{dept}:{sort}:{page}:{limit}:{min_rating}:{max_rating}:{min_reviews}:{max_reviews}"
+    # teaching-style tags, only real tag names count
+    tag_list = [t for t in split_filter(request.args.get("tags", "")) if t in TAG_TAXONOMY]
+
+    cache_key = f"profcat:{q}:{college}:{dept}:{sort}:{page}:{limit}:{min_rating}:{max_rating}:{min_reviews}:{max_reviews}:{'|'.join(tag_list)}"
     cached = cache_get(cache_key)
     if cached:
         return jsonify(cached)
@@ -1248,6 +1252,10 @@ def professors_catalog():
     if max_reviews is not None:
         conditions.append("total_reviews <= %s")
         params.append(max_reviews)
+    # professor has to have every tag picked
+    for t in tag_list:
+        conditions.append("name_key IN (SELECT name_key FROM professor_tags WHERE tag = %s AND review_count >= %s)")
+        params.extend([t, MIN_TAG_REVIEWS])
 
     where = " AND ".join(conditions)
 
