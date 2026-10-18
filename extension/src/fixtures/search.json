@@ -1,5 +1,12 @@
 [
   {
+    "dept": "Electrical Engineering",
+    "name": "David Kaeli",
+    "rating": 3.4,
+    "slug": "david-kaeli",
+    "type": "professor"
+  },
+  {
     "dept": "Psychology",
     "name": "Karen Spikes",
     "rating": 3.58,

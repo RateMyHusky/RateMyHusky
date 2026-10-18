@@ -32,6 +32,9 @@ const MAINTENANCE_PATH = '/maintenance.html';
  *  must not be reported as maintenance. */
 class Unavailable extends Error {}
 
+/** The slug doesn't resolve. A missing professor is not a broken extension. */
+class NotFound extends Error {}
+
 async function get<T>(path: string): Promise<T> {
   let resp: Response;
   try {
@@ -46,6 +49,7 @@ async function get<T>(path: string): Promise<T> {
     throw new Unavailable('site is in maintenance');
   }
 
+  if (resp.status === 404) throw new NotFound(`${resp.status} ${resp.statusText}`);
   if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
 
   const text = await resp.text();
@@ -80,6 +84,10 @@ export function isUnavailable(err: unknown): boolean {
   return err instanceof Unavailable;
 }
 
+export function isNotFound(err: unknown): boolean {
+  return err instanceof NotFound;
+}
+
 export function professorUrl(slug: string): string {
   return `${API_BASE}/professors/${encodeURIComponent(slug)}`;
 }
@@ -109,6 +117,13 @@ export type Professor = {
 };
 
 export async function fetchProfessor(slug: string): Promise<Professor> {
-  if (USE_FIXTURES) return professorFixture as Professor;
+  if (USE_FIXTURES) {
+    // One professor is captured. Returning them for every slug would make
+    // every search result open the same page once search is wired up.
+    if (slug !== professorFixture.identity.slug) {
+      throw new NotFound(`no fixture for ${slug}`);
+    }
+    return professorFixture as Professor;
+  }
   return get<Professor>(`/api/professors/${encodeURIComponent(slug)}/full`);
 }

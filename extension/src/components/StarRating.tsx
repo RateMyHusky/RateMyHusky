@@ -1,3 +1,5 @@
+// Deliberate fork of frontend/src/components/StarRating.tsx — the popup has
+// no build-time access to the site's src. Keep the two in step by hand.
 import './StarRating.css';
 
 interface StarRatingProps {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchProfessor, isUnavailable, professorUrl, type Professor } from '../api';
+import { fetchProfessor, isUnavailable, isNotFound, professorUrl, type Professor } from '../api';
 import StarRating from '../components/StarRating';
 import StatTile from '../components/StatTile';
 import { ScaleIcon, ReviewsIcon, InfoIcon } from '../components/icons';
@@ -16,15 +16,20 @@ export default function Overview({ slug }: { slug: string }) {
 
   useEffect(() => {
     let live = true;
+    // Without this a slug change keeps the previous professor — name, scores
+    // and View Reviews link — on screen until the new fetch resolves.
+    setState({ status: 'loading' });
     fetchProfessor(slug)
       .then((prof) => live && setState({ status: 'ready', prof }))
       .catch((err) =>
         live &&
         setState({
           status: 'error',
-          message: isUnavailable(err)
-            ? "Can't reach RateMyHusky right now."
-            : 'Something went wrong.',
+          message: isNotFound(err)
+            ? 'Professor not found.'
+            : isUnavailable(err)
+              ? "Can't reach RateMyHusky right now."
+              : 'Something went wrong.',
         }),
       );
     return () => {
@@ -61,12 +66,15 @@ export default function Overview({ slug }: { slug: string }) {
           right. */}
       <div className="scores">
         <div className="score">
+          <p className="score-label">OVERALL</p>
           <div className="score-row">
             <StarRating rating={summary.rating ?? 0} size="md" />
             <strong>{score(summary.rating)}</strong>
             <span className="outof">/ 5</span>
           </div>
-          <p className="score-sub">from {summary.numRatings} reviews</p>
+          <p className="score-sub">
+            from {summary.numRatings} {plural(summary.numRatings, 'rating')}
+          </p>
         </div>
 
         <div className="score">

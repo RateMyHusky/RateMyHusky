@@ -4,7 +4,6 @@
    #d6394c, and the .prof-compare-btn / .prof-rmp-btn pair. Paddings are scaled
    down — the site's 22px card padding doesn't fit 380px — but radii, shadows,
    weights and colours are the site's own. */
-@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap');
 
 :root {
   --bg: #faf9f7;

@@ -23,7 +23,3 @@
 .star-rating-sm { font-size: 0.78rem; }
 .star-rating-md { font-size: 0.95rem; }
 .star-rating-lg { font-size: 1.3rem; }
-
-.dark .star-rating-empty {
-  color: #444;
-}
