@@ -1,0 +1,57 @@
+/* Matches the site's .navbar-logo: husky mark, "Rate" in brand red. */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.bar .mark {
+  flex: none;
+  display: block;
+}
+
+.bar .wordmark {
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: -0.3px;
+}
+
+.bar .wordmark span {
+  color: var(--brand);
+}
+
+.bar .icon-btn {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.bar .icon-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.bar .icon-btn:hover:not(:disabled) {
+  background: var(--line);
+}
+
+.bar .icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.bar .icon-btn.back {
+  margin-left: 0;
+  margin-right: 2px;
+}

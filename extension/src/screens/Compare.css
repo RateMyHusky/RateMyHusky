@@ -1,0 +1,157 @@
+.compare {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── column heads ── */
+
+ /* Cards centre across the whole popup rather than sitting in the value
+    columns — reserving a blank cell for the row labels pushed the pair
+    visibly right of centre. */
+.cmp-heads {
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  gap: 10px;
+  padding: 0 10px;
+  margin-bottom: 12px;
+}
+
+.cmp-heads > span {
+  display: none;
+}
+
+.cmp-head {
+  flex: 1 1 0;
+  max-width: 150px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 6px 9px;
+  text-align: center;
+  background: var(--card);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.cmp-drop {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cmp-drop:hover {
+  background: var(--bg-sunken);
+  color: var(--fg);
+}
+
+.cmp-face {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--line);
+  object-fit: cover;
+}
+
+.cmp-head b {
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.cmp-head span {
+  font-size: 9.5px;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+/* ── metric rows ── */
+
+.cmp-table {
+  background: var(--card);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.cmp-row {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cmp-row:last-child {
+  border-bottom: 0;
+}
+
+.cmp-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.cmp-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Winner marked by weight as well as colour, so it reads without relying on
+   the red alone. */
+.cmp-cell.win {
+  color: var(--brand);
+  font-weight: 900;
+}
+
+/* ── add ── */
+
+.cmp-add {
+  margin-top: 10px;
+  padding: 10px;
+  width: 100%;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--brand);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cmp-add:hover:not(:disabled) {
+  background: var(--brand-wash);
+  border-color: var(--brand);
+}
+
+.cmp-add:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.cmp-add-note {
+  margin-top: 6px;
+  font-size: 11.5px;
+  text-align: center;
+}
