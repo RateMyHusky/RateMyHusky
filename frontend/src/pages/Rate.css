@@ -1,4 +1,4 @@
-/* /rate student rating form. Mobile first; the desktop two-panel layout is added at 1024px. */
+/* /rate student rating form. Mobile first; the single-column desktop layout is added at 1024px. */
 
 .rate-page {
   min-height: 100vh;
@@ -25,20 +25,27 @@
   height: 5px;
   border-radius: 3px;
   background: #eee;
+  position: relative;
+  overflow: hidden;
 }
 
-.rate-prog i.on { background: #d6394c; }
-
-.rate-chip {
-  display: inline-block;
-  margin-bottom: 12px;
-  padding: 3px 10px;
-  border-radius: 8px;
-  background: #fef0f0;
-  color: #d6394c;
-  font-size: 0.8rem;
-  font-weight: 800;
+/* Each segment fills left to right going forward and drains going back, staggered through --d. */
+.rate-prog i b {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #d6394c;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1) var(--d, 0ms);
 }
+
+.rate-prog i.on b { transform: scaleX(1); }
+.rate-prog.is-done { visibility: hidden; height: 0; margin: 0; }
+
+.rate-top { display: flex; align-items: center; gap: 1em; }
+.rate-back-top { display: none; }
+.rate-tags { display: flex; flex-wrap: wrap; gap: 0.35em; min-width: 0; margin-bottom: 12px; }
 
 .rate-q {
   margin: 0 0 14px;
@@ -56,7 +63,6 @@
 }
 
 .rate-choices { display: flex; flex-direction: column; gap: 8px; }
-.rate-choices-row { flex-direction: row; flex-wrap: wrap; }
 .rate-choices-grid { display: grid; grid-template-columns: repeat(2, 1fr); }
 .rate-choices-grid .rate-opt { justify-content: center; }
 
@@ -75,9 +81,9 @@
   font-weight: 800;
   text-align: left;
   cursor: pointer;
+  transition: border-color 0.12s, background-color 0.12s, color 0.12s, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
-.rate-opt:hover { border-color: #d6394c; }
 .rate-opt:focus-visible,
 .rate-sugg:focus-visible,
 .rate-btn:focus-visible,
@@ -87,15 +93,54 @@
 .rate-opt.dash { border-style: dashed; color: #888; }
 .rate-opt.pill { min-height: 44px; padding: 8px 16px; border-radius: 22px; font-weight: 700; }
 
-.rate-tag {
+.rate-opt.course { justify-content: space-between; gap: 1em; text-align: left; }
+.rate-cmain { display: flex; flex-direction: column; gap: 0.1em; min-width: 0; }
+.rate-cname { color: #888; font-size: 0.85em; font-weight: 700; }
+.rate-opt.on .rate-cname { color: inherit; }
+.rate-pencil {
+  display: inline-flex;
   flex: 0 0 auto;
-  padding: 2px 8px;
-  border-radius: 8px;
+  align-items: center;
+  justify-content: center;
+  width: 2.2em;
+  height: 2.2em;
+  border-radius: 50%;
   background: #fef0f0;
   color: #d6394c;
-  font-size: 0.72rem;
-  font-weight: 800;
 }
+.rate-pencil svg { width: 1em; height: 1em; transition: transform 0.18s ease; }
+.rate-opt.course.on .rate-pencil { background: #d6394c; color: #fff; }
+/* The heading shares the tile stack, so its margins give up the stack's gap to land on the mockup's 1.8em / 0.7em. */
+.rate-group { margin: calc(1.8em - 8px) 0 calc(0.7em - 8px); color: #888; font-size: 0.72em; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+/* Tiles lift on hover and press in on click, and the picked tile pops once. Hover is skipped on touch screens. */
+@media (hover: hover) {
+  .rate-opt:hover { border-color: #d6394c; transform: translateY(-2px); box-shadow: 0 6px 16px -6px rgba(214, 57, 76, 0.35); }
+  .rate-opt.dash:hover { color: #d6394c; }
+  .rate-opt:hover .rate-n { transform: scale(1.1); }
+  .rate-opt.course:hover .rate-pencil { background: #d6394c; color: #fff; }
+  .rate-opt.course:hover .rate-pencil svg { transform: rotate(-12deg); }
+  .rate-sugg:hover b { color: #d6394c; }
+  /* The pop keeps the hover lift, so the tile doesn't drop 2px while it plays. */
+  .rate-opt.pop:hover { animation-name: rate-pop-lifted; }
+}
+.rate-opt:active { transform: translateY(0) scale(0.98); box-shadow: none; }
+.rate-opt.pop { animation: rate-pop 0.2s ease-out; }
+@keyframes rate-pop { 0% { transform: scale(0.97); } 60% { transform: scale(1.02); } 100% { transform: scale(1); } }
+@keyframes rate-pop-lifted { 0% { transform: translateY(-2px) scale(0.97); } 60% { transform: translateY(-2px) scale(1.02); } 100% { transform: translateY(-2px) scale(1); } }
+
+.rate-tag {
+  flex: 0 0 auto;
+  padding: 0.2em 0.65em;
+  border: 1px solid #e0e0e0;
+  border-radius: 0.55em;
+  color: #888;
+  font-size: 0.8em;
+  font-weight: 800;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.rate-tag.is-updating { border-color: transparent; background: #fef0f0; color: #d6394c; }
 
 .rate-input {
   width: 100%;
@@ -126,8 +171,11 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background-color 0.12s;
 }
 
+.rate-sugg.rated { display: flex; align-items: center; justify-content: space-between; gap: 0.75em; }
+.rate-sugg b { transition: color 0.12s; }
 .rate-sugg:last-child { border-bottom: 0; }
 .rate-sugg:hover { background: #fef0f0; }
 .rate-sugg small { display: block; color: #999; font-size: 0.8rem; }
@@ -138,6 +186,8 @@
 .rate-label { display: block; margin-bottom: 6px; font-size: 0.85rem; font-weight: 800; }
 
 .rate-hint { margin: 6px 0 0; color: #888; font-size: 0.85rem; }
+/* The mockup's .m-note: room above and below the line under the course search. */
+.rate-note { margin: 0.8em 0 1em; }
 
 .rate-btn {
   display: block;
@@ -151,9 +201,11 @@
   font: inherit;
   font-weight: 900;
   cursor: pointer;
+  transition: background-color 0.15s, transform 0.12s;
 }
 
 .rate-btn:hover:not(:disabled) { background: #b82e3f; }
+.rate-btn:active:not(:disabled) { transform: scale(0.98); }
 .rate-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .rate-ghost,
@@ -170,6 +222,8 @@
 }
 
 .rate-ghost { text-decoration: underline; }
+.rate-ghost.on { color: #d6394c; font-weight: 800; text-decoration: none; }
+.rate-ghost.on::before { content: '✓ '; }
 .rate-back { text-align: left; }
 .rate-back:disabled { opacity: 0.45; cursor: default; }
 
@@ -206,6 +260,7 @@ body.rate-checking .navbar { display: none; }
   color: #fff;
   font-weight: 900;
   font-size: 0.85rem;
+  transition: transform 0.18s ease;
 }
 
 .rate-n[data-score='5'] { background: #1a9850; }
@@ -215,7 +270,15 @@ body.rate-checking .navbar { display: none; }
 .rate-n[data-score='1'] { background: #e74c3c; }
 .rate-opt:has(.rate-n) { justify-content: flex-start; }
 
-.rate-textarea { min-height: 120px; resize: vertical; }
+.rate-textarea { min-height: 9em; max-height: 35dvh; resize: none; overflow-y: auto; }
+
+/* Season and year tiles share one equal-width grid. Five seasons don't fit a phone row, so Fall and Spring take halves and the three summers take thirds. */
+.rate-row { display: grid; gap: 8px; }
+.rate-row .rate-opt { justify-content: center; padding-inline: 0.3em; white-space: nowrap; }
+.rate-seasons { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.rate-seasons .rate-opt { grid-column: span 2; }
+.rate-seasons .rate-opt:nth-child(-n+2) { grid-column: span 3; }
+.rate-years { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
 /* Off-screen, not display:none, so bots that fill every input still see it. */
 .rate-hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
@@ -242,230 +305,168 @@ body.rate-checking .navbar { display: none; }
 .rate-foot-actions { display: contents; }
 
 @media (min-width: 1024px) {
-  /* Two panels fill the window below the navbar. The type scales with the window, like the mockup. */
+  /* One centered column below the navbar. The type scales with the window, like the mockup. */
   .rate-page {
     box-sizing: border-box;
-    height: 100dvh;
-    min-height: 0;
-    padding: calc(68px + 2dvh) 0 2dvh;
-    background: #f6f6f6;
-    container-type: size;
+    min-height: 100dvh;
+    padding: calc(68px + 5dvh) 0 0;
+    container-type: inline-size;
   }
 
-  .rate-shell {
-    display: grid;
-    grid-template-columns: 2fr 3fr;
-    grid-template-rows: minmax(0, 1fr);
-    gap: 1.6em;
-    width: min(90cqw, 1800px);
-    height: 100%;
-    margin: 0 auto;
-    font-size: clamp(15px, 1.05cqw, 27px);
-  }
+  .rate-shell { font-size: clamp(15px, 1.05cqw, 27px); }
 
-  .rate-panel,
-  .rate-pane {
+  .rate-panel {
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    width: min(34em, 100% - 32px);
     max-width: none;
-    margin: 0;
-    padding: 1.8em;
-    overflow-y: auto;
-    border: 1px solid #e0e0e0;
-    border-radius: 1.2em;
-    background: #fff;
+    min-height: calc(100dvh - 68px - 5dvh);
+    margin: 0 auto;
+    padding: 0;
   }
 
-  .rate-panel { grid-column: 2; }
-  .rate-pane { grid-column: 1; gap: 0.9em; padding-block: 1.2em; }
-
-  /* Right panel */
-  .rate-prog { gap: 0.3em; margin: 0.5em 0 0.4em; }
+  .rate-prog { gap: 0.3em; margin: 0; }
   .rate-prog i { height: 0.35em; border-radius: 0.2em; }
-  .rate-chip { display: none; }
+
+  .rate-top { justify-content: space-between; min-height: 2.6em; margin: 0.9em 0 1.1em; }
+
+  .rate-back-top {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.4em;
+    min-height: 44px;
+    margin-left: -0.4em;
+    padding: 0.3em 0.4em;
+    border: 0;
+    border-radius: 0.5em;
+    background: transparent;
+    color: #888;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .rate-back-top svg { width: 1.05em; height: 1.05em; transition: transform 0.18s ease; }
+  .rate-back-top.is-hidden { visibility: hidden; }
+  .rate-back-top:disabled { opacity: 0.45; cursor: default; }
+  .rate-back-top:focus-visible { outline: 3px solid rgba(214, 57, 76, 0.45); outline-offset: 2px; }
+
+  .rate-tags { justify-content: flex-end; margin: 0; }
+
   .rate-hint-mobile { display: none; }
-  .rate-q { margin-bottom: 0.3em; font-size: 2em; }
-  .rate-sub { display: block; margin: 0 0 1.4em; font-size: 1em; }
+  .rate-q { margin: 0 0 0.3em; font-size: 2em; line-height: 1.15; }
+  .rate-sub { display: block; margin: 0 0 1.5em; font-size: 1em; }
   .rate-hint,
   .rate-error { font-size: 0.9em; }
   .rate-field label,
   .rate-label { font-size: 0.85em; }
   .rate-sugg small { font-size: 0.8em; }
-  .rate-tag { font-size: 0.72em; }
+  .rate-group { margin: 1.04em 0 -0.06em; } /* the stack gap here is 0.55em of the column, 0.76em of the heading */
 
-  /* The question block sits in the vertical middle; search steps start at a fixed height so results don't move it. */
-  .rate-panel > .rate-q { margin-top: auto; }
-  .rate-panel:has(.rate-search, #rate-course-search) > .rate-q { margin-top: 12cqh; }
-  .rate-panel > .rate-thanks { margin: auto 0; }
-  /* The three actions are a row of tiles, like the mockup. */
-  .rate-panel > .rate-thanks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.8em; width: 100%; }
-  /* A new professor has no page to link to, so two tiles fill the row. */
-  .rate-panel > .rate-thanks:not(:has(.rate-link)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .rate-thanks > :not(.rate-btn, .rate-ghost) { grid-column: 1 / -1; }
-  .rate-thanks > .rate-hint[role="status"] { order: 1; margin: 0; }
-  .rate-thanks > .rate-hint[role="status"]:empty { margin-top: -0.8em; }
-  .rate-thanks .rate-btn,
+  .rate-thanks { display: flex; flex-direction: column; gap: 0.55em; padding-top: 2em; }
+  .rate-thanks > .rate-hint { margin-bottom: 1.1em; font-size: 1em; }
+  .rate-thanks > .rate-hint[role="status"] { order: 1; margin: 0; font-size: 0.9em; }
+  .rate-thanks > .rate-hint[role="status"]:empty { margin-top: -0.55em; }
   .rate-thanks .rate-ghost {
     box-sizing: border-box;
+    display: flex;
     align-items: center;
     justify-content: center;
     width: auto;
-    min-height: 6em;
+    min-height: 3.2em;
     margin: 0;
-    padding: 1.1em 0.8em;
     border: 2px solid #e0e0e0;
-    border-radius: 1em;
-    background: transparent;
+    border-radius: 0.9em;
     color: inherit;
-    font-size: 1.25em;
     font-weight: 800;
-    text-align: center;
     text-decoration: none;
   }
-  .rate-thanks .rate-btn { border-color: #d6394c; background: #fef0f0; color: #d6394c; }
-  .rate-thanks .rate-btn:hover:not(:disabled) { background: #fef0f0; }
-  .rate-thanks .rate-ghost:hover { border-color: #d6394c; }
 
+  /* The step's action pins to the bottom of the window, with a fade over anything scrolling under it. */
   .rate-foot {
+    position: sticky;
+    bottom: 0;
     display: flex;
-    flex: 0 0 auto;
-    justify-content: space-between;
-    align-items: center;
-    min-height: 44px;
+    flex-direction: column;
     margin-top: auto;
-    padding-top: 1.4em;
+    padding: 1.6em 0 1.4em;
+    background: linear-gradient(to bottom, transparent, #fff 1.4em);
   }
 
-  .rate-foot-actions { display: flex; flex-direction: row-reverse; align-items: center; }
-  .rate-foot .rate-back { order: -1; width: auto; margin: 0; padding: 0 0.5em; font-weight: 700; }
-  .rate-foot .rate-btn { width: auto; margin: 0; padding: 0.85em 2.2em; border-radius: 0.8em; }
-  .rate-foot .rate-ghost { width: auto; margin: 0 1.4em 0 0; }
+  /* Tile-only steps have nothing to pin, so no fade bar; the bottom padding stays as breathing room. */
+  .rate-foot:not(:has(.rate-btn)) { position: static; padding: 0 0 1.4em; background: none; }
+
+  .rate-foot-actions { display: flex; flex-direction: column; }
+  .rate-foot .rate-back { display: none; }
+  .rate-foot .rate-ghost { align-self: center; width: auto; min-height: max(44px, 2.8em); margin: 0.6em 0 0; padding: 0 1em; }
   .rate-panel > .rate-ghost { margin-top: 1em; }
 
-  .rate-choices { gap: 0.8em; }
-  /* Wrapping tiles grow to fill their row, so the last row is never half empty. */
-  .rate-choices-stack { flex-flow: row wrap; }
-  .rate-choices-stack .rate-opt { flex: 1 1 9.5em; min-width: 0; }
-  .rate-choices-row { display: grid; grid-template-columns: repeat(var(--cols, 5), minmax(0, 1fr)); }
+  .rate-btn { min-height: 3.2em; margin-top: 0; border-radius: 0.9em; }
+
+  .rate-choices { gap: 0.55em; }
   .rate-choices-grid { grid-template-columns: repeat(4, 1fr); }
 
   .rate-opt,
-  .rate-opt:has(.rate-n),
-  .rate-opt.pill {
-    flex-direction: column;
+  .rate-opt:has(.rate-n) {
     justify-content: center;
-    gap: 0.5em;
-    min-height: 5.2em;
-    padding: 1.1em 0.8em;
-    border-radius: 1em;
-    font-size: 1.25em;
-    font-weight: 800;
+    gap: 0.6em;
+    min-height: 3.2em;
+    padding: 0.55em 1em;
+    border-radius: 0.9em;
     text-align: center;
   }
 
-  /* Course and term lists can run long, so their tiles stay compact. */
-  .rate-choices-stack .rate-opt { gap: 0.3em; min-height: 3.4em; padding: 0.6em 0.8em; font-size: 1em; }
+  .rate-opt.course { justify-content: space-between; gap: 1em; padding-block: 0.6em; text-align: left; }
+  .rate-opt.pill { min-height: max(44px, 2.8em); border-radius: 1.4em; font-weight: 700; }
 
-  .rate-choices-row .rate-opt { padding-inline: 0.4em; font-size: 1.1em; }
+  .rate-n { width: 1.9em; height: 1.9em; border-radius: 0.55em; font-size: 0.95em; }
+  .rate-n-label { min-width: 5em; text-align: left; }
+  .rate-row { gap: 0.55em; }
+  .rate-row .rate-opt { font-size: 0.92em; }
+  .rate-seasons { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .rate-seasons .rate-opt, .rate-seasons .rate-opt:nth-child(-n+2) { grid-column: span 1; }
 
-  .rate-n { width: 2.4em; height: 2.4em; border-radius: 0.7em; font-size: 1.15em; }
-  .rate-textarea { min-height: 9em; }
-
-  /* Left panel */
-  .rate-who { display: flex; align-items: center; gap: 1em; }
-  .rate-av {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    width: 3.2em;
-    height: 3.2em;
-    border-radius: 50%;
-    background: #fef0f0;
-    color: #d6394c;
-    font-size: 1.1em;
-    font-weight: 900;
-  }
-
-  .rate-who h2 { margin: 0; font-size: 1.45em; font-weight: 900; }
-  .rate-who p { margin: 0.1em 0 0.4em; color: #888; }
-
-  .rate-pchip {
-    display: inline-block;
-    margin-right: 0.3em;
-    padding: 0.2em 0.7em;
-    border-radius: 0.6em;
-    background: #fef0f0;
-    color: #d6394c;
-    font-size: 0.82em;
-    font-weight: 800;
-  }
-
-  .rate-box { padding: 0.8em 1.1em; border: 1px solid #eee; border-radius: 0.9em; }
-  .rate-box h2 { margin: 0 0 0.5em; color: #999; font-size: 0.8em; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
-  .rate-box p { margin: 0.3em 0 0; color: #666; }
-  .rate-big-num { color: #d6394c; font-size: 3em; font-weight: 900; line-height: 1; }
-
-  .rate-stat {
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1em;
-    margin: 0 -0.5em;
-    padding: 0.4em 0.5em;
-    border: 0;
-    border-radius: 0.5em;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: left;
-  }
-
-  .rate-stat + .rate-stat { border-top: 1px solid #f3f3f3; border-top-left-radius: 0; border-top-right-radius: 0; }
-  .rate-stat span { color: #666; white-space: nowrap; }
-  .rate-stat b { font-weight: 900; text-align: right; }
-  .rate-edit b { font-weight: 800; }
-  .rate-stat b.rate-none { color: #d6394c; font-size: 0.9em; font-weight: 800; }
-  .rate-stat b.rate-todo { color: #ccc; font-weight: 400; }
-
-  .rate-edit { width: calc(100% + 1em); min-height: 44px; cursor: pointer; }
-  .rate-edit:hover,
-  .rate-edit:focus-visible { background: #fef0f0; border-top-color: transparent; }
-  .rate-edit:hover + .rate-stat,
-  .rate-edit:focus-visible + .rate-stat { border-top-color: transparent; }
-  .rate-edit:hover b,
-  .rate-edit:focus-visible b { color: #d6394c; }
-  .rate-edit:focus-visible { outline: 3px solid rgba(214, 57, 76, 0.45); outline-offset: -1px; }
-  .rate-pen { display: none; width: 1em; height: 1em; margin-left: 0.5em; vertical-align: -0.15em; }
-  .rate-edit:hover .rate-pen,
-  .rate-edit:focus-visible .rate-pen { display: inline-block; }
-  .rate-note { margin: 0.1em 0 0; color: #999; font-size: 0.8em; }
-  .rate-why { margin: auto 0 0; color: #888; font-size: 0.9em; }
-
-  /* The checkpoint drops the two-panel card for a plain page, as Cloudflare's has. */
-  .rate-page.rate-page-check { height: auto; min-height: 100dvh; padding: 18dvh 0 0; background: #fff; }
-  .rate-page-check .rate-shell { display: block; height: auto; font-size: 16px; }
-  .rate-page-check .rate-panel { width: min(640px, 100%); margin: 0 auto; padding: 0; border: none; background: transparent; overflow: visible; }
+  /* The checkpoint is a plain page, as Cloudflare's is. */
+  .rate-page.rate-page-check { padding: 18dvh 0 0; }
+  .rate-page-check .rate-shell { font-size: 16px; }
+  .rate-page-check .rate-panel { width: min(640px, 100%); min-height: 0; margin: 0 auto; }
   .rate-check-host { font-size: 2.5rem; }
   .rate-check-lead { font-size: 1.4rem; }
 }
 
+@media (min-width: 1024px) and (hover: hover) {
+  .rate-back-top:hover { color: #d6394c; }
+  .rate-back-top:hover svg { transform: translateX(-3px); }
+  .rate-thanks .rate-ghost:hover { border-color: #d6394c; }
+}
+
 .dark .rate-page { background: #1a1a1a; color: #e0e0e0; }
 .dark .rate-prog i { background: #333; }
-.dark .rate-prog i.on { background: #d6394c; }
-.dark .rate-chip,
-.dark .rate-tag { background: #3a2020; color: #f06a7a; }
+.dark .rate-tag { border-color: #3a3a3a; color: #999; }
+.dark .rate-tag.is-updating { border-color: transparent; background: #3a2020; color: #f06a7a; }
 .dark .rate-link,
 .dark .rate-sub,
 .dark .rate-hint,
 .dark .rate-ghost,
 .dark .rate-back,
+.dark .rate-back-top,
 .dark .rate-opt.dash { color: #999; }
+.dark .rate-ghost.on { color: #f06a7a; }
 .dark .rate-opt { border-color: #3a3a3a; }
 .dark .rate-opt.on { border-color: #d6394c; background: #3a2020; color: #f06a7a; }
+.dark .rate-cname,
+.dark .rate-group { color: #999; }
+.dark .rate-opt.on .rate-cname { color: inherit; }
+.dark .rate-pencil { background: #3a2020; color: #f06a7a; }
+.dark .rate-opt.course.on .rate-pencil { background: #d6394c; color: #fff; }
+@media (hover: hover) {
+  .dark .rate-opt.course:hover .rate-pencil { background: #d6394c; color: #fff; }
+  .dark .rate-opt:hover { border-color: #d6394c; }
+  .dark .rate-opt.dash:hover,
+  .dark .rate-sugg:hover b { color: #f06a7a; }
+}
 .dark .rate-input { border-color: #444; background: #2a2a2a; color: #e0e0e0; }
 .dark .rate-search { border-color: #d6394c; }
 .dark .rate-suggs { border-color: #3a3a3a; }
@@ -479,31 +480,19 @@ body.rate-checking .navbar { display: none; }
 .dark .rate-check-retry { border-color: #444; background: #2a2a2a; }
 
 @media (min-width: 1024px) {
-  .dark .rate-panel,
-  .dark .rate-pane { border-color: #333; background: #1e1e1e; }
-  .dark .rate-page.rate-page-check { background: #1a1a1a; }
-  .dark .rate-page-check .rate-panel { background: transparent; }
-  .dark .rate-av,
-  .dark .rate-pchip { background: #3a2020; color: #f06a7a; }
-  .dark .rate-who p,
-  .dark .rate-why { color: #999; }
-  .dark .rate-box { border-color: #333; }
-  .dark .rate-box h2,
-  .dark .rate-note { color: #888; }
-  .dark .rate-box p,
-  .dark .rate-stat span { color: #aaa; }
-  .dark .rate-big-num,
-  .dark .rate-stat b.rate-none { color: #f06a7a; }
-  .dark .rate-stat b.rate-todo { color: #555; }
-  .dark .rate-stat + .rate-stat { border-top-color: #2a2a2a; }
-  .dark .rate-edit:hover,
-  .dark .rate-edit:focus-visible { background: #3a2020; border-top-color: transparent; }
-  .dark .rate-edit:hover + .rate-stat,
-  .dark .rate-edit:focus-visible + .rate-stat { border-top-color: transparent; }
-  .dark .rate-thanks .rate-btn { background: #3a2020; color: #f06a7a; }
-  .dark .rate-thanks .rate-btn:hover:not(:disabled) { background: #3a2020; }
-  .dark .rate-thanks .rate-ghost { border-color: #3a3a3a; }
+  .dark .rate-foot { background: linear-gradient(to bottom, transparent, #1a1a1a 1.4em); }
+  .dark .rate-foot:not(:has(.rate-btn)) { background: none; }
+  .dark .rate-thanks .rate-ghost { border-color: #3a3a3a; color: inherit; }
+}
+
+@media (min-width: 1024px) and (hover: hover) {
+  .dark .rate-back-top:hover { color: #f06a7a; }
   .dark .rate-thanks .rate-ghost:hover { border-color: #d6394c; }
-  .dark .rate-edit:hover b,
-  .dark .rate-edit:focus-visible b { color: #f06a7a; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rate-opt, .rate-btn, .rate-n, .rate-pencil svg, .rate-back-top svg, .rate-sugg, .rate-sugg b, .rate-prog i b { transition: none; }
+  .rate-opt:hover, .rate-opt:active, .rate-btn:active { transform: none; }
+  .rate-opt.pop,
+  .rate-opt.pop:hover { animation: none; }
 }

@@ -497,15 +497,11 @@ export async function submitFeedback(payload: {
 
 /* ---- Student ratings (/rate) ---- */
 export interface RateStart { opened: string; deviceToken: string; counter: number | null }
-export interface RatePairSummary {
-  rating: number | null;
-  numRatings: number;
-  hoursPerWeek: number | null;
-  hoursCount: number;
-  gradeDistribution: Record<string, number>;
-  gradeCount: number;
+export interface RatedCourse {
+  code: string; name: string | null; term: string | null;
+  rating: number; hours: string; grade: string | null; comment: string;
 }
-export interface RateProfessorContext { ratedCourses: string[]; summaries: Record<string, RatePairSummary> }
+export interface RateProfessorContext { ratedCourses: RatedCourse[] }
 export interface RateSubmission {
   professor: { slug: string } | { name: string; department: string | null };
   course: { code: string } | { code: string; name: string };

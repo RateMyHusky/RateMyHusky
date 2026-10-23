@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef } from 'react';
-import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
+import { Fragment, useEffect, useId, useState } from 'react';
+import type { ReactNode } from 'react';
+import { moveRadioFocus } from './moveRadioFocus';
 
 export interface ChoiceOption<T> {
   value: T;
@@ -7,6 +8,7 @@ export interface ChoiceOption<T> {
   aria: string;
   className?: string;
   digit?: number;
+  heading?: string;
 }
 
 interface ChoiceGroupProps<T> {
@@ -15,14 +17,14 @@ interface ChoiceGroupProps<T> {
   options: ChoiceOption<T>[];
   value?: T;
   onPick: (v: T) => void;
-  layout: 'stack' | 'row' | 'grid';
+  layout: 'stack' | 'grid';
 }
 
 export function BackLink({ onBack, disabled }: { onBack: () => void; disabled?: boolean }) {
   return <button type="button" className="rate-back" disabled={disabled} onClick={onBack}>‹ Back</button>;
 }
 
-/* On mobile this renders in place; from 1024px it is the pinned footer, Back left and the step's action right. */
+/* On mobile this renders in place; from 1024px it is the pinned footer, the step's action with the ghost link under it; Back is hidden there because it lives in the top row. */
 export function StepFoot({ onBack, backDisabled, children }: { onBack?: () => void; backDisabled?: boolean; children?: ReactNode }) {
   return (
     <div className="rate-foot">
@@ -34,7 +36,8 @@ export function StepFoot({ onBack, backDisabled, children }: { onBack?: () => vo
 
 export function ChoiceGroup<T>({ legend, subtitle, options, value, onPick, layout }: ChoiceGroupProps<T>) {
   const headingId = useId();
-  const groupRef = useRef<HTMLDivElement>(null);
+  // The picked value, not its position, so the pop stays on the picked tile if the options reorder.
+  const [popped, setPopped] = useState<T | null>(null);
 
   // Keys 1-5 pick the option whose digit matches, never by position.
   useEffect(() => {
@@ -44,22 +47,13 @@ export function ChoiceGroup<T>({ legend, subtitle, options, value, onPick, layou
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return;
       if (!/^[1-5]$/.test(e.key)) return;
       const hit = options.find((o) => o.digit === Number(e.key));
-      if (hit) onPick(hit.value);
+      if (!hit) return;
+      setPopped(hit.value);
+      onPick(hit.value);
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [options, onPick]);
-
-  // Arrow keys move focus only; Enter, Space and click select.
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const step = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
-    if (!step) return;
-    const radios = Array.from(groupRef.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? []);
-    const at = radios.indexOf(document.activeElement as HTMLButtonElement);
-    if (at < 0) return;
-    e.preventDefault();
-    radios[(at + step + radios.length) % radios.length].focus();
-  };
 
   const checked = options.findIndex((o) => o.value === value);
   const tabStop = checked < 0 ? 0 : checked;
@@ -69,26 +63,27 @@ export function ChoiceGroup<T>({ legend, subtitle, options, value, onPick, layou
       <h1 id={headingId} className="rate-q" tabIndex={-1}>{legend}</h1>
       {subtitle && <p className="rate-sub">{subtitle}</p>}
       <div
-        ref={groupRef}
         role="radiogroup"
         aria-labelledby={headingId}
         className={`rate-choices rate-choices-${layout}`}
-        style={{ '--cols': options.length } as CSSProperties}
-        onKeyDown={onKeyDown}
+        onKeyDown={moveRadioFocus}
       >
         {options.map((o, i) => (
-          <button
-            key={i}
-            type="button"
-            role="radio"
-            aria-checked={i === checked}
-            aria-label={o.aria}
-            tabIndex={i === tabStop ? 0 : -1}
-            className={`rate-opt${i === checked ? ' on' : ''}${o.className ? ` ${o.className}` : ''}`}
-            onClick={() => onPick(o.value)}
-          >
-            {o.label}
-          </button>
+          <Fragment key={i}>
+            {/* Hidden from screen readers, since a radiogroup holds only radios; the tiles under it say so in their labels. */}
+            {o.heading && <h2 className="rate-group" aria-hidden="true">{o.heading}</h2>}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={i === checked}
+              aria-label={o.aria}
+              tabIndex={i === tabStop ? 0 : -1}
+              className={`rate-opt${i === checked ? ' on' : ''}${o.className ? ` ${o.className}` : ''}${o.value === popped ? ' pop' : ''}`}
+              onClick={() => { setPopped(o.value); onPick(o.value); }}
+            >
+              {o.label}
+            </button>
+          </Fragment>
         ))}
       </div>
     </>

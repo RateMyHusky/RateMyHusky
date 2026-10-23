@@ -191,24 +191,23 @@ def test_hold_burst_holds_recent_accepted_rows_per_tripped_trigger():
     assert "new_device = true" in f.writes[0][0] and "new_device" not in f.writes[1][0]
 
 
-def test_professor_context_shapes_summaries_and_rated_courses():
-    many = {
-        "FROM survey_ratings": [{"course_code": "CS2500"}],
-        "FROM source_summary": [
-            {"course_code": "CS2500", "source": "blend", "rating": 4.2, "num_ratings": 23,
-             "hours_per_week": 5.0, "grade_distribution": {"A": 2, "B": 1}},
-            {"course_code": "CS2500", "source": "survey", "rating": 5.0, "num_ratings": 1,
-             "hours_per_week": 5.0, "grade_distribution": None},
-        ],
-    }
+def test_professor_context_returns_earlier_answers():
+    many = {"FROM survey_ratings": [
+        {"course_code": "CS3500", "name": "Object-Oriented Design", "term_label": "Fall 2025",
+         "rating": 4, "hours": "5-7", "grade": "A-", "comment": "Projects take time."},
+        {"course_code": "CS4973", "name": None, "term_label": None,
+         "rating": 5, "hours": "8-10", "grade": None, "comment": None},
+    ]}
     f = Fake(many=many)
-    ctx = ratings.professor_context("jane-doe", "d1", f.query)
-    assert ctx["ratedCourses"] == ["CS2500"]
-    assert ctx["summaries"]["CS2500"] == {
-        "rating": 4.2, "numRatings": 23, "hoursPerWeek": 5.0, "hoursCount": 1,
-        "gradeDistribution": {"A": 2, "B": 1}, "gradeCount": 3}
-    assert list(ctx["summaries"]) == ["CS2500"]
-    assert ratings.professor_context("jane-doe", None, Fake(many=many).query)["ratedCourses"] == []
+    assert ratings.professor_context("jane-doe", "d1", f.query) == {"ratedCourses": [
+        {"code": "CS3500", "name": "Object-Oriented Design", "term": "Fall 2025",
+         "rating": 4, "hours": "5-7", "grade": "A-", "comment": "Projects take time."},
+        {"code": "CS4973", "name": None, "term": None,
+         "rating": 5, "hours": "8-10", "grade": None, "comment": ""}]}
+    sql, params = f.calls[0]
+    assert "LEFT JOIN course_catalog" in sql and params == ("d1", "jane-doe")
+    assert len(f.calls) == 1
+    assert ratings.professor_context("jane-doe", None, Fake(many=many).query) == {"ratedCourses": []}
 
 
 def test_purge_clears_hashes_older_than_30_days():

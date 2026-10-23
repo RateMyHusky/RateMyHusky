@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fetchSearchSuggestions } from '../../api/api';
 import { useDebouncedValue } from '../../utils/useDebouncedValue';
 import { ChoiceGroup, StepFoot } from './ChoiceGroup';
@@ -10,28 +10,41 @@ const OTHER = '+other';
 
 interface CourseStepProps {
   professor: RateProfessor;
-  courses: RateCourse[];
-  ratedCourses: string[];
+  fresh: RateCourse[];
+  rated: RateCourse[];
   selected?: string;
   onPick: (c: RateCourse) => void;
   onOther: () => void;
 }
 
-export function CourseStep({ professor, courses, ratedCourses, selected, onPick, onOther }: CourseStepProps) {
-  const options: ChoiceOption<string>[] = courses.map((c) => {
-    const rated = ratedCourses.includes(c.code);
-    return {
-      value: c.code,
-      aria: `${formatCode(c.code)}${c.name ? `, ${c.name}` : ''}${rated ? ', you rated this' : ''}`,
-      label: (
-        <>
-          <span>{formatCode(c.code)}{c.name ? ` · ${c.name}` : ''}</span>
-          {rated && <span className="rate-tag">You rated this</span>}
-        </>
-      ),
-    };
+export function Pencil() {
+  return (
+    <span className="rate-pencil" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
+    </span>
+  );
+}
+
+export function CourseStep({ professor, fresh, rated, selected, onPick, onOther }: CourseStepProps) {
+  const option = (c: RateCourse, isRated: boolean): ChoiceOption<string> => ({
+    value: c.code,
+    aria: `${formatCode(c.code)}${c.name ? `, ${c.name}` : ''}${isRated ? ', update your rating' : ''}`,
+    className: isRated ? 'course rated' : 'course',
+    label: (
+      <>
+        <span className="rate-cmain"><b>{formatCode(c.code)}</b>{c.name && <span className="rate-cname">{c.name}</span>}</span>
+        {isRated && <Pencil />}
+      </>
+    ),
   });
-  options.push({ value: OTHER, aria: 'A different course', label: '+ A different course', className: 'dash' });
+  const options = fresh.map((c) => option(c, false));
+  options.push({ value: OTHER, aria: 'A different course', label: '+ A different course', className: 'course dash' });
+  const ratedOptions = rated.map((c) => option(c, true));
+  if (ratedOptions.length) ratedOptions[0].heading = 'Already rated';
+  options.push(...ratedOptions);
 
   return (
     <ChoiceGroup
@@ -40,7 +53,7 @@ export function CourseStep({ professor, courses, ratedCourses, selected, onPick,
       options={options}
       value={selected}
       layout="stack"
-      onPick={(v) => (v === OTHER ? onOther() : onPick(courses.find((c) => c.code === v)!))}
+      onPick={(v) => (v === OTHER ? onOther() : onPick([...fresh, ...rated].find((c) => c.code === v)!))}
     />
   );
 }
@@ -50,14 +63,14 @@ const NEW_CODE = /^[A-Z]{2,5}\d{4}[A-Z]?$/;
 const CODE_LIKE = /^[A-Za-z]{2,5}\s*\d{1,4}[A-Za-z]?$/;
 
 interface OtherCourseStepProps {
+  rated: string[];
   onPick: (c: RateCourse) => void;
   onBack: () => void;
 }
 
-export function OtherCourseStep({ onPick, onBack }: OtherCourseStepProps) {
+export function OtherCourseStep({ rated, onPick, onBack }: OtherCourseStepProps) {
   const [query, setQuery] = useState('');
   const [newName, setNewName] = useState('');
-  const nameRef = useRef<HTMLInputElement>(null);
   const typed = query.trim();
   const term = CODE_LIKE.test(typed) ? typed.replace(/\s+/g, '') : typed;
   const debounced = useDebouncedValue(term, 200);
@@ -97,26 +110,33 @@ export function OtherCourseStep({ onPick, onBack }: OtherCourseStepProps) {
       </div>
       {settled && settled.length > 0 && (
         <div className="rate-suggs">
-          {settled.map((c) => (
-            <button key={c.code} type="button" className="rate-sugg" onClick={() => onPick(c)}>
-              <b>{formatCode(c.code)}</b>
-              {c.name && <small>{c.name}</small>}
-            </button>
-          ))}
+          {settled.map((c) => {
+            const isRated = rated.includes(c.code);
+            return (
+              <button
+                key={c.code}
+                type="button"
+                className={`rate-sugg${isRated ? ' rated' : ''}`}
+                aria-label={isRated ? `${formatCode(c.code)}${c.name ? `, ${c.name}` : ''}, update your rating` : undefined}
+                onClick={() => onPick(c)}
+              >
+                <span>
+                  <b>{formatCode(c.code)}</b>
+                  {c.name && <small>{c.name}</small>}
+                </span>
+                {isRated && <Pencil />}
+              </button>
+            );
+          })}
         </div>
       )}
       {canAdd && (
         <>
-          <div className="rate-suggs">
-            <button type="button" className="rate-sugg add" onClick={() => nameRef.current?.focus()}>
-              + Not listed? Add "{formatCode(code)}" as a new course
-            </button>
-          </div>
+          <p className="rate-hint rate-note">{formatCode(code)} isn't in our catalog yet. Name it and it's added with your rating.</p>
           <div className="rate-field">
-            <label htmlFor="rate-course-name">Course name (for new courses)</label>
+            <label htmlFor="rate-course-name">Course name</label>
             <input
               id="rate-course-name"
-              ref={nameRef}
               className="rate-input"
               autoComplete="off"
               placeholder="e.g. Topics: Applied ML"
@@ -125,6 +145,9 @@ export function OtherCourseStep({ onPick, onBack }: OtherCourseStepProps) {
             />
           </div>
         </>
+      )}
+      {settled && settled.length === 0 && !NEW_CODE.test(code) && (
+        <p className="rate-hint rate-note" role="status">No courses match. Type the full code, like CS 4999, to add a new one.</p>
       )}
       <StepFoot onBack={onBack}>
         {canAdd && (
