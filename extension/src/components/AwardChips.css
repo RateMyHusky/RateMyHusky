@@ -23,9 +23,14 @@
   max-width: 100%;
 }
 
-.award:not(.more):hover {
+.award:hover {
   background: var(--award-bg-hover);
   border-color: var(--award-line-hover);
+}
+
+.award:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 
 .award-years {
@@ -33,6 +38,3 @@
   opacity: 0.75;
 }
 
-.award.more {
-  cursor: default;
-}

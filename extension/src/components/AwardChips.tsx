@@ -17,7 +17,14 @@ function group(awards: TeachingAward[]) {
   return groups;
 }
 
-export default function AwardChips({ awards }: { awards: TeachingAward[] }) {
+export default function AwardChips({
+  awards,
+  moreHref,
+}: {
+  awards: TeachingAward[];
+  /** Where "+N more" goes — the professor's page lists every award in full. */
+  moreHref: string;
+}) {
   if (awards.length === 0) return null;
 
   const groups = group(awards);
@@ -42,9 +49,12 @@ export default function AwardChips({ awards }: { awards: TeachingAward[] }) {
       ))}
       {hidden > 0 && (
         <li>
-          <span className="award more" title={groups.slice(MAX_VISIBLE).map((g) => g.label).join('\n')}>
+          {/* A link rather than a span with a title: a tooltip is unreachable
+              by keyboard and unread by screen readers, and it stranded the
+              hidden awards' sourceUrls. The professor's page has them all. */}
+          <a className="award more" href={moreHref} target="_blank" rel="noopener noreferrer">
             +{hidden} more
-          </span>
+          </a>
         </li>
       )}
     </ul>

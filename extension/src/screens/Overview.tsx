@@ -60,13 +60,16 @@ export default function Overview({ slug, onCompare }: { slug: string; onCompare?
           <h1 className="name">{identity.name}</h1>
           {identity.department && <p className="dept">{identity.department}</p>}
           {lastTaught && <span className="chip">Last taught {lastTaught}</span>}
-          <AwardChips awards={awards} />
+          <AwardChips awards={awards} moreHref={professorUrl(identity.slug)} />
         </div>
       </div>
 
       <div className="score">
         <div className="score-row">
-          <StarRating rating={summary.rating ?? 0} size="lg" />
+          {/* No stars at all when there's no rating. Passing 0 drew five empty
+              ones, which reads as "rated 0/5" right next to a dash saying
+              there's nothing to show. */}
+          {summary.rating != null && <StarRating rating={summary.rating} size="lg" />}
           <strong>{score(summary.rating)}</strong>
           <span className="outof">/ 5</span>
         </div>
@@ -102,7 +105,10 @@ export default function Overview({ slug, onCompare }: { slug: string; onCompare?
       <div className="tiles">
         <StatTile value={score(summary.difficulty)} label="Difficulty" />
         <StatTile value={percent(summary.wouldTakeAgainPct)} label="Take Again" />
-        <StatTile value={String(courses.length)} label="Courses" />
+        {/* Labelled all-time on purpose: this counts every course on record,
+            and plenty of them were last taught years ago. Sitting unlabelled
+            beside Difficulty and Take Again, it read as a current load. */}
+        <StatTile value={String(courses.length)} label="All-Time Courses" />
       </div>
     </>
   );
