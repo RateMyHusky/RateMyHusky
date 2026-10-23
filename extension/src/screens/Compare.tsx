@@ -93,9 +93,13 @@ export default function Compare({ slugs }: { slugs: string[] }) {
         ))}
       </div>
 
-      <button className="cmp-add" type="button" disabled title="Needs the search screen">
+      {/* The reason sits on screen rather than in a title: Chrome doesn't
+          reliably fire tooltips on a disabled button, so a title here would
+          leave the control looking broken for no stated reason. */}
+      <button className="cmp-add" type="button" disabled>
         + Add Another Professor
       </button>
+      <p className="muted cmp-add-note">Adding a professor needs the search screen.</p>
     </div>
   );
 }
