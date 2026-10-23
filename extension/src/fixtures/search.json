@@ -1,4 +1,7 @@
 [
+  { "type": "professor", "name": "Daniela Rus",      "dept": "CS, ECE", "rating": 4.8, "slug": "daniela-rus" },
+  { "type": "professor", "name": "Daniela Russo",   "dept": "Languages", "rating": 4.2, "slug": "daniela-russo" },
+  { "type": "professor", "name": "Dan Rusnack",     "dept": "Mathematics", "rating": 3.9, "slug": "dan-rusnack" },
   { "type": "professor", "name": "David Kaeli",       "dept": "Electrical and Computer Engineering", "rating": 4.12, "slug": "david-kaeli" },
   { "type": "professor", "name": "Sarah Ostadabbas",  "dept": "Electrical and Computer Engineering", "rating": 4.45, "slug": "sarah-ostadabbas" },
   { "type": "professor", "name": "Kristina Lynch",    "dept": "Mechanical and Industrial Engineering", "rating": null, "slug": "kristina-lynch" },

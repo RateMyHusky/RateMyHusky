@@ -63,10 +63,17 @@ export async function searchProfessors(
   if (q.length < 2) return [];
 
   if (USE_FIXTURES) {
-    const needle = q.toLowerCase();
+    const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
     return (searchFixture as Suggestion[])
       .filter((s): s is ProfessorSuggestion => s.type === 'professor')
-      .filter((s) => s.name.toLowerCase().includes(needle))
+      .filter((s) => {
+        const nameTokens = s.name.toLowerCase().split(/\s+/);
+        return tokens.every((token) =>
+          nameTokens.some(
+            (nameToken) => nameToken.startsWith(token) || token.startsWith(nameToken),
+          ),
+        );
+      })
       .slice(0, limit);
   }
 
