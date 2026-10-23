@@ -104,6 +104,18 @@
 .prof-award svg { flex-shrink: 0; }
 .prof-award-year { font-weight: 500; opacity: 0.75; white-space: nowrap; }
 
+.prof-tags {
+  list-style: none; margin: 8px 0 0; padding: 0;
+  display: flex; flex-wrap: wrap; gap: 6px;
+  animation: profSlideUp 0.5s 0.35s ease both;
+}
+.prof-tag {
+  display: inline-flex; align-items: center;
+  padding: 4px 11px; border-radius: 999px;
+  background: #f4f4f5; border: 1px solid #e2e2e5; color: #444;
+  font-size: 0.82rem; font-weight: 600;
+}
+
 .prof-hero-actions-row {
   margin: 20px 0 0; padding: 0 clamp(16px, 3vw, 48px);
   display: flex; gap: 10px;
@@ -652,6 +664,7 @@
 .dark .prof-dept { color: #999; }
 .dark .prof-award { background: #2b2415; border-color: #5a4a26; color: #e6c27a; }
 .dark .prof-award:hover { background: #352c18; border-color: #7a6331; }
+.dark .prof-tag { background: #262626; border-color: #3a3a3a; color: #cfcfcf; }
 
 .dark .prof-rate-btn, .dark .prof-compare-btn { box-shadow: 0 2px 8px rgba(214,57,76,0.15); }
 .dark .prof-rmp-btn { color: #e06070; border-color: #e06070; }
@@ -767,6 +780,7 @@
   .prof-name { font-size: 1.4rem; }
   .prof-dept { font-size: 0.88rem; }
   .prof-award { font-size: 0.76rem; padding: 4px 10px; border-radius: 10px; }
+  .prof-tag { font-size: 0.76rem; padding: 4px 10px; border-radius: 10px; }
   .prof-avatar { width: 60px; height: 60px; font-size: 1.3rem; }
 
   .prof-hero-actions-row { flex-direction: column; align-items: center; }

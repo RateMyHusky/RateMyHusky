@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import type { ProfessorTag } from '../api/api';
+import { tagLabel } from '../utils/tagLabels';
+import { fetchPopularTags } from '../api/api';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   FILTER_SEPARATOR,
@@ -35,6 +38,7 @@ interface Filters {
   q:          string;
   college:    string;
   dept:       string;
+  tags:       string;
   minRating:  number;
   maxRating:  number;
   minReviews: number;
@@ -47,6 +51,7 @@ const DEFAULT_FILTERS: Filters = {
   q:          '',
   college:    '',
   dept:       '',
+  tags:       '',
   minRating:  0,
   maxRating:  5,
   minReviews: 0,
@@ -72,6 +77,7 @@ function getFiltersFromSearchParams(sp: URLSearchParams): Filters {
     q:          sp.get('q') || '',
     college:    sp.get('college') || '',
     dept:       sp.get('dept') || '',
+    tags:       sp.get('tags') || '',
     minRating:  Number.isFinite(minRating) ? Math.max(0, Math.min(5, minRating)) : 0,
     maxRating:  Number.isFinite(maxRating) ? Math.max(0, Math.min(5, maxRating)) : 5,
     minReviews: Number.isFinite(minReviews) ? Math.max(0, Math.floor(minReviews)) : 0,
@@ -86,6 +92,7 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
   if (filters.q) next.set('q', filters.q);
   if (filters.college) next.set('college', filters.college);
   if (filters.dept) next.set('dept', filters.dept);
+  if (filters.tags) next.set('tags', filters.tags);
   if (filters.minRating > 0) next.set('minRating', String(filters.minRating));
   if (filters.maxRating < 5) next.set('maxRating', String(filters.maxRating));
   if (filters.minReviews > 0) next.set('minReviews', String(filters.minReviews));
@@ -111,6 +118,7 @@ export default function ProfessorCatalog() {
     'Health Sciences', 'Khoury', 'Law', 'Professional Studies', 'Science',
   ]);
   const [departments, setDepts]     = useState<string[]>([]);
+  const [popularTags, setPopularTags] = useState<ProfessorTag[]>([]);
   const [professors, setProfessors] = useState<CatalogProfessor[]>([]);
   const [total, setTotal]           = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -193,6 +201,15 @@ export default function ProfessorCatalog() {
       .catch(console.error);
   }, [filters.college]);
 
+  // tags for the teaching style filter, only needs loading once
+  useEffect(() => { fetchPopularTags().then(setPopularTags); }, []);
+
+  const selectedTags = filters.tags ? filters.tags.split(FILTER_SEPARATOR) : [];
+  const toggleTag = (tag: string) => {
+    const next = selectedTags.includes(tag) ? selectedTags.filter(t => t !== tag) : [...selectedTags, tag];
+    updateFilter('tags', next.join(FILTER_SEPARATOR));
+  };
+
   const debouncedQ = useDebouncedValue(filters.q, 250);
 
   // Fetch professors when any filter changes
@@ -204,6 +221,7 @@ export default function ProfessorCatalog() {
       q:          debouncedQ         || undefined,
       college:    filters.college    || undefined,
       dept:       filters.dept       || undefined,
+      tags:       filters.tags       || undefined,
       minRating:  filters.minRating  > 0 ? filters.minRating  : undefined,
       maxRating:  filters.maxRating  < 5 ? filters.maxRating  : undefined,
       minReviews: filters.minReviews > 0 ? filters.minReviews : undefined,
@@ -221,7 +239,7 @@ export default function ProfessorCatalog() {
       .catch(console.error)
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [debouncedQ, filters.college, filters.dept, filters.minRating, filters.maxRating, filters.minReviews, filters.maxReviews, filters.sort, filters.page, pageSize, isMeasured, viewMode]);
+  }, [debouncedQ, filters.college, filters.dept, filters.tags, filters.minRating, filters.maxRating, filters.minReviews, filters.maxReviews, filters.sort, filters.page, pageSize, isMeasured, viewMode]);
 
   // Keep filters in the URL so the catalog view is shareable/bookmarkable.
   useEffect(() => {
@@ -237,6 +255,7 @@ export default function ProfessorCatalog() {
     setFilters(prev => {
       if (
         prev.q === fromUrl.q &&
+        prev.tags === fromUrl.tags &&
         prev.college === fromUrl.college &&
         prev.dept === fromUrl.dept &&
         prev.minRating === fromUrl.minRating &&
@@ -414,12 +433,13 @@ export default function ProfessorCatalog() {
   }, [isSearchFocused, filters.q, professorExamples]);
 
   const hasActiveFilters =
-    !!filters.q || !!filters.college || !!filters.dept || filters.minRating > 0 || filters.maxRating < 5 || filters.minReviews > 1 || filters.maxReviews !== null;
+    !!filters.q || !!filters.college || !!filters.dept || filters.minRating > 0 || filters.maxRating < 5 || filters.minReviews > 1 || filters.maxReviews !== null || !!filters.tags;
 
   const activeFilterCount =
     (filters.q ? 1 : 0) +
     (filters.college ? filters.college.split(FILTER_SEPARATOR).filter(Boolean).length : 0) +
     (filters.dept ? filters.dept.split(FILTER_SEPARATOR).filter(Boolean).length : 0) +
+    (filters.tags ? filters.tags.split(FILTER_SEPARATOR).filter(Boolean).length : 0) +
     (filters.minRating > 0 || filters.maxRating < 5 ? 1 : 0) +
     (filters.minReviews > 1 || filters.maxReviews !== null ? 1 : 0);
 
@@ -518,6 +538,37 @@ export default function ProfessorCatalog() {
                 onOpenChange={setDeptOpen}
               />
             </div>
+
+            {/* Teaching style tags */}
+            {(popularTags.length > 0 || selectedTags.length > 0) && (
+              <div className="filter-section">
+                <p className="filter-label">
+                  Teaching style
+                  {filters.tags && (
+                    <button className="dept-clear-btn" onClick={() => updateFilter('tags', '')}>Clear all</button>
+                  )}
+                </p>
+                {selectedTags.length > 1 && (
+                  <p className="tag-filter-hint">Showing professors with all selected tags</p>
+                )}
+                <div className="tag-filter">
+                  {[...popularTags.map(p => p.tag), ...selectedTags.filter(t => !popularTags.some(p => p.tag === t))].map((tag) => {
+                    const on = selectedTags.includes(tag);
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        className={`tag-filter-chip${on ? ' active' : ''}`}
+                        aria-pressed={on}
+                        onClick={() => toggleTag(tag)}
+                      >
+                        {tagLabel(tag)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Rating Range */}
             <div className="filter-section">
