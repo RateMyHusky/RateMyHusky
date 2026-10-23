@@ -1003,8 +1003,8 @@ from professor_full import _resolve_professor  # same lookup as /full, skips den
 from tags import TAG_TAXONOMY
 
 MIN_TAG_REVIEWS = 3  # need at least this many reviews before showing a tag
-MIN_TAG_SHARE = 0.10  # and at least this share of the professor's reviews, so 3 of 250 doesn't count
-MAX_PROF_TAGS = 6  # most tags shown on one professor page
+MIN_TAG_SHARE = 0.05  # and at least 5% of the professor's reviews, so 3 of 250 doesn't count
+MAX_PROF_TAGS = 5  # most tags shown on one professor page
 # same visibility rule for the professor page, popular tags and the catalog filter
 TAG_VISIBLE_SQL = "pt.review_count >= %s AND pt.review_count >= pc.total_reviews * %s"
 
@@ -1203,7 +1203,7 @@ def professors_catalog():
         max_reviews = None
 
     # teaching-style tags, only real tag names count
-    tag_list = [t for t in split_filter(request.args.get("tags", "")) if t in TAG_TAXONOMY]
+    tag_list = sorted({t for t in split_filter(request.args.get("tags", "")) if t in TAG_TAXONOMY})
 
     cache_key = f"profcat:{q}:{college}:{dept}:{sort}:{page}:{limit}:{min_rating}:{max_rating}:{min_reviews}:{max_reviews}:{'|'.join(tag_list)}"
     cached = cache_get(cache_key)

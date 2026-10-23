@@ -432,12 +432,13 @@ export default function ProfessorCatalog() {
   }, [isSearchFocused, filters.q, professorExamples]);
 
   const hasActiveFilters =
-    !!filters.q || !!filters.college || !!filters.dept || filters.minRating > 0 || filters.maxRating < 5 || filters.minReviews > 1 || filters.maxReviews !== null;
+    !!filters.q || !!filters.college || !!filters.dept || filters.minRating > 0 || filters.maxRating < 5 || filters.minReviews > 1 || filters.maxReviews !== null || !!filters.tags;
 
   const activeFilterCount =
     (filters.q ? 1 : 0) +
     (filters.college ? filters.college.split(FILTER_SEPARATOR).filter(Boolean).length : 0) +
     (filters.dept ? filters.dept.split(FILTER_SEPARATOR).filter(Boolean).length : 0) +
+    (filters.tags ? filters.tags.split(FILTER_SEPARATOR).filter(Boolean).length : 0) +
     (filters.minRating > 0 || filters.maxRating < 5 ? 1 : 0) +
     (filters.minReviews > 1 || filters.maxReviews !== null ? 1 : 0);
 
@@ -538,7 +539,7 @@ export default function ProfessorCatalog() {
             </div>
 
             {/* Teaching style tags */}
-            {popularTags.length > 0 && (
+            {(popularTags.length > 0 || selectedTags.length > 0) && (
               <div className="filter-section">
                 <p className="filter-label">
                   Teaching style
@@ -546,8 +547,11 @@ export default function ProfessorCatalog() {
                     <button className="dept-clear-btn" onClick={() => updateFilter('tags', '')}>Clear all</button>
                   )}
                 </p>
+                {selectedTags.length > 1 && (
+                  <p className="tag-filter-hint">Showing professors with all selected tags</p>
+                )}
                 <div className="tag-filter">
-                  {popularTags.map(({ tag }) => {
+                  {[...popularTags.map(p => p.tag), ...selectedTags.filter(t => !popularTags.some(p => p.tag === t))].map((tag) => {
                     const on = selectedTags.includes(tag);
                     return (
                       <button

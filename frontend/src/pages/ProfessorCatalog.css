@@ -1823,3 +1823,4 @@
 .tag-filter-chip.active { background: #d6394c; border-color: #d6394c; color: #fff; }
 .dark .tag-filter-chip { background: #262626; border-color: #3a3a3a; color: #cfcfcf; }
 .dark .tag-filter-chip.active { background: #d6394c; border-color: #d6394c; color: #fff; }
+.tag-filter-hint { margin: 0 0 8px; font-size: 0.75rem; opacity: 0.7; }

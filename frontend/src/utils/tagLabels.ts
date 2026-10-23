@@ -11,7 +11,7 @@ export const TAG_LABELS: Record<string, string> = {
   engaging_lecturer: 'Engaging lectures',
   extra_credit: 'Extra credit',
   participation_grade: 'Participation matters',
-  accommodating: 'Flexible deadlines',
+  accommodating: 'Flexible / accommodating',
 };
 
 export const tagLabel = (tag: string) => TAG_LABELS[tag] ?? tag.replace(/_/g, ' ');
