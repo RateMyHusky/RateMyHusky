@@ -14,9 +14,9 @@
   gap: 5px;
   padding: 3px 9px;
   border-radius: 999px;
-  background: #fdf6e7;
-  border: 1px solid #ecd9a8;
-  color: #7a5300;
+  background: var(--award-bg);
+  border: 1px solid var(--award-line);
+  color: var(--award-fg);
   font-size: 10.5px;
   font-weight: 700;
   text-decoration: none;
@@ -24,8 +24,8 @@
 }
 
 .award:not(.more):hover {
-  background: #faeed2;
-  border-color: #e0c88c;
+  background: var(--award-bg-hover);
+  border-color: var(--award-line-hover);
 }
 
 .award-years {

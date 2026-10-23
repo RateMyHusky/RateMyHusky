@@ -1,9 +1,20 @@
-import { GearIcon } from './icons';
+import { GearIcon, BackIcon } from './icons';
 import './Header.css';
 
-export default function Header({ onSettings }: { onSettings?: () => void }) {
+export default function Header({
+  onBack,
+  onSettings,
+}: {
+  onBack?: () => void;
+  onSettings?: () => void;
+}) {
   return (
     <header className="bar">
+      {onBack && (
+        <button className="icon-btn back" type="button" onClick={onBack} aria-label="Back">
+          <BackIcon />
+        </button>
+      )}
       <img className="mark" src="neu-husky-icon.png" alt="" width={22} height={22} />
       <span className="wordmark">
         <span>Rate</span>MyHusky

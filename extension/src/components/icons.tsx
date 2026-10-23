@@ -53,3 +53,11 @@ export function GearIcon(props: Props) {
     </Svg>
   );
 }
+
+export function BackIcon(props: Props) {
+  return (
+    <Svg {...props}>
+      <path d="M15 18l-6-6 6-6" />
+    </Svg>
+  );
+}

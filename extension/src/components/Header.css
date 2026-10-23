@@ -50,3 +50,8 @@
   opacity: 0.4;
   cursor: default;
 }
+
+.bar .icon-btn.back {
+  margin-left: 0;
+  margin-right: 2px;
+}

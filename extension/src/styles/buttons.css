@@ -24,16 +24,16 @@
 }
 
 .btn.primary {
-  background: var(--brand);
+  background: var(--brand-fill);
   color: #fff;
   border: none;
-  box-shadow: 0 2px 8px rgba(214, 57, 76, 0.2);
+  box-shadow: 0 2px 8px var(--brand-glow);
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: var(--brand-dark);
+  background: var(--brand-hover);
   transform: scale(1.03);
-  box-shadow: 0 4px 16px rgba(214, 57, 76, 0.3);
+  box-shadow: 0 4px 16px var(--brand-glow-strong);
 }
 
 .btn.secondary {

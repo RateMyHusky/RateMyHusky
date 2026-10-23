@@ -12,7 +12,7 @@ type State =
   | { status: 'ready'; prof: Professor }
   | { status: 'error'; message: string };
 
-export default function Overview({ slug }: { slug: string }) {
+export default function Overview({ slug, onCompare }: { slug: string; onCompare?: () => void }) {
   const [state, setState] = useState<State>({ status: 'loading' });
 
   useEffect(() => {
@@ -76,7 +76,7 @@ export default function Overview({ slug }: { slug: string }) {
       </div>
 
       <div className="actions">
-        <button className="btn primary" type="button" disabled title="Coming soon">
+        <button className="btn primary" type="button" onClick={onCompare} disabled={!onCompare}>
           <ScaleIcon />
           Compare
         </button>

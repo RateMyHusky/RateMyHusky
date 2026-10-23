@@ -1,12 +1,21 @@
 import searchFixture from './fixtures/search.json';
-import professorFixture from './fixtures/professor.json';
+import rachlin from './fixtures/professors/john-rachlin.json';
+import kaeli from './fixtures/professors/david-kaeli.json';
+
+// Keyed by slug so fixture mode behaves like the real API: a slug we captured
+// resolves, anything else 404s. Add a file and a line here to capture more.
+const PROFESSOR_FIXTURES: Record<string, unknown> = {
+  'john-rachlin': rachlin,
+  'david-kaeli': kaeli,
+};
 
 // Flip once the site is out of maintenance and /api/* returns JSON again.
 export const USE_FIXTURES = true;
 
 // Must be the site, not the backend host: the API only accepts traffic
 // proxied through here, which is what attaches the shared secret.
-const API_BASE = 'https://ratemyhusky.com';
+export const SITE_URL = 'https://ratemyhusky.com';
+const API_BASE = SITE_URL;
 
 export type ProfessorSuggestion = {
   type: 'professor';
@@ -128,12 +137,9 @@ export type TeachingAward = {
 
 export async function fetchProfessor(slug: string): Promise<Professor> {
   if (USE_FIXTURES) {
-    // One professor is captured. Returning them for every slug would make
-    // every search result open the same page once search is wired up.
-    if (slug !== professorFixture.identity.slug) {
-      throw new NotFound(`no fixture for ${slug}`);
-    }
-    return professorFixture as Professor;
+    const hit = PROFESSOR_FIXTURES[slug];
+    if (!hit) throw new NotFound(`no fixture for ${slug}`);
+    return hit as Professor;
   }
   return get<Professor>(`/api/professors/${encodeURIComponent(slug)}/full`);
 }

@@ -1,9 +1,11 @@
-/* Light only for now; dark mode comes with the Settings screen.
-
-   Values lifted from the site so the popup reads as the same product: Nunito,
+/* Values lifted from the site so the popup reads as the same product: Nunito,
    #d6394c, and the .prof-compare-btn / .prof-rmp-btn pair. Paddings are scaled
    down — the site's 22px card padding doesn't fit 380px — but radii, shadows,
-   weights and colours are the site's own. */
+   weights and colours are the site's own.
+
+   The site has no dark mode, so the dark palette here is the popup's own. It
+   keeps the light theme's lightness order — sunken below bg, card above it —
+   instead of inverting each value, so depth still reads the same way round. */
 
 :root {
   --bg: #faf9f7;
@@ -12,11 +14,93 @@
   --fg: #1a1a1a;
   --muted: #666;
   --line: #e8e8e8;
+
+  /* --brand is the accent (text, borders, focus rings); --brand-fill is the
+     one filled use, the primary button. They split for dark's sake: the accent
+     has to lighten to stay legible on a dark background, while the fill has to
+     stay dark enough to keep white label text readable. One value can't do
+     both. In light they're deliberately identical. */
   --brand: #d6394c;
-  --brand-dark: #b82e3f;
+  --brand-fill: #d6394c;
+  --brand-hover: #b82e3f;
   --brand-wash: #fef0f0;
+  --brand-glow: rgba(214, 57, 76, 0.2);
+  --brand-glow-strong: rgba(214, 57, 76, 0.3);
+
+  --star: #f5a623;
+  --star-empty: #ddd;
+
+  --award-bg: #fdf6e7;
+  --award-line: #ecd9a8;
+  --award-fg: #7a5300;
+  --award-bg-hover: #faeed2;
+  --award-line-hover: #e0c88c;
+
   --shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
   color-scheme: light;
+}
+
+/* Dark is spelled out twice because the two triggers can't share a rule: one
+   is inside a media query and one isn't. Keep the two blocks identical.
+
+   Theme is three-state. No data-theme means follow the OS, so the media query
+   below bows out when the user has explicitly picked light. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #1d2026;
+    --bg-sunken: #16181c;
+    --card: #24282f;
+    --fg: #eceef2;
+    --muted: #a2a8b4;
+    --line: #313640;
+
+    --brand: #ff8a96;
+    --brand-fill: #c92d40;
+    --brand-hover: #d6394c;
+    --brand-wash: rgba(255, 138, 150, 0.14);
+    --brand-glow: rgba(0, 0, 0, 0.35);
+    --brand-glow-strong: rgba(0, 0, 0, 0.5);
+
+    --star: #ffc247;
+    --star-empty: #3a3f49;
+
+    --award-bg: #332b18;
+    --award-line: #5c4a22;
+    --award-fg: #f0cf87;
+    --award-bg-hover: #3d3420;
+    --award-line-hover: #6e5a2c;
+
+    --shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #1d2026;
+  --bg-sunken: #16181c;
+  --card: #24282f;
+  --fg: #eceef2;
+  --muted: #a2a8b4;
+  --line: #313640;
+
+  --brand: #ff8a96;
+  --brand-fill: #c92d40;
+  --brand-hover: #d6394c;
+  --brand-wash: rgba(255, 138, 150, 0.14);
+  --brand-glow: rgba(0, 0, 0, 0.35);
+  --brand-glow-strong: rgba(0, 0, 0, 0.5);
+
+  --star: #ffc247;
+  --star-empty: #3a3f49;
+
+  --award-bg: #332b18;
+  --award-line: #5c4a22;
+  --award-fg: #f0cf87;
+  --award-bg-hover: #3d3420;
+  --award-line-hover: #6e5a2c;
+
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
 }
 
 * {
