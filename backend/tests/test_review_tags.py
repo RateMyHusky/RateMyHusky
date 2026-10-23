@@ -10,8 +10,8 @@ from tag_extractor import might_have_tags, parse_tag_response, structured_tags, 
 
 
 def test_structured_tags():
-    assert structured_tags({"attendance": "Mandatory", "textbook": "Yes"}) == {
-        "mandatory_attendance", "requires_textbook"}
+    # attendance and textbook were dropped as tags, so those fields no longer make tags
+    assert structured_tags({"attendance": "Mandatory", "textbook": "Yes"}) == set()
     assert structured_tags({"attendance": "Not Mandatory", "textbook": "No", "tags": ""}) == set()
     assert structured_tags({"attendance": None, "textbook": None, "tags": None}) == set()
     assert structured_tags({}) == set()
@@ -23,8 +23,8 @@ def test_structured_tags_from_rmp_tags():
 
 
 def test_parse_drops_bad_tags_and_ids():
-    raw = {"1": ["mandatory_attendance", "made_up_tag"], "2": ["curved_grading"], "999": ["easy_a"]}
-    assert parse_tag_response(raw, ["1", "2"]) == {"1": ["mandatory_attendance"], "2": ["curved_grading"]}
+    raw = {"1": ["extra_credit", "made_up_tag"], "2": ["curved_grading"], "999": ["easy_a"]}
+    assert parse_tag_response(raw, ["1", "2"]) == {"1": ["extra_credit"], "2": ["curved_grading"]}
 
 
 def test_parse_junk():
@@ -37,7 +37,7 @@ def test_parse_junk():
 
 def test_prefilter():
     assert might_have_tags("Attendance is mandatory and he curves the final")
-    assert might_have_tags("Need the TEXTBOOK for hw")
+    assert not might_have_tags("Need the TEXTBOOK for hw")  # textbook isn't a tag anymore
     assert not might_have_tags("Great prof, would take again")
     assert not might_have_tags("the final was online and the lecture was easy")
     assert not might_have_tags("")
@@ -112,7 +112,7 @@ def test_professor_tags(srv, monkeypatch):
     r = srv.app.test_client().get("/api/professors/olin-guha/tags")
     assert r.status_code == 200
     assert r.get_json() == [{"tag": "curved_grading", "count": 7}, {"tag": "easy_a", "count": 3}]
-    assert seen["params"] == ("olin guha", srv.MIN_TAG_REVIEWS)
+    assert seen["params"] == ("olin guha", srv.MIN_TAG_REVIEWS, srv.MIN_TAG_SHARE, srv.MAX_PROF_TAGS)
 
 
 def test_professor_tags_404(srv, monkeypatch):

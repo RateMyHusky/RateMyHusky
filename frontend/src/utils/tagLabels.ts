@@ -1,7 +1,5 @@
 // Readable names for the teaching-style tags from /api/professors/<slug>/tags
 export const TAG_LABELS: Record<string, string> = {
-  requires_textbook: 'Textbook required',
-  mandatory_attendance: 'Attendance mandatory',
   heavy_workload: 'Heavy workload',
   group_projects: 'Group projects',
   curved_grading: 'Curves grades',
