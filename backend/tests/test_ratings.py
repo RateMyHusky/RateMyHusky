@@ -193,21 +193,29 @@ def test_hold_burst_holds_recent_accepted_rows_per_tripped_trigger():
 
 def test_professor_context_returns_earlier_answers():
     many = {"FROM survey_ratings": [
-        {"course_code": "CS3500", "name": "Object-Oriented Design", "term_label": "Fall 2025",
+        {"code": "CS3500", "name": "Object-Oriented Design", "pending": False, "term_label": "Fall 2025",
          "rating": 4, "hours": "5-7", "grade": "A-", "comment": "Projects take time."},
-        {"course_code": "CS4973", "name": None, "term_label": None,
+        {"code": "CS4973", "name": None, "pending": False, "term_label": None,
          "rating": 5, "hours": "8-10", "grade": None, "comment": None},
+        {"code": "CS4999", "name": "Applied ML", "pending": True, "term_label": "Fall 2025",
+         "rating": 3, "hours": "3-4", "grade": None, "comment": None},
     ]}
     f = Fake(many=many)
     assert ratings.professor_context("jane-doe", "d1", f.query) == {"ratedCourses": [
-        {"code": "CS3500", "name": "Object-Oriented Design", "term": "Fall 2025",
+        {"code": "CS3500", "name": "Object-Oriented Design", "pending": False, "term": "Fall 2025",
          "rating": 4, "hours": "5-7", "grade": "A-", "comment": "Projects take time."},
-        {"code": "CS4973", "name": None, "term": None,
-         "rating": 5, "hours": "8-10", "grade": None, "comment": ""}]}
+        {"code": "CS4973", "name": None, "pending": False, "term": None,
+         "rating": 5, "hours": "8-10", "grade": None, "comment": ""},
+        {"code": "CS4999", "name": "Applied ML", "pending": True, "term": "Fall 2025",
+         "rating": 3, "hours": "3-4", "grade": None, "comment": ""}]}
     sql, params = f.calls[0]
     assert "LEFT JOIN course_catalog" in sql and params == ("d1", "jane-doe")
+    # Pending courses come from their review row, and held ratings count, so there's no status filter on r.
+    assert "pc.status = 'pending'" in sql and "r.status" not in sql
     assert len(f.calls) == 1
-    assert ratings.professor_context("jane-doe", None, Fake(many=many).query) == {"ratedCourses": []}
+    f2 = Fake(many=many)
+    assert ratings.professor_context("jane-doe", None, f2.query) == {"ratedCourses": []}
+    assert len(f2.calls) == 0
 
 
 def test_purge_clears_hashes_older_than_30_days():

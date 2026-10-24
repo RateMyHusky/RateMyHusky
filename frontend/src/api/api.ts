@@ -172,21 +172,21 @@ export class ApiError extends Error {
    status 0 = network failure or the maintenance redirect. */
 export type Fetched<T> = { ok: true; data: T } | { ok: false; status: number };
 
-async function fetchWithStatus<T>(path: string): Promise<Fetched<T>> {
+async function fetchWithStatus<T>(path: string, signal?: AbortSignal): Promise<Fetched<T>> {
   try {
-    return { ok: true, data: await get<T>(path) };
+    return { ok: true, data: await get<T>(path, signal) };
   } catch (e) {
     return { ok: false, status: e instanceof ApiError ? e.status : 0 };
   }
 }
 
-async function get<T>(path: string): Promise<T> {
+async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const headers: Record<string, string> = {};
   const token = localStorage.getItem('auth_token');
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  const res = await fetch(`${API_BASE}${path}`, { headers, cache: token ? 'no-cache' : 'default' });
+  const res = await fetch(`${API_BASE}${path}`, { headers, cache: token ? 'no-cache' : 'default', signal });
   if (maintenanceGuard(res)) throw new Error('Site is under maintenance');
   if (!res.ok) throw new ApiError(res.status, `API ${res.status}: ${res.statusText}`);
   return res.json();
@@ -204,10 +204,10 @@ export const fetchRandomProfessor = () => get<RandomProfessor>("/api/random-prof
 /* ---- Professor page fetchers ---- */
 /* The Professor page's single round-trip. Every visitor gets the same payload, so the
    cache is keyed by slug alone; failures are not cached. */
-export async function fetchProfessorFull(slug: string): Promise<Fetched<ProfessorPage>> {
+export async function fetchProfessorFull(slug: string, signal?: AbortSignal): Promise<Fetched<ProfessorPage>> {
   const cached = _profPageCache.get(slug);
   if (cached) return { ok: true, data: cached };
-  const res = await fetchWithStatus<ProfessorPage>(`/api/professors/${encodeURIComponent(slug)}/full`);
+  const res = await fetchWithStatus<ProfessorPage>(`/api/professors/${encodeURIComponent(slug)}/full`, signal);
   if (res.ok) _profPageCache.set(slug, res.data);
   return res;
 }
@@ -498,7 +498,8 @@ export async function submitFeedback(payload: {
 /* ---- Student ratings (/rate) ---- */
 export interface RateStart { opened: string; deviceToken: string; counter: number | null }
 export interface RatedCourse {
-  code: string; name: string | null; term: string | null;
+  /* pending: the course is still awaiting review, so the form resends it as a new course. */
+  code: string; name: string | null; pending: boolean; term: string | null;
   rating: number; hours: string; grade: string | null; comment: string;
 }
 export interface RateProfessorContext { ratedCourses: RatedCourse[] }
@@ -517,11 +518,30 @@ export interface RateSubmission {
 }
 export type RateSubmitResult = { ok: true; counter: number | null } | { ok: false; status: number; error: string };
 
+/* The form waits on start, the context and the professor before it shows courses, so a hung request fails like any other. */
+const RATE_WAIT_MS = 10000;
+
+/* AbortSignal.timeout needs Safari 16, so the timer is set by hand. */
+function rateSignal(): AbortSignal {
+  const abort = new AbortController();
+  setTimeout(() => abort.abort(), RATE_WAIT_MS);
+  return abort.signal;
+}
+
+/* One retry, so a slow cold start of the backend doesn't end the form. */
+async function rateGet(url: string, headers: Record<string, string>): Promise<Response> {
+  try {
+    return await fetch(url, { headers, signal: rateSignal() });
+  } catch {
+    return fetch(url, { headers, signal: rateSignal() });
+  }
+}
+
+export const fetchRateProfessor = (slug: string) => fetchProfessorFull(slug, rateSignal());
+
 /* The localStorage mirror of the device token goes in a header so it stays out of access logs. */
 export async function startRating(deviceMirror: string | null): Promise<RateStart> {
-  const res = await fetch(`${API_BASE}/api/rate/start`, {
-    headers: deviceMirror ? { "X-Rmh-Device": deviceMirror } : {},
-  });
+  const res = await rateGet(`${API_BASE}/api/rate/start`, deviceMirror ? { "X-Rmh-Device": deviceMirror } : {});
   if (maintenanceGuard(res)) throw new Error("Site is under maintenance");
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
@@ -529,9 +549,7 @@ export async function startRating(deviceMirror: string | null): Promise<RateStar
 
 /* The device cookie doesn't reach a cross-site API, so the token also goes in the header. */
 export async function fetchRateContext(slug: string, deviceToken: string): Promise<RateProfessorContext | null> {
-  const res = await fetch(`${API_BASE}/api/rate/professors/${encodeURIComponent(slug)}`, {
-    headers: { "X-Rmh-Device": deviceToken },
-  });
+  const res = await rateGet(`${API_BASE}/api/rate/professors/${encodeURIComponent(slug)}`, { "X-Rmh-Device": deviceToken });
   if (maintenanceGuard(res)) throw new Error("Site is under maintenance");
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API ${res.status}`);

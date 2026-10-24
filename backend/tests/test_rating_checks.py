@@ -20,6 +20,12 @@ def test_hold_reasons_in_order():
     assert rc.assess(7201, "relay", [], False, "allow") == ("held", ["stale"])
 
 
+def test_quick_edit_of_an_accepted_rating_is_not_too_fast():
+    assert rc.assess(3, "campus", [], False, None, edit=True) == ("accepted", [])
+    assert rc.assess(2, "campus", [], False, None, edit=True) == ("held", ["too_fast"])
+    assert rc.assess(None, "campus", [], False, None, edit=True) == ("held", ["no_timer"])
+
+
 def test_campus_relay_mobile_unknown_never_hold_on_their_own():
     for n in ("campus", "relay", "mobile", "other", "unknown"):
         assert rc.assess(30, n, [], False, None)[0] == "accepted"

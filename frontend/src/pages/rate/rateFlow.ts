@@ -17,6 +17,8 @@ export interface Answers {
   grade?: string | null;
   comment: string;
   updating?: RatedCourse;
+  // The fresh answers set aside while update mode shows the earlier ones.
+  draft?: Pick<Answers, 'course' | 'term' | 'rating' | 'hours' | 'grade' | 'comment'>;
 }
 
 export const OVERALL: { value: number; label: string }[] = [
@@ -115,18 +117,20 @@ function sameProfessor(x: RateProfessor | undefined, y: RateProfessor): boolean 
   return x !== undefined && x.slug === y.slug && (x.slug !== null || x.name === y.name);
 }
 
+// Leaving update mode brings back what the student had answered before entering it.
+function leaveUpdate(a: Answers): Answers {
+  const next: Answers = { ...a, rating: undefined, hours: undefined, grade: undefined, comment: '', ...a.draft };
+  delete next.updating;
+  delete next.draft;
+  return next;
+}
+
 export function answer(a: Answers, change: Partial<Answers>): Answers {
-  const next: Answers = { ...a, ...change };
+  let next: Answers = { ...a, ...change };
   if (change.professor !== undefined && !sameProfessor(a.professor, change.professor)) {
+    if (a.updating) next = leaveUpdate(next);
     if (!('course' in change)) delete next.course;
     if (!('term' in change)) delete next.term;
-    if (a.updating) {
-      delete next.updating;
-      delete next.rating;
-      delete next.hours;
-      delete next.grade;
-      next.comment = '';
-    }
   }
   if (change.course !== undefined && a.course?.code !== change.course.code) {
     if (!('term' in change)) delete next.term;
@@ -135,23 +139,22 @@ export function answer(a: Answers, change: Partial<Answers>): Answers {
 }
 
 // Picking a course: a rated one fills the student's earlier answers (update mode).
-export function pickCourse(a: Answers, c: RateCourse, rated: RatedCourse | undefined, now: Date): Answers {
+export function pickCourse(a: Answers, c: RateCourse, ratedCourses: RatedCourse[], now: Date): Answers {
   if (a.updating && a.course?.code === c.code) return a;
-  const base: Answers = { ...a, comment: a.updating ? '' : a.comment };
-  if (a.updating) {
-    delete base.updating;
-    delete base.term;
-    delete base.rating;
-    delete base.hours;
-    delete base.grade;
-  }
+  const base = a.updating ? leaveUpdate(a) : a;
+  const rated = ratedCourses.find((r) => r.code === c.code);
   if (!rated) return answer(base, { course: c });
-  const keep = rated.term === null || inTermWindow(rated.term, now);
+  // The earlier term stays only where the term step can show it picked: as a tile, or on the different-term screen.
+  const keep = rated.term === null
+    || (c.terms.length > 0 ? inTermWindow(rated.term, now) : splitTerm(rated.term, now) !== null);
   const addTerm = keep && rated.term !== null && c.terms.length > 0 && !c.terms.includes(rated.term);
-  const course = addTerm ? { ...c, terms: [...c.terms, rated.term as string] } : c;
+  const course = addTerm
+    ? { ...c, terms: [...c.terms, rated.term as string].sort((x, y) => termOrder(y) - termOrder(x)) }
+    : c;
   return answer(base, {
     course, term: keep ? rated.term : undefined, rating: rated.rating, hours: rated.hours,
     grade: rated.grade, comment: rated.comment, updating: rated,
+    draft: { course: base.course, term: base.term, rating: base.rating, hours: base.hours, grade: base.grade, comment: base.comment },
   });
 }
 
@@ -160,7 +163,7 @@ export function courseGroups(courses: RateCourse[], rated: RatedCourse[]): { fre
   const codes = new Set(rated.map((r) => r.code));
   const listed = new Set(courses.map((c) => c.code));
   const off = rated.filter((r) => !listed.has(r.code))
-    .map((r): RateCourse => ({ code: r.code, name: r.name, isNew: false, terms: [] }));
+    .map((r): RateCourse => ({ code: r.code, name: r.name, isNew: r.pending, terms: [] }));
   return {
     fresh: courses.filter((c) => !codes.has(c.code)),
     rated: [...courses.filter((c) => codes.has(c.code)), ...off],
@@ -185,6 +188,17 @@ const TERM_YEARS = 4;
 export function termYears(now: Date): number[] {
   const y = now.getFullYear();
   return Array.from({ length: TERM_YEARS }, (_, i) => y - i);
+}
+
+// Banner's term code, as label_code in backend/teaching_history.py builds it, so terms order newest-first like the course list.
+const SEASON_CODES: Record<string, [number, number]> = {
+  Fall: [1, 10], Winter: [0, 25], Spring: [0, 30], 'Summer 1': [0, 40], Summer: [0, 50], 'Summer 2': [0, 60],
+};
+
+function termOrder(label: string): number {
+  const m = label.match(/^(.+) (\d{4})$/);
+  const code = m && SEASON_CODES[m[1]];
+  return code ? (Number(m[2]) + code[0]) * 100 + code[1] : 0;
 }
 
 export function inTermWindow(label: string, now: Date): boolean {
@@ -216,10 +230,11 @@ export function contextTags(a: Answers): string[] {
   return parts;
 }
 
-export function prefillCourse(courses: ProfessorCourse[], code: string | null, now: Date): RateCourse | undefined {
+// A rated course the professor's list no longer carries comes from the context, as on the course step.
+export function prefillCourse(courses: ProfessorCourse[], rated: RatedCourse[], code: string | null, now: Date): RateCourse | undefined {
   if (!code) return undefined;
   const c = courses.find((x) => x.code === code);
-  return c && toRateCourse(c, now);
+  return c ? toRateCourse(c, now) : courseGroups([], rated).rated.find((x) => x.code === code);
 }
 
 export function buildSubmission(a: Answers, start: RateStart, turnstileToken: string, honeypot: string): RateSubmission {

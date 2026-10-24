@@ -28,10 +28,14 @@ export function Pencil() {
   );
 }
 
+// One label for a course tile and a search result, so both read the same aloud.
+const courseAria = (c: RateCourse, isRated: boolean) =>
+  `${formatCode(c.code)}${c.name ? `, ${c.name}` : ''}${isRated ? ', update your rating' : ''}`;
+
 export function CourseStep({ professor, fresh, rated, selected, onPick, onOther }: CourseStepProps) {
   const option = (c: RateCourse, isRated: boolean): ChoiceOption<string> => ({
     value: c.code,
-    aria: `${formatCode(c.code)}${c.name ? `, ${c.name}` : ''}${isRated ? ', update your rating' : ''}`,
+    aria: courseAria(c, isRated),
     className: isRated ? 'course rated' : 'course',
     label: (
       <>
@@ -117,7 +121,7 @@ export function OtherCourseStep({ rated, onPick, onBack }: OtherCourseStepProps)
                 key={c.code}
                 type="button"
                 className={`rate-sugg${isRated ? ' rated' : ''}`}
-                aria-label={isRated ? `${formatCode(c.code)}${c.name ? `, ${c.name}` : ''}, update your rating` : undefined}
+                aria-label={isRated ? courseAria(c, true) : undefined}
                 onClick={() => onPick(c)}
               >
                 <span>

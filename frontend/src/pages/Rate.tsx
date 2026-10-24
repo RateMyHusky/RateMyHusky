@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { fetchProfessorFull, fetchRateContext, startRating, submitRating } from '../api/api';
+import { fetchRateContext, fetchRateProfessor, startRating, submitRating } from '../api/api';
 import type { ProfessorPage, RatedCourse, RateStart, RateSubmission } from '../api/api';
 import { useTurnstile } from './rate/useTurnstile';
 import { WhoStep, NewProfessorStep } from './rate/WhoStep';
@@ -74,6 +74,8 @@ export default function Rate() {
   const panelRef = useRef<HTMLDivElement>(null);
   const visitRef = useRef(0);
   const pickTimer = useRef<number | undefined>(undefined);
+  // The start the prefill already fetched the context with, so the context effect doesn't fetch it again.
+  const prefetchedFor = useRef<RateStart | null>(null);
   const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
   const { containerRef, token, failed, interactive, reset } = useTurnstile();
   // The checkpoint holds the form back until the first token; later re-checks happen under the form.
@@ -112,23 +114,31 @@ export default function Rate() {
     (async () => {
       const profSlug = params.get('professor');
       let initial: Answers = { comment: '' };
+      let prefetched: RatedCourse[] | null = null;
+      let s: RateStart | null = null;
       if (profSlug) {
-        const res = await fetchProfessorFull(profSlug);
+        const res = await fetchRateProfessor(profSlug);
         if (res.ok) {
           const { identity } = res.data;
           const professor: RateProfessor = { slug: identity.slug, name: identity.name, department: identity.department };
-          const course = prefillCourse(res.data.courses, (params.get('course') ?? '').replace(/\s+/g, '').toUpperCase() || null, new Date());
-          initial = answer(initial, { professor, ...(course && { course }) });
-          if (course) {
+          const code = (params.get('course') ?? '').replace(/\s+/g, '').toUpperCase() || null;
+          initial = answer(initial, { professor });
+          if (code) {
             // A prefilled rated course opens in update mode, so wait for the context before the first screen.
-            const s = await visit;
-            const ctx = s ? await fetchRateContext(identity.slug, s.deviceToken).catch(() => null) : null;
-            const prior = ctx?.ratedCourses.find((r) => r.code === course.code);
-            if (prior) initial = pickCourse(initial, course, prior, new Date());
+            s = await visit;
+            // A failed call stays null, so the context effect fetches it again rather than keep an empty list.
+            if (s) prefetched = await fetchRateContext(identity.slug, s.deviceToken).then((c) => c?.ratedCourses ?? [], () => null);
+            const course = prefillCourse(res.data.courses, prefetched ?? [], code, new Date());
+            if (course) initial = pickCourse(initial, course, prefetched ?? [], new Date());
           }
         }
       }
       if (cancelled) return;
+      // Kept, and not fetched again, so the course step can't disagree with the update mode the first screen chose.
+      if (prefetched && initial.professor?.slug) {
+        prefetchedFor.current = s;
+        setContext({ slug: initial.professor.slug, rated: prefetched });
+      }
       setAnswers(initial);
       setStep(firstStep(initial));
       setReady(true);
@@ -140,7 +150,7 @@ export default function Rate() {
   useEffect(() => {
     if (!slug) return;
     let cancelled = false;
-    fetchProfessorFull(slug)
+    fetchRateProfessor(slug)
       .then((res) => { if (!cancelled) setLoaded({ slug, list: res.ok ? toRateCourses(res.data) : [] }); })
       .catch(() => { if (!cancelled) setLoaded({ slug, list: [] }); });
     return () => { cancelled = true; };
@@ -149,6 +159,10 @@ export default function Rate() {
   // The context call needs the device token from startRating, so it waits for start.
   useEffect(() => {
     if (!start || !slug) return;
+    if (prefetchedFor.current === start) {
+      prefetchedFor.current = null;
+      return;
+    }
     let cancelled = false;
     fetchRateContext(slug, start.deviceToken)
       .then((c) => { if (!cancelled) setContext({ slug, rated: c?.ratedCourses ?? [] }); })
@@ -281,7 +295,7 @@ export default function Rate() {
   // In update mode a step with an earlier answer can be passed over without tapping a tile.
   const continueButton = (answered: boolean) =>
     answers.updating && answered ? (
-      <button type="button" className="rate-btn" onClick={() => setStep(nextStep(step, answers))}>Continue</button>
+      <button type="button" className="rate-btn" onClick={() => open(nextStep(step, answers))}>Continue</button>
     ) : undefined;
 
   const renderStep = () => {
@@ -317,7 +331,7 @@ export default function Rate() {
               fresh={groups.fresh}
               rated={groups.rated}
               selected={answers.course?.code}
-              onPick={(c) => choose(pickCourse(answers, c, rated.find((r) => r.code === c.code), new Date()), 'course')}
+              onPick={(c) => choose(pickCourse(answers, c, rated, new Date()), 'course')}
               onOther={() => open('otherCourse')}
             />
             <StepFoot onBack={back} />
@@ -328,7 +342,8 @@ export default function Rate() {
         return (
           <OtherCourseStep
             rated={(rated ?? []).map((r) => r.code)}
-            onPick={(c) => go(pickCourse(answers, c, rated?.find((r) => r.code === c.code), new Date()), 'otherCourse')}
+            // A hit on the professor's list takes the listed course, so its terms show.
+            onPick={(c) => go(pickCourse(answers, courses?.find((x) => x.code === c.code) ?? c, rated ?? [], new Date()), 'otherCourse')}
             onBack={back}
           />
         );

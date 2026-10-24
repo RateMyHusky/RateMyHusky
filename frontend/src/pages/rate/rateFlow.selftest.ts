@@ -93,10 +93,13 @@ function selftest(): number {
   const courses = [
     { code: 'CS2500', name: 'Fundamentals of CS 1', terms: ['Fall 2024'] },
   ] as ProfessorCourse[];
-  check('prefillCourse unknown code is undefined', prefillCourse(courses, 'ZZ1111', june26) === undefined);
-  check('prefillCourse null code is undefined', prefillCourse(courses, null, june26) === undefined);
-  const pf = prefillCourse(courses, 'CS2500', june26);
+  check('prefillCourse unknown code is undefined', prefillCourse(courses, [], 'ZZ1111', june26) === undefined);
+  check('prefillCourse null code is undefined', prefillCourse(courses, [], null, june26) === undefined);
+  const pf = prefillCourse(courses, [], 'CS2500', june26);
   check('prefillCourse known code', pf?.code === 'CS2500' && pf.isNew === false && same(pf.terms, ['Fall 2024']));
+  const ratedOff: RatedCourse = { code: 'CS4973', name: 'Topics in HCI', pending: false, term: null, rating: 5, hours: '8-10', grade: null, comment: '' };
+  const pfOff = prefillCourse(courses, [ratedOff], 'CS4973', june26);
+  check('prefillCourse finds a rated course the list no longer carries', same(pfOff, { code: 'CS4973', name: 'Topics in HCI', isNew: false, terms: [] }));
 
   // contextTags
   check('contextTags empty answers', same(contextTags({ comment: '' }), []));
@@ -146,11 +149,11 @@ function selftest(): number {
 
   // Update mode
   const now = new Date(2026, 9, 23);
-  const prior: RatedCourse = { code: 'CS3500', name: 'Object-Oriented Design', term: 'Fall 2025', rating: 4, hours: '5-7', grade: 'A-', comment: 'Projects take time.' };
-  const priorB: RatedCourse = { code: 'CS4973', name: 'Topics in HCI', term: null, rating: 5, hours: '8-10', grade: null, comment: 'Best course.' };
+  const prior: RatedCourse = { code: 'CS3500', name: 'Object-Oriented Design', pending: false, term: 'Fall 2025', rating: 4, hours: '5-7', grade: 'A-', comment: 'Projects take time.' };
+  const priorB: RatedCourse = { code: 'CS4973', name: 'Topics in HCI', pending: false, term: null, rating: 5, hours: '8-10', grade: null, comment: 'Best course.' };
   const cs3500: RateCourse = { code: 'CS3500', name: 'Object-Oriented Design', isNew: false, terms: ['Fall 2025', 'Spring 2025'] };
   const cs4973: RateCourse = { code: 'CS4973', name: 'Topics in HCI', isNew: false, terms: ['Spring 2025'] };
-  const u = pickCourse({ comment: '', professor: alex }, cs3500, prior, now);
+  const u = pickCourse({ comment: '', professor: alex }, cs3500, [prior], now);
   check('update: pick fills the earlier answers', u.term === 'Fall 2025' && u.rating === 4 && u.hours === '5-7'
     && u.grade === 'A-' && u.comment === 'Projects take time.' && u.updating?.code === 'CS3500');
   check('update: every step follows in order', nextStep('course', u) === 'term' && nextStep('term', u) === 'overall'
@@ -158,31 +161,56 @@ function selftest(): number {
     && nextStep('grade', u) === 'comment' && nextStep('comment', u) === 'thanks');
   check('update: otherTerm -> overall, firstStep is term, edit overall -> workload',
     nextStep('otherTerm', u) === 'overall' && firstStep(u) === 'term' && nextStep('overall', answer(u, { rating: 2 })) === 'workload');
-  check('update: re-picking the same course keeps edits', pickCourse(answer(u, { rating: 2 }), cs3500, prior, now).rating === 2);
-  const ub = pickCourse(u, cs4973, priorB, now);
+  check('update: re-picking the same course keeps edits', pickCourse(answer(u, { rating: 2 }), cs3500, [prior], now).rating === 2);
+  const ub = pickCourse(u, cs4973, [prior, priorB], now);
   check('update: rated A -> rated B fills B only', ub.term === null && ub.rating === 5 && ub.grade === null
     && ub.comment === 'Best course.' && ub.updating?.code === 'CS4973');
-  const toFresh = pickCourse(answer(u, { rating: 2 }), cs2500, undefined, now);
+  const toFresh = pickCourse(answer(u, { rating: 2 }), cs2500, [prior], now);
   check('update: rated -> unrated clears everything', toFresh.updating === undefined && toFresh.term === undefined
     && toFresh.rating === undefined && toFresh.hours === undefined && toFresh.grade === undefined
     && toFresh.comment === '' && toFresh.course?.code === 'CS2500' && nextStep('course', toFresh) === 'term');
-  const plain = pickCourse(a, { ...cs2500, code: 'CS2510' }, undefined, now);
+  const plain = pickCourse(a, { ...cs2500, code: 'CS2510' }, [], now);
   check('unrated pick outside update mode behaves like answer', plain.rating === 5 && plain.term === undefined);
-  const odd = pickCourse({ comment: '', professor: alex }, cs3500, { ...prior, term: 'Summer 1 2024' }, now);
+  const odd = pickCourse({ comment: '', professor: alex }, cs3500, [{ ...prior, term: 'Summer 1 2024' }], now);
   check('earlier term in the window but unlisted is added', odd.course?.terms.includes('Summer 1 2024') === true && odd.term === 'Summer 1 2024');
-  const stale = pickCourse({ comment: '', professor: alex }, cs3500, { ...prior, term: 'Fall 2021' }, now);
+  const newer = pickCourse({ comment: '', professor: alex }, cs3500, [{ ...prior, term: 'Spring 2026' }], now);
+  check('an added earlier term keeps the list newest-first', same(newer.course?.terms, ['Spring 2026', 'Fall 2025', 'Spring 2025']));
+  const summers = pickCourse({ comment: '', professor: alex }, { ...cs3500, terms: ['Fall 2025', 'Summer 2 2025', 'Spring 2025'] }, [{ ...prior, term: 'Summer 1 2025' }], now);
+  check('an added summer session orders by its session', same(summers.course?.terms, ['Fall 2025', 'Summer 2 2025', 'Summer 1 2025', 'Spring 2025']));
+  const winterOff = pickCourse({ comment: '', professor: alex }, { ...cs3500, terms: [] }, [{ ...prior, term: 'Winter 2026' }], now);
+  check('an earlier term the different-term screen cannot show is asked again', winterOff.term === undefined && firstStep(winterOff) === 'otherTerm');
+  const winterListed = pickCourse({ comment: '', professor: alex }, cs3500, [{ ...prior, term: 'Winter 2026' }], now);
+  check('an earlier Winter term on a listed course stays as a tile', winterListed.term === 'Winter 2026'
+    && same(winterListed.course?.terms, ['Winter 2026', 'Fall 2025', 'Spring 2025']));
+  const stale = pickCourse({ comment: '', professor: alex }, cs3500, [{ ...prior, term: 'Fall 2021' }], now);
   check('earlier term older than the window is not selected', stale.term === undefined
     && same(stale.course?.terms, cs3500.terms) && nextStep('course', stale) === 'term');
-  const off = pickCourse({ comment: '', professor: alex }, { ...cs3500, terms: [] }, prior, now);
+  const off = pickCourse({ comment: '', professor: alex }, { ...cs3500, terms: [] }, [prior], now);
   check('off-list course keeps terms empty and opens otherTerm', off.course?.terms.length === 0 && nextStep('course', off) === 'otherTerm');
   const swapped = answer(u, { professor: { slug: 'sam-lee', name: 'Sam Lee', department: null } });
   check('professor change leaves update mode', swapped.updating === undefined && swapped.course === undefined
     && swapped.term === undefined && swapped.rating === undefined && swapped.hours === undefined
     && swapped.grade === undefined && swapped.comment === '');
+  const drafted: Answers = { comment: 'Half-written draft.', professor: alex, course: cs2500, term: 'Fall 2025', rating: 3, hours: '3-4', grade: 'B' };
+  const misTap = pickCourse(drafted, cs3500, [prior], now);
+  check('update: entering keeps the fresh draft aside', misTap.rating === 4 && misTap.comment === 'Projects take time.');
+  const backToDraft = pickCourse(pickCourse(misTap, cs4973, [prior, priorB], now), cs2500, [prior, priorB], now);
+  check('update: leaving restores the fresh draft', backToDraft.updating === undefined && backToDraft.rating === 3
+    && backToDraft.hours === '3-4' && backToDraft.grade === 'B' && backToDraft.comment === 'Half-written draft.'
+    && backToDraft.term === 'Fall 2025' && backToDraft.course?.code === 'CS2500');
+  const elsewhere = pickCourse(misTap, cs4973, [prior], now);
+  check('update: leaving for another course drops the draft term', elsewhere.term === undefined && elsewhere.rating === 3);
+  const swappedDraft = answer(misTap, { professor: { slug: 'sam-lee', name: 'Sam Lee', department: null } });
+  check('update: professor change restores the fresh draft', swappedDraft.updating === undefined
+    && swappedDraft.rating === 3 && swappedDraft.comment === 'Half-written draft.' && swappedDraft.course === undefined);
   const groups = courseGroups([cs2500, cs3500], [prior, priorB]);
   check('courseGroups splits fresh and rated', same(groups.fresh.map((c) => c.code), ['CS2500'])
     && same(groups.rated.map((c) => c.code), ['CS3500', 'CS4973'])
     && same(groups.rated[0].terms, cs3500.terms) && same(groups.rated[1].terms, []) && groups.rated[1].name === 'Topics in HCI');
+  const pendingPrior: RatedCourse = { ...prior, code: 'CS4999', name: 'Applied ML', pending: true };
+  const [pendingTile] = courseGroups([], [pendingPrior]).rated;
+  const subPending = buildSubmission(pickCourse({ comment: '', professor: alex }, pendingTile, [pendingPrior], now), start, 't', '');
+  check('a rated course awaiting review resends as a new course', same(subPending.course, { code: 'CS4999', name: 'Applied ML' }));
   check('splitTerm', same(splitTerm('Summer 1 2025', now), { season: 'Summer 1', year: 2025 })
     && same(splitTerm('Summer 2025', now), { season: 'Summer', year: 2025 })
     && splitTerm('Winter 2026', now) === null && splitTerm('Fall 2021', now) === null && splitTerm(null, now) === null);

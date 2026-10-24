@@ -2047,7 +2047,8 @@ def rate_submit():
     chash = rating_checks.comment_hash(clean["comment"])
     duplicate = ratings.duplicate_comment(chash, existing["id"] if existing else None, query_one)
     bursts = ratings.burst_reasons(key, ip_hash, prefix_hash, network_type, query_one, now)
-    status, reasons = rating_checks.assess(fill_seconds, network_type, bursts, duplicate, moderation_action)
+    status, reasons = rating_checks.assess(fill_seconds, network_type, bursts, duplicate, moderation_action,
+                                           edit=bool(existing) and existing["status"] == "accepted")
     row = {
         **key,
         "term_label": clean["term_label"], "rating": clean["rating"], "hours": clean["hours"],

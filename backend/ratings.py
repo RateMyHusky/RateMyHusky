@@ -210,16 +210,27 @@ def save_rating(row, existing, write):
 
 
 def professor_context(slug, device_hash, query):
-    """The form's course step: this device's earlier answers per rated course."""
+    """The form's course step: this device's earlier answers per rated course.
+
+    A course still awaiting review comes back as `pending`, so the form resends it
+    as a new course and the submit reuses its pending row instead of adding a rating.
+
+    Accepted risk: the answers, comment included, go to whoever holds the device token,
+    so the next person on a shared browser sees them. That person could already
+    overwrite the rating, since the device is the identity.
+    """
     if device_hash is None:
         return {"ratedCourses": []}
     rows = query(
-        "SELECT r.course_code, c.name, r.term_label, r.rating, r.hours, r.grade, r.comment "
+        "SELECT COALESCE(r.course_code, pc.code) AS code, COALESCE(c.name, pc.name) AS name, "
+        "r.course_code IS NULL AS pending, r.term_label, r.rating, r.hours, r.grade, r.comment "
         "FROM survey_ratings r LEFT JOIN course_catalog c ON c.code = r.course_code "
-        "WHERE r.device_hash = %s AND r.professor_slug = %s AND r.course_code IS NOT NULL "
-        "ORDER BY r.course_code", (device_hash, slug))
+        "LEFT JOIN survey_pending_courses pc ON pc.id = r.pending_course_id AND pc.status = 'pending' "
+        "WHERE r.device_hash = %s AND r.professor_slug = %s "
+        "AND (r.course_code IS NOT NULL OR pc.id IS NOT NULL) "
+        "ORDER BY code", (device_hash, slug))
     return {"ratedCourses": [
-        {"code": r["course_code"], "name": r["name"], "term": r["term_label"],
+        {"code": r["code"], "name": r["name"], "pending": r["pending"], "term": r["term_label"],
          "rating": r["rating"], "hours": r["hours"], "grade": r["grade"],
          "comment": r["comment"] or ""} for r in rows]}
 

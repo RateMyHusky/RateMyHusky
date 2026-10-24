@@ -117,8 +117,8 @@
   .rate-opt:hover { border-color: #d6394c; transform: translateY(-2px); box-shadow: 0 6px 16px -6px rgba(214, 57, 76, 0.35); }
   .rate-opt.dash:hover { color: #d6394c; }
   .rate-opt:hover .rate-n { transform: scale(1.1); }
-  .rate-opt.course:hover .rate-pencil { background: #d6394c; color: #fff; }
-  .rate-opt.course:hover .rate-pencil svg { transform: rotate(-12deg); }
+  .rate-opt.course:hover .rate-pencil, .rate-sugg.rated:hover .rate-pencil { background: #d6394c; color: #fff; }
+  .rate-opt.course:hover .rate-pencil svg, .rate-sugg.rated:hover .rate-pencil svg { transform: rotate(-12deg); }
   .rate-sugg:hover b { color: #d6394c; }
   /* The pop keeps the hover lift, so the tile doesn't drop 2px while it plays. */
   .rate-opt.pop:hover { animation-name: rate-pop-lifted; }
@@ -223,7 +223,8 @@
 
 .rate-ghost { text-decoration: underline; }
 .rate-ghost.on { color: #d6394c; font-weight: 800; text-decoration: none; }
-.rate-ghost.on::before { content: '✓ '; }
+/* The first line is for browsers without alt text in content, which drop the second. */
+.rate-ghost.on::before { content: '✓ '; content: '✓ ' / ''; }
 .rate-back { text-align: left; }
 .rate-back:disabled { opacity: 0.45; cursor: default; }
 
@@ -462,7 +463,7 @@ body.rate-checking .navbar { display: none; }
 .dark .rate-pencil { background: #3a2020; color: #f06a7a; }
 .dark .rate-opt.course.on .rate-pencil { background: #d6394c; color: #fff; }
 @media (hover: hover) {
-  .dark .rate-opt.course:hover .rate-pencil { background: #d6394c; color: #fff; }
+  .dark .rate-opt.course:hover .rate-pencil, .dark .rate-sugg.rated:hover .rate-pencil { background: #d6394c; color: #fff; }
   .dark .rate-opt:hover { border-color: #d6394c; }
   .dark .rate-opt.dash:hover,
   .dark .rate-sugg:hover b { color: #f06a7a; }
