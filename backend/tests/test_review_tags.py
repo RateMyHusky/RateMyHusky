@@ -105,13 +105,19 @@ def test_professor_tags(srv, monkeypatch):
     seen = {}
 
     def fake_query(sql, params=None):
+        if "review_tags" in sql:
+            return [{"tag": "curved_grading", "source_id": "1100512345678901234"},
+                    {"tag": "curved_grading", "source_id": "11"}, {"tag": "easy_a", "source_id": "12"}]
         seen["params"] = params
         return [{"tag": "curved_grading", "review_count": 7}, {"tag": "easy_a", "review_count": 3}]
 
     monkeypatch.setattr(srv, "query", fake_query)
     r = srv.app.test_client().get("/api/professors/olin-guha/tags")
     assert r.status_code == 200
-    assert r.get_json() == [{"tag": "curved_grading", "count": 7}, {"tag": "easy_a", "count": 3}]
+    assert r.get_json() == [
+        {"tag": "curved_grading", "count": 7, "reviewIds": ["1100512345678901234", "11"]},
+        {"tag": "easy_a", "count": 3, "reviewIds": ["12"]},
+    ]
     assert seen["params"] == ("olin guha", srv.MIN_TAG_REVIEWS, srv.MIN_TAG_SHARE, srv.MAX_PROF_TAGS)
 
 

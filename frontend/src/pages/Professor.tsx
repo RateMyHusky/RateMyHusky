@@ -247,6 +247,7 @@ const Professor = () => {
   const [sortBy, setSortBy] = useState('newest');
   const [visibleReviews, setVisibleReviews] = useState(10);
   const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set());
+  const [activeTag, setActiveTag] = useState<string | null>(null);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [gradesAnimated, setGradesAnimated] = useState(false);
   const [reviewPillStyle, setReviewPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
@@ -320,7 +321,7 @@ const Professor = () => {
     setLoadError(null);
     fetchProfessorFull(slug).then((res) => {
       if (cancelled) return;
-      if (res.ok) { setProfile(res.data); setSelectedCourses(new Set()); }
+      if (res.ok) { setProfile(res.data); setSelectedCourses(new Set()); setActiveTag(null); }
       else setLoadError(res.status === 404 ? 'not_found' : 'failed');
       setLoading(false);
     });
@@ -409,9 +410,28 @@ const Professor = () => {
     return new Map([...byCourse].map(([code, rs]) => [code, deduplicateByText(rs, r => r.comment).length]));
   }, [writtenReviews]);
 
+  /* The reviews behind the tag pill the user clicked, if any. */
+  const activeTagIds = useMemo(
+    () => activeTag ? new Set(tags.find(t => t.tag === activeTag)?.reviewIds ?? []) : null,
+    [activeTag, tags]);
+
   const filteredRmpReviews = useMemo(
-    () => deduplicateByText(rmpRatingsInSelection.filter(r => r.comment?.trim()), r => r.comment),
-    [rmpRatingsInSelection]);
+    () => deduplicateByText(
+      rmpRatingsInSelection.filter(r => r.comment?.trim() && (!activeTagIds || activeTagIds.has(r.id ?? ''))),
+      r => r.comment),
+    [rmpRatingsInSelection, activeTagIds]);
+
+  /* Clicking a pill shows the reviews behind it; clicking it again clears the filter. */
+  const selectTag = (tag: string) => {
+    // older cached data has no review ids; filtering would show an empty list
+    if (!tags.find(t => t.tag === tag)?.reviewIds?.length || !reviews.some(r => r.id)) return;
+    const next = activeTag === tag ? null : tag;
+    setActiveTag(next);
+    if (next) {
+      setReviewTab('rmp');
+      setTimeout(() => reviewsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    }
+  };
 
   /* The cards. Unfiltered: the backend's summary. Filtered: the selected courses[] rows
      combined, weighted by rating count, distributions summed. The per-source hover only
@@ -793,8 +813,16 @@ const Professor = () => {
             {tags.length > 0 && (
               <ul className="prof-tags" aria-label="What students mention">
                 {tags.map(({ tag, count }) => (
-                  <li key={tag} className="prof-tag" title={`Mentioned in ${count} reviews`}>
-                    {tagLabel(tag)}
+                  <li key={tag}>
+                    <button
+                      type="button"
+                      className={`prof-tag${activeTag === tag ? ' active' : ''}`}
+                      title={`Mentioned in ${count} reviews. Click to see them.`}
+                      aria-pressed={activeTag === tag}
+                      onClick={() => selectTag(tag)}
+                    >
+                      {tagLabel(tag)}
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -990,10 +1018,12 @@ const Professor = () => {
               )}
               <Dropdown className="feedback-dropdown" options={sortOptions} value={sortBy} onChange={setSortBy} placeholder="Sort by…" />
             </div>
-            {!unfiltered && (
+            {(!unfiltered || activeTag) && (
               <div className="prof-active-filter">
-                Showing {filteredRmpReviews.length} review{filteredRmpReviews.length === 1 ? '' : 's'} for <strong>{selectedLabel}</strong>
-                <button className="prof-action-link" onClick={() => setSelectedCourses(new Set())}>Show all</button>
+                Showing {filteredRmpReviews.length} review{filteredRmpReviews.length === 1 ? '' : 's'}
+                {activeTag && <> mentioning <strong>{tagLabel(activeTag)}</strong></>}
+                {!unfiltered && <> for <strong>{selectedLabel}</strong></>}
+                <button className="prof-action-link" onClick={() => { setSelectedCourses(new Set()); setActiveTag(null); }}>Show all</button>
               </div>
             )}
             <div className="prof-reviews-list">

@@ -118,6 +118,7 @@ export default function ProfessorCatalog() {
   ]);
   const [departments, setDepts]     = useState<string[]>([]);
   const [popularTags, setPopularTags] = useState<ProfessorTag[]>([]);
+  const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const [professors, setProfessors] = useState<CatalogProfessor[]>([]);
   const [total, setTotal]           = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -204,10 +205,8 @@ export default function ProfessorCatalog() {
   useEffect(() => { fetchPopularTags().then(setPopularTags); }, []);
 
   const selectedTags = filters.tags ? filters.tags.split(FILTER_SEPARATOR) : [];
-  const toggleTag = (tag: string) => {
-    const next = selectedTags.includes(tag) ? selectedTags.filter(t => t !== tag) : [...selectedTags, tag];
-    updateFilter('tags', next.join(FILTER_SEPARATOR));
-  };
+  // most common first; keep any selected tag listed even if it isn't in the popular list
+  const tagOptions = [...popularTags.map(p => p.tag), ...selectedTags.filter(t => !popularTags.some(p => p.tag === t))];
 
   const debouncedQ = useDebouncedValue(filters.q, 250);
 
@@ -486,7 +485,7 @@ export default function ProfessorCatalog() {
       <div className="catalog-layout">
         {/* ── Sidebar ── */}
         <aside ref={sidebarRef} className={`catalog-sidebar ${sidebarOpen ? 'open' : ''}`}>
-          <div className={`sidebar-inner ${deptOpen || collegeOpen ? 'dept-open' : ''}`}>
+          <div className={`sidebar-inner ${deptOpen || collegeOpen || tagPickerOpen ? 'dept-open' : ''}`}>
             <div className="sidebar-header">
               <span className="sidebar-title">Filters</span>
               {hasActiveFilters && (
@@ -547,25 +546,16 @@ export default function ProfessorCatalog() {
                     <button className="dept-clear-btn" onClick={() => updateFilter('tags', '')}>Clear all</button>
                   )}
                 </p>
+                <TagSearch
+                  options={tagOptions}
+                  selected={filters.tags}
+                  onSelect={v => updateFilter('tags', v)}
+                  onOpenChange={setTagPickerOpen}
+                  formatOption={tagLabel}
+                />
                 {selectedTags.length > 1 && (
                   <p className="tag-filter-hint">Showing professors with all selected tags</p>
                 )}
-                <div className="tag-filter">
-                  {[...popularTags.map(p => p.tag), ...selectedTags.filter(t => !popularTags.some(p => p.tag === t))].map((tag) => {
-                    const on = selectedTags.includes(tag);
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        className={`tag-filter-chip${on ? ' active' : ''}`}
-                        aria-pressed={on}
-                        onClick={() => toggleTag(tag)}
-                      >
-                        {tagLabel(tag)}
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
             )}
 
@@ -1179,6 +1169,101 @@ function DepartmentFilter({
           {[...selectedSet].map(d => (
             <button key={d} className="filter-tag" onClick={() => toggleDept(d)}>
               {d}
+              <span className="filter-tag-x">×</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Teaching style search ─────────────────────────────────────────────────────
+// Always-visible search box; focusing or typing shows matching tags, picks show as chips.
+
+function TagSearch({
+  options,
+  selected,
+  onSelect,
+  onOpenChange,
+  formatOption,
+}: {
+  options: string[];
+  selected: string;
+  onSelect: (value: string) => void;
+  onOpenChange?: (open: boolean) => void;
+  formatOption: (value: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+  const toggle = (o: boolean) => { setOpen(o); onOpenChange?.(o); };
+  const selectedSet = useMemo(() => new Set(selected ? selected.split(FILTER_SEPARATOR) : []), [selected]);
+  const matches = options.filter(o => formatOption(o).toLowerCase().includes(query.trim().toLowerCase()));
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) toggle(false);
+    };
+    const closeHandler = () => toggle(false);
+    document.addEventListener('mousedown', handler);
+    window.addEventListener('close-filter-sidebar', closeHandler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      window.removeEventListener('close-filter-sidebar', closeHandler);
+    };
+  }, [open]);
+
+  const pick = (value: string) => {
+    const next = new Set(selectedSet);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    onSelect([...next].join(FILTER_SEPARATOR));
+    setQuery('');
+  };
+
+  return (
+    <div className="dept-filter" ref={ref}>
+      <input
+        className="dept-toggle tag-search-input"
+        type="text"
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+        placeholder="Search teaching styles…"
+        value={query}
+        onFocus={() => toggle(true)}
+        onChange={e => { setQuery(e.target.value); if (!open) toggle(true); }}
+        onKeyDown={e => {
+          if (e.key === 'Escape') { toggle(false); e.currentTarget.blur(); }
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            const first = matches.find(m => !selectedSet.has(m));
+            if (first) pick(first);
+          }
+        }}
+      />
+
+      {open && (
+        <div className="dept-dropdown">
+          <div className="dept-list">
+            {matches.map(t => (
+              <label key={t} className="dept-option">
+                <input type="checkbox" checked={selectedSet.has(t)} onChange={() => pick(t)} />
+                <span>{formatOption(t)}</span>
+              </label>
+            ))}
+            {matches.length === 0 && <p className="dept-empty">No teaching styles found</p>}
+          </div>
+        </div>
+      )}
+
+      {selectedSet.size > 0 && (
+        <div className="filter-tags">
+          {[...selectedSet].map(t => (
+            <button key={t} className="filter-tag" onClick={() => pick(t)}>
+              {formatOption(t)}
               <span className="filter-tag-x">×</span>
             </button>
           ))}

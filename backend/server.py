@@ -1001,6 +1001,7 @@ def professor_full(slug):
 
 from professor_full import _resolve_professor  # same lookup as /full, skips denied profs
 from tags import TAG_TAXONOMY
+import rmp
 
 MIN_TAG_REVIEWS = 3  # need at least this many reviews before showing a tag
 MIN_TAG_SHARE = 0.05  # and at least 5% of the professor's reviews, so 3 of 250 doesn't count
@@ -1025,6 +1026,10 @@ def professor_tags(slug):
             (prof["name_key"], MIN_TAG_REVIEWS, MIN_TAG_SHARE, MAX_PROF_TAGS),
         )
         data = [{"tag": r["tag"], "count": r["review_count"]} for r in rows]
+        # which reviews produced each tag, so clicking a pill can show them
+        ids = rmp.tagged_review_ids(prof["name_key"], [d["tag"] for d in data], query) if data else {}
+        for d in data:
+            d["reviewIds"] = ids.get(d["tag"], [])
         cache_set(cache_key, data)
     resp = jsonify(data)
     resp.headers["Cache-Control"] = "public, max-age=3600"

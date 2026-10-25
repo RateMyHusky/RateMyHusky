@@ -109,6 +109,8 @@ export interface ProfessorPage {
 }
 
 export interface ProfessorReview {
+  /** Review id as text (too long for a JS number). */
+  id?: string;
   course: string;
   courseCode: string | null;
   quality: number;
@@ -193,10 +195,10 @@ export const fetchRandomProfessor = () => get<RandomProfessor>("/api/random-prof
 
 /* Teaching-style tags (only ones 3+ reviews mention). Any failure gives an empty
    list, so the professor page never breaks over tags. */
-export type ProfessorTag = { tag: string; count: number };
+export type ProfessorTag = { tag: string; count: number; reviewIds?: string[] };
 
 export const fetchProfessorTags = (slug: string) =>
-  get<ProfessorTag[]>(`/api/professors/${encodeURIComponent(slug)}/tags`).catch(() => [] as ProfessorTag[]);
+  get<ProfessorTag[]>(`/api/professors/${encodeURIComponent(slug)}/tags?v=2`).catch(() => [] as ProfessorTag[]);
 
 export const fetchPopularTags = () =>
   get<ProfessorTag[]>('/api/tags/popular').catch(() => [] as ProfessorTag[]);

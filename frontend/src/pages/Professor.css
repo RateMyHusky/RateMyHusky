@@ -916,3 +916,9 @@
   background: rgba(214, 57, 76, 0.1);
   border-radius: 999px;
 }
+
+/* clickable tag pills */
+button.prof-tag { font-family: inherit; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease; }
+button.prof-tag:hover { border-color: #c9c9ce; }
+button.prof-tag:focus-visible { outline: 2px solid #d6394c; outline-offset: 2px; }
+button.prof-tag.active, .dark button.prof-tag.active { background: #d6394c; border-color: #d6394c; color: #fff; }

@@ -23,7 +23,7 @@ LIVE_TABLES = {
     "stats_cache", "bookmarks", "reddit_mentions", "reddit_text", "reddit_sentiment",
     "ask_log", "evidence", "evidence_embeddings", "usage_alerts",
     "professors", "rmp_links", "source_summary", "catalog_courses", "catalog_nupath",
-    "professor_tags",
+    "professor_tags", "review_tags",
 }
 _TABLE_REF = re.compile(r"\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)", re.IGNORECASE)
 
