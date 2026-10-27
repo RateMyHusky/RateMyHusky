@@ -27,7 +27,7 @@ export function useTurnstile(): { containerRef: RefObject<HTMLDivElement | null>
       clearTimeout(giveUp);
       const id = window.turnstile.render(containerRef.current, {
         sitekey: TURNSTILE_SITE_KEY,
-        // Visible so the checkpoint shows Cloudflare's box; past the checkpoint Rate hides it unless a click is needed.
+        // Rate hides the box unless a click is needed.
         appearance: 'always',
         callback: (t: string) => {
           setToken(t);
@@ -55,10 +55,12 @@ export function useTurnstile(): { containerRef: RefObject<HTMLDivElement | null>
     };
   }, []);
 
+  // A script that never loaded has no widget to retry, so it stays failed and Rate says why at once.
   const reset = useCallback(() => {
     setToken('');
+    if (widgetIdRef.current === null) return;
     setFailed(false);
-    if (widgetIdRef.current !== null) window.turnstile?.reset(widgetIdRef.current);
+    window.turnstile?.reset(widgetIdRef.current);
   }, []);
 
   return { containerRef, token: TURNSTILE_SITE_KEY ? token : NO_WIDGET_TOKEN, failed, interactive, reset };

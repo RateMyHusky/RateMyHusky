@@ -47,6 +47,7 @@ const FAILURE_MESSAGES: Record<number, string> = {
   429: 'Too many ratings from this device for now. Try again later.',
   503: 'Ratings are paused right now. Try again later.',
 };
+const BLOCKED_MESSAGE = "We couldn't verify your browser. Try turning off a VPN or ad blocker, then try again.";
 const TOKEN_WAIT_MS = 15000;
 const NETWORK_MESSAGE = "Couldn't send. Check your connection and try again.";
 
@@ -77,10 +78,8 @@ export default function Rate() {
   // The start the prefill already fetched the context with, so the context effect doesn't fetch it again.
   const prefetchedFor = useRef<RateStart | null>(null);
   const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
+  // The check runs under the form from the first step; only the submit waits for its token.
   const { containerRef, token, failed, interactive, reset } = useTurnstile();
-  // The checkpoint holds the form back until the first token; later re-checks happen under the form.
-  // Starts cleared when the token is already there (no site key), so the checkpoint never flashes.
-  const [cleared, setCleared] = useState(() => !!token);
 
   const slug = answers.professor?.slug ?? null;
   // null while the professor's courses load; a new professor has none to load.
@@ -221,7 +220,7 @@ export default function Rate() {
     if (!pending) return;
     const giveUp = () => {
       setPending(null);
-      setSubmitError(start ? FAILURE_MESSAGES[403] : NETWORK_MESSAGE);
+      setSubmitError(!start ? NETWORK_MESSAGE : failed ? BLOCKED_MESSAGE : FAILURE_MESSAGES[403]);
       reset();
     };
     if (failed || startFailed) {
@@ -247,20 +246,12 @@ export default function Rate() {
 
   useEffect(() => () => window.clearTimeout(pickTimer.current), []);
 
-  useEffect(() => { if (token) setCleared(true); }, [token]);
-
-  // The checkpoint stands alone, like Cloudflare's own page, so the navbar waits with the form.
-  useEffect(() => {
-    document.body.classList.toggle('rate-checking', !cleared);
-    return () => document.body.classList.remove('rate-checking');
-  }, [cleared]);
-
   // /rate's URL never changes, so ScrollToTop never fires; every step opens at the top, as an instant jump.
   useLayoutEffect(() => { window.scrollTo(0, 0); }, [step]);
 
   useEffect(() => {
     if (ready) panelRef.current?.querySelector<HTMLElement>('h1')?.focus({ preventScroll: true });
-  }, [step, ready, coursesLoading, cleared]);
+  }, [step, ready, coursesLoading]);
 
   const go = (next: Answers, from: StepId) => {
     window.clearTimeout(pickTimer.current);
@@ -446,15 +437,14 @@ export default function Rate() {
   const tags = contextTags(answers);
   const locked = sending || pending !== null;
   const canBack = prevStep(step, answers) !== null;
-  const host = window.location.hostname;
 
   return (
-    <div className={`rate-page${cleared ? '' : ' rate-page-check'}`}>
+    <div className="rate-page">
       <div className="rate-shell">
         <div className="rate-panel" ref={panelRef}>
-          {cleared && <ProgressBar index={progressIndex(step)} done={step === 'thanks'} />}
+          <ProgressBar index={progressIndex(step)} done={step === 'thanks'} />
           {startFailed && <p className="rate-hint" role="alert">We couldn't start the form. Please reload and try again.</p>}
-          {cleared && ready && step !== 'thanks' && (
+          {ready && step !== 'thanks' && (
             <div className="rate-top">
               <button type="button" className={`rate-back-top${canBack ? '' : ' is-hidden'}`} disabled={locked} onClick={back}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></svg>
@@ -468,27 +458,10 @@ export default function Rate() {
               )}
             </div>
           )}
-          {cleared && ready && <Fragment key={step}>{renderStep()}</Fragment>}
-          {!cleared && (
-            <div className="rate-check">
-              <h1 className="rate-check-host" tabIndex={-1}>{host}</h1>
-              {failed ? (
-                <p className="rate-error" role="alert">We couldn't verify your browser. Try turning off a VPN or ad blocker, then try again.</p>
-              ) : (
-                <p className="rate-check-lead" role="status">Verifying you are human. This may take a few seconds.</p>
-              )}
-            </div>
-          )}
-          {/* One container in one place for the whole visit, so the widget survives the checkpoint giving way to the form. */}
-          <div ref={containerRef} className={`rate-turnstile${cleared && !interactive ? ' is-done' : ''}`} />
-          {!cleared && (
-            <div className="rate-check">
-              {/* A reload, since a blocked script never rendered a widget to reset; nothing is filled in yet to lose. */}
-              {failed && <button type="button" className="rate-check-retry" onClick={() => window.location.reload()}>Try again</button>}
-              <p className="rate-check-note">{host} needs to review the security of your connection before you can rate.</p>
-              <p className="rate-check-foot">Protected by Cloudflare Turnstile</p>
-            </div>
-          )}
+          {/* Hidden unless Cloudflare needs a click, then above the question where it's seen. One container
+              in one place for the whole visit, so the widget is never remounted. */}
+          <div ref={containerRef} className={`rate-turnstile${interactive ? '' : ' is-done'}`} />
+          {ready && <Fragment key={step}>{renderStep()}</Fragment>}
         </div>
       </div>
     </div>
