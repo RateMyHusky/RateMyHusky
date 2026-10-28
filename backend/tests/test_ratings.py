@@ -177,6 +177,13 @@ def test_a_clean_edit_keeps_the_rows_hold_reasons():
     assert "hold_reasons = COALESCE(EXCLUDED.hold_reasons, survey_ratings.hold_reasons)" in sql
 
 
+def test_an_edit_without_a_difficulty_keeps_the_stored_one():
+    # A page still on the form from before the question sends none.
+    sql = ratings._UPSERT_SQL
+    assert "difficulty = COALESCE(EXCLUDED.difficulty, survey_ratings.difficulty)" in sql
+    assert "difficulty = EXCLUDED.difficulty" not in sql
+
+
 def test_burst_ip_skipped_on_campus_and_relay():
     f = Fake(one={"ip_hash": {"cnt": 50}})
     for net in ("campus", "relay"):
@@ -458,10 +465,33 @@ def test_skew_week_sql_counts_new_devices_and_skips_approvals():
 def test_hold_skew_week_holds_the_unreviewed_new_device_week():
     f = Fake()
     ratings.hold_skew_week(KEY, f.write, NOW)
-    (sql, params), = f.writes
+    (sql, params), (append_sql, append_params) = f.writes
     assert "SET status = 'held', hold_reasons = 'skew_week'" in sql
     assert "status = 'accepted' AND hold_reasons IS NULL AND new_device = true" in sql
     assert params == (NOW - timedelta(days=7), "jane-doe", None)
+    # A row held only on flags the agent may approve gets skew_week too, so the agent sees it in the group.
+    assert "hold_reasons = hold_reasons || %s" in append_sql
+    assert "status = 'held' AND hold_reasons IS NOT NULL" in append_sql
+    assert "NOT (%s = ANY(string_to_array(hold_reasons, ',')))" in append_sql
+    assert "new_device = true AND created_at >= %s" in append_sql
+    assert "string_to_array(hold_reasons, ',') <@ %s::text[]" in append_sql
+    assert "agent_decision IS DISTINCT FROM 'reject'" in append_sql
+    soft = append_params[-1]
+    assert append_params == (",skew_week", "skew_week", *params, soft)
+    assert "too_fast" in soft and "burst_prof" in soft
+    assert "unverified_pair" not in soft and "near_duplicate" not in soft and "moderation_review" not in soft
+
+
+def test_adding_a_reason_clears_the_agents_escalate_but_keeps_a_reject():
+    # The escalate predates the new reason, and updated_at isn't bumped, so only clearing it gets a re-review.
+    for call in (lambda w: ratings.hold_matches(["r1"], "near_duplicate", "dev", "ip", "net", "residential", w),
+                 lambda w: ratings.hold_skew_week(KEY, w, NOW)):
+        f = Fake()
+        call(f.write)
+        append_sql = f.writes[-1][0]
+        for column in ("agent_decision", "agent_reason", "agent_reviewed_at"):
+            assert f"{column} = CASE WHEN agent_decision = 'reject' THEN {column} END" in append_sql
+        assert "updated_at" not in append_sql
 
 
 def test_flagged_matches_a_device_or_a_recent_ip():

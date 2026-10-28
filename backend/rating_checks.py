@@ -26,6 +26,12 @@ TERM_RE = re.compile(r"^(Fall|Spring|Summer 1|Summer 2|Summer|Winter) (\d{4})$",
 # frontend/src/pages/rate/rateFlow.ts). this_year is UTC's, so one more year on
 # each side covers a browser whose year has already or not yet turned over.
 TERM_YEARS = 4
+# Soft flags the review agent may approve on their own.
+APPROVABLE = frozenset({"no_timer", "too_fast", "stale", "datacenter"})
+# Volume flags: approvable only when the group's comments are varied and specific.
+APPROVABLE_IF_VARIED = frozenset({"burst_pair", "burst_ip", "burst_prefix", "burst_prof", "burst_course",
+                                  "burst_prof_day", "burst_pause", "weekly_surge", "skew_week"})
+# Every other reason, including any added later, is escalate-only.
 
 
 def _text(value):
@@ -112,7 +118,10 @@ def validate_submission(body, this_year):
     rating = body.get("rating")
     if type(rating) is not int or not 1 <= rating <= 5:
         return None, "Rating must be a whole number from 1 to 5"
-    difficulty = body.get("difficulty")  # None from a page still on the form from before the question
+    # Temporary: None from a page still on the form from before the question, which any client
+    # can also send, and ratings._UPSERT_SQL keeps the stored difficulty on it. Once no such page
+    # can still be open, require the field here and drop that COALESCE.
+    difficulty = body.get("difficulty")
     if difficulty is not None and (type(difficulty) is not int or not 1 <= difficulty <= 5):
         return None, "Difficulty must be a whole number from 1 to 5"
     hours = body.get("hours")

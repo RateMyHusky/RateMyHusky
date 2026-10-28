@@ -179,6 +179,21 @@ def near_duplicate_ids(comment, key, exclude_id, query, now):
             >= rating_checks.NEAR_DUPLICATE]
 
 
+def _add_reason(reason, condition, params, write):
+    """Add `reason` to the held rows matching `condition` that don't list it. The
+    agent's escalate predates the new reason, so it is cleared for a re-review; a
+    reject stays, since only a human clears one. Doesn't bump updated_at, which the
+    burst windows count."""
+    write(
+        "UPDATE survey_ratings SET hold_reasons = hold_reasons || %s, "
+        "agent_decision = CASE WHEN agent_decision = 'reject' THEN agent_decision END, "
+        "agent_reason = CASE WHEN agent_decision = 'reject' THEN agent_reason END, "
+        "agent_reviewed_at = CASE WHEN agent_decision = 'reject' THEN agent_reviewed_at END "
+        "WHERE status = 'held' AND hold_reasons IS NOT NULL "
+        f"AND NOT (%s = ANY(string_to_array(hold_reasons, ','))) AND {condition}",
+        ("," + reason, reason, *params))
+
+
 # A match shares the new rating's device, or its IP or network when that isn't a shared one.
 _LINKED = "(device_hash = %s OR (%s AND (ip_hash = %s OR ip_prefix_hash = %s)))"
 
@@ -196,11 +211,7 @@ def hold_matches(ids, reason, device_hash, ip_hash, prefix_hash, network_type, w
         "UPDATE survey_ratings SET status = 'held', hold_reasons = %s "
         f"WHERE status = 'accepted' AND hold_reasons IS NULL AND id::text = ANY(%s) AND {_LINKED}",
         (reason, ids, *linked))
-    write(
-        "UPDATE survey_ratings SET hold_reasons = hold_reasons || %s "
-        "WHERE status = 'held' AND hold_reasons IS NOT NULL AND id::text = ANY(%s) "
-        f"AND NOT (%s = ANY(string_to_array(hold_reasons, ','))) AND {_LINKED}",
-        ("," + reason, ids, reason, *linked))
+    _add_reason(reason, f"id::text = ANY(%s) AND {_LINKED}", (ids, *linked), write)
 
 
 # The week's new-device ratings as count, sum and sum of squares. A row a reviewer
@@ -239,13 +250,22 @@ def skew_week(key, rating, new_device, exclude_id, query_one, now):
 
 def hold_skew_week(key, write, now):
     """Hold the professor's unreviewed new-device ratings from the last SKEW_DAYS
-    for skew_week. All on one professor, whose page the route already drops, so
-    there is nothing to return."""
+    for skew_week, and add it to held ones the agent could otherwise approve one by
+    one on a soft flag, so it groups them. A row held for an escalate-only reason or
+    carrying the agent's reject goes to a human anyway, so it stays out of the group.
+    All on one professor, whose page the route already drops, so there is nothing
+    to return."""
+    condition = f"new_device = true AND created_at >= %s AND {_PROF_MATCH}"
+    params = (now - timedelta(days=SKEW_DAYS), *_key_params(key)[:2])
     write(
         "UPDATE survey_ratings SET status = 'held', hold_reasons = 'skew_week' "
-        "WHERE status = 'accepted' AND hold_reasons IS NULL AND new_device = true "
-        f"AND created_at >= %s AND {_PROF_MATCH}",
-        (now - timedelta(days=SKEW_DAYS), *_key_params(key)[:2]))
+        f"WHERE status = 'accepted' AND hold_reasons IS NULL AND {condition}",
+        params)
+    _add_reason(
+        "skew_week",
+        f"{condition} AND string_to_array(hold_reasons, ',') <@ %s::text[] "
+        "AND agent_decision IS DISTINCT FROM 'reject'",
+        (*params, sorted(rating_checks.APPROVABLE | rating_checks.APPROVABLE_IF_VARIED)), write)
 
 
 def _paced(row, hour, month, limit):
@@ -340,11 +360,13 @@ def hold_burst(reasons, key, ip_hash, prefix_hash, write, now):
 # status has its own held-stays-held rule below, and a clean resubmit keeps the
 # row's hold_reasons, so a reviewer's approval stays out of the burst and surge
 # counts. new_device keeps its first value, so an edit can't take a row out of
-# the burst_pair count.
+# the burst_pair count. A page still on the form from before the difficulty
+# question sends none, so an edit from it keeps the stored difficulty (temporary,
+# see rating_checks.validate_submission).
 _INSERT_COLUMNS = tuple(c for c in RATING_COLUMNS if c != "id")
 _SET_COLUMNS = tuple(
     c for c in _INSERT_COLUMNS
-    if c not in ("status", "hold_reasons", "device_hash", "new_device", *_KEY_COLUMNS))
+    if c not in ("status", "hold_reasons", "device_hash", "new_device", "difficulty", *_KEY_COLUMNS))
 _UPSERT_SQL = (
     f"INSERT INTO survey_ratings (id, {', '.join(_INSERT_COLUMNS)}) "
     f"VALUES (%s, {', '.join(['%s'] * len(_INSERT_COLUMNS))}) "
@@ -353,6 +375,7 @@ _UPSERT_SQL = (
     + ", ".join(f"{c} = EXCLUDED.{c}" for c in _SET_COLUMNS)
     + ", status = CASE WHEN survey_ratings.status = 'held' THEN 'held' ELSE EXCLUDED.status END"
     ", hold_reasons = COALESCE(EXCLUDED.hold_reasons, survey_ratings.hold_reasons)"
+    ", difficulty = COALESCE(EXCLUDED.difficulty, survey_ratings.difficulty)"
     ", updated_at = now()"
 )
 
