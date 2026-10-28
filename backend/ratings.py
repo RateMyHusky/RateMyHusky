@@ -44,8 +44,9 @@ _KEY_MATCH = " AND ".join(f"{c} IS NOT DISTINCT FROM %s" for c in _KEY_COLUMNS)
 _PROF_MATCH = " AND ".join(f"{c} IS NOT DISTINCT FROM %s" for c in _KEY_COLUMNS[:2])
 _COURSE_MATCH = " AND ".join(f"{c} IS NOT DISTINCT FROM %s" for c in _KEY_COLUMNS[2:])
 _NO_NETWORK_BURST = ("campus", "relay")
-# Shared networks: one abusive student must not silence the rest of campus or a relay.
-FLAG_EXEMPT_NETWORKS = _NO_NETWORK_BURST
+# Shared networks: one abusive student must not silence the rest of campus, a relay,
+# or a carrier, which shares IPv4 addresses across many subscribers.
+FLAG_EXEMPT_NETWORKS = (*_NO_NETWORK_BURST, "mobile")
 _BURST_REASONS = ("burst_pair", "burst_prof", "burst_prof_day", "burst_course", "burst_ip", "burst_prefix")
 # A held row from a pair burst pauses that pair; a professor or course burst, all of it.
 _PAUSE_SQL = (
@@ -172,8 +173,10 @@ def near_duplicate_ids(comment, key, exclude_id, query, now):
         f"SELECT id, comment FROM survey_ratings WHERE {_PROF_MATCH} AND created_at >= %s "
         "AND comment IS NOT NULL AND id IS DISTINCT FROM %s",
         (*_key_params(key)[:2], now - timedelta(days=NEAR_DUPLICATE_DAYS), exclude_id))
+    mine = rating_checks.shingles(comment)
     return [str(r["id"]) for r in rows
-            if rating_checks.similarity(comment, r["comment"]) >= rating_checks.NEAR_DUPLICATE]
+            if rating_checks.shingle_similarity(mine, rating_checks.shingles(r["comment"]))
+            >= rating_checks.NEAR_DUPLICATE]
 
 
 def hold_matches(ids, reason, write):
@@ -391,7 +394,7 @@ def professor_context(slug, device_hash, query):
 
 def flagged(device_hash, ip_hash, network_type, query_one, now):
     """Whether a reviewer flagged this device (for good) or this IP (for IP_HASH_DAYS,
-    never on a campus or relay network, where it is shared)."""
+    never on a shared network: campus, relay or mobile)."""
     sql = "SELECT 1 FROM rating_flags WHERE (kind = 'device' AND value_hash = %s)"
     params = [device_hash]
     if ip_hash and network_type not in FLAG_EXEMPT_NETWORKS:

@@ -306,6 +306,12 @@ def test_abuse_reject_on_campus_flags_only_the_device():
     assert [p for _, p in cur.statements("INSERT INTO rating_flags")] == [("device", "d")]
 
 
+def test_abuse_reject_on_mobile_flags_only_the_device():
+    cur = _abuse_cursor("mobile")
+    rr.reject_rating(cur, "abcd1234", abuse=True)
+    assert [p for _, p in cur.statements("INSERT INTO rating_flags")] == [("device", "d")]
+
+
 def test_abuse_reject_with_a_purged_ip_flags_only_the_device():
     cur = FakeCursor({"SELECT device_hash": [{"device_hash": "d", "ip_hash": None, "network_type": "other"}],
                       "DELETE FROM survey_ratings": [{"id": "abcd1234"}]})

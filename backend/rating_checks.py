@@ -151,23 +151,27 @@ def comment_hash(text):
     return hashlib.sha256(norm.encode()).hexdigest()
 
 
-def _shingles(text):
+def shingles(text):
     words = normalize_comment(text).split()
     if len(words) < SHINGLE_WORDS:
         return {tuple(words)} if words else set()
     return {tuple(words[i:i + SHINGLE_WORDS]) for i in range(len(words) - SHINGLE_WORDS + 1)}
 
 
+def shingle_similarity(sa, sb):
+    """Jaccard overlap, 0.0 to 1.0, of two shingle sets."""
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
 def similarity(a, b):
-    """Jaccard overlap, 0.0 to 1.0, of the word 3-grams of two comments. A copy with a
+    """Jaccard overlap, 0.0 to 1.0, of the SHINGLE_WORDS-word shingles of two comments. A copy with a
     word prepended or a character tacked on still scores high where an exact hash
     doesn't. NEAR_DUPLICATE was set on the Razzaq bomb (21 copies, each at least
     0.86 to another) against per-professor RMP pairs (67 of 840K at 0.5, mostly
     verbatim reposts)."""
-    sa, sb = _shingles(a), _shingles(b)
-    if not sa or not sb:
-        return 0.0
-    return len(sa & sb) / len(sa | sb)
+    return shingle_similarity(shingles(a), shingles(b))
 
 
 def moderate(comment, score=moderation.score_texts):
@@ -193,7 +197,7 @@ def assess(fill_seconds, network_type, bursts, duplicate_comment, moderation_act
     reviewer took down, so it waits for review.
     near_duplicate: the comment closely matches another rating's (see similarity).
     skew_week: a run of same-direction ratings has landed on this professor this week.
-    silent_hold: the submitter's earlier ratings are already held, so this one is too.
+    silent_hold: a reviewer's reject-rating --abuse flagged this device or IP.
     """
     if moderation_action == "block":
         return "rejected", ["moderation_block"]

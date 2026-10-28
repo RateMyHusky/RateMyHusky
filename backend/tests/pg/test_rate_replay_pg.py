@@ -50,7 +50,7 @@ def replay(live_server, pg, monkeypatch):
     truncate(pg, *CLEAN)
 
 
-def submit(server, row, i, device=None, opened=True, **overrides):
+def submit(server, row, i, device=None, opened=True):
     """POST one rating as a new browser (fresh client, so no cookie carries over) on
     10.{i}.0.1, a /24 of its own. A grade the form has no option for, as RMP's D+, D- and F,
     goes in as the lowest option, "C- or below"."""
@@ -65,7 +65,6 @@ def submit(server, row, i, device=None, opened=True, **overrides):
     if opened:
         body["opened"] = ri.sign_opened(SECRET, int(time.time()) - 60,
                                         ri.keyed_hash(SECRET, "device", device), False)
-    body.update(overrides)
     return server.app.test_client().post("/api/rate", json=body,
                                          environ_overrides={"REMOTE_ADDR": f"10.{i}.0.1"})
 
@@ -106,6 +105,8 @@ def test_a_slow_drip_is_held(replay, pg):
     assert copies
     for r in copies:
         assert r["status"] == "held" and "near_duplicate" in reasons(r)
+    assert {r["status"] for r in rows(
+        pg, "SELECT status FROM survey_ratings WHERE left(device_hash, 5) = 'drip-'")} == {"held"}
 
 
 def test_after_an_abuse_reject_the_device_is_silently_held(replay, pg):

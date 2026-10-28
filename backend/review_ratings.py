@@ -10,7 +10,7 @@
     python review_ratings.py approve-course ID
     python review_ratings.py merge-course ID CODE
     python review_ratings.py reject-course ID
-    python review_ratings.py purge-ip                   # clear IP hashes older than 30 days
+    python review_ratings.py purge-ip                   # clear IP hashes older than 30 days and expired IP flags
 
 Rating ids may be the short id `list` prints. Each run is one transaction: it
 commits at the end, and rolls back and exits 1 on a bad id or a non-pending
@@ -244,7 +244,7 @@ def purge_ip(cur):
     def write(sql, params):
         cur.execute(sql, params)
     ratings.purge_ip_hashes(write, datetime.now(timezone.utc))
-    return f"Cleared IP hashes older than {ratings.IP_HASH_DAYS} days"
+    return f"Cleared IP hashes older than {ratings.IP_HASH_DAYS} days and expired IP flags"
 
 
 def clean(value):

@@ -120,13 +120,13 @@ def test_merge_holds_moved_ratings_on_a_pair_banner_never_saw(pg):
                     {"course_code": "CS3500", "status": "held", "hold_reasons": "too_fast,unverified_pair"}]
 
 
-def insert_held(pg, rating_id, reasons="burst_ip"):
+def insert_held(pg, rating_id, reasons="burst_ip", device="dev1"):
     with pg.cursor() as cur:
         cur.execute(
             "INSERT INTO survey_ratings (id, professor_slug, course_code, rating, hours, status, "
             "hold_reasons, device_hash, ip_hash, new_device, network_type) "
-            "VALUES (%s, 'jane-doe', 'CS2500', 1, '3-4', 'held', %s, 'dev1', 'ip1', true, 'other')",
-            (rating_id, reasons))
+            "VALUES (%s, 'jane-doe', 'CS2500', 1, '3-4', 'held', %s, %s, 'ip1', true, 'other')",
+            (rating_id, reasons, device))
     pg.commit()
 
 
@@ -150,10 +150,22 @@ def test_abuse_reject_of_a_missing_id_leaves_no_flag(pg):
     assert rows(pg, "SELECT 1 FROM rating_flags") == []
 
 
+def test_abuse_reject_rolls_back_flags_when_a_later_id_fails(pg):
+    rating_id = str(uuid.uuid4())
+    insert_held(pg, rating_id)
+    args = review_ratings.parse_args(["reject-rating", "--abuse", rating_id[:8], "deadbeef"])
+    with pytest.raises(review_ratings.ReviewError):
+        with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            review_ratings.run(cur, args)
+    pg.rollback()
+    assert rows(pg, "SELECT 1 FROM rating_flags") == []
+    assert [str(r["id"]) for r in rows(pg, "SELECT id FROM survey_ratings")] == [rating_id]
+
+
 def test_reject_still_deletes_rows_held_by_the_new_reasons(pg):
     near, skew = str(uuid.uuid4()), str(uuid.uuid4())
     insert_held(pg, near, "near_duplicate")
-    insert_held(pg, skew, "skew_week")
+    insert_held(pg, skew, "skew_week", device="dev2")
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         review_ratings.reject_rating(cur, near, skew)
     pg.commit()

@@ -255,9 +255,10 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 ```
 
-Flagging abusive raters added the `rating_flags` table. Run this before
-deploying the backend that reads it, or every rating fails on the missing
-table. Both are rerunnable:
+Flagging abusive raters added the `rating_flags` table. Run this as `appuser`
+(or after `SET ROLE appuser`), since the table's owner otherwise lacks access
+and every `/api/rate` call fails. Run it before deploying the backend that
+reads it, or every rating fails on the missing table. Both are rerunnable:
 
 ```sql
 CREATE TABLE IF NOT EXISTS public.rating_flags (
@@ -271,6 +272,11 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 ```
+
+To undo a wrong flag, run `DELETE FROM rating_flags WHERE kind = 'device' AND value_hash = '...'`
+(or `kind = 'ip'`). The hash is the rejected rating's `device_hash` (`ip_hash` for an
+IP), which `reject-rating --abuse` deletes with the row, so a reviewer should note it
+from the held row before rejecting.
 
 ### Optional cleanup (destructive; take a backup first)
 

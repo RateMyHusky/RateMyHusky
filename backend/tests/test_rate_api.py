@@ -517,6 +517,7 @@ def test_a_flagged_device_gets_the_accepted_response_byte_for_byte(rate, monkeyp
     plain = server.query_one
     first = post(client, ri)
     first_writes = rating_writes(state)
+    assert "accepted" in first_writes[0][1]
     state["writes"].clear()
     server.limiter.reset()
     monkeypatch.setattr(server, "query_one", lambda sql, params=(): (

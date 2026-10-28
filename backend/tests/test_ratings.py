@@ -456,7 +456,6 @@ def test_hold_skew_week_holds_the_unreviewed_new_device_week():
     assert params == (NOW - timedelta(days=7), "jane-doe", None)
 
 
-
 def test_flagged_matches_a_device_or_a_recent_ip():
     f = Fake(one={"FROM rating_flags": {"x": 1}})
     assert ratings.flagged("d", "i", "other", f.query_one, NOW) is True
@@ -467,8 +466,8 @@ def test_flagged_matches_a_device_or_a_recent_ip():
     assert ratings.flagged("d", "i", "other", Fake().query_one, NOW) is False
 
 
-@pytest.mark.parametrize("network, ip_hash", [("campus", "i"), ("relay", "i"), ("other", None)])
-def test_flagged_skips_the_ip_on_campus_relay_or_no_hash(network, ip_hash):
+@pytest.mark.parametrize("network, ip_hash", [("campus", "i"), ("relay", "i"), ("mobile", "i"), ("other", None)])
+def test_flagged_skips_the_ip_on_campus_relay_mobile_or_no_hash(network, ip_hash):
     f = Fake()
     ratings.flagged("d", ip_hash, network, f.query_one, NOW)
     (sql, params), = f.calls
