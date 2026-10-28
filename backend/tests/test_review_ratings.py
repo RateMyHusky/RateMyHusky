@@ -180,6 +180,7 @@ def test_approve_rating_only_touches_held_rows():
 def test_list_prints_no_hashes(capsys):
     held = {"id": "abcd1234-0000", "professor": "jane-doe", "course": "CS2500",
             "term_label": "Fall 2025", "rating": 2, "difficulty": 5, "hold_reasons": "burst",
+            "agent_decision": None, "agent_reason": None,
             "comment": "x" * 100, "created_at": "2026-10-01",
             "device_hash": "DEVICEHASH", "ip_hash": "IPHASH"}
     cur = FakeCursor({"FROM survey_ratings": [held]})
@@ -188,6 +189,18 @@ def test_list_prints_no_hashes(capsys):
     assert "abcd1234" in out and "jane-doe" in out and "x" * 80 in out and "x" * 81 not in out
     assert "difficulty 5/5" in out
     assert "DEVICEHASH" not in out and "IPHASH" not in out
+
+
+def test_list_shows_the_agent_decision_and_reason(capsys):
+    base = {"id": "abcd1234-0000", "professor": "jane-doe", "course": "CS2500",
+            "term_label": None, "rating": 2, "difficulty": None, "hold_reasons": "burst",
+            "comment": "hi", "created_at": "2026-10-01"}
+    rejected = dict(base, agent_decision="reject", agent_reason="templated cluster[2J")
+    unreviewed = dict(base, id="ffff5678-0000", agent_decision=None, agent_reason=None)
+    rr.list_pending(FakeCursor({"FROM survey_ratings": [rejected, unreviewed]}))
+    out = capsys.readouterr().out
+    assert "agent: reject (templated cluster?[2J)" in out
+    assert "agent: -" in out and "" not in out
 
 
 def test_reject_rating_only_deletes_held_rows():
@@ -202,6 +215,7 @@ def test_list_strips_control_characters(capsys):
     evil = "[2J"
     held = {"id": "abcd1234-0000", "professor": "jane-doe", "course": "CS2500",
             "term_label": None, "rating": 2, "difficulty": None, "hold_reasons": "burst",
+            "agent_decision": None, "agent_reason": None,
             "comment": "hi" + evil, "created_at": "2026-10-01"}
     cur = FakeCursor({"FROM survey_ratings": [held],
                       "FROM survey_pending_professors": [{"id": "p1", "name": "Eve" + evil,

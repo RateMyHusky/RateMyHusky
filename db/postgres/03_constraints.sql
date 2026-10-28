@@ -103,6 +103,8 @@ CREATE UNIQUE INDEX survey_ratings_one_per_device ON public.survey_ratings
     (device_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT;
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_rating CHECK (rating BETWEEN 1 AND 5);
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_difficulty CHECK (difficulty BETWEEN 1 AND 5);
+ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_agent_decision
+    CHECK (agent_decision IN ('approve', 'escalate', 'reject'));
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_status CHECK (status IN ('accepted', 'held'));
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_professor
     CHECK (professor_slug IS NOT NULL OR pending_professor_id IS NOT NULL);
@@ -115,6 +117,8 @@ CREATE UNIQUE INDEX survey_pending_professors_one_pending ON public.survey_pendi
     WHERE status = 'pending';
 ALTER TABLE public.survey_pending_professors ADD CONSTRAINT check_survey_pending_professor_status
     CHECK (status IN ('pending', 'approved', 'merged', 'rejected'));
+ALTER TABLE public.survey_pending_professors ADD CONSTRAINT check_survey_pending_professor_agent_decision
+    CHECK (agent_decision IN ('merge', 'escalate'));
 
 -- survey_pending_courses
 CREATE INDEX survey_pending_courses_code ON public.survey_pending_courses (code);
@@ -122,6 +126,8 @@ CREATE UNIQUE INDEX survey_pending_courses_one_pending ON public.survey_pending_
     WHERE status = 'pending';
 ALTER TABLE public.survey_pending_courses ADD CONSTRAINT check_survey_pending_course_status
     CHECK (status IN ('pending', 'approved', 'merged', 'rejected'));
+ALTER TABLE public.survey_pending_courses ADD CONSTRAINT check_survey_pending_course_agent_decision
+    CHECK (agent_decision IN ('merge', 'escalate'));
 
 -- rating_flags
 ALTER TABLE public.rating_flags ADD CONSTRAINT check_rating_flag_kind

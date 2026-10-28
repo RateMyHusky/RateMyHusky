@@ -273,6 +273,41 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 ```
 
+The daily review agent added three nullable columns to each of `survey_ratings`,
+`survey_pending_professors` and `survey_pending_courses`. The backend runs fine
+without them, but `review_agent.py` and the new digest need them, so run this
+before the first agent run. Both are rerunnable:
+
+```sql
+ALTER TABLE public.survey_ratings
+    ADD COLUMN IF NOT EXISTS agent_decision TEXT NULL,
+    ADD COLUMN IF NOT EXISTS agent_reason TEXT NULL,
+    ADD COLUMN IF NOT EXISTS agent_reviewed_at TIMESTAMPTZ NULL;
+ALTER TABLE public.survey_pending_professors
+    ADD COLUMN IF NOT EXISTS agent_decision TEXT NULL,
+    ADD COLUMN IF NOT EXISTS agent_reason TEXT NULL,
+    ADD COLUMN IF NOT EXISTS agent_reviewed_at TIMESTAMPTZ NULL;
+ALTER TABLE public.survey_pending_courses
+    ADD COLUMN IF NOT EXISTS agent_decision TEXT NULL,
+    ADD COLUMN IF NOT EXISTS agent_reason TEXT NULL,
+    ADD COLUMN IF NOT EXISTS agent_reviewed_at TIMESTAMPTZ NULL;
+DO $$ BEGIN
+    ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_agent_decision
+        CHECK (agent_decision IN ('approve', 'escalate', 'reject'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE public.survey_pending_professors ADD CONSTRAINT check_survey_pending_professor_agent_decision
+        CHECK (agent_decision IN ('merge', 'escalate'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE public.survey_pending_courses ADD CONSTRAINT check_survey_pending_course_agent_decision
+        CHECK (agent_decision IN ('merge', 'escalate'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+```
+
 To undo a wrong flag, run `DELETE FROM rating_flags WHERE kind = 'device' AND value_hash = '...'`
 (or `kind = 'ip'`). The hash is the rejected rating's `device_hash` (`ip_hash` for an
 IP), which `reject-rating --abuse` deletes with the row, so a reviewer should note it

@@ -256,7 +256,7 @@ def list_pending(cur):
     cur.execute(
         "SELECT r.id, COALESCE(r.professor_slug, pp.name || ' (pending)') AS professor, "
         "COALESCE(r.course_code, pc.code || ' (pending)') AS course, r.term_label, r.rating, r.difficulty, "
-        "r.hold_reasons, r.comment, r.created_at "
+        "r.hold_reasons, r.agent_decision, r.agent_reason, r.comment, r.created_at "
         "FROM survey_ratings r "
         "LEFT JOIN survey_pending_professors pp ON pp.id = r.pending_professor_id "
         "LEFT JOIN survey_pending_courses pc ON pc.id = r.pending_course_id "
@@ -268,6 +268,8 @@ def list_pending(cur):
         print(f"  {str(r['id'])[:8]}  {clean(r['professor'])}  {clean(r['course'])}  "
               f"{clean(r['term_label'])}  {r['rating']}/5  difficulty {r['difficulty'] or '-'}/5  "
               f"[{clean(r['hold_reasons'])}]  "
+              f"agent: {clean(r['agent_decision'] or '-')}"
+              f"{' (' + clean(r['agent_reason']) + ')' if r['agent_reason'] else ''}  "
               f"{comment!r}  {str(r['created_at'])[:10]}")
 
     cur.execute(

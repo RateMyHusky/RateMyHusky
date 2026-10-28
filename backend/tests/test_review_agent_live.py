@@ -1,0 +1,37 @@
+"""Live check of the reviewer prompt against the real model. Skipped unless
+RUN_GROQ_LIVE=1 and the Groq key groq1 are set:
+
+    cd backend && RUN_GROQ_LIVE=1 groq1=<key> python -m pytest tests/test_review_agent_live.py -q
+"""
+
+import os
+
+import pytest
+
+import review_agent as ra
+from rag.key_pool import KeyPool, load_entries
+from tests.test_review_agent import COMMENTS, _bomb_rows, _row
+
+pytestmark = pytest.mark.skipif(not (os.getenv("RUN_GROQ_LIVE") == "1" and os.getenv("groq1")),
+                                reason="set RUN_GROQ_LIVE=1 and groq1 to call the real model")
+
+
+def _answer(group):
+    groq = ra.Groq(KeyPool(load_entries()))
+    text = groq.ask(ra.build_messages(group, [], {"CS2500": True}))
+    assert text is not None, "Groq returned no answer"
+    print(text)
+    return ra.parse_decision(text)
+
+
+def test_the_bomb_group_is_recommended_for_rejection():
+    answer = _answer(_bomb_rows())
+    assert answer["recommend_reject"] is True
+
+
+def test_an_end_of_term_rush_of_varied_ratings_is_approved():
+    group = [_row(i, "burst_prof", i * 3, comment=c, rating=[2, 5, 3, 4, 1, 5, 3, 2, 4, 5, 3, 4, 2, 5, 3][i])
+             for i, c in enumerate(COMMENTS)]
+    answer = _answer(group)
+    assert answer["decision"] == "approve" and answer["recommend_reject"] is False
+    assert ra.final_decision(group, answer) == "approve"
