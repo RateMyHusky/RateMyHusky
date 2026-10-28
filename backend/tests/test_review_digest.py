@@ -37,12 +37,19 @@ def test_the_digest_counts_reasons_new_holds_and_pending_names():
     assert "python review_ratings.py list" in text
 
 
+def test_the_digest_splits_comments_by_their_check():
+    subject, text = review_digest.build_digest([], 0, 0, NOW, pending_comments=6,
+                                               flagged_comments=1, unchecked_comments=2)
+    assert "Comments to review: 6 (1 flagged, 2 not yet checked)" in text
+    assert subject.endswith("6 comments, 0 new professors, 0 new courses")
+
+
 def _main(monkeypatch, held, pending=(0, 0), key="re-test", comments=0):
     posts = []
 
     def fetch(conn, sql):
         if "comment_status" in sql:
-            return [{"n": comments}]
+            return [{"n": comments, "flagged": 0, "unchecked": comments}]
         if "FROM survey_ratings" in sql:
             return held
         return [{"n": pending[0] if "professors" in sql else pending[1]}]
@@ -79,6 +86,7 @@ def test_main_sends_for_waiting_comments_alone(monkeypatch):
     assert review_digest.main([], now=NOW) == 0
     (payload,) = posts
     assert ", 2 comments, " in payload["subject"]
+    assert "Comments to review: 2 (0 flagged, 2 not yet checked)" in payload["text"]
 
 
 def test_main_fails_without_a_resend_key(monkeypatch):

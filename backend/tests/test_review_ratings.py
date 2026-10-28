@@ -192,12 +192,28 @@ def test_list_prints_no_hashes(capsys):
 
 def test_list_prints_each_waiting_comment_in_full(capsys):
     waiting = {"id": "beef5678-0000", "professor": "jane-doe", "course": "CS2500", "status": "accepted",
-               "rating": 4, "comment": "y" * 300, "updated_at": "2026-10-01"}
+               "rating": 4, "comment": "y" * 300, "updated_at": "2026-10-01",
+               "comment_check": "unchecked", "comment_check_reason": None}
     cur = FakeCursor({"comment_status = 'pending'": [waiting]})
     summary = rr.list_pending(cur)
     out = capsys.readouterr().out
     assert "Comments to review (1):" in out and "beef5678" in out and "y" * 300 in out
     assert "rating accepted" in out and "1 comments to review" in summary
+    assert "not yet checked" in out
+
+
+def test_list_shows_each_comments_check_and_puts_flagged_first(capsys):
+    rows = [{"id": f"beef567{i}-0000", "professor": "jane-doe", "course": "CS2500", "status": "accepted",
+             "rating": 4, "comment": "fine", "updated_at": "2026-10-01",
+             "comment_check": check, "comment_check_reason": reason}
+            for i, (check, reason) in enumerate((("review", "blocked"), ("allow", None),
+                                                 ("unchecked", "duplicate")))]
+    cur = FakeCursor({"comment_status = 'pending'": rows})
+    rr.list_pending(cur)
+    out = capsys.readouterr().out
+    assert "flagged: blocked" in out and "  clean  " in out and "not yet checked (duplicate)" in out
+    sql = next(s for s, _ in cur.calls if "comment_status = 'pending'" in s)
+    assert "ORDER BY r.comment_check IS DISTINCT FROM 'review', r.updated_at" in sql
 
 
 def test_approve_comment_only_touches_waiting_comments():
@@ -206,6 +222,8 @@ def test_approve_comment_only_touches_waiting_comments():
     (sql, params), = cur.calls
     assert "comment_status = 'approved'" in sql and "comment_status = 'pending'" in sql
     assert "status = 'held'" not in sql and "updated_at" not in sql
+    # Off the moderation queue, so a run racing the approval can't hold the rating.
+    assert "comment_next_check_at = NULL" in sql
     assert params == ("abcd1234%",)
     with pytest.raises(rr.ReviewError):
         rr.approve_comment(FakeCursor(), "abcd1234")
@@ -217,6 +235,7 @@ def test_reject_comment_drops_the_text_and_keeps_the_rating():
     (sql, params), = cur.calls
     assert sql.startswith("UPDATE") and "comment = NULL" in sql and "comment_status = NULL" in sql
     assert "'comment_removed'" in sql and "comment_hash" not in sql
+    assert "comment_check = NULL" in sql and "comment_next_check_at = NULL" in sql
     assert "WHERE id::text LIKE %s AND comment_status = 'pending'" in sql and params == ("abcd1234%",)
     with pytest.raises(rr.ReviewError):
         rr.reject_comment(FakeCursor(), "abcd1234")
@@ -236,7 +255,8 @@ def test_list_strips_control_characters(capsys):
             "term_label": None, "rating": 2, "difficulty": None, "hold_reasons": "burst",
             "comment": "hi" + evil, "created_at": "2026-10-01"}
     waiting = {"id": "beef5678-0000", "professor": "jane-doe", "course": "CS2500", "status": "accepted",
-               "rating": 2, "comment": "yo" + evil, "updated_at": "2026-10-01"}
+               "rating": 2, "comment": "yo" + evil, "updated_at": "2026-10-01",
+               "comment_check": "review", "comment_check_reason": "x" + evil}
     cur = FakeCursor({"comment_status = 'pending'": [waiting], "FROM survey_ratings": [held],
                       "FROM survey_pending_professors": [{"id": "p1", "name": "Eve" + evil,
                                                           "name_key": "eve x", "department": evil,

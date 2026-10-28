@@ -26,6 +26,12 @@ course, so later ratings of the pair aren't held for it.
 A comment never shows until approve-comment, even on an accepted rating, and
 an edit to its text waits again. approve-rating counts the rating only: its
 comment stays in the comments list until approved there too.
+
+`list` shows each comment's model check (moderation_groq.py): flagged first,
+then clean or not yet checked. The check only sorts the list; approving and
+rejecting work the same either way, and both take the comment off
+moderate_queue.py's queue. A comment the queue found blocked is flagged as
+`blocked` and its rating held as moderation_block until a reviewer acts.
 """
 
 import argparse
@@ -144,7 +150,8 @@ def reject_rating(cur, *ids):
 
 def approve_comment(cur, *ids):
     for rating_id in ids:
-        cur.execute("UPDATE survey_ratings SET comment_status = 'approved' "
+        # Off the queue too, so a moderate_queue.py run racing this can't hold the rating.
+        cur.execute("UPDATE survey_ratings SET comment_status = 'approved', comment_next_check_at = NULL "
                     "WHERE id::text LIKE %s AND comment_status = 'pending' RETURNING id",
                     (short_id_pattern(rating_id),))
         if len(cur.fetchall()) != 1:
@@ -156,7 +163,9 @@ def approve_comment(cur, *ids):
 # back is held (server.rate_submit); comment_hash stays too, so the same text from
 # another device is held as a duplicate_comment.
 _DROP_COMMENT_SQL = (
-    "UPDATE survey_ratings SET comment = NULL, comment_status = NULL, hold_reasons = CASE "
+    "UPDATE survey_ratings SET comment = NULL, comment_status = NULL, "
+    + "".join(f"{c} = NULL, " for c in ratings.CHECK_COLUMNS)
+    + "hold_reasons = CASE "
     "WHEN hold_reasons IS NULL THEN 'comment_removed' "
     "WHEN ',' || hold_reasons || ',' LIKE '%%,comment_removed,%%' THEN hold_reasons "
     "ELSE hold_reasons || ',comment_removed' END ")
@@ -261,6 +270,15 @@ def clean(value):
     return "".join(c if c.isprintable() else "?" for c in str(value if value is not None else ""))
 
 
+def check_label(check, reason):
+    """How `list` shows a comment's model check."""
+    if check == "review":
+        return f"flagged: {clean(reason or 'review')}"
+    if check == "allow":
+        return "clean"
+    return "not yet checked" + (f" ({clean(reason)})" if reason else "")
+
+
 def list_pending(cur):
     cur.execute(
         "SELECT r.id, COALESCE(r.professor_slug, pp.name || ' (pending)') AS professor, "
@@ -282,16 +300,19 @@ def list_pending(cur):
     # The whole text, since approving it puts every word on the page.
     cur.execute(
         "SELECT r.id, COALESCE(r.professor_slug, pp.name || ' (pending)') AS professor, "
-        "COALESCE(r.course_code, pc.code || ' (pending)') AS course, r.status, r.rating, r.comment, r.updated_at "
+        "COALESCE(r.course_code, pc.code || ' (pending)') AS course, r.status, r.rating, r.comment, r.updated_at, "
+        "r.comment_check, r.comment_check_reason "
         "FROM survey_ratings r "
         "LEFT JOIN survey_pending_professors pp ON pp.id = r.pending_professor_id "
         "LEFT JOIN survey_pending_courses pc ON pc.id = r.pending_course_id "
-        "WHERE r.comment_status = 'pending' ORDER BY r.updated_at")
+        "WHERE r.comment_status = 'pending' "
+        "ORDER BY r.comment_check IS DISTINCT FROM 'review', r.updated_at")
     comments = cur.fetchall()
     print(f"Comments to review ({len(comments)}):")
     for r in comments:
         print(f"  {str(r['id'])[:8]}  {clean(r['professor'])}  {clean(r['course'])}  {r['rating']}/5  "
-              f"rating {r['status']}  {str(r['updated_at'])[:10]}\n      {clean(r['comment'])!r}")
+              f"rating {r['status']}  {check_label(r['comment_check'], r['comment_check_reason'])}  "
+              f"{str(r['updated_at'])[:10]}\n      {clean(r['comment'])!r}")
 
     cur.execute(
         "SELECT p.id, p.name, p.name_key, p.department, count(r.id) AS n FROM survey_pending_professors p "

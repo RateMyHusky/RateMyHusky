@@ -274,6 +274,55 @@ UPDATE public.survey_ratings SET comment_status = 'pending'
     WHERE comment IS NOT NULL AND comment_status IS NULL;
 ```
 
+Comments are then checked by a model (Groq's gpt-oss-safeguard when
+`GROQ_MODERATION_KEY` is set, else OpenAI) as a first pass for the reviewer:
+`backend/moderate_queue.py` retries the ones the submit couldn't check. That
+added five nullable columns, all NULL when the rating has no comment, and the
+`moderation_calls` table the per-sender budgets count. Run this after the block
+above and before deploying the backend that writes them, or every rating fails
+on the missing columns. Comments saved before it start as `unchecked` with no
+due time, so the retry job never picks them up; a reviewer reads them anyway.
+All of it is rerunnable:
+
+```sql
+ALTER TABLE public.survey_ratings ADD COLUMN IF NOT EXISTS comment_check TEXT NULL;
+ALTER TABLE public.survey_ratings ADD COLUMN IF NOT EXISTS comment_check_reason TEXT NULL;
+ALTER TABLE public.survey_ratings ADD COLUMN IF NOT EXISTS comment_check_attempts BIGINT NULL;
+ALTER TABLE public.survey_ratings ADD COLUMN IF NOT EXISTS comment_next_check_at TIMESTAMPTZ NULL;
+ALTER TABLE public.survey_ratings ADD COLUMN IF NOT EXISTS comment_checked_at TIMESTAMPTZ NULL;
+DO $$ BEGIN
+    ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_comment_check
+        CHECK (comment_check IN ('unchecked', 'allow', 'review'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+CREATE INDEX IF NOT EXISTS survey_ratings_check_due ON public.survey_ratings (comment_next_check_at)
+    WHERE comment_check = 'unchecked' AND comment_next_check_at IS NOT NULL;
+UPDATE public.survey_ratings SET comment_check = 'unchecked', comment_check_attempts = 0
+    WHERE comment IS NOT NULL AND comment_check IS NULL;
+
+CREATE TABLE IF NOT EXISTS public.moderation_calls (
+    id UUID NOT NULL,
+    called_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    source TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    device_hash TEXT NULL,
+    ip_hash TEXT NULL,
+    shared_network BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT moderation_calls_pkey PRIMARY KEY (id)
+);
+CREATE INDEX IF NOT EXISTS moderation_calls_called ON public.moderation_calls (called_at);
+DO $$ BEGIN
+    ALTER TABLE public.moderation_calls ADD CONSTRAINT check_moderation_call_source
+        CHECK (source IN ('submit', 'queue'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE public.moderation_calls ADD CONSTRAINT check_moderation_call_outcome
+        CHECK (outcome IN ('allow', 'review', 'block', 'unavailable'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+```
+
 ### Optional cleanup (destructive; take a backup first)
 
 `02_tables.sql` no longer declares the old backup tables or the tables nothing

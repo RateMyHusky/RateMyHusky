@@ -29,7 +29,8 @@ def _counts(counter, limit=None):
     return [f"  {k}: {v}" for k, v in sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]]
 
 
-def build_digest(held, pending_professors, pending_courses, now, pending_comments=0):
+def build_digest(held, pending_professors, pending_courses, now, pending_comments=0,
+                 flagged_comments=0, unchecked_comments=0):
     """(subject, text), or None when nothing is waiting. Pure."""
     if not held and not pending_professors and not pending_courses and not pending_comments:
         return None
@@ -44,7 +45,8 @@ def build_digest(held, pending_professors, pending_courses, now, pending_comment
         lines += ["", "Most held in the last 24 hours:",
                   *_counts(Counter(r["professor_slug"] for r in recent if r["professor_slug"]), TOP),
                   *_counts(Counter(r["course_code"] for r in recent if r["course_code"]), TOP)]
-    lines += ["", f"Comments to review: {pending_comments}",
+    lines += ["", f"Comments to review: {pending_comments} ({flagged_comments} flagged, "
+                  f"{unchecked_comments} not yet checked)",
               f"New professors to review: {pending_professors}",
               f"New courses to review: {pending_courses}",
               "", "Review with: python review_ratings.py list"]
@@ -59,13 +61,17 @@ def main(argv=None, now=None):
     try:
         held = fetch_all(conn, "SELECT professor_slug, course_code, hold_reasons, created_at "
                                "FROM survey_ratings WHERE status = 'held'")
-        comments = fetch_all(conn, "SELECT count(*) AS n FROM survey_ratings WHERE comment_status = 'pending'")
+        comments = fetch_all(conn, "SELECT count(*) AS n, "
+                                   "count(*) FILTER (WHERE comment_check = 'review') AS flagged, "
+                                   "count(*) FILTER (WHERE comment_check IS DISTINCT FROM 'review' "
+                                   "AND comment_check IS DISTINCT FROM 'allow') AS unchecked "
+                                   "FROM survey_ratings WHERE comment_status = 'pending'")
         professors = fetch_all(conn, "SELECT count(*) AS n FROM survey_pending_professors WHERE status = 'pending'")
         courses = fetch_all(conn, "SELECT count(*) AS n FROM survey_pending_courses WHERE status = 'pending'")
     finally:
         conn.close()
     digest = build_digest(held, professors[0]["n"], courses[0]["n"], now or datetime.now(timezone.utc),
-                          comments[0]["n"])
+                          comments[0]["n"], comments[0]["flagged"], comments[0]["unchecked"])
     if digest is None:
         print("nothing to review")
         return 0

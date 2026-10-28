@@ -106,10 +106,21 @@ ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_difficulty CHECK (
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_status CHECK (status IN ('accepted', 'held'));
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_comment_status
     CHECK (comment_status IN ('pending', 'approved'));
+ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_comment_check
+    CHECK (comment_check IN ('unchecked', 'allow', 'review'));
+CREATE INDEX survey_ratings_check_due ON public.survey_ratings (comment_next_check_at)
+    WHERE comment_check = 'unchecked' AND comment_next_check_at IS NOT NULL;
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_professor
     CHECK (professor_slug IS NOT NULL OR pending_professor_id IS NOT NULL);
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_course
     CHECK (course_code IS NOT NULL OR pending_course_id IS NOT NULL);
+
+-- moderation_calls
+CREATE INDEX moderation_calls_called ON public.moderation_calls (called_at);
+ALTER TABLE public.moderation_calls ADD CONSTRAINT check_moderation_call_source
+    CHECK (source IN ('submit', 'queue'));
+ALTER TABLE public.moderation_calls ADD CONSTRAINT check_moderation_call_outcome
+    CHECK (outcome IN ('allow', 'review', 'block', 'unavailable'));
 
 -- survey_pending_professors
 CREATE INDEX survey_pending_professors_key ON public.survey_pending_professors (name_key);

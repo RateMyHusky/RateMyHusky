@@ -1,0 +1,39 @@
+name: Moderation queue
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+# Checks rating comments the submit couldn't (backend/moderate_queue.py). A run
+# makes at most 15 Groq calls 21 s apart, so two must never overlap. Without the
+# GROQ_MODERATION_KEY secret it does nothing and succeeds. Nothing here reads
+# or writes the repo through GITHUB_TOKEN.
+concurrency:
+  group: moderate-queue
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"  # match ci.yml
+
+      # Only what moderate_queue.py imports, not requirements-data.txt's pandas: this runs 144 times a day.
+      - name: Install dependencies
+        run: pip install psycopg2-binary python-dotenv openai
+
+      - name: Check due comments
+        working-directory: backend
+        env:
+          ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
+          GROQ_MODERATION_KEY: ${{ secrets.GROQ_MODERATION_KEY }}
+        run: python moderate_queue.py
