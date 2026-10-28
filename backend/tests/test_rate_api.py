@@ -229,6 +229,19 @@ def test_a_rule_match_is_422_before_any_model_call_or_write(rate):
     assert state["writes"] == [] and state["scored"] == []
 
 
+def test_an_edit_that_keeps_text_a_later_rule_matches_still_saves(rate):
+    # A comment saved before a rule existed is prefilled on the form; changing only the
+    # stars must not 422 on text the student didn't touch.
+    server, client, state, ri = rate
+    old = "We submitted everything on gradescope.com, easy to follow."
+    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": None, "comment": old}
+    assert post(client, ri, {"comment": old, "rating": 2}).status_code == 200
+    assert state["scored"] == [] and call_writes(state) == []
+    state["existing"]["comment"] = "Something else entirely about the course."
+    resp = post(client, ri, {"comment": old})
+    assert resp.status_code == 422 and resp.get_json() == {"error": "comment_blocked"}
+
+
 def test_groq_verdicts_mark_the_comment_and_never_hold_the_rating(rate, monkeypatch, fake_groq):
     server, client, state, ri = rate
     monkeypatch.setenv("GROQ_MODERATION_KEY", "gsk-test")

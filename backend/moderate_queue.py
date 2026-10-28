@@ -12,7 +12,10 @@ over-budget ones last, oldest first within each. A verdict only sorts
 `review_ratings.py list`, except a block: that holds the rating as
 moderation_block, so its numbers stop counting until a reviewer looks. It stops
 at the first 429, and once the day's model calls (submit and queue) reach
-DAILY_CAP, which leaves room for submits under Groq's 1,000 a day. A failed check
+DAILY_CAP. The cap comes from Groq's 200,000 tokens a day, which run out before
+the 1,000 requests: at ~500 tokens a call that's ~400 calls, and the cap leaves
+~150 of them for submits. The spacing leaves one of Groq's 3 requests a minute
+free, so a submit during a run doesn't get a 429. A failed check
 backs off and is tried again later, without end; the reviewer can approve or
 reject it at any time.
 """
@@ -29,8 +32,8 @@ from pipeline.db import connect
 from pipeline.read_models import DATA_VERSION_SQL
 
 BATCH = 15
-SPACING_SECONDS = 21  # under Groq's 3 requests a minute
-DAILY_CAP = 800
+SPACING_SECONDS = 30  # 2 of Groq's 3 requests a minute; the third stays free for submits
+DAILY_CAP = 250  # of the ~400 calls Groq's 200,000 tokens a day allow
 NEXT_RUN = timedelta(minutes=10)
 BASE_BACKOFF = timedelta(minutes=10)
 MAX_BACKOFF = timedelta(hours=6)

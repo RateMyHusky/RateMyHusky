@@ -2424,11 +2424,7 @@ def rate_submit():
     # A well-formed token the client picked is no returning device unless it already has a rating.
     new_device = minted_now or opened_minted or not ratings.device_seen(device_hash, query_one)
 
-    # 7. Free rules: a link, contact details or keyboard mashing stops here, before any model call
-    if clean["comment"] and rating_checks.rule_block(clean["comment"]):
-        return _rating_response({"error": "comment_blocked"}, 422, device)
-
-    # 8. Duplicates and bursts, read-only so a blocked comment writes nothing. A new
+    # 7. Duplicates and bursts, read-only so a blocked comment writes nothing. A new
     # professor or course without a pending row yet has no earlier ratings to count.
     pending_professor_id = (ratings.find_pending_professor(clean["new_professor"]["name"], query_one)
                             if clean["new_professor"] else None)
@@ -2439,13 +2435,20 @@ def rate_submit():
     duplicate = ratings.duplicate_comment(chash, existing["id"] if existing else None, query_one)
     bursts = ratings.burst_reasons(key, ip_hash, prefix_hash, network_type, query_one, now)
 
+    # 8. Free rules on new or edited text: a link, contact details or keyboard mashing
+    # stops here, before any model call. Text the edit leaves alone passed the rules
+    # when it was saved, so a later rule doesn't lock the student out of changing the stars.
+    changed = bool(clean["comment"]) and (not existing or existing["comment"] != clean["comment"])
+    if changed and rating_checks.rule_block(clean["comment"]):
+        return _rating_response({"error": "comment_blocked"}, 422, device)
+
     # 9. Moderation of new or edited text. A blocked comment stops here; anything else
     # only marks the comment for the reviewer, so a busy or failed check never holds the
     # rating. Duplicates and bursts get no call and no queue, or a flood would just move
     # its model calls there. Text the edit leaves alone keeps its earlier check
     # (ratings._UPSERT_SQL), so these fields stay unset.
     check = {}
-    if clean["comment"] and (not existing or existing["comment"] != clean["comment"]):
+    if changed:
         shared = _shared_network()
         reason = None
         if duplicate:

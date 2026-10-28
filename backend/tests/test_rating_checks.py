@@ -192,6 +192,7 @@ def test_a_pair_banner_and_rmp_never_saw_is_held_for_review():
     ("email me at jane.doe@gmail.com", "email"),
     ("reach me: jane.doe [at] gmail", "email"),
     ("she lives at 360 Huntington Ave near campus", "address"),
+    ("meet at 12 Forsyth Drive after class", "address"),
     ("asdfasdf", "mash"),
     ("jfkdlsjfkdlsjfk", "mash"),
     ("hhhhhhhhhhhhhhhhhhhh bad prof qwrtpsdfg", "mash"),
@@ -211,6 +212,8 @@ def test_rules_block_links_contact_details_and_mashing(comment, reason):
     "Office hours in 177 Huntington were useful",
     "the TA's email is on Canvas",
     "CS2500 then CS2510, take it with him",
+    "Took CHEM 2311 Organic Chemistry Dr Smith is the best",
+    "Took CS 3500 Object Oriented Design Dr Lee", "Best prof in 4 Years Dr Smith",
 ])
 def test_ordinary_reviews_pass_the_rules(comment):
     assert rc.rule_block(comment) is None

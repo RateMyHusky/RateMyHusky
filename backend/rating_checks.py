@@ -164,8 +164,9 @@ _RULES = (
     ("promo", re.compile(r"\b(?:promo|coupon|discount|referral|invite)\s+codes?\b"
                          r"|\buse\s+(?:my\s+)?code\b", re.I)),
     ("phone", re.compile(r"(?<![\d-])(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]\d{4}(?![\d-])")),
+    # No "Dr": "CHEM 2311 Organic Chemistry Dr Smith" names a course and professor.
     ("address", re.compile(r"\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}"
-                           r"(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Ln|Lane|Dr|Drive|Ct|Court|"
+                           r"(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Ln|Lane|Drive|Ct|Court|"
                            r"Pl|Place|Ter|Terrace|Pkwy|Parkway|Hwy|Highway)\b")),
 )
 # Eight consonants in a row (y counts as a vowel), once stretched letters are

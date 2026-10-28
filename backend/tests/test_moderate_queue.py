@@ -57,10 +57,10 @@ def test_backoff_doubles_from_ten_minutes_up_to_six_hours():
     assert mq.backoff(30) == timedelta(hours=6)
 
 
-def test_a_run_checks_up_to_fifteen_21_seconds_apart(fake_groq):
+def test_a_run_checks_up_to_fifteen_30_seconds_apart(fake_groq):
     conn, sleeps = FakeConn(due(15)), []
     summary = mq.run(conn, fake_groq("ALLOW"), now=NOW, sleep=sleeps.append)
-    assert sleeps == [21] * 14
+    assert sleeps == [30] * 14
     assert summary == "15 due: 15 clean, 0 flagged, 0 blocked, 0 failed"
     select = conn.executed[0]
     assert select[1] == (NOW, 15) and "comment_status = 'pending'" in select[0]

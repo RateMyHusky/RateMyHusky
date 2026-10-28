@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 # Checks rating comments the submit couldn't (backend/moderate_queue.py). A run
-# makes at most 15 Groq calls 21 s apart, so two must never overlap. Without the
+# makes at most 15 Groq calls 30 s apart, so two must never overlap. Without the
 # GROQ_MODERATION_KEY secret it does nothing and succeeds. Nothing here reads
 # or writes the repo through GITHUB_TOKEN.
 concurrency:
