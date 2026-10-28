@@ -1079,13 +1079,13 @@ def goat_professors():
     # BOARD_FILL_MIN_REVIEWS, Law and Professional Studies lost their boards,
     # and ratings below the prior left. An unbumped key serves the previous
     # version from the cache after deploy, which looks exactly like the fix not
-    # working.
+    # working. v7: rows carry the slug; a cached v6 row has none to link with.
     # Unknown colleges are answered before the cache: every value would
     # otherwise store its own [] and push real boards out of the LRU. With
     # limit clamped, a college holds at most 50 entries.
     if college not in BOARD_COLLEGES:
         return jsonify([])
-    cache_key = f"goat:v6:{college}:{limit}"
+    cache_key = f"goat:v7:{college}:{limit}"
     cached = cache_get(cache_key)
     # `is not None`: an empty board is a real answer and must cache too.
     if cached is not None:
@@ -1115,6 +1115,8 @@ def goat_professors():
     result = []
     for row in rows:
         result.append({
+            # Link by this, never by the name: namesakes get a -2 suffix.
+            "slug": row["slug"],
             "name": row["name"],
             "dept": row["department"],
             "rmpRating": round(row["rmp_rating"], 2) if row["rmp_rating"] else None,

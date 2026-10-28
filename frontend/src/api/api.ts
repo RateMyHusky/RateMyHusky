@@ -7,6 +7,7 @@ export interface Stat {
 }
 
 export interface Professor {
+  slug: string;
   name: string;
   dept: string;
   rmpRating: number | null;

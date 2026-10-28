@@ -276,8 +276,7 @@ const Homepage = () => {
   const [isPillReady, setIsPillReady] = useState(false);
 
   // Navigate to professor page
-  const handleProfClick = (name: string) => {
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const handleProfClick = (slug: string) => {
     navigate(`/professors/${slug}`, {
       state: { fromPage: { label: 'GOATED Professors', url: '/#goated' }, goatedCollege: selectedCollege },
     });
@@ -457,7 +456,7 @@ const Homepage = () => {
       const winnerIndex = 0; // winner is first after shuffle
       setWheelNames(names);
 
-      const slug = winner.slug || winner.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const slug = winner.slug;
 
       const currentNormalized = ((wheelRotation % 360) + 360) % 360;
       const winnerCenterAngle = (winnerIndex + 0.5) * SLICE_DEG;
@@ -673,9 +672,9 @@ const Homepage = () => {
           ) : (
             profs.map((p, i) => (
               <div
-                key={p.name}
+                key={p.slug}
                 className={`goat-row ${i < 3 ? 'goat-top3' : ''}`}
-                onClick={() => handleProfClick(p.name)}
+                onClick={() => handleProfClick(p.slug)}
               >
                 <span className="goat-col-rank">
                   {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}

@@ -896,7 +896,7 @@ const Professor = () => {
         </Link>
         )}
         <Link
-          to={`/compare?a=${identity.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`}
+          to={`/compare?a=${encodeURIComponent(identity.slug)}`}
           className="prof-compare-btn"
         >
           Compare
