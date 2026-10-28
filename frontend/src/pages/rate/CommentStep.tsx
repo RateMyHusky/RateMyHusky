@@ -17,9 +17,11 @@ interface CommentStepProps {
   submitting: boolean;
   updating: boolean;
   error: string;
+  turnstileRef: (el: HTMLDivElement | null) => void;
+  verifying: boolean;
 }
 
-export function CommentStep({ value, onChange, onSubmit, onBack, submitting, updating, error }: CommentStepProps) {
+export function CommentStep({ value, onChange, onSubmit, onBack, submitting, updating, error, turnstileRef, verifying }: CommentStepProps) {
   const [honeypot, setHoneypot] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -69,8 +71,13 @@ export function CommentStep({ value, onChange, onSubmit, onBack, submitting, upd
       />
       {error && <p className="rate-error" role="alert">{error}</p>}
       <StepFoot onBack={onBack} backDisabled={submitting}>
+        {/* Empty unless Cloudflare needs a click; then the box shows right above Submit, pinned with it on desktop. */}
+        <div className={`rate-verify${verifying ? ' is-on' : ''}`}>
+          {verifying && <p className="rate-verify-lead" role="status">One quick check before we send your rating.</p>}
+          <div ref={turnstileRef} className="rate-turnstile" />
+        </div>
         <button type="button" className="rate-btn" disabled={submitting} onClick={() => onSubmit(false, honeypot)}>
-          {submitting ? 'Checking…' : updating ? 'Update rating' : 'Submit rating'}
+          {submitting ? 'Sending…' : updating ? 'Update rating' : 'Submit rating'}
         </button>
         {!updating && (
           <button type="button" className="rate-ghost" disabled={submitting} onClick={() => onSubmit(true, honeypot)}>

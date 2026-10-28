@@ -78,7 +78,7 @@ export default function Rate() {
   // The start the prefill already fetched the context with, so the context effect doesn't fetch it again.
   const prefetchedFor = useRef<RateStart | null>(null);
   const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
-  // The check runs under the form from the first step; only the submit waits for its token.
+  // The check runs on the comment step, while the student writes; only the submit waits for its token.
   const { containerRef, token, failed, interactive, reset } = useTurnstile();
 
   const slug = answers.professor?.slug ?? null;
@@ -425,6 +425,8 @@ export default function Rate() {
             submitting={locked}
             updating={!!answers.updating}
             error={submitError}
+            turnstileRef={containerRef}
+            verifying={interactive}
           />
         );
       case 'thanks':
@@ -458,9 +460,6 @@ export default function Rate() {
               )}
             </div>
           )}
-          {/* Hidden unless Cloudflare needs a click, then above the question where it's seen. One container
-              in one place for the whole visit, so the widget is never remounted. */}
-          <div ref={containerRef} className={`rate-turnstile${interactive ? '' : ' is-done'}`} />
           {ready && <Fragment key={step}>{renderStep()}</Fragment>}
         </div>
       </div>
