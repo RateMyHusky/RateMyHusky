@@ -1,4 +1,4 @@
-import sys, json, argparse, time
+import sys, json, argparse, re, time
 from datetime import datetime, timedelta, timezone
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
@@ -14,11 +14,14 @@ def _default_client_factory(api_key):
 def _is_rate_limit(exc):
     return getattr(exc, "status_code", None) == 429 or "429" in str(exc) or "rate" in str(exc).lower()
 
-def _is_daily_limit(exc):
-    s = str(exc).lower()
-    return "day" in s or "daily" in s or "tpd" in s or "rpd" in s
+# A per-minute 429 body can end "Upgrade to Dev Tier today", so match the limit's own wording.
+_DAILY_LIMIT = re.compile(r"per day|daily|\((?:tpd|rpd)\)")
 
-def _seconds_until_utc_midnight():
+def is_daily_limit(text):
+    """A Groq 429 for the day's limit, not the minute's. Shared with review_agent."""
+    return _DAILY_LIMIT.search(str(text).lower()) is not None
+
+def seconds_until_utc_midnight():
     now = datetime.now(timezone.utc)
     tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     return (tomorrow - now).total_seconds()
@@ -87,7 +90,7 @@ class GroqAdapter:
                         "tokens_used": getattr(resp.usage, "total_tokens", 0)}
             except Exception as e:
                 if _is_rate_limit(e) and attempt == 0:
-                    cooldown = _seconds_until_utc_midnight() if _is_daily_limit(e) else 60
+                    cooldown = seconds_until_utc_midnight() if is_daily_limit(e) else 60
                     self.provider.retire(entry["key"], cooldown_seconds=cooldown)
                     continue
                 raise LLMUnavailable(str(e))
@@ -250,6 +253,11 @@ def selftest():
     a_daily = GroqAdapter(FakeProviderCooldown(), client_factory=lambda k: fp_daily)
     a_daily.synthesize("SYS", "U", max_tokens=50)
     check("daily-limit 429 retires with a cooldown until UTC midnight", retire_calls[-1] > 60)
+
+    fp_minute.calls = 0; fp_minute.msg = ("429 Rate limit reached on tokens per minute (TPM): Limit 8000. "
+                                          "Need more tokens? Upgrade to Dev Tier today")
+    a_minute.synthesize("SYS", "U", max_tokens=50)
+    check("a per-minute 429 ending 'today' is not a daily limit", retire_calls[-1] == 60)
 
     print("ALL PASS" if not fails else f"{len(fails)} FAIL(s): " + ", ".join(fails))
     return 1 if fails else 0

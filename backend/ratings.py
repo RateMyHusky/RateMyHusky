@@ -179,34 +179,41 @@ def near_duplicate_ids(comment, key, exclude_id, query, now):
             >= rating_checks.NEAR_DUPLICATE]
 
 
-def hold_matches(ids, reason, write):
-    """Hold the accepted rows among `ids` for `reason`, and add it to held rows that
-    don't list it. A row a reviewer approved keeps its hold_reasons, so
-    `hold_reasons IS NULL` leaves approvals alone. All on one professor, whose
-    page the route already drops, so there is nothing to return."""
+# A match shares the new rating's device, or its IP or network when that isn't a shared one.
+_LINKED = "(device_hash = %s OR (%s AND (ip_hash = %s OR ip_prefix_hash = %s)))"
+
+
+def hold_matches(ids, reason, device_hash, ip_hash, prefix_hash, network_type, write):
+    """Hold the accepted rows among `ids` linked to the new rating for `reason`, and add
+    it to linked held rows that don't list it. An unlinked match stays up: otherwise
+    anyone could hide a real review by reposting it. A row a reviewer approved keeps
+    its hold_reasons, so `hold_reasons IS NULL` leaves approvals alone. All on one
+    professor, whose page the route already drops, so there is nothing to return."""
     if not ids:
         return
+    linked = (device_hash, network_type not in FLAG_EXEMPT_NETWORKS, ip_hash, prefix_hash)
     write(
         "UPDATE survey_ratings SET status = 'held', hold_reasons = %s "
-        "WHERE status = 'accepted' AND hold_reasons IS NULL AND id::text = ANY(%s)",
-        (reason, ids))
+        f"WHERE status = 'accepted' AND hold_reasons IS NULL AND id::text = ANY(%s) AND {_LINKED}",
+        (reason, ids, *linked))
     write(
         "UPDATE survey_ratings SET hold_reasons = hold_reasons || %s "
         "WHERE status = 'held' AND hold_reasons IS NOT NULL AND id::text = ANY(%s) "
-        "AND NOT (%s = ANY(string_to_array(hold_reasons, ',')))",
-        ("," + reason, ids, reason))
+        f"AND NOT (%s = ANY(string_to_array(hold_reasons, ','))) AND {_LINKED}",
+        ("," + reason, ids, reason, *linked))
 
 
 # The week's new-device ratings as count, sum and sum of squares. A row a reviewer
-# approved keeps its hold_reasons, so it is left out and can't re-trip the check.
+# approved keeps its hold_reasons, so it is left out and can't re-trip the check. The
+# row being edited is left out too: the new rating replaces it.
 _SKEW_WEEK_SQL = (
     "SELECT count(*) AS n, COALESCE(sum(rating), 0) AS total, "
     "COALESCE(sum(rating * rating), 0) AS squares FROM survey_ratings "
     f"WHERE {_PROF_MATCH} AND new_device = true AND created_at >= %s "
-    "AND NOT (status = 'accepted' AND hold_reasons IS NOT NULL)")
+    "AND NOT (status = 'accepted' AND hold_reasons IS NOT NULL) AND id IS DISTINCT FROM %s")
 
 
-def skew_week(key, rating, new_device, query_one, now):
+def skew_week(key, rating, new_device, exclude_id, query_one, now):
     """True when the professor's last SKEW_DAYS of new-device ratings, with this one,
     are at least SKEW_MIN_RATINGS, average SKEW_DROP below the professor's
     blended mean (professors_catalog.avg_rating, so RMP carries it in the first
@@ -216,7 +223,7 @@ def skew_week(key, rating, new_device, query_one, now):
     professor and a professor with no prior make no check."""
     if not new_device or not key["professor_slug"]:
         return False
-    week = query_one(_SKEW_WEEK_SQL, (*_key_params(key)[:2], now - timedelta(days=SKEW_DAYS)))
+    week = query_one(_SKEW_WEEK_SQL, (*_key_params(key)[:2], now - timedelta(days=SKEW_DAYS), exclude_id))
     n = (week["n"] if week else 0) + 1
     if n < SKEW_MIN_RATINGS:
         return False

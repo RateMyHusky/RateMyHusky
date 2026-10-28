@@ -148,3 +148,10 @@ def test_an_edited_reject_stays_in_the_attack_command_and_a_held_approve_is_unre
     _, text = review_digest.build_digest(held, [], 0, 0, NOW)
     assert "reject-rating --abuse aaaa1111" in text
     assert "Not yet reviewed by the agent: 1" in text
+
+
+def test_attack_times_are_printed_in_utc_whatever_the_session_timezone():
+    eastern = timezone(timedelta(hours=-4))
+    rows = [{**r, "created_at": r["created_at"].astimezone(eastern)} for r in _bomb_rows()]
+    _, text = review_digest.build_digest(rows, [], 0, 0, NOW)
+    assert "  leena-razzaq: 23 ratings, 2025-04-11 01:00-02:01 UTC" in text
