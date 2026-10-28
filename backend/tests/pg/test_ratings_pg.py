@@ -329,18 +329,36 @@ def test_hold_skew_week_adds_its_reason_to_rows_already_held(pg):
     import ratings
     from datetime import datetime, timezone
 
-    insert(pg, "fast", "jane-doe", None, "CS2500", None, status="held")
-    insert(pg, "both", "jane-doe", None, "CS2500", None, status="held")
-    insert(pg, "other", "sam-lee", None, "CS2500", None, status="held")
+    reviewed = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    for device in ("fast", "both", "other", "escalated", "rejected", "pair", "burst_pair"):
+        insert(pg, device, "jane-doe" if device != "other" else "sam-lee", None, "CS2500", None, status="held")
     with pg.cursor() as cur:
-        cur.execute("UPDATE survey_ratings SET hold_reasons = 'too_fast' WHERE device_hash IN ('fast', 'other')")
+        cur.execute("UPDATE survey_ratings SET hold_reasons = 'too_fast' "
+                    "WHERE device_hash IN ('fast', 'other', 'escalated', 'rejected')")
         cur.execute("UPDATE survey_ratings SET hold_reasons = 'no_timer,skew_week' WHERE device_hash = 'both'")
+        cur.execute("UPDATE survey_ratings SET hold_reasons = 'too_fast,unverified_pair' WHERE device_hash = 'pair'")
+        cur.execute("UPDATE survey_ratings SET hold_reasons = 'burst_pair' WHERE device_hash = 'burst_pair'")
+        cur.execute("UPDATE survey_ratings SET agent_decision = %s, agent_reason = 'x', agent_reviewed_at = %s "
+                    "WHERE device_hash = %s", ("escalate", reviewed, "escalated"))
+        cur.execute("UPDATE survey_ratings SET agent_decision = %s, agent_reason = 'x', agent_reviewed_at = %s "
+                    "WHERE device_hash = %s", ("reject", reviewed, "rejected"))
     pg.commit()
+    before = {r["device_hash"]: r["updated_at"] for r in rows(pg, "SELECT device_hash, updated_at FROM survey_ratings")}
     key = {"professor_slug": "jane-doe", "pending_professor_id": None,
            "course_code": "CS2500", "pending_course_id": None}
-    expected = {"fast": "too_fast,skew_week", "both": "no_timer,skew_week", "other": "too_fast"}
+    # Only rows the agent could approve on their own join; an escalate-only reason or a reject stays out.
+    expected = {"fast": "too_fast,skew_week", "both": "no_timer,skew_week", "other": "too_fast",
+                "escalated": "too_fast,skew_week", "rejected": "too_fast", "pair": "too_fast,unverified_pair",
+                "burst_pair": "burst_pair,skew_week"}
     for _ in range(2):
         ratings.hold_skew_week(key, pg_write(pg), datetime.now(timezone.utc))
         assert {r["device_hash"]: r["hold_reasons"]
                 for r in rows(pg, "SELECT device_hash, hold_reasons FROM survey_ratings")} == expected
+    agent = {r["device_hash"]: (r["agent_decision"], r["agent_reason"], r["agent_reviewed_at"])
+             for r in rows(pg, "SELECT device_hash, agent_decision, agent_reason, agent_reviewed_at FROM survey_ratings")}
+    # The escalate predates skew_week, so it is cleared for a re-review; the reject stays.
+    assert agent["escalated"] == (None, None, None)
+    assert agent["rejected"] == ("reject", "x", reviewed)
+    assert {r["device_hash"]: r["updated_at"]
+            for r in rows(pg, "SELECT device_hash, updated_at FROM survey_ratings")} == before
 

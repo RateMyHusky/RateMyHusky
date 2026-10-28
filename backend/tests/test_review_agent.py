@@ -245,6 +245,30 @@ class FakeConnection:
         self.events.append("rollback")
 
 
+def test_taught_is_one_query_on_the_route_rule_for_all_the_groups_courses():
+    class Cur:
+        def __init__(self):
+            self.calls = []
+
+        def execute(self, sql, params=None):
+            self.calls.append((sql, params))
+
+        def fetchall(self):
+            if "unnest" in self.calls[-1][0]:
+                return [{"code": "CS2500", "taught": True}, {"code": "CS3500", "taught": False}]
+            return []
+
+    cur = Cur()
+    group = [_row(i, "burst_prof", slug="sam-lee", course_code=c) for i, c in enumerate(["CS3500", "CS2500", "CS3500"])]
+    assert ra._context(cur, group) == ([], {"CS2500": True, "CS3500": False})
+    (sql, params), = [c for c in cur.calls if "unnest" in c[0]]
+    assert params == {"slug": "sam-lee", "codes": ["CS2500", "CS3500"]}
+    assert ra.ratings.TAUGHT_SQL.format(code="t.code", slug="%(slug)s") in sql
+    cur.calls = []
+    assert ra._context(cur, [_row(9, "burst_prof", slug="sam-lee", course_code=None)]) == ([], {})
+    assert not [c for c in cur.calls if "unnest" in c[0]]
+
+
 class FakeCursor:
     def __init__(self, held, approved=True):
         self.held, self.approved = held, approved

@@ -128,12 +128,41 @@ def test_taught_counts_rmp_and_reviewer_vouched_pairs_like_the_rate_route(pg):
         cur.execute("INSERT INTO source_summary (professor_slug, course_code, source, num_ratings) "
                     "VALUES ('sam-lee', 'CS2500', 'rmp', 4)")
     insert(pg, "sam-lee", "burst_prof", "d1", 0)
+    other = insert(pg, "sam-lee", "burst_prof", "d2", 1)
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET course_code = 'CS3500' WHERE id = %s", (other,))
     pg.commit()
     seen = []
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         review_agent.review_held(cur, lambda m: seen.append(json.loads(m[1]["content"])["taught"]) or "{}",
                                  NOW, dry_run=True)
-    assert seen == [{"CS2500": True}]
+    assert seen == [{"CS2500": True, "CS3500": False}]
+
+
+def test_an_escalate_from_before_skew_week_is_reviewed_again_with_it(pg):
+    import ratings
+
+    # Escalated alone as too_fast. A skew trigger days later, past GROUP_GAP, is in a group of its own,
+    # so without the escalate cleared this row would never be sent with skew_week.
+    row = insert(pg, "sam-lee", "too_fast", "d1", 0)
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET agent_decision = 'escalate', agent_reason = 'fast', "
+                    "agent_reviewed_at = %s WHERE id = %s", (NOW, row))
+    pg.commit()
+
+    def write(sql, params):
+        with pg.cursor() as cur:
+            cur.execute(sql, params)
+        pg.commit()
+
+    key = {"professor_slug": "sam-lee", "pending_professor_id": None, "course_code": "CS2500",
+           "pending_course_id": None}
+    ratings.hold_skew_week(key, write, datetime(2026, 10, 31, tzinfo=timezone.utc))
+    seen = []
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        review_agent.review_held(cur, lambda m: seen.append(json.loads(m[1]["content"])["hold_reasons"]) or "{}",
+                                 NOW, dry_run=True)
+    assert seen == [["skew_week", "too_fast"]]
 
 
 def test_no_transaction_is_open_while_the_model_answers(pg, pg_url):

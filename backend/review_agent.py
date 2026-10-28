@@ -32,16 +32,11 @@ from rag.key_pool import KeyPool, load_entries
 from pipeline.read_models import DATA_VERSION_SQL
 from rag.llm_adapter import _seconds_until_utc_midnight
 import ratings
-from rating_checks import MIN_DUPLICATE_CHARS, NEAR_DUPLICATE, normalize_comment, similarity
+from rating_checks import (APPROVABLE, APPROVABLE_IF_VARIED, MIN_DUPLICATE_CHARS, NEAR_DUPLICATE,
+                           normalize_comment, similarity)
 from review_ratings import ReviewError, approve_rating
 
 MODEL = "openai/gpt-oss-20b"
-# Soft flags the agent may approve on their own.
-APPROVABLE = frozenset({"no_timer", "too_fast", "stale", "datacenter"})
-# Volume flags: approvable only when the group's comments are varied and specific.
-APPROVABLE_IF_VARIED = frozenset({"burst_pair", "burst_ip", "burst_prefix", "burst_prof", "burst_course",
-                                  "burst_prof_day", "burst_pause", "weekly_surge", "skew_week"})
-# Every other reason, including any added later, is escalate-only.
 GROUP_REASONS = APPROVABLE_IF_VARIED | {"near_duplicate"}
 GROUP_GAP = timedelta(hours=24)
 MAX_GROUP = 20
@@ -270,8 +265,9 @@ HISTORY_SQL = (
     "WHERE professor_slug = %s AND status = 'accepted' AND comment IS NOT NULL "
     "ORDER BY created_at DESC LIMIT %s")
 # The rate route's rule (Banner, RMP or a reviewer-vouched pair), so the model isn't told a pair
-# the route accepted as taught is unverified. Takes (code, slug) three times.
-TAUGHT_SQL = f"SELECT {ratings.TAUGHT_SQL.format(code='%s', slug='%s')} AS taught"
+# the route accepted as taught is unverified. One query for all the group's courses.
+TAUGHT_SQL = (f"SELECT t.code, {ratings.TAUGHT_SQL.format(code='t.code', slug='%(slug)s')} AS taught "
+              "FROM unnest(%(codes)s::text[]) AS t(code)")
 RECORD_SQL = ("UPDATE survey_ratings SET agent_decision = %s, agent_reason = %s, agent_reviewed_at = %s "
               "WHERE id::text = ANY(%s) AND status = 'held'")
 
@@ -298,12 +294,11 @@ def _context(cur, group):
         return [], {}
     cur.execute(HISTORY_SQL, (slug, HISTORY))
     history = cur.fetchall()
-    taught = {}
-    for code in sorted({r["course_code"] for r in group if r.get("course_code")}):
-        cur.execute(TAUGHT_SQL, (code, slug) * 3)
-        row = cur.fetchone()
-        taught[code] = bool(row and row["taught"])
-    return history, taught
+    codes = sorted({r["course_code"] for r in group if r.get("course_code")})
+    if not codes:
+        return history, {}
+    cur.execute(TAUGHT_SQL, {"slug": slug, "codes": codes})
+    return history, {r["code"]: bool(r["taught"]) for r in cur.fetchall()}
 
 
 def review_held(cur, ask, now, dry_run=False):

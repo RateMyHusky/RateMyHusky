@@ -179,6 +179,21 @@ def near_duplicate_ids(comment, key, exclude_id, query, now):
             >= rating_checks.NEAR_DUPLICATE]
 
 
+def _add_reason(reason, condition, params, write):
+    """Add `reason` to the held rows matching `condition` that don't list it. The
+    agent's escalate predates the new reason, so it is cleared for a re-review; a
+    reject stays, since only a human clears one. Doesn't bump updated_at, which the
+    burst windows count."""
+    write(
+        "UPDATE survey_ratings SET hold_reasons = hold_reasons || %s, "
+        "agent_decision = CASE WHEN agent_decision = 'reject' THEN agent_decision END, "
+        "agent_reason = CASE WHEN agent_decision = 'reject' THEN agent_reason END, "
+        "agent_reviewed_at = CASE WHEN agent_decision = 'reject' THEN agent_reviewed_at END "
+        "WHERE status = 'held' AND hold_reasons IS NOT NULL "
+        f"AND NOT (%s = ANY(string_to_array(hold_reasons, ','))) AND {condition}",
+        ("," + reason, reason, *params))
+
+
 def hold_matches(ids, reason, write):
     """Hold the accepted rows among `ids` for `reason`, and add it to held rows that
     don't list it. A row a reviewer approved keeps its hold_reasons, so
@@ -190,11 +205,7 @@ def hold_matches(ids, reason, write):
         "UPDATE survey_ratings SET status = 'held', hold_reasons = %s "
         "WHERE status = 'accepted' AND hold_reasons IS NULL AND id::text = ANY(%s)",
         (reason, ids))
-    write(
-        "UPDATE survey_ratings SET hold_reasons = hold_reasons || %s "
-        "WHERE status = 'held' AND hold_reasons IS NOT NULL AND id::text = ANY(%s) "
-        "AND NOT (%s = ANY(string_to_array(hold_reasons, ',')))",
-        ("," + reason, ids, reason))
+    _add_reason(reason, "id::text = ANY(%s)", (ids,), write)
 
 
 # The week's new-device ratings as count, sum and sum of squares. A row a reviewer
@@ -232,21 +243,22 @@ def skew_week(key, rating, new_device, query_one, now):
 
 def hold_skew_week(key, write, now):
     """Hold the professor's unreviewed new-device ratings from the last SKEW_DAYS
-    for skew_week, and add it to held ones that don't list it, so the review agent
-    groups them instead of approving each on a soft flag. All on one professor,
-    whose page the route already drops, so there is nothing to return."""
+    for skew_week, and add it to held ones the agent could otherwise approve one by
+    one on a soft flag, so it groups them. A row held for an escalate-only reason or
+    carrying the agent's reject goes to a human anyway, so it stays out of the group.
+    All on one professor, whose page the route already drops, so there is nothing
+    to return."""
+    condition = f"new_device = true AND created_at >= %s AND {_PROF_MATCH}"
     params = (now - timedelta(days=SKEW_DAYS), *_key_params(key)[:2])
     write(
         "UPDATE survey_ratings SET status = 'held', hold_reasons = 'skew_week' "
-        "WHERE status = 'accepted' AND hold_reasons IS NULL AND new_device = true "
-        f"AND created_at >= %s AND {_PROF_MATCH}",
+        f"WHERE status = 'accepted' AND hold_reasons IS NULL AND {condition}",
         params)
-    write(
-        "UPDATE survey_ratings SET hold_reasons = hold_reasons || ',skew_week' "
-        "WHERE status = 'held' AND hold_reasons IS NOT NULL AND new_device = true "
-        "AND NOT ('skew_week' = ANY(string_to_array(hold_reasons, ','))) "
-        f"AND created_at >= %s AND {_PROF_MATCH}",
-        params)
+    _add_reason(
+        "skew_week",
+        f"{condition} AND string_to_array(hold_reasons, ',') <@ %s::text[] "
+        "AND agent_decision IS DISTINCT FROM 'reject'",
+        (*params, sorted(rating_checks.APPROVABLE | rating_checks.APPROVABLE_IF_VARIED)), write)
 
 
 def _paced(row, hour, month, limit):
@@ -342,7 +354,8 @@ def hold_burst(reasons, key, ip_hash, prefix_hash, write, now):
 # row's hold_reasons, so a reviewer's approval stays out of the burst and surge
 # counts. new_device keeps its first value, so an edit can't take a row out of
 # the burst_pair count. A page still on the form from before the difficulty
-# question sends none, so an edit from it keeps the stored difficulty.
+# question sends none, so an edit from it keeps the stored difficulty (temporary,
+# see rating_checks.validate_submission).
 _INSERT_COLUMNS = tuple(c for c in RATING_COLUMNS if c != "id")
 _SET_COLUMNS = tuple(
     c for c in _INSERT_COLUMNS
