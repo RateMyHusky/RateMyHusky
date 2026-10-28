@@ -836,6 +836,36 @@ def decode_session_token(token):
 # ──────────────────────────────────────────────
 #  Search helper
 # ──────────────────────────────────────────────
+ALIAS_TTL_SECONDS = 300
+_alias_cache = {"map": {}, "loaded_at": None}
+_alias_lock = Lock()
+
+
+def _reset_alias_cache():
+    with _alias_lock:
+        _alias_cache.update(map={}, loaded_at=None)
+
+
+def _approved_aliases():
+    """alias_key -> slugs of approved professor nicknames. Only used to find slugs:
+    a nickname never goes into a response. Reloaded at most once per TTL; a failed
+    load keeps the last good map."""
+    with _alias_lock:
+        now = time.time()
+        loaded = _alias_cache["loaded_at"]
+        if loaded is None or now - loaded >= ALIAS_TTL_SECONDS:
+            try:
+                rows = query("SELECT alias_key, slug FROM professor_aliases WHERE status = 'approved'")
+                fresh = {}
+                for r in rows:
+                    fresh.setdefault(r["alias_key"], []).append(r["slug"])
+                _alias_cache["map"] = fresh
+            except Exception:
+                pass
+            _alias_cache["loaded_at"] = now
+        return _alias_cache["map"]
+
+
 def _professor_search(q, limit=5, rated_only=False):
     """Search professors with tiered relevance ranking. rated_only applies the
     caller's avg_rating filter before the 100-row cut, not after it."""
@@ -860,12 +890,19 @@ def _professor_search(q, limit=5, rated_only=False):
     # Build WHERE: each *original* word must match, OR its alias expansion must
     conditions = []
     params = []
+    aliases = _approved_aliases()
+    alias_slugs = set()
     for word in words:
-        alt_words = _WORD_ALIAS.get(word)
-        if alt_words:
-            group = [word] + list(alt_words)
-            conditions.append("(" + " OR ".join("name_key LIKE %s" for _ in group) + ")")
+        group = [word] + list(_WORD_ALIAS.get(word, ()))
+        alias_hit = aliases.get(word)
+        if len(group) > 1 or alias_hit:
+            parts = ["name_key LIKE %s" for _ in group]
             params.extend(f"%{w}%" for w in group)
+            if alias_hit:
+                parts.append("slug = ANY(%s)")
+                params.append(alias_hit)
+                alias_slugs.update(alias_hit)
+            conditions.append("(" + " OR ".join(parts) + ")")
         else:
             conditions.append("name_key LIKE %s")
             params.append(f"%{word}%")
@@ -873,11 +910,14 @@ def _professor_search(q, limit=5, rated_only=False):
     if rated_only:
         conditions.append("avg_rating IS NOT NULL")
     where = " AND ".join(conditions)
+    # An alias hit sorts first so the 100-row cut can never drop it before ranking.
+    alias_first = "(slug = ANY(%s)) DESC, " if alias_slugs else ""
+    alias_params = [sorted(alias_slugs)] if alias_slugs else []
     rows = query(
         f"SELECT slug, name, name_key, department, avg_rating, total_reviews "
         f"FROM professors_catalog WHERE {where} "
-        f"ORDER BY (name_key LIKE %s OR name_key LIKE %s) DESC, total_reviews DESC LIMIT 100",
-        params + [f"{q_resolved}%", f"% {q_resolved}%"]
+        f"ORDER BY {alias_first}(name_key LIKE %s OR name_key LIKE %s) DESC, total_reviews DESC LIMIT 100",
+        params + alias_params + [f"{q_resolved}%", f"% {q_resolved}%"]
     )
 
     # Rank in Python for proper tiered relevance (use resolved query)
@@ -888,6 +928,9 @@ def _professor_search(q, limit=5, rated_only=False):
         nk = row['name_key']
         parts = nk.split()
 
+        # Tier 1: an approved nickname of this professor was searched
+        if row['slug'] in alias_slugs:
+            return 1
         # Tier 1: q matches a whole name part exactly
         if q_rank in parts:
             return 1

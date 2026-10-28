@@ -360,3 +360,51 @@ def test_reject_without_abuse_flags_nothing():
 def test_parse_reject_rating_abuse_flag():
     assert rr.parse_args(["reject-rating", "--abuse", "ab12cd34"]).abuse is True
     assert rr.parse_args(["reject-rating", "ab12cd34"]).abuse is False
+
+
+def test_approve_alias_sets_approved_on_a_row_that_is_not_approved():
+    cur = FakeCursor({"UPDATE professor_aliases": [{"alias_key": "bob", "slug": "robert-smith"}]})
+    summary = rr.approve_alias(cur, "7")
+    (sql, params), = cur.calls
+    assert "SET status = %s" in sql and "status <> %s" in sql
+    assert params == ("approved", 7, "approved")
+    assert "bob" in summary and "robert-smith" in summary
+
+
+def test_reject_alias_sets_rejected_on_a_row_that_is_not_rejected():
+    cur = FakeCursor({"UPDATE professor_aliases": [{"alias_key": "bob", "slug": "robert-smith"}]})
+    summary = rr.reject_alias(cur, "7")
+    (sql, params), = cur.calls
+    assert "SET status = %s" in sql and "status <> %s" in sql
+    assert params == ("rejected", 7, "rejected")
+    assert "bob" in summary
+
+
+@pytest.mark.parametrize("command", [rr.approve_alias, rr.reject_alias])
+def test_alias_commands_raise_for_a_missing_or_already_set_row(command):
+    with pytest.raises(rr.ReviewError):
+        command(FakeCursor(), "7")
+
+
+@pytest.mark.parametrize("command", [rr.approve_alias, rr.reject_alias])
+def test_alias_commands_raise_for_a_non_integer_id_without_querying(command):
+    cur = FakeCursor()
+    for bad in ("abc", "1; DROP", "", "1.5"):
+        with pytest.raises(rr.ReviewError):
+            command(cur, bad)
+    assert not cur.calls
+
+
+def test_list_prints_pending_aliases_cleaned(capsys):
+    cur = FakeCursor({"FROM professor_aliases": [
+        {"id": 3, "alias_key": "bob", "slug": "robert-smith", "source": "merge"}]})
+    rr.list_pending(cur)
+    out = capsys.readouterr().out
+    assert "Pending aliases (1):" in out
+    assert "  3  bob? -> robert-smith  merge" in out
+    assert "" not in out
+
+
+def test_parse_alias_commands():
+    assert rr.parse_args(["approve-alias", "7"]).id == "7"
+    assert rr.parse_args(["reject-alias", "7"]).command == "reject-alias"
