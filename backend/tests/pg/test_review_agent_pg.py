@@ -333,6 +333,35 @@ def test_herc_merges_into_tsekourakis_with_a_pending_alias(live_server, pg):
     truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
 
 
+def test_two_pending_professors_for_one_catalog_professor_are_escalated_not_merged(pg):
+    truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professors (slug, name, name_key) VALUES ('iraklis-tsekourakis', "
+                    "'Iraklis Tsekourakis', 'iraklis tsekourakis')")
+        cur.execute("INSERT INTO professors_catalog (slug, name, name_key, department, total_reviews) VALUES "
+                    "('iraklis-tsekourakis', 'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science', 5)")
+        for first in ("Aaa", "Bbb"):
+            pending = str(uuid.uuid4())
+            cur.execute("INSERT INTO survey_pending_professors (id, name, name_key, department) "
+                        "VALUES (%s, %s, %s, 'Computer Science')", (pending, f"{first} Tsekourakis", f"{first.lower()} tsekourakis"))
+            cur.execute(
+                "INSERT INTO survey_ratings (id, pending_professor_id, course_code, term_label, rating, hours, status, "
+                "device_hash, new_device, network_type) "
+                "VALUES (%s, %s, 'CS2500', 'Fall 2025', 4, '3-4', 'accepted', %s, false, 'unknown')",
+                (str(uuid.uuid4()), pending, first))
+    pg.commit()
+
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        assert review_agent.review_pending_professors(cur, datetime.now(timezone.utc)) == {"escalate": 2}
+
+    assert rows(pg, "SELECT status, agent_decision, agent_reason FROM survey_pending_professors") == [
+        {"status": "pending", "agent_decision": "escalate",
+         "agent_reason": "another pending professor for iraklis-tsekourakis"}] * 2
+    assert rows(pg, "SELECT count(*) AS n FROM survey_ratings WHERE pending_professor_id IS NOT NULL") == [{"n": 2}]
+    assert rows(pg, "SELECT * FROM professor_aliases") == []
+    truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
+
+
 def test_nicknames_are_mined_from_rmp_and_accepted_comments_only(pg):
     truncate(pg, "rmp_reviews", "professors_catalog", "professor_aliases")
     with pg.cursor() as cur:

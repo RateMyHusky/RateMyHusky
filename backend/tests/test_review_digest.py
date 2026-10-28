@@ -170,10 +170,12 @@ def test_agent_course_merges_are_listed():
 
 
 def test_agent_professor_merges_are_listed_without_comment_text():
-    merges = [{"name": "Herc Tsekourakis", "resolved_slug": "iraklis-tsekourakis", "n": 1}]
+    merges = [{"id": "0a1b2c3d-4e5f-6789-abcd-ef0123456789", "resolved_slug": "iraklis-tsekourakis", "n": 1}]
     subject, text = review_digest.build_digest([], [], 0, 0, NOW, professor_merges=merges)
     assert "Agent professor merges in the last 24 hours: 1" in text
-    assert "  Herc Tsekourakis -> iraklis-tsekourakis (1 rating)" in text
+    assert "  0a1b2c3d -> iraklis-tsekourakis (1 rating)" in text
+    assert "4e5f" not in text
+    assert subject.endswith("1 agent merge")
     assert "professor merges" not in review_digest.build_digest([], [], 1, 0, NOW)[1]
 
 
@@ -181,6 +183,7 @@ def test_pending_nickname_suggestions_are_listed_and_alone_enough():
     aliases = [{"id": 12, "alias_key": "herc", "slug": "iraklis-tsekourakis", "source": "comment"}]
     subject, text = review_digest.build_digest([], [], 0, 0, NOW, aliases=aliases)
     assert "Nickname suggestions: 1" in text
+    assert subject == "[RateMyHusky] To review: 0 held ratings, 0 new professors, 0 new courses, 1 nickname suggestion"
     assert "  #12 herc -> iraklis-tsekourakis (comment)" in text
     assert "Approve with: python review_ratings.py approve-alias ID" in text
     assert "Nickname suggestions" not in review_digest.build_digest([], [], 1, 0, NOW)[1]

@@ -273,6 +273,11 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 ```
 
+To undo a wrong flag, run `DELETE FROM rating_flags WHERE kind = 'device' AND value_hash = '...'`
+(or `kind = 'ip'`). The hash is the rejected rating's `device_hash` (`ip_hash` for an
+IP), which `reject-rating --abuse` deletes with the row, so a reviewer should note it
+from the held row before rejecting.
+
 The daily review agent added three nullable columns to each of `survey_ratings`,
 `survey_pending_professors` and `survey_pending_courses`. The rate form keeps
 working without them, but `review_agent.py`, `review_ratings.py list` and the
@@ -310,7 +315,9 @@ END $$;
 
 Professor nicknames added the `professor_aliases` table, which search reads and
 `review_ratings.py approve-alias` writes. Run this as `appuser` (or after
-`SET ROLE appuser`) before deploying the backend that reads it. The block is
+`SET ROLE appuser`) before deploying the backend that reads it, and before the
+release reaches `main`: the digest workflow there reads the table, and
+`review_digest.py` and `review_ratings.py list` fail without it. The block is
 rerunnable:
 
 ```sql
@@ -337,11 +344,6 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 ```
-
-To undo a wrong flag, run `DELETE FROM rating_flags WHERE kind = 'device' AND value_hash = '...'`
-(or `kind = 'ip'`). The hash is the rejected rating's `device_hash` (`ip_hash` for an
-IP), which `reject-rating --abuse` deletes with the row, so a reviewer should note it
-from the held row before rejecting.
 
 ### Optional cleanup (destructive; take a backup first)
 

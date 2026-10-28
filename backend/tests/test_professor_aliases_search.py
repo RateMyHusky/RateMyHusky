@@ -37,6 +37,7 @@ def stub(monkeypatch):
         return [r for r in POOL if all(w in r["name_key"] for w in likes)]
 
     monkeypatch.setattr(server, "query", fake_query)
+    monkeypatch.setattr(server, "data_version", lambda: 1)
     server._reset_alias_cache()
     yield state
     server._reset_alias_cache()
@@ -106,6 +107,27 @@ def test_the_alias_cache_reloads_after_the_ttl_and_survives_a_db_error(stub, mon
     now[0] += server.ALIAS_TTL_SECONDS + 1
     search("herc")
     assert server._approved_aliases() == {"herc": ["iraklis-tsekourakis"]}
+
+
+def test_the_alias_cache_reloads_when_the_data_version_moves(stub, monkeypatch):
+    version = [1]
+    monkeypatch.setattr(server, "data_version", lambda: version[0])
+    stub["aliases"] = [{"alias_key": "herc", "slug": "iraklis-tsekourakis"}]
+    assert server._approved_aliases() == {"herc": ["iraklis-tsekourakis"]}
+    stub["aliases"] = []
+    assert server._approved_aliases() == {"herc": ["iraklis-tsekourakis"]}  # same version, inside the TTL
+    version[0] = 2
+    assert server._approved_aliases() == {}
+    assert sum("professor_aliases" in c for c in stub["calls"]) == 2
+
+
+def test_a_failed_alias_load_is_logged(stub, monkeypatch, capsys):
+    def boom(sql, params=None):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(server, "query", boom)
+    assert server._approved_aliases() == {}
+    out = capsys.readouterr().out
+    assert "approved aliases: load failed" in out and "db down" in out
 
 
 def test_the_order_by_puts_alias_hits_ahead_of_the_100_row_cut(monkeypatch):

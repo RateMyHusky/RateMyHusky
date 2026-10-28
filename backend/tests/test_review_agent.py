@@ -744,9 +744,12 @@ def test_professor_merge_target(pending, matches, taught, expected):
 
 
 class ProfessorCursor:
-    """Pending professors [{id, name, name_key, department, codes, matches, taught}] answered by statement."""
-    def __init__(self, professors):
+    """Pending professors [{id, name, name_key, department, codes, matches, taught}] answered by statement.
+    `recent` is the slugs the agent merged a professor into lately; a professor's `statuses` (default
+    accepted) are its ratings' statuses, one per code."""
+    def __init__(self, professors, recent=()):
         self.professors = {p["id"]: p for p in professors}
+        self.recent = set(recent)
         self.calls, self._rows, self.connection = [], [], FakeConnection()
 
     def execute(self, sql, params=None):
@@ -755,7 +758,11 @@ class ProfessorCursor:
             self._rows = [{k: p[k] for k in ("id", "name", "name_key", "department")}
                           for p in self.professors.values()]
         elif sql == ra.PROFESSOR_RATINGS_SQL:
-            self._rows = [{"course_code": c} for c in self.professors[params[0]]["codes"]]
+            p = self.professors[params[0]]
+            self._rows = [{"course_code": c, "status": p.get("statuses", {}).get(i, "accepted")}
+                          for i, c in enumerate(p["codes"])]
+        elif sql == ra.PROFESSOR_RECENT_MERGE_SQL:
+            self._rows = [{"?column?": 1}] if params[0] in self.recent else []
         elif sql == ra.PROFESSOR_MATCHES_SQL:
             self._rows = next(iter(self.professors.values()))["matches"]
         elif sql == ra.PROFESSOR_TAUGHT_SQL:
@@ -807,6 +814,49 @@ def test_an_unsafe_pending_professor_is_escalated_without_a_merge(monkeypatch):
     assert params == ("escalate", "not in the department and didn't teach the course", "p1")
     assert not cur.statements("INSERT")
     assert cur.connection.events == ["commit"]
+
+
+def _escalated(cur):
+    return [p for _, p in cur.statements("UPDATE survey_pending_professors SET agent_decision")]
+
+
+def test_two_pending_professors_for_one_target_are_both_escalated(monkeypatch):
+    monkeypatch.setattr(ra, "merge_professor", lambda *a: pytest.fail("merged"))
+    cur = ProfessorCursor([_pending_prof("p1", name="Aaa Tsekourakis", name_key="aaa tsekourakis"),
+                           _pending_prof("p2", name="Bbb Tsekourakis", name_key="bbb tsekourakis")])
+    assert ra.review_pending_professors(cur, NOW) == Counter(escalate=2)
+    assert _escalated(cur) == [("escalate", "another pending professor for iraklis-tsekourakis", "p1"),
+                               ("escalate", "another pending professor for iraklis-tsekourakis", "p2")]
+    assert not cur.statements("INSERT")
+
+
+def test_a_recent_agent_merge_into_the_target_escalates_the_next(monkeypatch):
+    monkeypatch.setattr(ra, "merge_professor", lambda *a: pytest.fail("merged"))
+    cur = ProfessorCursor([_pending_prof()], recent=["iraklis-tsekourakis"])
+    assert ra.review_pending_professors(cur, NOW) == Counter(escalate=1)
+    assert _escalated(cur) == [("escalate", "agent merged a professor into iraklis-tsekourakis in the last 30 days", "p1")]
+    ((sql, _),) = cur.statements("SELECT 1 FROM survey_pending_professors")
+    assert "agent_decision = 'merge'" in sql and "interval '30 days'" in sql
+
+
+def test_a_pending_professor_with_many_ratings_is_escalated(monkeypatch):
+    monkeypatch.setattr(ra, "merge_professor", lambda *a: pytest.fail("merged"))
+    cur = ProfessorCursor([_pending_prof(codes=["CS2500"] * 4)])
+    assert ra.review_pending_professors(cur, NOW) == Counter(escalate=1)
+    assert _escalated(cur) == [("escalate", "4 ratings; too many to merge without review", "p1")]
+
+
+def test_three_ratings_still_merge(monkeypatch):
+    monkeypatch.setattr(ra, "merge_professor", lambda *a: None)
+    cur = ProfessorCursor([_pending_prof(codes=["CS2500"] * 3)])
+    assert ra.review_pending_professors(cur, NOW) == Counter(merge=1)
+
+
+def test_a_pending_professor_with_a_held_rating_is_escalated(monkeypatch):
+    monkeypatch.setattr(ra, "merge_professor", lambda *a: pytest.fail("merged"))
+    cur = ProfessorCursor([_pending_prof(codes=["CS2500", "CS3500"], statuses={1: "held"})])
+    assert ra.review_pending_professors(cur, NOW) == Counter(escalate=1)
+    assert _escalated(cur) == [("escalate", "a rating on it is held", "p1")]
 
 
 def test_a_professor_merge_refuses_is_rolled_back_and_left(monkeypatch):
@@ -928,6 +978,13 @@ def _herc_cur(**kw):
     comments = [("iraklis-tsekourakis", c) for c in HERC_COMMENTS]
     comments += [("other-prof", f"the prof is a {i}") for i in range(ra.COMMON_MIN)]
     return NicknameCursor(comments, **kw)
+
+
+def test_hyphen_and_apostrophe_name_parts_are_never_suggested():
+    comments = [("ann-smith", f"{w} is great {i}") for w in ("West", "Duran", "Leary") for i in range(2)]
+    catalog = (("ann-smith", "Ann Smith", "ann smith"), ("x-west-duran", "X West-Duran", "x west-duran"),
+               ("y-oleary", "Y O'Leary", "y o'leary"))
+    assert ra.mine_nicknames(NicknameCursor(comments, catalog), lambda m: pytest.fail("asked")) == Counter()
 
 
 def test_mine_nicknames_stores_yes_as_pending_and_no_as_rejected():

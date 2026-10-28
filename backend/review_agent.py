@@ -46,6 +46,8 @@ GROUP_GAP = timedelta(hours=24)
 # real ratings don't all land in one group with one attack (and one reject command).
 GROUP_SPAN = timedelta(hours=48)
 MAX_GROUP = 20
+MAX_PROFESSOR_MERGE_RATINGS = 3  # a pending professor with more ratings than this is left to a human
+PROFESSOR_MERGE_DAYS = 30  # one agent merge per target professor in this window
 # A group over MAX_GROUP sends the model a sample of MAX_GROUP rows and is never approved.
 COMMENT_CHARS = 400
 HISTORY = 20
@@ -467,12 +469,15 @@ def review_pending_courses(cur, now, dry_run=False):
 PENDING_PROFESSORS_SQL = (
     "SELECT id::text AS id, name, name_key, department FROM survey_pending_professors "
     "WHERE status = 'pending' ORDER BY created_at")
-PROFESSOR_RATINGS_SQL = "SELECT course_code FROM survey_ratings WHERE pending_professor_id = %s"
+PROFESSOR_RATINGS_SQL = "SELECT course_code, status FROM survey_ratings WHERE pending_professor_id = %s"
 PROFESSOR_MATCHES_SQL = "SELECT slug, name_key, department FROM professors_catalog WHERE name_key LIKE %s ORDER BY slug"
 PROFESSOR_TAUGHT_SQL = ("SELECT DISTINCT professor_slug FROM banner_course_instructors "
                         "WHERE professor_slug = ANY(%s) AND subject_course = ANY(%s)")
 RECORD_PROFESSOR_SQL = ("UPDATE survey_pending_professors SET agent_decision = %s, agent_reason = %s, "
                         "agent_reviewed_at = clock_timestamp() WHERE id = %s AND status = 'pending'")
+PROFESSOR_RECENT_MERGE_SQL = (
+    "SELECT 1 FROM survey_pending_professors WHERE status = 'merged' AND agent_decision = 'merge' "
+    f"AND resolved_slug = %s AND agent_reviewed_at >= now() - interval '{PROFESSOR_MERGE_DAYS} days' LIMIT 1")
 ADD_ALIAS_SQL = ("INSERT INTO professor_aliases (alias_key, slug, source) VALUES (%s, %s, 'merge') "
                  "ON CONFLICT (alias_key, slug) DO NOTHING")
 
@@ -500,15 +505,33 @@ def professor_merge_target(pending, matches, taught):
     return match["slug"], reason, alias
 
 
+def professor_merge_hold(rated, shared, recent, target):
+    """Why a professor merge into `target` waits for a human, or None. Ratings on a pending
+    professor skip every per-professor check, so the agent must not publish a run of them: `shared`
+    is whether another pending professor resolves to the same target, `recent` whether the agent
+    already merged one into it lately."""
+    if shared:
+        return f"another pending professor for {target}"
+    if recent:
+        return f"agent merged a professor into {target} in the last {PROFESSOR_MERGE_DAYS} days"
+    if len(rated) > MAX_PROFESSOR_MERGE_RATINGS:
+        return f"{len(rated)} ratings; too many to merge without review"
+    if any(r["status"] == "held" for r in rated):
+        return "a rating on it is held"
+    return None
+
+
 def review_pending_professors(cur, now, dry_run=False):
     """Merge each pending professor that is the one catalog professor with their last name, in
     their department or teaching their courses, and record an escalate on the rest, for every
     pending professor on every run. A merge also records the submitted first name as a pending
     alias. Counts merge and escalate. Commits per professor (cur.connection); a merge
     merge_professor refuses is rolled back and left for the next run. A merge's reason ends with
-    the number of ratings moved, which the digest reads back."""
+    the number of ratings moved, which the digest reads back. A merge waits for a human instead
+    (professor_merge_hold) when its target is also another pending professor's or got an agent
+    merge lately, or the entry has many ratings or a held one."""
     cur.execute(PENDING_PROFESSORS_SQL)
-    counts = Counter()
+    items = []
     for prof in cur.fetchall():
         cur.execute(PROFESSOR_RATINGS_SQL, (prof["id"],))
         rated = cur.fetchall()
@@ -520,7 +543,15 @@ def review_pending_professors(cur, now, dry_run=False):
         if matches and codes:
             cur.execute(PROFESSOR_TAUGHT_SQL, ([m["slug"] for m in matches], codes))
             taught = {r["professor_slug"] for r in cur.fetchall()}
-        target, reason, alias = professor_merge_target(prof, matches, taught)
+        items.append((prof, rated) + professor_merge_target(prof, matches, taught))
+    targets = Counter(target for _, _, target, _, _ in items if target)
+    counts = Counter()
+    for prof, rated, target, reason, alias in items:
+        if target:
+            cur.execute(PROFESSOR_RECENT_MERGE_SQL, (target,))
+            hold = professor_merge_hold(rated, targets[target] > 1, cur.fetchone() is not None, target)
+            if hold:
+                target, reason, alias = None, hold, None
         decision = "merge" if target else "escalate"
         if dry_run:
             counts[decision] += 1
@@ -639,7 +670,7 @@ def mine_nicknames(cur, ask, max_calls=MAX_NICKNAME_CALLS, dry_run=False):
     names, own_parts = {}, {}
     for r in cur.fetchall():
         names[r["slug"]] = r["name"]
-        own_parts[r["slug"]] = {w for w in r["name_key"].split() if len(w) > 2}
+        own_parts[r["slug"]] = {w for w in re.split("[^a-z]+", r["name_key"]) if len(w) > 2}
     cur.execute(NICKNAME_KNOWN_SQL)
     known = {(r["alias_key"], r["slug"]) for r in cur.fetchall()}
     candidates = nickname_candidates(
