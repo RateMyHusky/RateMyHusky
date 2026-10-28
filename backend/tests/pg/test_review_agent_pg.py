@@ -305,8 +305,8 @@ def test_herc_merges_into_tsekourakis_with_a_pending_alias(live_server, pg):
     truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
     pending, rating = str(uuid.uuid4()), str(uuid.uuid4())
     with pg.cursor() as cur:
-        cur.execute("INSERT INTO professors (slug, name, name_key) VALUES ('iraklis-tsekourakis', "
-                    "'Iraklis Tsekourakis', 'iraklis tsekourakis')")
+        cur.execute("INSERT INTO professors (slug, name, name_key, department) VALUES ('iraklis-tsekourakis', "
+                    "'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science')")
         cur.execute("INSERT INTO professors_catalog (slug, name, name_key, department, total_reviews) VALUES "
                     "('iraklis-tsekourakis', 'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science', 5)")
         cur.execute("INSERT INTO survey_pending_professors (id, name, name_key, department) "
@@ -316,6 +316,8 @@ def test_herc_merges_into_tsekourakis_with_a_pending_alias(live_server, pg):
             "device_hash, new_device, network_type) "
             "VALUES (%s, %s, 'CS2500', 'Fall 2025', 4, '3-4', 'accepted', 'd1', false, 'unknown')", (rating, pending))
     pg.commit()
+    # Herc isn't his first name, so the merge needs Banner to have him on the rated course.
+    seed_banner(pg, "iraklis-tsekourakis", ["CS2500"])
 
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         assert review_agent.review_pending_professors(cur, datetime.now(timezone.utc)) == {"merge": 1}
@@ -324,7 +326,7 @@ def test_herc_merges_into_tsekourakis_with_a_pending_alias(live_server, pg):
         {"professor_slug": "iraklis-tsekourakis", "pending_professor_id": None}]
     assert rows(pg, "SELECT status, resolved_slug, agent_decision, agent_reason FROM survey_pending_professors") == [
         {"status": "merged", "resolved_slug": "iraklis-tsekourakis", "agent_decision": "merge",
-         "agent_reason": "same last name and department; 1 rating(s)"}]
+         "agent_reason": "same last name and taught the course; 1 rating(s)"}]
     assert rows(pg, "SELECT alias_key, slug, source, status FROM professor_aliases") == [
         {"alias_key": "herc", "slug": "iraklis-tsekourakis", "source": "merge", "status": "pending"}]
 
@@ -333,11 +335,40 @@ def test_herc_merges_into_tsekourakis_with_a_pending_alias(live_server, pg):
     truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
 
 
+def test_a_pending_professor_copying_a_recent_rating_of_the_target_is_escalated(pg):
+    truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
+    copy = "He grades unfairly and never answers email, avoid this class at all costs if you can"
+    pending = str(uuid.uuid4())
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professors (slug, name, name_key, department) VALUES ('iraklis-tsekourakis', "
+                    "'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science')")
+        cur.execute("INSERT INTO professors_catalog (slug, name, name_key, department, total_reviews) VALUES "
+                    "('iraklis-tsekourakis', 'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science', 5)")
+        cur.execute("INSERT INTO survey_pending_professors (id, name, name_key, department) "
+                    "VALUES (%s, 'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science')", (pending,))
+        for device, slug, pending_id in (("d1", "iraklis-tsekourakis", None), ("d2", None, pending)):
+            cur.execute(
+                "INSERT INTO survey_ratings (id, professor_slug, pending_professor_id, course_code, term_label, rating, "
+                "hours, status, device_hash, new_device, network_type, comment) "
+                "VALUES (%s, %s, %s, 'CS2500', 'Fall 2025', 1, '3-4', 'accepted', %s, false, 'unknown', %s)",
+                (str(uuid.uuid4()), slug, pending_id, device, copy))
+    pg.commit()
+
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        assert review_agent.review_pending_professors(cur, datetime.now(timezone.utc)) == {"escalate": 1}
+
+    assert rows(pg, "SELECT status, agent_reason FROM survey_pending_professors") == [
+        {"status": "pending",
+         "agent_reason": "a comment on it is a near copy of a recent rating of iraklis-tsekourakis"}]
+    assert scalar(pg, "SELECT count(*) FROM survey_ratings WHERE pending_professor_id IS NOT NULL") == 1
+    truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
+
+
 def test_two_pending_professors_for_one_catalog_professor_are_escalated_not_merged(pg):
     truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
     with pg.cursor() as cur:
-        cur.execute("INSERT INTO professors (slug, name, name_key) VALUES ('iraklis-tsekourakis', "
-                    "'Iraklis Tsekourakis', 'iraklis tsekourakis')")
+        cur.execute("INSERT INTO professors (slug, name, name_key, department) VALUES ('iraklis-tsekourakis', "
+                    "'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science')")
         cur.execute("INSERT INTO professors_catalog (slug, name, name_key, department, total_reviews) VALUES "
                     "('iraklis-tsekourakis', 'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science', 5)")
         for first in ("Aaa", "Bbb"):
@@ -350,6 +381,7 @@ def test_two_pending_professors_for_one_catalog_professor_are_escalated_not_merg
                 "VALUES (%s, %s, 'CS2500', 'Fall 2025', 4, '3-4', 'accepted', %s, false, 'unknown')",
                 (str(uuid.uuid4()), pending, first))
     pg.commit()
+    seed_banner(pg, "iraklis-tsekourakis", ["CS2500"])
 
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         assert review_agent.review_pending_professors(cur, datetime.now(timezone.utc)) == {"escalate": 2}
@@ -365,8 +397,8 @@ def test_two_pending_professors_for_one_catalog_professor_are_escalated_not_merg
 def test_nicknames_are_mined_from_rmp_and_accepted_comments_only(pg):
     truncate(pg, "rmp_reviews", "professors_catalog", "professor_aliases")
     with pg.cursor() as cur:
-        cur.execute("INSERT INTO professors (slug, name, name_key) VALUES ('iraklis-tsekourakis', "
-                    "'Iraklis Tsekourakis', 'iraklis tsekourakis')")
+        cur.execute("INSERT INTO professors (slug, name, name_key, department) VALUES ('iraklis-tsekourakis', "
+                    "'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science')")
         cur.execute("INSERT INTO professors_catalog (slug, name, name_key, department, total_reviews) VALUES "
                     "('iraklis-tsekourakis', 'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science', 5)")
         cur.execute("INSERT INTO rmp_reviews (professor_name, comment, name_key) VALUES "

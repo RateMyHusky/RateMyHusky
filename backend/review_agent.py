@@ -34,6 +34,7 @@ from pipeline.read_models import DATA_VERSION_SQL
 from rag.llm_adapter import is_daily_limit, seconds_until_utc_midnight
 import course_typos
 import ratings
+from denylist import is_denied
 from pipeline.names import normalize_name
 from rating_checks import (APPROVABLE, APPROVABLE_IF_VARIED, MIN_DUPLICATE_CHARS, NEAR_DUPLICATE,
                            normalize_comment, similarity)
@@ -469,8 +470,13 @@ def review_pending_courses(cur, now, dry_run=False):
 PENDING_PROFESSORS_SQL = (
     "SELECT id::text AS id, name, name_key, department FROM survey_pending_professors "
     "WHERE status = 'pending' ORDER BY created_at")
-PROFESSOR_RATINGS_SQL = "SELECT course_code, status FROM survey_ratings WHERE pending_professor_id = %s"
-PROFESSOR_MATCHES_SQL = "SELECT slug, name_key, department FROM professors_catalog WHERE name_key LIKE %s ORDER BY slug"
+PROFESSOR_RATINGS_SQL = ("SELECT id::text AS id, course_code, status, comment FROM survey_ratings "
+                         "WHERE pending_professor_id = %s")
+# Every professor, not just the catalog's: the catalog leaves out unlisted and denied ones, and a
+# lone listed namesake of one of them is not a safe merge target.
+PROFESSOR_MATCHES_SQL = (
+    "SELECT p.slug, p.name_key, p.department, c.slug IS NOT NULL AS listed FROM professors p "
+    "LEFT JOIN professors_catalog c ON c.slug = p.slug WHERE p.name_key LIKE %s ORDER BY p.slug")
 PROFESSOR_TAUGHT_SQL = ("SELECT DISTINCT professor_slug FROM banner_course_instructors "
                         "WHERE professor_slug = ANY(%s) AND subject_course = ANY(%s)")
 RECORD_PROFESSOR_SQL = ("UPDATE survey_pending_professors SET agent_decision = %s, agent_reason = %s, "
@@ -482,34 +488,56 @@ ADD_ALIAS_SQL = ("INSERT INTO professor_aliases (alias_key, slug, source) VALUES
                  "ON CONFLICT (alias_key, slug) DO NOTHING")
 
 
-def professor_merge_target(pending, matches, taught):
-    """(catalog slug to merge a pending professor into, reason, first-name alias key), or
-    (None, why a human decides, None). `matches` are the catalog professors with the same last
-    name_key word and `taught` the matched slugs Banner has on a course the pending professor
-    was rated for. The alias is the first word of a multi-word submitted name, when it is 3 or more
-    letters (so not "Dr." or an initial) and differs from the matched professor's first name."""
+TITLES = {"prof", "professor", "dr", "doctor", "mr", "mrs", "ms", "miss", "mx"}
+
+
+def submitted_first_name(name):
+    """The first word of a submitted professor name after any titles, without a trailing dot, or
+    None for a bare last name ("Professor Tsekourakis")."""
+    words = [w.rstrip(".") for w in normalize_name(name).split()]
+    while len(words) > 1 and words[0] in TITLES:
+        words = words[1:]
+    return words[0] if len(words) > 1 else None
+
+
+def professor_merge_target(pending, matches, taught, is_denied=is_denied):
+    """(slug to merge a pending professor into, reason, first-name alias key), or (None, why a
+    human decides, None). `matches` are the professors with the same last name_key word, each
+    with `listed` (in the catalog), and `taught` the matched slugs Banner has on a course the
+    pending professor was rated for. The department alone is the student's pick, so it merges
+    only when the first names agree (one is a prefix of the other, so an initial counts) or there
+    is none; a different first name ("Herc") needs Banner. The alias is that first name when it is
+    3 or more letters (not an initial or a title) and differs from the matched professor's."""
     last = pending["name_key"].split()[-1]
+    if is_denied(pending["name"]):
+        return None, "the submitted name is on the denylist", None
     if len(matches) != 1:
         return None, (f"{len(matches)} professors named {last}" if matches else f"no professor named {last}"), None
     (match,) = matches
+    if not match["listed"]:
+        return None, f"the only professor named {last} isn't listed on the site", None
+    first, match_first = submitted_first_name(pending["name"]), match["name_key"].split()[0]
+    agrees = first is None or first.startswith(match_first) or match_first.startswith(first)
     dept = (pending["department"] or "").lower()
-    if dept and dept == (match["department"] or "").lower():
+    in_dept = dept and dept == (match["department"] or "").lower()
+    if in_dept and agrees:
         reason = "same last name and department"
     elif match["slug"] in taught:
         reason = "same last name and taught the course"
+    elif in_dept:
+        return None, "a different first name and didn't teach the course", None
     else:
         return None, "not in the department and didn't teach the course", None
-    words = normalize_name(pending["name"]).split()
-    alias = (words[0] if len(words) > 1 and re.fullmatch(r"[a-z]{3,}", words[0])
-             and words[0] != match["name_key"].split()[0] else None)
+    alias = first if first and re.fullmatch(r"[a-z]{3,}", first) and first != match_first else None
     return match["slug"], reason, alias
 
 
-def professor_merge_hold(rated, shared, recent, target):
+def professor_merge_hold(rated, shared, recent, target, near_copy=False):
     """Why a professor merge into `target` waits for a human, or None. Ratings on a pending
     professor skip every per-professor check, so the agent must not publish a run of them: `shared`
     is whether another pending professor resolves to the same target, `recent` whether the agent
-    already merged one into it lately."""
+    already merged one into it lately, `near_copy` whether a comment on it is a near copy of one
+    of the target's recent ratings (ratings.near_duplicate_ids, the form's check)."""
     if shared:
         return f"another pending professor for {target}"
     if recent:
@@ -518,18 +546,29 @@ def professor_merge_hold(rated, shared, recent, target):
         return f"{len(rated)} ratings; too many to merge without review"
     if any(r["status"] == "held" for r in rated):
         return "a rating on it is held"
+    if near_copy:
+        return f"a comment on it is a near copy of a recent rating of {target}"
     return None
 
 
 def review_pending_professors(cur, now, dry_run=False):
-    """Merge each pending professor that is the one catalog professor with their last name, in
-    their department or teaching their courses, and record an escalate on the rest, for every
-    pending professor on every run. A merge also records the submitted first name as a pending
-    alias. Counts merge and escalate. Commits per professor (cur.connection); a merge
-    merge_professor refuses is rolled back and left for the next run. A merge's reason ends with
-    the number of ratings moved, which the digest reads back. A merge waits for a human instead
-    (professor_merge_hold) when its target is also another pending professor's or got an agent
-    merge lately, or the entry has many ratings or a held one."""
+    """Merge each pending professor that is the one professor with their last name, listed, in
+    their department under a matching first name or teaching their courses (professor_merge_target),
+    and record an escalate on the rest, for every pending professor on every run. A merge also
+    records the submitted first name as a pending alias. Counts merge and escalate. Commits per
+    professor (cur.connection); a merge merge_professor refuses is rolled back and left for the
+    next run. A merge's reason ends with the number of ratings moved, which the digest reads back.
+    A merge waits for a human instead (professor_merge_hold) when its target is also another
+    pending professor's or got an agent merge lately, or the entry has many ratings, a held one or
+    a near copy of the target's recent ratings."""
+    def query(sql, params):
+        cur.execute(sql, params)
+        return cur.fetchall()
+
+    def near_copy(rated, target):
+        key = {"professor_slug": target, "pending_professor_id": None, "course_code": None, "pending_course_id": None}
+        return any(ratings.near_duplicate_ids(r["comment"], key, r["id"], query, now) for r in rated if r["comment"])
+
     cur.execute(PENDING_PROFESSORS_SQL)
     items = []
     for prof in cur.fetchall():
@@ -549,7 +588,8 @@ def review_pending_professors(cur, now, dry_run=False):
     for prof, rated, target, reason, alias in items:
         if target:
             cur.execute(PROFESSOR_RECENT_MERGE_SQL, (target,))
-            hold = professor_merge_hold(rated, targets[target] > 1, cur.fetchone() is not None, target)
+            recent = cur.fetchone() is not None
+            hold = professor_merge_hold(rated, targets[target] > 1, recent, target, near_copy(rated, target))
             if hold:
                 target, reason, alias = None, hold, None
         decision = "merge" if target else "escalate"
@@ -606,10 +646,11 @@ def common_words(comments):
     return {w for w, n in seen.items() if n >= COMMON_MIN}
 
 
-def nickname_candidates(comments_by_slug, own_parts, all_name_parts, common, known):
+def nickname_candidates(comments_by_slug, own_parts, surnames, common, known):
     """{slug: capitalized words, most frequent first} found in at least 2 distinct comments of that
-    professor, less the professor's own name parts, every catalog name part, common words and the
-    (alias_key, slug) pairs already stored, at most MAX_WORDS_PER_CALL per slug."""
+    professor, less the professor's own name parts, every catalog surname part, common words and the
+    (alias_key, slug) pairs already stored, at most MAX_WORDS_PER_CALL per slug. Other professors'
+    first names stay: "Bill" for a William is also some other professor's first name."""
     result = {}
     for slug, comments in comments_by_slug.items():
         seen, form = Counter(), {}
@@ -619,7 +660,7 @@ def nickname_candidates(comments_by_slug, own_parts, all_name_parts, common, kno
             for w in CAPITALIZED.findall(c):
                 form.setdefault(w.lower(), w)
         words = sorted((k for k, n in seen.items() if n >= 2 and k not in own_parts.get(slug, ())
-                        and k not in all_name_parts and k not in common and (k, slug) not in known),
+                        and k not in surnames and k not in common and (k, slug) not in known),
                        key=lambda k: (-seen[k], k))[:MAX_WORDS_PER_CALL]
         if words:
             result[slug] = [form[k] for k in words]
@@ -667,16 +708,16 @@ def mine_nicknames(cur, ask, max_calls=MAX_NICKNAME_CALLS, dry_run=False):
     for r in cur.fetchall():
         comments_by_slug.setdefault(r["slug"], []).append(r["comment"])
     cur.execute(NICKNAME_CATALOG_SQL)
-    names, own_parts = {}, {}
+    names, own_parts, surnames = {}, {}, set()
     for r in cur.fetchall():
         names[r["slug"]] = r["name"]
         own_parts[r["slug"]] = {w for w in re.split("[^a-z]+", r["name_key"]) if len(w) > 2}
+        surnames.update(w for w in re.split("[^a-z]+", r["name_key"].split()[-1]) if len(w) > 2)
     cur.execute(NICKNAME_KNOWN_SQL)
     known = {(r["alias_key"], r["slug"]) for r in cur.fetchall()}
     candidates = nickname_candidates(
         {s: c for s, c in comments_by_slug.items() if s in names}, own_parts,
-        set().union(*own_parts.values()), common_words([c for cs in comments_by_slug.values() for c in cs]),
-        known)
+        surnames, common_words([c for cs in comments_by_slug.values() for c in cs]), known)
     # End the read transaction, so none is open through the model calls.
     cur.connection.rollback()
     counts = Counter()
