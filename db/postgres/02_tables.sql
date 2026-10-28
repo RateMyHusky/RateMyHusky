@@ -448,6 +448,7 @@ CREATE TABLE public.survey_ratings (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     difficulty BIGINT NULL,
+    comment_status TEXT NULL,
     CONSTRAINT survey_ratings_pkey PRIMARY KEY (id)
 );
 

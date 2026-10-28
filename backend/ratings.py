@@ -30,6 +30,7 @@ RATING_COLUMNS = (
     "pending_course_id", "term_label", "rating", "hours", "grade", "comment",
     "comment_hash", "status", "hold_reasons", "device_hash", "new_device",
     "ip_hash", "ip_prefix_hash", "network_type", "fill_seconds", "collection", "difficulty",
+    "comment_status",
 )
 
 _KEY_COLUMNS = ("professor_slug", "pending_professor_id", "course_code", "pending_course_id")
@@ -245,11 +246,12 @@ def hold_burst(reasons, key, ip_hash, prefix_hash, write, now):
 # status has its own held-stays-held rule below, and a clean resubmit keeps the
 # row's hold_reasons, so a reviewer's approval stays out of the burst and surge
 # counts. new_device keeps its first value, so an edit can't take a row out of
-# the burst_pair count.
+# the burst_pair count. A comment a reviewer approved stays approved while its text
+# is unchanged; new or edited text waits for review again.
 _INSERT_COLUMNS = tuple(c for c in RATING_COLUMNS if c != "id")
 _SET_COLUMNS = tuple(
     c for c in _INSERT_COLUMNS
-    if c not in ("status", "hold_reasons", "device_hash", "new_device", *_KEY_COLUMNS))
+    if c not in ("status", "hold_reasons", "comment_status", "device_hash", "new_device", *_KEY_COLUMNS))
 _UPSERT_SQL = (
     f"INSERT INTO survey_ratings (id, {', '.join(_INSERT_COLUMNS)}) "
     f"VALUES (%s, {', '.join(['%s'] * len(_INSERT_COLUMNS))}) "
@@ -258,6 +260,9 @@ _UPSERT_SQL = (
     + ", ".join(f"{c} = EXCLUDED.{c}" for c in _SET_COLUMNS)
     + ", status = CASE WHEN survey_ratings.status = 'held' THEN 'held' ELSE EXCLUDED.status END"
     ", hold_reasons = COALESCE(EXCLUDED.hold_reasons, survey_ratings.hold_reasons)"
+    ", comment_status = CASE WHEN EXCLUDED.comment IS NULL THEN NULL "
+    "WHEN EXCLUDED.comment = survey_ratings.comment THEN survey_ratings.comment_status "
+    "ELSE 'pending' END"
     ", updated_at = now()"
 )
 
@@ -266,13 +271,15 @@ def save_rating(row, existing, write):
     """Insert or replace this device's rating in one statement; return its id.
 
     The unique index on (device, key) is the conflict target, so two racing
-    submits still leave one row, and a held row stays held. A resubmit adds the
+    submits still leave one row, and a held row stays held. A new comment starts
+    as pending, whatever row["comment_status"] says. A resubmit adds the
     new hold reasons to the old ones, or keeps the old ones when it has none.
     """
     if existing and existing["hold_reasons"] and row["hold_reasons"]:
         old = existing["hold_reasons"].split(",")
         row = {**row, "hold_reasons": ",".join(
             old + [r for r in row["hold_reasons"].split(",") if r not in old])}
+    row = {**row, "comment_status": "pending" if row["comment"] else None}
     new_id = str(uuid.uuid4())
     write(_UPSERT_SQL, (new_id, *(row[c] for c in _INSERT_COLUMNS)))
     return existing["id"] if existing else new_id

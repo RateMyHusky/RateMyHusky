@@ -75,8 +75,9 @@ def test_remove_comment_marks_the_row_and_keeps_its_hash(pg, monkeypatch, before
     with pg.cursor() as cur:
         cur.execute(
             "INSERT INTO survey_ratings (id, professor_slug, course_code, rating, hours, comment, comment_hash, "
-            "status, hold_reasons, device_hash, new_device, network_type) "
-            "VALUES (%s, 'jane-doe', 'CS2500', 4, '3-4', 'rude', 'h1', 'accepted', %s, 'd1', true, 'unknown')",
+            "status, hold_reasons, device_hash, new_device, network_type, comment_status) "
+            "VALUES (%s, 'jane-doe', 'CS2500', 4, '3-4', 'rude', 'h1', 'accepted', %s, 'd1', true, 'unknown', "
+            "'approved')",
             (rating_id, before))
     pg.commit()
 
@@ -84,8 +85,32 @@ def test_remove_comment_marks_the_row_and_keeps_its_hash(pg, monkeypatch, before
         review_ratings.remove_comment(cur, survey_reviews.public_id(secret, rating_id))
     pg.commit()
 
-    assert rows(pg, "SELECT comment, comment_hash, status, hold_reasons FROM survey_ratings") == [
-        {"comment": None, "comment_hash": "h1", "status": "accepted", "hold_reasons": after}]
+    assert rows(pg, "SELECT comment, comment_hash, comment_status, status, hold_reasons FROM survey_ratings") == [
+        {"comment": None, "comment_hash": "h1", "comment_status": None, "status": "accepted", "hold_reasons": after}]
+
+
+def test_approve_and_reject_comment_leave_the_rating_counting(pg):
+    ids = [str(uuid.uuid4()) for _ in range(3)]
+    with pg.cursor() as cur:
+        for i, (rating_id, comment_status) in enumerate(zip(ids, ("pending", "pending", "approved"))):
+            cur.execute(
+                "INSERT INTO survey_ratings (id, professor_slug, course_code, rating, hours, comment, comment_hash, "
+                "status, device_hash, new_device, network_type, comment_status) "
+                "VALUES (%s, 'jane-doe', 'CS2500', 4, '3-4', 'text', 'h1', 'accepted', %s, true, 'unknown', %s)",
+                (rating_id, f"d{i}", comment_status))
+    pg.commit()
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        review_ratings.approve_comment(cur, ids[0][:8])
+        review_ratings.reject_comment(cur, ids[1][:8])
+        with pytest.raises(review_ratings.ReviewError):   # already approved: not waiting
+            review_ratings.approve_comment(cur, ids[2][:8])
+    pg.commit()
+    got = {r["id"]: r for r in rows(pg, "SELECT id::text AS id, comment, comment_status, status, hold_reasons "
+                                        "FROM survey_ratings")}
+    assert got[ids[0]] == {"id": ids[0], "comment": "text", "comment_status": "approved",
+                           "status": "accepted", "hold_reasons": None}
+    assert got[ids[1]] == {"id": ids[1], "comment": None, "comment_status": None,
+                           "status": "accepted", "hold_reasons": "comment_removed"}
 
 
 def test_merge_holds_moved_ratings_on_a_pair_banner_never_saw(pg):

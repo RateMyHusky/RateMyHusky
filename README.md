@@ -62,7 +62,7 @@ Ask is turned off while it's being improved: `ASK_ENABLED` in `frontend/src/conf
 - Signed-out bookmark clicks prompt Google sign-in instead of failing silently
 
 ### Rate (in testing)
-- **Student rating form** — `/rate` takes a professor and course rating with an optional comment, no sign-in needed, behind a Turnstile checkpoint; held ratings and new professors or courses are reviewed before they publish
+- **Student rating form** — `/rate` takes a professor and course rating with an optional comment, no sign-in needed, behind a Turnstile checkpoint; an accepted rating moves the professor page's numbers right away, while every comment, held ratings and new professors or courses are reviewed before they publish
 - Live on dev (Vercel Preview) and locally only; `RATE_ENABLED` in `frontend/src/config.ts` hides it in production
 
 ### Polished throughout

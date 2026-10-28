@@ -2453,10 +2453,11 @@ def rate_submit():
     }
     ratings.save_rating(row, existing, _write)
     held = ratings.hold_burst(bursts, key, ip_hash, prefix_hash, _write, now) if bursts else set()
-    # The page shows student reviews live. Any save can change it: a new review, an edit,
-    # or an accepted review edited into a held one, whose old comment must come down. A burst
-    # also holds reviews on other professors. Dropped after the hold, so no request between
-    # the two writes re-caches rows that are about to be held.
+    # The page's student numbers are live (its comments wait for review_ratings.py
+    # approve-comment). Any save can change them: a new rating, an edit, an accepted
+    # rating edited into a held one, or an edited comment that must come down until it's
+    # read again. A burst also holds ratings on other professors. Dropped after the hold,
+    # so no request between the two writes re-caches rows that are about to be held.
     pages = held | {key["professor_slug"]} if key.get("professor_slug") else held
     if pages:
         drop_professor_pages(pages)

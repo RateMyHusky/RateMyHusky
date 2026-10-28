@@ -104,6 +104,8 @@ CREATE UNIQUE INDEX survey_ratings_one_per_device ON public.survey_ratings
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_rating CHECK (rating BETWEEN 1 AND 5);
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_difficulty CHECK (difficulty BETWEEN 1 AND 5);
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_status CHECK (status IN ('accepted', 'held'));
+ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_comment_status
+    CHECK (comment_status IN ('pending', 'approved'));
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_professor
     CHECK (professor_slug IS NOT NULL OR pending_professor_id IS NOT NULL);
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_course

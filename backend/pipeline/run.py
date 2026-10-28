@@ -112,8 +112,10 @@ def main(argv=None):
     rows, coverage = summaries.build_summaries(linked_pages, [r for r in reviews if r["visible"]],
                                                page_slug, name_key_slug, set(slug_by_id.values()))
     _print("coverage", coverage)
+    # A comment no reviewer has approved counts in no comment total.
     ratings = fetch_all(conn, "SELECT id::text AS id, professor_slug, course_code, rating, difficulty, hours, "
-                              "grade, comment, hold_reasons, updated_at "
+                              "grade, CASE WHEN comment_status = 'approved' THEN comment END AS comment, "
+                              "hold_reasons, updated_at "
                               "FROM survey_ratings WHERE status = 'accepted' AND professor_slug IS NOT NULL")
     now = datetime.now(timezone.utc)
     checked = fetch_all(conn, f"SELECT value FROM stats_cache WHERE key = '{survey.SURGE_CHECKED_KEY}'")

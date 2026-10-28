@@ -1,8 +1,10 @@
 """Review held survey ratings and new professors and courses (rating form, plan 3).
 
-    python review_ratings.py list                       # held ratings, pending professors, pending courses
+    python review_ratings.py list                       # held ratings, comments to read, pending professors and courses
     python review_ratings.py approve-rating ID [ID...]  # held -> accepted
     python review_ratings.py reject-rating ID [ID...]   # delete the rating
+    python review_ratings.py approve-comment ID [ID...] # show a comment on the professor page
+    python review_ratings.py reject-comment ID [ID...]  # drop a waiting comment, keep its rating
     python review_ratings.py remove-comment PUBLIC_ID   # take down a shown comment by the id a report carries
     python review_ratings.py approve-professor ID [--slug SLUG]
     python review_ratings.py merge-professor ID SLUG
@@ -15,11 +17,15 @@
 Rating ids may be the short id `list` prints. Each run is one transaction: it
 commits at the end, and rolls back and exits 1 on a bad id or a non-pending
 entry. Reads ORACLE_DATABASE_URL. `list` prints no hashes or network data.
-Approved and merged ratings reach the site on the next pipeline run; a
-professor page's student reviews change within minutes, since every command but
-list and purge-ip bumps data_version. Approving a rating held as unverified_pair
-vouches for that professor teaching that course, so later ratings of the pair
-aren't held for it.
+A professor page's student numbers and reviews change within minutes, since
+every command but list and purge-ip bumps data_version; the rest of the site
+(cards, course pages, leaderboards) follows on the next pipeline run. Approving
+a rating held as unverified_pair vouches for that professor teaching that
+course, so later ratings of the pair aren't held for it.
+
+A comment never shows until approve-comment, even on an accepted rating, and
+an edit to its text waits again. approve-rating counts the rating only: its
+comment stays in the comments list until approved there too.
 """
 
 import argparse
@@ -136,25 +142,48 @@ def reject_rating(cur, *ids):
     return f"Rejected {len(ids)} rating(s)"
 
 
+def approve_comment(cur, *ids):
+    for rating_id in ids:
+        cur.execute("UPDATE survey_ratings SET comment_status = 'approved' "
+                    "WHERE id::text LIKE %s AND comment_status = 'pending' RETURNING id",
+                    (short_id_pattern(rating_id),))
+        if len(cur.fetchall()) != 1:
+            raise ReviewError(f"{rating_id} is not exactly one comment waiting for review")
+    return f"Approved {len(ids)} comment(s)"
+
+
+# The comment_removed hold reason stays on the row, so an edit that brings a comment
+# back is held (server.rate_submit); comment_hash stays too, so the same text from
+# another device is held as a duplicate_comment.
+_DROP_COMMENT_SQL = (
+    "UPDATE survey_ratings SET comment = NULL, comment_status = NULL, hold_reasons = CASE "
+    "WHEN hold_reasons IS NULL THEN 'comment_removed' "
+    "WHEN ',' || hold_reasons || ',' LIKE '%%,comment_removed,%%' THEN hold_reasons "
+    "ELSE hold_reasons || ',comment_removed' END ")
+
+
+def reject_comment(cur, *ids):
+    """Drop each waiting comment; its rating keeps counting."""
+    for rating_id in ids:
+        cur.execute(_DROP_COMMENT_SQL + "WHERE id::text LIKE %s AND comment_status = 'pending' RETURNING id",
+                    (short_id_pattern(rating_id),))
+        if len(cur.fetchall()) != 1:
+            raise ReviewError(f"{rating_id} is not exactly one comment waiting for review")
+    return f"Rejected {len(ids)} comment(s)"
+
+
 def remove_comment(cur, review_id):
     """Drop the comment of the review whose public id (the one on the page and in
     a report) is review_id; the rating keeps counting. Needs RATING_SECRET.
-
-    The comment_removed hold reason stays on the row, so an edit that brings a
-    comment back is held (server.rate_submit); comment_hash stays too, so the same
-    text from another device is held as a duplicate_comment."""
+    Marks the row as reject_comment does."""
     secret = os.getenv("RATING_SECRET")
     if not secret:
         raise ReviewError("RATING_SECRET is needed to match a public review id")
-    cur.execute("SELECT id FROM survey_ratings WHERE comment IS NOT NULL")
+    cur.execute("SELECT id FROM survey_ratings WHERE comment_status = 'approved'")
     matches = [str(r["id"]) for r in cur.fetchall() if survey_reviews.public_id(secret, r["id"]) == review_id]
     if len(matches) != 1:
         raise ReviewError(f"{review_id} is not exactly one shown review")
-    cur.execute("UPDATE survey_ratings SET comment = NULL, hold_reasons = CASE "
-                "WHEN hold_reasons IS NULL THEN 'comment_removed' "
-                "WHEN ',' || hold_reasons || ',' LIKE '%%,comment_removed,%%' THEN hold_reasons "
-                "ELSE hold_reasons || ',comment_removed' END "
-                "WHERE id::text = %s RETURNING id", (matches[0],))
+    cur.execute(_DROP_COMMENT_SQL + "WHERE id::text = %s RETURNING id", (matches[0],))
     return f"Removed the comment of {matches[0]}"
 
 
@@ -250,6 +279,20 @@ def list_pending(cur):
               f"[{clean(r['hold_reasons'])}]  "
               f"{comment!r}  {str(r['created_at'])[:10]}")
 
+    # The whole text, since approving it puts every word on the page.
+    cur.execute(
+        "SELECT r.id, COALESCE(r.professor_slug, pp.name || ' (pending)') AS professor, "
+        "COALESCE(r.course_code, pc.code || ' (pending)') AS course, r.status, r.rating, r.comment, r.updated_at "
+        "FROM survey_ratings r "
+        "LEFT JOIN survey_pending_professors pp ON pp.id = r.pending_professor_id "
+        "LEFT JOIN survey_pending_courses pc ON pc.id = r.pending_course_id "
+        "WHERE r.comment_status = 'pending' ORDER BY r.updated_at")
+    comments = cur.fetchall()
+    print(f"Comments to review ({len(comments)}):")
+    for r in comments:
+        print(f"  {str(r['id'])[:8]}  {clean(r['professor'])}  {clean(r['course'])}  {r['rating']}/5  "
+              f"rating {r['status']}  {str(r['updated_at'])[:10]}\n      {clean(r['comment'])!r}")
+
     cur.execute(
         "SELECT p.id, p.name, p.name_key, p.department, count(r.id) AS n FROM survey_pending_professors p "
         "LEFT JOIN survey_ratings r ON r.pending_professor_id = p.id "
@@ -275,7 +318,8 @@ def list_pending(cur):
     for c in courses:
         print(f"  {c['id']}  {clean(c['code'])}  {clean(c['name'])}  {c['n']} rating(s)  "
               f"{'in' if c['in_catalog'] else 'not in'} course_catalog")
-    return f"{len(held)} held, {len(profs)} pending professors, {len(courses)} pending courses"
+    return (f"{len(held)} held, {len(comments)} comments to review, "
+            f"{len(profs)} pending professors, {len(courses)} pending courses")
 
 
 def parse_args(argv):
@@ -283,7 +327,7 @@ def parse_args(argv):
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("list")
     sub.add_parser("purge-ip")
-    for name in ("approve-rating", "reject-rating"):
+    for name in ("approve-rating", "reject-rating", "approve-comment", "reject-comment"):
         sub.add_parser(name).add_argument("ids", nargs="+")
     approve = sub.add_parser("approve-professor")
     approve.add_argument("id")
@@ -303,7 +347,7 @@ def run(cur, args):
         return list_pending(cur)
     if command == "purge-ip":
         return purge_ip(cur)
-    if command in ("approve-rating", "reject-rating"):
+    if command in ("approve-rating", "reject-rating", "approve-comment", "reject-comment"):
         return COMMANDS[command](cur, *args.ids)
     if command == "approve-professor":
         return approve_professor(cur, args.id, args.slug)
@@ -314,6 +358,7 @@ def run(cur, args):
 
 COMMANDS = {
     "approve-rating": approve_rating, "reject-rating": reject_rating,
+    "approve-comment": approve_comment, "reject-comment": reject_comment,
     "reject-professor": reject_professor, "merge-professor": merge_professor,
     "approve-course": approve_course, "merge-course": merge_course,
     "reject-course": reject_course, "remove-comment": remove_comment,

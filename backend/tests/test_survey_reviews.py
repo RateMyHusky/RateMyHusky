@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from survey_reviews import comment_count, public_id, shape_reviews, when
+from survey_reviews import comment_count, live_summary_rows, public_id, shape_reviews, when
 
 CREATED = datetime(2025, 12, 1, tzinfo=timezone.utc)
 UUID = uuid.UUID("12345678-1234-5678-1234-567812345678")
@@ -77,3 +77,20 @@ def test_reviews_capped_at_200():
 def test_public_id_is_a_keyed_12_char_hash():
     a = public_id("s" * 32, UUID)
     assert len(a) == 12 and a == public_id("s" * 32, str(UUID)) and a != public_id("t" * 32, UUID)
+
+
+def test_live_summary_rows_are_the_professor_and_course_rows_with_names():
+    rows = [row(professor_slug="ann-lee", course_name="Ethics", difficulty=3, hours="3-4", grade="A", rating=5),
+            row(professor_slug="ann-lee", course_name="Ethics", difficulty=None, hours="0-2", grade=None, rating=3,
+                comment=None),
+            # a pending course: no code, counts nowhere
+            row(professor_slug="ann-lee", course_code=None, course_name=None, difficulty=1, hours="10+",
+                grade=None, rating=1)]
+    prof, course = live_summary_rows(rows)
+    assert (prof["professor_slug"], prof["course_code"], prof["course_name"]) == ("ann-lee", "", None)
+    assert (course["course_code"], course["course_name"]) == ("PHIL2325", "Ethics")
+    for r in (prof, course):
+        assert r["source"] == "survey" and r["num_ratings"] == 2 and r["rating"] == 4.0
+        assert r["num_comments"] == 1 and r["difficulty"] == 3.0 and r["num_difficulty"] == 1
+        assert r["hours_per_week"] == 2.25 and r["grade_distribution"] == {"A": 1}
+    assert live_summary_rows([]) == []

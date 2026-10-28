@@ -255,6 +255,25 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 ```
 
+Student comments wait for a reviewer before they show (`review_ratings.py
+approve-comment`), while the rating itself counts as soon as it is accepted.
+That added one nullable column: `pending` or `approved` when the rating has a
+comment, NULL when it has none. Run this before deploying the backend that
+reads it, or the professor page drops its student numbers and reviews and every
+rating fails on the missing column. Comments saved before it start as pending,
+since no one has read them. All three are rerunnable:
+
+```sql
+ALTER TABLE public.survey_ratings ADD COLUMN IF NOT EXISTS comment_status TEXT NULL;
+DO $$ BEGIN
+    ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_comment_status
+        CHECK (comment_status IN ('pending', 'approved'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+UPDATE public.survey_ratings SET comment_status = 'pending'
+    WHERE comment IS NOT NULL AND comment_status IS NULL;
+```
+
 ### Optional cleanup (destructive; take a backup first)
 
 `02_tables.sql` no longer declares the old backup tables or the tables nothing

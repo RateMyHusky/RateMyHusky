@@ -251,3 +251,37 @@ def test_apply_surge_holds_holds_only_unreviewed_accepted_rows(pg):
     assert held == [{"device_hash": "d1", "hold_reasons": "weekly_surge"},
                     {"device_hash": "d3", "hold_reasons": "weekly_surge"}]
     assert survey.apply_surge_holds(pg, set()) == 0
+
+
+def test_a_comment_waits_for_review_until_its_text_is_approved(pg):
+    import ratings
+
+    row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
+    row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
+               status="accepted", device_hash="d1", new_device=True,
+               network_type="unknown", collection="turnstile+device")
+
+    def save(comment):
+        existing = ratings.existing_rating("d1", ratings.rating_key(row, None, None), lambda q, p: (
+            rows(pg, q, p) or [None])[0])
+        ratings.save_rating({**row, "comment": comment}, existing, pg_write(pg))
+        return scalar(pg, "SELECT comment_status FROM survey_ratings")
+
+    assert save("Hard but fair") == "pending"
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET comment_status = 'approved'")
+    pg.commit()
+    assert save("Hard but fair") == "approved"   # an edit to the numbers keeps the approved text
+    assert save("Hard but fair, and rude") == "pending"
+    assert save(None) is None
+    assert save("Back again") == "pending"
+    assert scalar(pg, "SELECT count(*) FROM survey_ratings") == 1
+
+
+def test_comment_status_check_rejects_other_values(pg):
+    insert(pg, "d1", "jane-doe", None, "CS2500", None)
+    pg.commit()
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        with pg.cursor() as cur:
+            cur.execute("UPDATE survey_ratings SET comment_status = 'shown'")
+    pg.rollback()

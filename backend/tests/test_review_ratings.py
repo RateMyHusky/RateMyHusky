@@ -182,12 +182,44 @@ def test_list_prints_no_hashes(capsys):
             "term_label": "Fall 2025", "rating": 2, "difficulty": 5, "hold_reasons": "burst",
             "comment": "x" * 100, "created_at": "2026-10-01",
             "device_hash": "DEVICEHASH", "ip_hash": "IPHASH"}
-    cur = FakeCursor({"FROM survey_ratings": [held]})
+    cur = FakeCursor({"comment_status = 'pending'": [], "FROM survey_ratings": [held]})
     rr.list_pending(cur)
     out = capsys.readouterr().out
     assert "abcd1234" in out and "jane-doe" in out and "x" * 80 in out and "x" * 81 not in out
     assert "difficulty 5/5" in out
     assert "DEVICEHASH" not in out and "IPHASH" not in out
+
+
+def test_list_prints_each_waiting_comment_in_full(capsys):
+    waiting = {"id": "beef5678-0000", "professor": "jane-doe", "course": "CS2500", "status": "accepted",
+               "rating": 4, "comment": "y" * 300, "updated_at": "2026-10-01"}
+    cur = FakeCursor({"comment_status = 'pending'": [waiting]})
+    summary = rr.list_pending(cur)
+    out = capsys.readouterr().out
+    assert "Comments to review (1):" in out and "beef5678" in out and "y" * 300 in out
+    assert "rating accepted" in out and "1 comments to review" in summary
+
+
+def test_approve_comment_only_touches_waiting_comments():
+    cur = FakeCursor({"UPDATE survey_ratings": [{"id": "abcd1234"}]})
+    rr.approve_comment(cur, "abcd1234")
+    (sql, params), = cur.calls
+    assert "comment_status = 'approved'" in sql and "comment_status = 'pending'" in sql
+    assert "status = 'held'" not in sql and "updated_at" not in sql
+    assert params == ("abcd1234%",)
+    with pytest.raises(rr.ReviewError):
+        rr.approve_comment(FakeCursor(), "abcd1234")
+
+
+def test_reject_comment_drops_the_text_and_keeps_the_rating():
+    cur = FakeCursor({"UPDATE survey_ratings": [{"id": "abcd1234"}]})
+    rr.reject_comment(cur, "abcd1234")
+    (sql, params), = cur.calls
+    assert sql.startswith("UPDATE") and "comment = NULL" in sql and "comment_status = NULL" in sql
+    assert "'comment_removed'" in sql and "comment_hash" not in sql
+    assert "WHERE id::text LIKE %s AND comment_status = 'pending'" in sql and params == ("abcd1234%",)
+    with pytest.raises(rr.ReviewError):
+        rr.reject_comment(FakeCursor(), "abcd1234")
 
 
 def test_reject_rating_only_deletes_held_rows():
@@ -203,7 +235,9 @@ def test_list_strips_control_characters(capsys):
     held = {"id": "abcd1234-0000", "professor": "jane-doe", "course": "CS2500",
             "term_label": None, "rating": 2, "difficulty": None, "hold_reasons": "burst",
             "comment": "hi" + evil, "created_at": "2026-10-01"}
-    cur = FakeCursor({"FROM survey_ratings": [held],
+    waiting = {"id": "beef5678-0000", "professor": "jane-doe", "course": "CS2500", "status": "accepted",
+               "rating": 2, "comment": "yo" + evil, "updated_at": "2026-10-01"}
+    cur = FakeCursor({"comment_status = 'pending'": [waiting], "FROM survey_ratings": [held],
                       "FROM survey_pending_professors": [{"id": "p1", "name": "Eve" + evil,
                                                           "name_key": "eve x", "department": evil,
                                                           "n": 1}],
@@ -242,7 +276,8 @@ class FakeConn:
 
 
 @pytest.mark.parametrize("argv", [["approve-rating", "beef5678"], ["reject-rating", "beef5678"],
-                                  ["remove-comment", "abcdef123456"], ["approve-professor", "beef5678"]])
+                                  ["remove-comment", "abcdef123456"], ["approve-professor", "beef5678"],
+                                  ["approve-comment", "beef5678"], ["reject-comment", "beef5678"]])
 def test_commands_that_change_pages_bump_data_version(argv, monkeypatch):
     cur = FakeCursor()
     monkeypatch.setattr(rr, "run", lambda c, args: "ok")
@@ -269,7 +304,10 @@ def test_remove_comment_finds_the_review_by_its_public_id(monkeypatch):
     rr.remove_comment(cur, survey_reviews.public_id(SECRET, target))
     (sql, params), = cur.statements("UPDATE")
     assert "comment = NULL" in sql and "comment_hash" not in sql and params == (target,)
+    assert "comment_status = NULL" in sql
     assert "'comment_removed'" in sql   # marks the row, so an edit bringing the comment back is held
+    # Only a shown comment has a public id to report.
+    assert "comment_status = 'approved'" in cur.calls[0][0]
 
 
 def test_remove_comment_with_an_unknown_id_raises(monkeypatch):
