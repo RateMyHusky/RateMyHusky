@@ -274,9 +274,9 @@ END $$;
 ```
 
 The daily review agent added three nullable columns to each of `survey_ratings`,
-`survey_pending_professors` and `survey_pending_courses`. The backend runs fine
-without them, but `review_agent.py` and the new digest need them, so run this
-before the first agent run. Both are rerunnable:
+`survey_pending_professors` and `survey_pending_courses`. The rate form keeps
+working without them, but `review_agent.py`, `review_ratings.py list` and the
+digest need them, so run this before deploying. The block is rerunnable:
 
 ```sql
 ALTER TABLE public.survey_ratings

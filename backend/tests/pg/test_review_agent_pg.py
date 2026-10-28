@@ -8,14 +8,15 @@ import psycopg2.extras
 import pytest
 
 import review_agent
-from tests.pg.pgutil import rows, truncate
+from tests.pg.pgutil import rows, scalar, truncate
 
-NOW = datetime(2026, 10, 28, 9, 0, tzinfo=timezone.utc)
+# After every row's updated_at (a default of now()), so a decision recorded at NOW is not stale.
+NOW = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
 @pytest.fixture(autouse=True)
 def clean(pg):
-    truncate(pg, "survey_ratings", "survey_pending_courses", "professors", "banner_course_instructors")
+    truncate(pg, "survey_ratings", "survey_pending_courses", "professors", "banner_course_instructors", "stats_cache")
 
 
 def insert(pg, slug, reasons, device, minute, comment=None):
@@ -56,6 +57,14 @@ def test_soft_flag_is_approved_and_a_near_duplicate_group_stays_held(pg):
 
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         assert not review_agent.review_held(cur, approve_everything, NOW)
+    assert scalar(pg, "SELECT value FROM stats_cache WHERE key = 'data_version'") == 1
+
+    # An edit bumps updated_at past the decision, so the group is sent again.
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET updated_at = %s WHERE id = %s", (datetime(2101, 1, 1, tzinfo=timezone.utc), group[0]))
+    pg.commit()
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        assert review_agent.review_held(cur, approve_everything, NOW) == {"escalate": 1}
 
 
 VARIED = ["The recursion unit was taught with live coding and weekly quizzes that matched the exams closely.",
@@ -74,7 +83,7 @@ def settle_one_while_asking(pg_url, victim, reply):
     return ask
 
 
-def test_an_escalate_does_not_stamp_a_row_a_human_settled_mid_run(pg, pg_url):
+def test_a_group_with_a_row_a_human_settled_mid_run_is_rolled_back_then_decided_next_run(pg, pg_url):
     with pg.cursor() as cur:
         cur.execute("INSERT INTO professors (slug, name, name_key) VALUES ('sam-lee', 'Sam Lee', 'sam lee')")
     ids = [insert(pg, "sam-lee", "near_duplicate,burst_prof", f"d{i}", i) for i in (1, 2, 3)]
@@ -83,8 +92,17 @@ def test_an_escalate_does_not_stamp_a_row_a_human_settled_mid_run(pg, pg_url):
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         review_agent.review_held(cur, settle_one_while_asking(pg_url, ids[0], "escalate"), NOW)
 
-    by_id = {r["id"]: r for r in rows(pg, "SELECT id::text AS id, status, agent_decision FROM survey_ratings")}
+    query = "SELECT id::text AS id, status, agent_decision, agent_reviewed_at FROM survey_ratings"
+    by_id = {r["id"]: r for r in rows(pg, query)}
     assert by_id[ids[0]]["status"] == "accepted" and by_id[ids[0]]["agent_decision"] is None
+    # The re-read missed the settled row, so the whole group was rolled back and recorded nothing.
+    assert all(by_id[i]["status"] == "held" and by_id[i]["agent_decision"] is None
+               and by_id[i]["agent_reviewed_at"] is None for i in ids[1:])
+
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        review_agent.review_held(cur, approve_everything, NOW)
+    by_id = {r["id"]: r for r in rows(pg, query)}
+    assert by_id[ids[0]]["agent_decision"] is None
     assert all(by_id[i]["status"] == "held" and by_id[i]["agent_decision"] == "escalate" for i in ids[1:])
 
 

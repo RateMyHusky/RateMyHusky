@@ -17,6 +17,7 @@ The model is exactly openai/gpt-oss-20b; the chat's 120b model is never used her
 import argparse
 import json
 import math
+import re
 import sys
 import time
 from collections import Counter
@@ -28,13 +29,14 @@ from psycopg2.extras import RealDictCursor
 
 from pipeline.db import connect
 from rag.key_pool import KeyPool, load_entries
-from rag.llm_adapter import _is_daily_limit, _seconds_until_utc_midnight
+from pipeline.read_models import DATA_VERSION_SQL
+from rag.llm_adapter import _seconds_until_utc_midnight
 from rating_checks import MIN_DUPLICATE_CHARS, NEAR_DUPLICATE, normalize_comment, similarity
 from review_ratings import ReviewError, approve_rating
 
 MODEL = "openai/gpt-oss-20b"
 # Soft flags the agent may approve on their own.
-APPROVABLE = frozenset({"no_timer", "too_fast", "stale", "datacenter", "moderation_unavailable"})
+APPROVABLE = frozenset({"no_timer", "too_fast", "stale", "datacenter"})
 # Volume flags: approvable only when the group's comments are varied and specific.
 APPROVABLE_IF_VARIED = frozenset({"burst_pair", "burst_ip", "burst_prefix", "burst_prof", "burst_course",
                                   "burst_prof_day", "burst_pause", "weekly_surge", "skew_week"})
@@ -42,6 +44,7 @@ APPROVABLE_IF_VARIED = frozenset({"burst_pair", "burst_ip", "burst_prefix", "bur
 GROUP_REASONS = APPROVABLE_IF_VARIED | {"near_duplicate"}
 GROUP_GAP = timedelta(hours=24)
 MAX_GROUP = 20
+# A group over MAX_GROUP sends the model a sample of MAX_GROUP rows and is never approved.
 COMMENT_CHARS = 400
 HISTORY = 20
 HISTORY_CHARS = 200
@@ -49,6 +52,8 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 MAX_TOKENS = 800
 MAX_CALLS = 60
 CALL_GAP_SECONDS = 20
+# A per-minute 429 body can end "Upgrade to Dev Tier today", so match the limit's own wording.
+DAILY_LIMIT = re.compile(r"per day|\((?:tpd|rpd)\)")
 REQUEST_TIMEOUT = 30
 DEFAULT_RETRY_SECONDS = 60
 MAX_RETRY_SECONDS = 60
@@ -65,6 +70,9 @@ If unsure, escalate to a human.
 Answer with only this JSON object and nothing else:
 {"decision": "approve" or "escalate", "recommend_reject": true or false, "reason": "one short sentence, at most 200 characters"}"""
 
+REQUEST_FAILED = object()  # Groq.ask: this request failed (not the service being unavailable)
+# 401 and 403 mean a bad key, not a bad request, so they stop the run like no key does.
+KEY_ERRORS = (401, 403)
 _UNREADABLE = {"decision": "escalate", "recommend_reject": False, "reason": "unreadable answer"}
 
 
@@ -94,6 +102,33 @@ def group_held(rows):
     return sorted(groups, key=lambda g: min(r["created_at"] for r in g))
 
 
+def stale(row):
+    """The agent's escalate predates an edit of the rating (an edit bumps updated_at). A reject
+    is never stale: a no-op resubmit bumps updated_at too, so only a human clears a reject."""
+    if row.get("agent_decision") == "reject":
+        return False
+    reviewed, updated = row.get("agent_reviewed_at"), row.get("updated_at")
+    return reviewed is not None and updated is not None and reviewed < updated
+
+
+def decision_of(row):
+    """The agent's decision on a held row, or None when it has none, the rating was edited since,
+    or it says approve (a held row only has that after a path that does not bump updated_at,
+    like the unverified_pair move, sent it back to held)."""
+    if row.get("agent_decision") == "approve" or stale(row):
+        return None
+    return row.get("agent_decision")
+
+
+def sample(group):
+    """MAX_GROUP rows of an oversized group (by created_at): the first, the last and evenly spaced between."""
+    rows = sorted(group, key=lambda r: r["created_at"])
+    if len(rows) <= MAX_GROUP:
+        return rows
+    last = len(rows) - 1
+    return [rows[round(i * last / (MAX_GROUP - 1))] for i in range(MAX_GROUP)]
+
+
 def reasons_of(group):
     return {x for r in group for x in (r.get("hold_reasons") or "").split(",") if x}
 
@@ -107,8 +142,13 @@ def varied(group):
 
 
 def may_approve(group):
+    # The model saw a longer comment cut short, so it can't vouch for the whole of it.
+    if any(len(r.get("comment") or "") > COMMENT_CHARS for r in group):
+        return False
+    if len(group) > MAX_GROUP:
+        return False
     reasons = reasons_of(group)
-    if not reasons <= APPROVABLE | APPROVABLE_IF_VARIED:
+    if not reasons or not reasons <= APPROVABLE | APPROVABLE_IF_VARIED:
         return False
     return not reasons & APPROVABLE_IF_VARIED or varied(group)
 
@@ -177,7 +217,9 @@ class Groq:
         return self.used.get(key, {"rpd": 0, "tpd": 0})
 
     def ask(self, messages):
-        """The reply's content, or None when no key is left or the call failed."""
+        """The reply's content; None when the service is unavailable (no key left, a
+        network or 5xx error, or a bad key); REQUEST_FAILED when this request was refused or
+        answered with nothing usable, which a retry would repeat."""
         est_tokens = len(json.dumps(messages)) // 3 + MAX_TOKENS
         payload = {"model": MODEL, "messages": messages, "reasoning_effort": "low", "temperature": 0,
                    "response_format": {"type": "json_object"}, "max_completion_tokens": MAX_TOKENS}
@@ -195,7 +237,7 @@ class Groq:
             used = self.used.setdefault(key, {"rpd": 0, "tpd": 0})
             used["rpd"] += 1
             if resp.status_code == 429:
-                if _is_daily_limit(resp.text):
+                if DAILY_LIMIT.search(resp.text.lower()):
                     self.pool.retire(key, cooldown_seconds=_seconds_until_utc_midnight())
                     continue
                 if waited:
@@ -204,19 +246,22 @@ class Groq:
                 self.sleep(_retry_wait(resp.headers.get("retry-after")))
                 continue
             if resp.status_code != 200:
+                if 400 <= resp.status_code < 500 and resp.status_code not in KEY_ERRORS:
+                    return REQUEST_FAILED
                 return None
             try:
                 body = resp.json()
                 used["tpd"] += body.get("usage", {}).get("total_tokens", 0)
-                return body["choices"][0]["message"]["content"]
+                content = body["choices"][0]["message"]["content"]
+                return content if content is not None else REQUEST_FAILED
             except (ValueError, KeyError, IndexError, TypeError, AttributeError):
-                return None
+                return REQUEST_FAILED
 
 
 HELD_SQL = (
     "SELECT r.id::text AS id, r.professor_slug, r.pending_professor_id::text AS pending_professor_id, "
     "COALESCE(r.course_code, pc.code) AS course_code, r.term_label, r.rating, r.difficulty, r.grade, "
-    "r.comment, r.hold_reasons, r.created_at, r.agent_reviewed_at, r.agent_decision "
+    "r.comment, r.hold_reasons, r.created_at, r.updated_at, r.agent_reviewed_at, r.agent_decision "
     "FROM survey_ratings r LEFT JOIN survey_pending_courses pc ON pc.id = r.pending_course_id "
     "WHERE r.status = 'held' ORDER BY r.created_at")
 HISTORY_SQL = (
@@ -227,6 +272,21 @@ TAUGHT_SQL = ("SELECT EXISTS (SELECT 1 FROM banner_course_instructors "
               "WHERE subject_course = %s AND professor_slug = %s) AS taught")
 RECORD_SQL = ("UPDATE survey_ratings SET agent_decision = %s, agent_reason = %s, agent_reviewed_at = %s "
               "WHERE id::text = ANY(%s) AND status = 'held'")
+
+
+# What an edit or a new hold reason can change on a held row, compared before recording.
+RECHECK_FIELDS = ("professor_slug", "pending_professor_id", "course_code", "term_label", "rating",
+                  "difficulty", "grade", "comment", "hold_reasons")
+RECHECK_SQL = HELD_SQL.replace(" ORDER BY r.created_at", " AND r.id::text = ANY(%s) ORDER BY r.id FOR UPDATE OF r")
+
+
+def _unchanged(cur, group):
+    """Lock the group's rows and report whether every one is still held and as loaded.
+    Taken after the model's answer, so no row is locked during the Groq call."""
+    cur.execute(RECHECK_SQL, ([r["id"] for r in group],))
+    now_rows = {r["id"]: r for r in cur.fetchall()}
+    return all(r["id"] in now_rows and all(now_rows[r["id"]].get(f) == r.get(f) for f in RECHECK_FIELDS)
+               for r in group)
 
 
 def _context(cur, group):
@@ -245,39 +305,46 @@ def _context(cur, group):
 
 
 def review_held(cur, ask, now, dry_run=False):
-    """Decide every held group with a rating the agent hasn't seen, at most MAX_CALLS
-    groups. Counts approve, escalate and reject, plus unavailable when `ask` returned
-    None and the run stopped. Commits per group (cur.connection); a group whose rating
-    a human already settled is rolled back and skipped."""
+    """Decide every held group with a rating the agent hasn't decided (or decided before an
+    edit), at most MAX_CALLS groups. Counts approve, escalate and reject, plus unavailable
+    when `ask` returned None and the run stopped. A group over MAX_GROUP sends a sample and
+    is never approved. A row already carrying a reject keeps it; the decision goes on the
+    other rows, and an approve with a reject in the group becomes an escalate. Commits per
+    group (cur.connection); a group whose rating a human settled, or whose rows changed
+    while the model was answering, is rolled back and left for the next run."""
     cur.execute(HELD_SQL)
-    groups = [g for g in group_held(cur.fetchall()) if any(r.get("agent_reviewed_at") is None for r in g)]
+    groups = [g for g in group_held(cur.fetchall()) if any(decision_of(r) is None for r in g)]
     counts = Counter()
     for group in groups[:MAX_CALLS]:
         ids = [r["id"] for r in group]
-        if len(group) > MAX_GROUP:
-            decision, reason = "escalate", "too many ratings for one call"
-        else:
-            history, taught = _context(cur, group)
-            text = ask(build_messages(group, history, taught))
-            if text is None:
-                counts["unavailable"] += 1
-                break
-            answer = parse_decision(text)
-            decision, reason = final_decision(group, answer), answer["reason"]
-            if decision == "escalate" and answer["decision"] == "approve":
-                reason = f"policy blocks approval: {reason}"[:200]
-        if decision != "reject" and any(r.get("agent_decision") == "reject" for r in group):
-            decision, reason = "reject", f"earlier reject recommendation stands: {reason}"[:200]
+        history, taught = _context(cur, group)
+        text = ask(build_messages(sample(group), history, taught))
+        if text is None:
+            counts["unavailable"] += 1
+            break
+        answer = (parse_decision(text) if text is not REQUEST_FAILED
+                  else {"decision": "escalate", "recommend_reject": False, "reason": "model error"})
+        decision, reason = final_decision(group, answer), answer["reason"]
+        if decision == "escalate" and answer["decision"] == "approve":
+            reason = f"policy blocks approval: {reason}"[:200]
+        keeps_reject = {r["id"] for r in group if decision_of(r) == "reject"}
+        if keeps_reject and decision == "approve":
+            decision, reason = "escalate", f"an earlier reject recommendation stands in the group: {reason}"[:200]
+        record_ids = [i for i in ids if i not in keeps_reject]
         if dry_run:
             counts[decision] += 1
             print(f"{decision}  {sorted(reasons_of(group))}  {len(group)} rating(s)  {[i[:8] for i in ids]}")
             continue
+        if not _unchanged(cur, group):
+            cur.connection.rollback()
+            continue
         try:
             # Record while the rows are still held (RECORD_SQL only touches held rows); an
             # approval then moves them out, and raises if a human settled one meanwhile.
-            cur.execute(RECORD_SQL, (decision, reason, now, ids))
+            cur.execute(RECORD_SQL, (decision, reason, now, record_ids))
             if decision == "approve":
                 approve_rating(cur, *ids)
+                cur.execute(DATA_VERSION_SQL)  # bump the cache version, like review_ratings.main
         except ReviewError:
             cur.connection.rollback()
             continue

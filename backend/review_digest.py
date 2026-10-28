@@ -5,8 +5,9 @@
 
 Runs from .github/workflows/review-digest.yml. One email a day at most and none
 when the queue is empty, so it fits Resend's free 100/day next to the feedback
-caps and usage alerts (see FEEDBACK_DAILY_LIMIT in server.py). Counts only: no
-comments, hashes or network data. Reads ORACLE_DATABASE_URL and RESEND_API_KEY.
+caps and usage alerts (see FEEDBACK_DAILY_LIMIT in server.py). Counts, slugs,
+course codes, hold reasons and rating ids only: no comments, agent reasons,
+hashes or network data. Reads ORACLE_DATABASE_URL and RESEND_API_KEY.
 """
 
 import argparse
@@ -16,6 +17,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 import notify
+from review_agent import decision_of, group_held
 from pipeline.db import connect, fetch_all
 
 TOP = 5
@@ -29,9 +31,24 @@ def _counts(counter, limit=None):
     return [f"  {k}: {v}" for k, v in sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]]
 
 
-def build_digest(held, pending_professors, pending_courses, now):
+def _short(row):
+    return str(row["id"])[:8]
+
+
+def _attack_lines(group):
+    group = sorted(group, key=lambda r: r["created_at"])
+    first, last = group[0]["created_at"], group[-1]["created_at"]
+    reasons = sorted({x for r in group for x in (r["hold_reasons"] or "").split(",") if x})
+    slug = group[0]["professor_slug"] or "pending-professor"
+    end = f"{last:%H:%M}" if last.date() == first.date() else f"{last:%Y-%m-%d %H:%M}"
+    return [f"  {slug}: {_plural(len(group), 'rating')}, "
+            f"{first:%Y-%m-%d %H:%M}-{end} UTC [{', '.join(reasons)}]",
+            f"    python review_ratings.py reject-rating --abuse {' '.join(_short(r) for r in group)}"]
+
+
+def build_digest(held, approved, pending_professors, pending_courses, now):
     """(subject, text), or None when nothing is waiting. Pure."""
-    if not held and not pending_professors and not pending_courses:
+    if not held and not approved and not pending_professors and not pending_courses:
         return None
     recent = [r for r in held if r["created_at"] >= now - timedelta(days=1)]
     reasons = Counter(x for r in held for x in (r["hold_reasons"] or "").split(",") if x)
@@ -43,6 +60,19 @@ def build_digest(held, pending_professors, pending_courses, now):
         lines += ["", "Most held in the last 24 hours:",
                   *_counts(Counter(r["professor_slug"] for r in recent if r["professor_slug"]), TOP),
                   *_counts(Counter(r["course_code"] for r in recent if r["course_code"]), TOP)]
+    attacks = group_held([r for r in held if decision_of(r) == "reject"])
+    if attacks:
+        lines += ["", f"Recommended rejections: {_plural(len(attacks), 'attack')}",
+                  *(line for g in attacks for line in _attack_lines(g))]
+    escalated = sum(decision_of(r) == "escalate" for r in held)
+    unreviewed = sum(decision_of(r) is None for r in held)
+    if escalated or unreviewed:
+        lines += ["", f"Escalated without a recommendation: {escalated}",
+                  f"Not yet reviewed by the agent: {unreviewed}"]
+    if approved:
+        lines += ["", f"Agent approved in the last 24 hours: {len(approved)}",
+                  *(f"  {_short(r)} {r['professor_slug'] or 'pending-professor'} {r['course_code'] or '-'} "
+                    f"[{', '.join(x for x in (r['hold_reasons'] or '').split(',') if x)}]" for r in approved)]
     lines += ["", f"New professors to review: {pending_professors}",
               f"New courses to review: {pending_courses}",
               "", "Review with: python review_ratings.py list"]
@@ -55,13 +85,17 @@ def main(argv=None, now=None):
     args = ap.parse_args(argv)
     conn = connect()
     try:
-        held = fetch_all(conn, "SELECT professor_slug, course_code, hold_reasons, created_at "
-                               "FROM survey_ratings WHERE status = 'held'")
+        cols = ("id::text AS id, professor_slug, pending_professor_id::text AS pending_professor_id, "
+                "course_code, hold_reasons, agent_decision, agent_reviewed_at, updated_at, created_at")
+        held = fetch_all(conn, f"SELECT {cols} FROM survey_ratings WHERE status = 'held'")
+        approved = fetch_all(conn, f"SELECT {cols} FROM survey_ratings WHERE status = 'accepted' "
+                                   "AND agent_decision = 'approve' AND agent_reviewed_at >= now() - interval '1 day' "
+                                   "ORDER BY agent_reviewed_at")
         professors = fetch_all(conn, "SELECT count(*) AS n FROM survey_pending_professors WHERE status = 'pending'")
         courses = fetch_all(conn, "SELECT count(*) AS n FROM survey_pending_courses WHERE status = 'pending'")
     finally:
         conn.close()
-    digest = build_digest(held, professors[0]["n"], courses[0]["n"], now or datetime.now(timezone.utc))
+    digest = build_digest(held, approved, professors[0]["n"], courses[0]["n"], now or datetime.now(timezone.utc))
     if digest is None:
         print("nothing to review")
         return 0

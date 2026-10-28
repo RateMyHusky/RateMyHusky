@@ -256,7 +256,12 @@ def list_pending(cur):
     cur.execute(
         "SELECT r.id, COALESCE(r.professor_slug, pp.name || ' (pending)') AS professor, "
         "COALESCE(r.course_code, pc.code || ' (pending)') AS course, r.term_label, r.rating, r.difficulty, "
-        "r.hold_reasons, r.agent_decision, r.agent_reason, r.comment, r.created_at "
+        "r.hold_reasons, "
+        "CASE WHEN r.agent_decision = 'reject' OR (r.agent_decision = 'escalate' "
+        "AND r.agent_reviewed_at >= r.updated_at) THEN r.agent_decision END AS agent_decision, "
+        "CASE WHEN r.agent_decision = 'reject' OR (r.agent_decision = 'escalate' "
+        "AND r.agent_reviewed_at >= r.updated_at) THEN r.agent_reason END AS agent_reason, "
+        "r.comment, r.created_at "
         "FROM survey_ratings r "
         "LEFT JOIN survey_pending_professors pp ON pp.id = r.pending_professor_id "
         "LEFT JOIN survey_pending_courses pc ON pc.id = r.pending_course_id "
