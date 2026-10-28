@@ -384,19 +384,12 @@ def review_held(cur, ask, dry_run=False):
 PENDING_COURSES_SQL = (
     "SELECT pc.id::text AS id, pc.code FROM survey_pending_courses pc WHERE pc.status = 'pending' "
     "ORDER BY pc.created_at")
-COURSE_RATINGS_SQL = "SELECT professor_slug, status FROM survey_ratings WHERE pending_course_id = %s"
+COURSE_RATINGS_SQL = ("SELECT id::text AS id, professor_slug, status FROM survey_ratings "
+                      "WHERE pending_course_id = %s")
+# Ratings merge_course left: it deletes the older of two from one device.
+KEPT_RATINGS_SQL = "SELECT count(*) AS n FROM survey_ratings WHERE id::text = ANY(%s)"
 RECORD_COURSE_SQL = ("UPDATE survey_pending_courses SET agent_decision = %s, agent_reason = %s, "
-                     "agent_reviewed_at = clock_timestamp() WHERE id = %s AND status = 'pending'")
-
-
-def _one_edit(a, b):
-    """Whether b is a, with one character substituted, inserted, deleted or swapped with its neighbor."""
-    if len(a) == len(b):
-        diff = [i for i in range(len(a)) if a[i] != b[i]]
-        return len(diff) == 1 or (len(diff) == 2 and diff[1] == diff[0] + 1
-                                  and a[diff[0]] == b[diff[1]] and a[diff[1]] == b[diff[0]])
-    short, long = sorted((a, b), key=len)
-    return len(long) - len(short) == 1 and any(long[:i] + long[i + 1:] == short for i in range(len(long)))
+                     "agent_reviewed_at = clock_timestamp() WHERE id = %s AND status = %s")
 
 
 def course_merge_target(code, rows, candidates, exists):
@@ -420,10 +413,16 @@ def course_merge_target(code, rows, candidates, exists):
     if len(targets) > 1:
         return None, "professors have different candidates"
     (target,) = targets
-    return target, f"one edit from {target}" if _one_edit(code, target) else f"subject variant {target}"
+    (subject, number), (target_subject, target_number) = course_typos.parts(code), course_typos.parts(target)
+    # Neighboring numbers are often different real courses, so only a subject typo merges.
+    if number != target_number:
+        return None, f"{target} has a different number"
+    if course_typos.SUBJECT_VARIANTS.get(subject) == target_subject:
+        return target, f"subject variant {target}"
+    return target, f"one edit from {target}"
 
 
-def review_pending_courses(cur, now, dry_run=False):
+def review_pending_courses(cur, dry_run=False):
     """Merge each pending course that has one safe Banner candidate, and record an escalate on
     the rest, for every pending course on every run. Counts merge and
     escalate. Commits per course (cur.connection); a course merge_course refuses is rolled
@@ -452,13 +451,14 @@ def review_pending_courses(cur, now, dry_run=False):
             print(f"{decision}  {course['code']}  {target or '-'}  {reason}")
             continue
         try:
-            # Record while the course is still pending (RECORD_COURSE_SQL only touches pending
-            # rows); a merge then resolves it, and raises if a human settled it meanwhile.
-            cur.execute(RECORD_COURSE_SQL, (decision, f"{reason}; {len(rows)} rating(s)" if target else reason,
-                                            course["id"]))
+            # merge_course raises if a human settled the course meanwhile; RECORD_COURSE_SQL
+            # then only touches the course in the status this run left it.
             if target:
                 merge_course(cur, course["id"], target)
+                cur.execute(KEPT_RATINGS_SQL, ([r["id"] for r in rows],))
+                reason = f"{reason}; {cur.fetchone()['n']} rating(s)"
                 cur.execute(DATA_VERSION_SQL)  # bump the cache version, like review_ratings.main
+            cur.execute(RECORD_COURSE_SQL, (decision, reason, course["id"], "merged" if target else "pending"))
         except ReviewError:
             cur.connection.rollback()
             continue
@@ -758,37 +758,44 @@ def main(argv=None):
     parser.add_argument("--nicknames", action="store_true", help="mine nicknames even when it isn't Monday (UTC)")
     args = parser.parse_args(argv)
     deadline = time.monotonic() + RUN_SECONDS
-    # Merges are plain code, so they run with or without a Groq key. Professors go first: a course
-    # rated only under a new professor can't merge until that professor has.
+    entries = load_entries()
+    counts = None
+    if entries:
+        groq = Groq(KeyPool(entries))
+        calls = []
+
+        def ask(messages):
+            if calls:
+                time.sleep(CALL_GAP_SECONDS)
+            calls.append(1)
+            return groq.ask(messages)
+
+        conn = connect()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                counts = review_held(cur, ask, dry_run=args.dry_run)
+        finally:
+            conn.close()
+        print(dict(counts))
+    else:
+        print("no Groq keys; no held ratings reviewed")
+    # After the held review, so an entry whose held rating was just approved merges this run, and
+    # a merge error can't stop the held review. Plain code, so they run with or without a Groq key.
+    # Professors go first: a course rated only under a new professor can't merge until that professor has.
     conn = connect()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             print("professors", dict(review_pending_professors(cur, datetime.now(timezone.utc), dry_run=args.dry_run)))
-            print("courses", dict(review_pending_courses(cur, datetime.now(timezone.utc), dry_run=args.dry_run)))
+            print("courses", dict(review_pending_courses(cur, dry_run=args.dry_run)))
     finally:
         conn.close()
-    entries = load_entries()
-    if not entries:
-        print("no Groq keys; nothing reviewed")
-        return 0
-    groq = Groq(KeyPool(entries))
-    calls = []
-
-    def ask(messages):
-        if calls:
-            time.sleep(CALL_GAP_SECONDS)
-        calls.append(1)
-        return groq.ask(messages)
-
-    conn = connect()
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            counts = review_held(cur, ask, dry_run=args.dry_run)
-            print(dict(counts))
-            if not counts["unavailable"] and (args.nicknames or datetime.now(timezone.utc).weekday() == 0):
+    if counts is not None and not counts["unavailable"] and (args.nicknames or datetime.now(timezone.utc).weekday() == 0):
+        conn = connect()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 print("nicknames", dict(mine_nicknames(cur, ask, dry_run=args.dry_run, deadline=deadline)))
-    finally:
-        conn.close()
+        finally:
+            conn.close()
     return 0
 
 

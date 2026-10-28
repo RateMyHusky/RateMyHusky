@@ -8,6 +8,7 @@ import psycopg2.extras
 import pytest
 
 import review_agent
+import review_digest
 from tests.pg.pgutil import rows, scalar, truncate
 
 
@@ -237,7 +238,7 @@ def pending_course(pg, code, *slugs_and_devices):
 
 def run_courses(pg):
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        return review_agent.review_pending_courses(cur, datetime.now(timezone.utc))
+        return review_agent.review_pending_courses(cur)
 
 
 def test_bio2299_merges_and_envr1110_escalates(pg):
@@ -450,3 +451,32 @@ def test_nicknames_are_mined_from_rmp_and_accepted_comments_only(pg):
     assert rows(pg, "SELECT alias_key, slug, source, status FROM professor_aliases") == [
         {"alias_key": "herc", "slug": "iraklis-tsekourakis", "source": "comment", "status": "pending"}]
     truncate(pg, "rmp_reviews", "professors_catalog", "professor_aliases")
+
+
+def test_a_typo_in_the_number_escalates_even_with_one_candidate(pg):
+    # CS3510 is one edit from CS3500 and CS3520; Banner credits jane only with CS3500.
+    seed_banner(pg, "jane-doe", ["CS3500"])
+    seed_banner(pg, "bob-lee", ["CS3520"])
+    course = pending_course(pg, "CS3510", ("jane-doe", "d1"))
+
+    assert run_courses(pg) == {"escalate": 1}
+    assert rows(pg, "SELECT status, agent_reason FROM survey_pending_courses WHERE id = %s", (course,)) == [
+        {"status": "pending", "agent_reason": "CS3500 has a different number"}]
+
+
+def test_the_digest_counts_the_ratings_a_merge_kept(pg, pg_env, capsys):
+    seed_banner(pg, "jane-doe", ["BIOL2299"])
+    course = pending_course(pg, "BIO2299", ("jane-doe", "d1"), ("jane-doe", "d2"))
+    with pg.cursor() as cur:  # d1 already rated BIOL2299 more recently, so its pending rating is deleted
+        cur.execute("UPDATE survey_ratings SET updated_at = '2026-01-01' WHERE pending_course_id = %s", (course,))
+        cur.execute(
+            "INSERT INTO survey_ratings (id, professor_slug, course_code, term_label, rating, hours, status, "
+            "device_hash, new_device, network_type) VALUES (%s, 'jane-doe', 'BIOL2299', 'Fall 2025', 2, '3-4', "
+            "'accepted', 'd1', false, 'unknown')", (str(uuid.uuid4()),))
+    pg.commit()
+
+    assert run_courses(pg) == {"merge": 1}
+    assert scalar(pg, "SELECT agent_reason FROM survey_pending_courses") == "one edit from BIOL2299; 1 rating(s)"
+    assert scalar(pg, "SELECT count(*) FROM survey_ratings WHERE course_code = 'BIOL2299'") == 2
+    assert review_digest.main(["--dry-run"]) == 0
+    assert "  BIO2299 -> BIOL2299 (1 rating)\n" in capsys.readouterr().out

@@ -6,15 +6,18 @@ import re
 
 from rating_checks import COURSE_CODE_RE
 
-# Subjects students type that Banner spells differently, seeded from what RMP
-# ratings actually use.
-SUBJECT_VARIANTS = {
-    "BIO": "BIOL", "ACC": "ACCT", "FIN": "FINA", "PSY": "PSYC",
-    "CIV": "CIVE", "ECN": "ECON", "CALC": "MATH",
-}
+# Subjects students type that Banner spells differently, more than one edit away
+# (BIO for BIOL and the like are already one insertion).
+SUBJECT_VARIANTS = {"CALC": "MATH"}
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 MAX_CANDIDATES = 5
 _PARTS_RE = re.compile(r"^([A-Z]+)(\d{4}[A-Z]?)$", re.ASCII)
+
+
+def parts(code):
+    """(subject letters, the rest) of a course code."""
+    subject = re.match(r"[A-Z]*", code).group()
+    return subject, code[len(subject):]
 
 
 def neighbors(code):
@@ -44,21 +47,16 @@ def taught_candidates(code, slugs, query):
 
 
 def banner_candidates(code, query, slug=None):
-    """Up to five {"code", "name"} near matches: the professor's own Banner
-    courses when `slug` has any, else every Banner course."""
-    names = ("COALESCE(MAX(o.course_title), MAX(c.name)) AS name "
-             "FROM banner_course_offerings o LEFT JOIN course_catalog c ON c.code = o.subject_course ")
-    near = sorted(neighbors(code))
-    rows = []
-    if slug:
-        rows = query(
-            "SELECT o.subject_course AS code, " + names +
-            "WHERE o.subject_course = ANY(%s) AND o.subject_course IN "
-            "(SELECT subject_course FROM banner_course_instructors WHERE professor_slug = %s) "
-            "GROUP BY o.subject_course", (near, slug))
-    if not rows:
-        rows = query(
-            "SELECT o.subject_course AS code, " + names +
-            "WHERE o.subject_course = ANY(%s) GROUP BY o.subject_course", (near,))
-    return [{"code": r["code"], "name": r["name"]}
-            for r in sorted(rows, key=lambda r: r["code"])[:MAX_CANDIDATES]]
+    """Up to five {"code", "name"}, in one query: `code` itself first when Banner has it
+    (the catalog search misses Banner-only codes), then near matches from the professor's
+    own Banner courses when `slug` has any, else from every Banner course, by code."""
+    rows = query(
+        "SELECT o.subject_course AS code, COALESCE(MAX(o.course_title), MAX(c.name)) AS name, "
+        "o.subject_course IN (SELECT subject_course FROM banner_course_instructors WHERE professor_slug = %s) "
+        "AS taught FROM banner_course_offerings o LEFT JOIN course_catalog c ON c.code = o.subject_course "
+        "WHERE o.subject_course = ANY(%s) GROUP BY o.subject_course "
+        "ORDER BY o.subject_course = %s DESC, taught DESC, o.subject_course LIMIT %s",
+        (slug, sorted(neighbors(code) | {code}), code, MAX_CANDIDATES))
+    if any(r["taught"] and r["code"] != code for r in rows):
+        rows = [r for r in rows if r["taught"] or r["code"] == code]
+    return [{"code": r["code"], "name": r["name"]} for r in rows]

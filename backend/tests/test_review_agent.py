@@ -2,6 +2,7 @@ import json
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
+import psycopg2
 import pytest
 
 import ratings
@@ -607,7 +608,7 @@ def test_a_network_error_is_retried_once():
 
 
 def _rated(*slugs, status="accepted"):
-    return [{"professor_slug": slug, "status": status} for slug in slugs]
+    return [{"id": f"r{i}", "professor_slug": slug, "status": status} for i, slug in enumerate(slugs)]
 
 
 @pytest.mark.parametrize("code, rows, candidates, exists, expected", [
@@ -625,6 +626,10 @@ def _rated(*slugs, status="accepted"):
      (None, "a rating is for a new professor")),
     ("BIO2299", [], {}, False, (None, "no ratings")),
     ("BIO2299", _rated("jane-doe"), {"jane-doe": ["BIOL2299"]}, True, (None, "the code is a known course")),
+    ("PSYCH3464", _rated("jane-doe"), {"jane-doe": ["PSYC3464"]}, False, ("PSYC3464", "one edit from PSYC3464")),
+    ("CS3510", _rated("jane-doe"), {"jane-doe": ["CS3500"]}, False, (None, "CS3500 has a different number")),
+    ("CS4973", _rated("jane-doe", "bob-lee"), {"jane-doe": ["CS4970"], "bob-lee": ["CS4970"]}, False,
+     (None, "CS4970 has a different number")),
 ])
 def test_course_merge_target(code, rows, candidates, exists, expected):
     assert ra.course_merge_target(code, rows, candidates, exists) == expected
@@ -645,6 +650,8 @@ class CourseCursor:
         elif "FROM banner_course_instructors" in sql:
             course = next(c for c in self.courses.values() if c["code"][:3] in params[0][0])
             self._rows = [{"professor_slug": s, "subject_course": c} for s, cs in course["taught"].items() for c in cs]
+        elif sql == ra.KEPT_RATINGS_SQL:
+            self._rows = [{"n": len(params[0])}]
         elif "FROM course_catalog" in sql:
             self._rows = [{"one": 1}] if any(c["known"] for c in self.courses.values() if c["code"] == params[0]) else []
         else:
@@ -669,19 +676,19 @@ def test_a_safe_pending_course_is_recorded_then_merged_and_committed(monkeypatch
     merged = []
     monkeypatch.setattr(ra, "merge_course", lambda cur, id, code: merged.append((id, code)))
     cur = CourseCursor([_pending("c1", "BIO2299", {"jane-doe": ["BIOL2299"]})])
-    assert ra.review_pending_courses(cur, NOW) == Counter(merge=1)
+    assert ra.review_pending_courses(cur) == Counter(merge=1)
     assert merged == [("c1", "BIOL2299")]
     ((_, params),) = cur.statements("UPDATE survey_pending_courses SET agent_decision")
-    assert params == ("merge", "one edit from BIOL2299; 1 rating(s)", "c1")
+    assert params == ("merge", "one edit from BIOL2299; 1 rating(s)", "c1", "merged")
     assert cur.connection.events == ["commit"]
 
 
 def test_an_unsafe_pending_course_is_escalated_without_a_merge(monkeypatch):
     monkeypatch.setattr(ra, "merge_course", lambda *a: pytest.fail("merged"))
     cur = CourseCursor([_pending("c1", "ENVR1110", {"jane-doe": ["ENVR1101", "ENVR1120"]})])
-    assert ra.review_pending_courses(cur, NOW) == Counter(escalate=1)
+    assert ra.review_pending_courses(cur) == Counter(escalate=1)
     ((_, params),) = cur.statements("UPDATE survey_pending_courses SET agent_decision")
-    assert params == ("escalate", "jane-doe: 2 candidates (ENVR1101, ENVR1120)", "c1")
+    assert params == ("escalate", "jane-doe: 2 candidates (ENVR1101, ENVR1120)", "c1", "pending")
     assert cur.connection.events == ["commit"]
 
 
@@ -690,7 +697,7 @@ def test_a_course_merge_refuses_is_rolled_back_and_left(monkeypatch):
         raise ra.ReviewError("already merged")
     monkeypatch.setattr(ra, "merge_course", refuse)
     cur = CourseCursor([_pending("c1", "BIO2299", {"jane-doe": ["BIOL2299"]})])
-    assert ra.review_pending_courses(cur, NOW) == Counter()
+    assert ra.review_pending_courses(cur) == Counter()
     assert cur.connection.events == ["rollback"]
 
 
@@ -703,7 +710,7 @@ def test_the_pending_course_query_selects_every_pending_course():
 def test_course_dry_run_writes_nothing(monkeypatch, capsys):
     monkeypatch.setattr(ra, "merge_course", lambda *a: pytest.fail("merged"))
     cur = CourseCursor([_pending("c1", "BIO2299", {"jane-doe": ["BIOL2299"]})])
-    assert ra.review_pending_courses(cur, NOW, dry_run=True) == Counter(merge=1)
+    assert ra.review_pending_courses(cur, dry_run=True) == Counter(merge=1)
     assert not cur.statements("UPDATE") and cur.connection.events == []
     assert "BIOL2299" in capsys.readouterr().out
 
@@ -1137,3 +1144,61 @@ def test_nickname_dry_run_writes_nothing(capsys):
     assert ra.mine_nicknames(cur, lambda m: json.dumps({"Herc": True}), dry_run=True) == Counter(suggested=1)
     assert not cur.inserts() and cur.connection.events == ["rollback"]
     assert "Herc" in capsys.readouterr().out
+
+
+def _main(monkeypatch, entries, courses=lambda cur, dry_run=False: Counter(), weekday=2):
+    class Conn:
+        def cursor(self, **k):
+            return self
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def close(self):
+            pass
+
+    class Day(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 26 + weekday, tzinfo=tz)  # 2026-10-26 is a Monday
+    order = []
+    monkeypatch.setattr(ra, "connect", Conn)
+    monkeypatch.setattr(ra, "datetime", Day)
+    monkeypatch.setattr(ra, "load_entries", lambda: entries)
+    monkeypatch.setattr(ra, "KeyPool", lambda entries: None)
+    monkeypatch.setattr(ra, "Groq", lambda pool: None)
+    monkeypatch.setattr(ra, "review_held", lambda *a, **k: order.append("held") or Counter())
+    monkeypatch.setattr(ra, "review_pending_professors", lambda *a, **k: order.append("professors") or Counter())
+    monkeypatch.setattr(ra, "review_pending_courses", lambda *a, **k: order.append("courses") or courses(*a, **k))
+    monkeypatch.setattr(ra, "mine_nicknames", lambda *a, **k: order.append("nicknames") or Counter())
+    return order
+
+
+def test_main_reviews_held_ratings_before_pending_professors_and_courses(monkeypatch):
+    # An entry waiting on a held rating merges in the same run that approves it, and a course
+    # rated only under a new professor merges once that professor has.
+    order = _main(monkeypatch, ["k1"])
+    assert ra.main([]) == 0
+    assert order == ["held", "professors", "courses"]
+
+
+def test_main_mines_nicknames_last_on_mondays(monkeypatch):
+    order = _main(monkeypatch, ["k1"], weekday=0)
+    assert ra.main([]) == 0
+    assert order == ["held", "professors", "courses", "nicknames"]
+
+
+def test_main_merges_without_a_groq_key(monkeypatch, capsys):
+    order = _main(monkeypatch, [], weekday=0)
+    assert ra.main([]) == 0
+    assert order == ["professors", "courses"]
+    assert "no Groq keys" in capsys.readouterr().out
+
+
+def test_a_course_pass_error_leaves_the_held_review_done(monkeypatch):
+    def boom(cur, dry_run=False):
+        raise psycopg2.OperationalError("server closed the connection unexpectedly")
+    order = _main(monkeypatch, ["k1"], boom)
+    with pytest.raises(psycopg2.OperationalError):
+        ra.main([])
+    assert order == ["held", "professors", "courses"]
