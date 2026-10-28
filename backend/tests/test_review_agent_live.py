@@ -37,3 +37,11 @@ def test_an_end_of_term_rush_of_varied_ratings_is_approved():
     answer = _answer(group)
     assert answer["decision"] == "approve" and answer["recommend_reject"] is False
     assert ra.final_decision(group, answer) == "approve"
+
+
+def test_herc_refers_to_the_professor():
+    comments = ["But Prof. Herc really tries his hardest. Exams are fair.", "Prof Herc is super nice and cares."]
+    text = ra.Groq(KeyPool(load_entries())).ask(ra.nickname_messages("Iraklis Tsekourakis", {"Herc": comments}))
+    assert text is not None, "Groq returned no answer"
+    print(text)
+    assert ra.parse_nicknames(text, ["Herc"]) == {"Herc": True}

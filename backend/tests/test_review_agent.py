@@ -705,3 +705,280 @@ def test_course_dry_run_writes_nothing(monkeypatch, capsys):
     assert ra.review_pending_courses(cur, NOW, dry_run=True) == Counter(merge=1)
     assert not cur.statements("UPDATE") and cur.connection.events == []
     assert "BIOL2299" in capsys.readouterr().out
+
+
+HERC = {"name": "Herc Tsekourakis", "name_key": "herc tsekourakis", "department": "Computer Science"}
+IRAKLIS = {"slug": "iraklis-tsekourakis", "name_key": "iraklis tsekourakis", "department": "Computer Science"}
+
+
+@pytest.mark.parametrize("pending, matches, taught, expected", [
+    (HERC, [IRAKLIS], set(),
+     ("iraklis-tsekourakis", "same last name and department", "herc")),
+    ({**HERC, "department": "computer science"}, [IRAKLIS], set(),
+     ("iraklis-tsekourakis", "same last name and department", "herc")),
+    ({**HERC, "department": "Biology"}, [IRAKLIS], {"iraklis-tsekourakis"},
+     ("iraklis-tsekourakis", "same last name and taught the course", "herc")),
+    ({**HERC, "department": None}, [IRAKLIS], {"iraklis-tsekourakis"},
+     ("iraklis-tsekourakis", "same last name and taught the course", "herc")),
+    ({"name": "Peter Xu", "name_key": "peter xu", "department": "Mathematics"},
+     [{"slug": "a-xu", "name_key": "a xu", "department": "Mathematics"},
+      {"slug": "b-xu", "name_key": "b xu", "department": "Mathematics"}], {"a-xu"},
+     (None, "2 professors named xu", None)),
+    ({"name": "Peter Xu", "name_key": "peter xu", "department": "Mathematics"}, [], set(),
+     (None, "no professor named xu", None)),
+    ({**HERC, "department": "Biology"}, [IRAKLIS], set(),
+     (None, "not in the department and didn't teach the course", None)),
+    ({**HERC, "name": "I. Tsekourakis", "name_key": "i. tsekourakis"}, [IRAKLIS], set(),
+     ("iraklis-tsekourakis", "same last name and department", None)),
+    ({**HERC, "name": "Iraklis Tsekourakis", "name_key": "iraklis tsekourakis"}, [IRAKLIS], set(),
+     ("iraklis-tsekourakis", "same last name and department", None)),
+    ({**HERC, "name": "Tsekourakis", "name_key": "tsekourakis"}, [IRAKLIS], set(),
+     ("iraklis-tsekourakis", "same last name and department", None)),
+    ({**HERC, "name": "Dr. Herc Tsekourakis", "name_key": "dr. herc tsekourakis"}, [IRAKLIS], set(),
+     ("iraklis-tsekourakis", "same last name and department", None)),
+    ({**HERC, "name": "Jo. Tsekourakis", "name_key": "jo. tsekourakis"}, [IRAKLIS], set(),
+     ("iraklis-tsekourakis", "same last name and department", None)),
+])
+def test_professor_merge_target(pending, matches, taught, expected):
+    assert ra.professor_merge_target(pending, matches, taught) == expected
+
+
+class ProfessorCursor:
+    """Pending professors [{id, name, name_key, department, codes, matches, taught}] answered by statement."""
+    def __init__(self, professors):
+        self.professors = {p["id"]: p for p in professors}
+        self.calls, self._rows, self.connection = [], [], FakeConnection()
+
+    def execute(self, sql, params=None):
+        self.calls.append((sql, params))
+        if sql == ra.PENDING_PROFESSORS_SQL:
+            self._rows = [{k: p[k] for k in ("id", "name", "name_key", "department")}
+                          for p in self.professors.values()]
+        elif sql == ra.PROFESSOR_RATINGS_SQL:
+            self._rows = [{"course_code": c} for c in self.professors[params[0]]["codes"]]
+        elif sql == ra.PROFESSOR_MATCHES_SQL:
+            self._rows = next(iter(self.professors.values()))["matches"]
+        elif sql == ra.PROFESSOR_TAUGHT_SQL:
+            self._rows = [{"professor_slug": s} for s in
+                          next(iter(self.professors.values()))["taught"]]
+        else:
+            self._rows = []
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self):
+        return list(self._rows)
+
+    def statements(self, prefix):
+        return [(s, p) for s, p in self.calls if s.startswith(prefix)]
+
+
+def _pending_prof(id="p1", matches=(IRAKLIS,), taught=(), codes=("CS2500",), **fields):
+    return {**HERC, "id": id, "matches": list(matches), "taught": list(taught), "codes": list(codes), **fields}
+
+
+def test_a_safe_pending_professor_is_recorded_merged_aliased_and_committed(monkeypatch):
+    merged = []
+    monkeypatch.setattr(ra, "merge_professor", lambda cur, id, slug: merged.append((id, slug)))
+    cur = ProfessorCursor([_pending_prof()])
+    assert ra.review_pending_professors(cur, NOW) == Counter(merge=1)
+    assert merged == [("p1", "iraklis-tsekourakis")]
+    ((_, params),) = cur.statements("UPDATE survey_pending_professors SET agent_decision")
+    assert params == ("merge", "same last name and department; 1 rating(s)", "p1")
+    ((sql, params),) = cur.statements("INSERT INTO professor_aliases")
+    assert "'merge'" in sql and "ON CONFLICT (alias_key, slug) DO NOTHING" in sql
+    assert params == ("herc", "iraklis-tsekourakis")
+    assert cur.connection.events == ["commit"]
+
+
+def test_a_merge_without_a_new_first_name_adds_no_alias(monkeypatch):
+    monkeypatch.setattr(ra, "merge_professor", lambda *a: None)
+    cur = ProfessorCursor([_pending_prof(name="I. Tsekourakis", name_key="i. tsekourakis")])
+    assert ra.review_pending_professors(cur, NOW) == Counter(merge=1)
+    assert not cur.statements("INSERT INTO professor_aliases")
+
+
+def test_an_unsafe_pending_professor_is_escalated_without_a_merge(monkeypatch):
+    monkeypatch.setattr(ra, "merge_professor", lambda *a: pytest.fail("merged"))
+    cur = ProfessorCursor([_pending_prof(department="Biology")])
+    assert ra.review_pending_professors(cur, NOW) == Counter(escalate=1)
+    ((_, params),) = cur.statements("UPDATE survey_pending_professors SET agent_decision")
+    assert params == ("escalate", "not in the department and didn't teach the course", "p1")
+    assert not cur.statements("INSERT")
+    assert cur.connection.events == ["commit"]
+
+
+def test_a_professor_merge_refuses_is_rolled_back_and_left(monkeypatch):
+    def refuse(cur, id, slug):
+        raise ra.ReviewError("already merged")
+    monkeypatch.setattr(ra, "merge_professor", refuse)
+    cur = ProfessorCursor([_pending_prof()])
+    assert ra.review_pending_professors(cur, NOW) == Counter()
+    assert cur.connection.events == ["rollback"]
+    assert not cur.statements("INSERT")
+
+
+def test_the_professor_matches_query_escapes_like_wildcards():
+    cur = ProfessorCursor([_pending_prof(name_key="herc ts%e_k", matches=[])])
+    ra.review_pending_professors(cur, NOW, dry_run=True)
+    ((_, params),) = cur.statements(ra.PROFESSOR_MATCHES_SQL)
+    assert params == (r"% ts\%e\_k",)
+
+
+def test_professor_dry_run_writes_nothing(monkeypatch, capsys):
+    monkeypatch.setattr(ra, "merge_professor", lambda *a: pytest.fail("merged"))
+    cur = ProfessorCursor([_pending_prof()])
+    assert ra.review_pending_professors(cur, NOW, dry_run=True) == Counter(merge=1)
+    assert not cur.statements("UPDATE") and not cur.statements("INSERT") and cur.connection.events == []
+    assert "iraklis-tsekourakis" in capsys.readouterr().out
+
+
+# ---- nickname suggestions ----
+
+HERC_COMMENTS = ["But Prof. Herc really tries his hardest", "Prof Herc is super nice"]
+
+
+def _candidates(comments_by_slug, own=None, parts=None, common=(), known=()):
+    return ra.nickname_candidates(comments_by_slug, own or {}, set(parts or ()), set(common), set(known))
+
+
+def test_herc_is_a_candidate_for_tsekourakis():
+    result = _candidates({"iraklis-tsekourakis": HERC_COMMENTS}, own={"iraklis-tsekourakis": {"iraklis", "tsekourakis"}},
+                         parts={"iraklis", "tsekourakis"}, common={"prof"})
+    assert result == {"iraklis-tsekourakis": ["Herc"]}
+
+
+def test_common_and_name_words_are_dropped():
+    comments = ["Great class, Iraklis and Pavlu agree. Jupyter notebooks were fun",
+                "Great lectures, Iraklis is clear and Pavlu too"]
+    result = _candidates({"iraklis-tsekourakis": comments + ["Herc rocks", "Herc is kind"]},
+                         own={"iraklis-tsekourakis": {"iraklis"}}, parts={"iraklis", "pavlu"}, common={"great"})
+    assert result == {"iraklis-tsekourakis": ["Herc"]}
+
+
+def test_another_professors_surname_is_never_suggested():
+    comments = ["Better than Pavlu by far", "Way clearer than Pavlu"]
+    assert _candidates({"iraklis-tsekourakis": comments}, own={"iraklis-tsekourakis": {"iraklis"}},
+                       parts={"iraklis", "pavlu"}) == {}
+
+
+def test_a_word_repeated_in_one_comment_counts_once():
+    assert _candidates({"x": ["Herc Herc Herc"]}) == {}
+
+
+def test_candidates_are_most_frequent_first_and_capped():
+    words = [f"Wordy{c}" for c in "abcdefghij"]
+    comments = [" ".join(words) + " one", " ".join(words) + " two", "Wordya Wordyb"]
+    result = _candidates({"x": comments})
+    assert len(result["x"]) == ra.MAX_WORDS_PER_CALL and result["x"][:2] == ["Wordya", "Wordyb"]
+
+
+def test_known_pairs_are_not_asked_again():
+    result = _candidates({"a": HERC_COMMENTS, "b": HERC_COMMENTS}, common={"prof"}, known={("herc", "a")})
+    assert result == {"b": ["Herc"]}
+
+
+def test_common_words_are_lowercase_words_in_many_distinct_comments():
+    comments = [f"the Zed professor is great {i}" for i in range(ra.COMMON_MIN)] + ["Herc is nice"] * 3
+    assert ra.common_words(comments) == {"the", "professor", "great"}
+    assert ra.common_words(comments[:ra.COMMON_MIN - 1]) == set()
+
+
+def test_messages_carry_name_words_and_up_to_three_snippets():
+    comments = [f"Herc is nice number {i}. Another sentence." for i in range(5)]
+    messages = ra.nickname_messages("Iraklis Tsekourakis", {"Herc": comments})
+    assert [m["role"] for m in messages] == ["system", "user"]
+    data = json.loads(messages[1]["content"])
+    assert data["professor"] == "Iraklis Tsekourakis"
+    assert data["words"] == {"Herc": [f"Herc is nice number {i}." for i in range(ra.SNIPPETS)]}
+
+
+def test_parse_nicknames_keeps_only_listed_words_with_bools():
+    text = json.dumps({"Herc": True, "Pavlu": False, "Other": True, "Maybe": "yes", "Zero": 0})
+    assert ra.parse_nicknames(text, ["Herc", "Pavlu", "Maybe", "Zero", "Missing"]) == {"Herc": True, "Pavlu": False}
+    for bad in ("not json", "[1]", "null", None):
+        assert ra.parse_nicknames(bad, ["Herc"]) == {}
+
+
+class NicknameCursor:
+    def __init__(self, comments, catalog=(("iraklis-tsekourakis", "Iraklis Tsekourakis", "iraklis tsekourakis"),),
+                 known=()):
+        self.comments, self.catalog, self.known = comments, catalog, known
+        self.calls, self._rows, self.connection = [], [], FakeConnection()
+
+    def execute(self, sql, params=None):
+        self.calls.append((sql, params))
+        self._rows = []
+        if sql == ra.NICKNAME_COMMENTS_SQL:
+            self._rows = [{"slug": s, "comment": c} for s, c in self.comments]
+        elif sql == ra.NICKNAME_CATALOG_SQL:
+            self._rows = [{"slug": s, "name": n, "name_key": k} for s, n, k in self.catalog]
+        elif sql == ra.NICKNAME_KNOWN_SQL:
+            self._rows = [{"alias_key": a, "slug": s} for a, s in self.known]
+
+    def fetchall(self):
+        return list(self._rows)
+
+    def inserts(self):
+        return [p for s, p in self.calls if s == ra.ADD_NICKNAME_SQL]
+
+
+def _herc_cur(**kw):
+    comments = [("iraklis-tsekourakis", c) for c in HERC_COMMENTS]
+    comments += [("other-prof", f"the prof is a {i}") for i in range(ra.COMMON_MIN)]
+    return NicknameCursor(comments, **kw)
+
+
+def test_mine_nicknames_stores_yes_as_pending_and_no_as_rejected():
+    asks = []
+
+    def ask(messages):
+        asks.append(messages)
+        return json.dumps({"Herc": True})
+
+    cur = _herc_cur()
+    assert ra.mine_nicknames(cur, ask) == Counter(suggested=1)
+    assert cur.inserts() == [("herc", "iraklis-tsekourakis", "pending")]
+    assert "'comment'" in ra.ADD_NICKNAME_SQL and "ON CONFLICT (alias_key, slug) DO NOTHING" in ra.ADD_NICKNAME_SQL
+    assert cur.connection.events == ["rollback", "commit"] and len(asks) == 1
+    cur = _herc_cur()
+    assert ra.mine_nicknames(cur, lambda m: json.dumps({"Herc": False})) == Counter(rejected=1)
+    assert cur.inserts() == [("herc", "iraklis-tsekourakis", "rejected")]
+
+
+def test_mine_nicknames_leaves_unanswered_words_for_next_week():
+    cur = _herc_cur()
+    assert ra.mine_nicknames(cur, lambda m: "garbage") == Counter()
+    assert not cur.inserts()
+    cur = _herc_cur()
+    assert ra.mine_nicknames(cur, lambda m: ra.REQUEST_FAILED) == Counter() and not cur.inserts()
+
+
+def test_mine_nicknames_skips_known_pairs():
+    cur = _herc_cur(known=[("herc", "iraklis-tsekourakis")])
+    assert ra.mine_nicknames(cur, lambda m: pytest.fail("asked")) == Counter()
+
+
+def test_mine_nicknames_stops_at_max_calls_or_unavailable():
+    shared = ["Zork rules", "Zork is fun"]
+    comments = [(f"p{i}", c) for i in range(3) for c in shared]
+    catalog = [(f"p{i}", f"Pat P{i}", f"pat p{i}") for i in range(3)]
+    asks = []
+
+    def ask(messages):
+        asks.append(1)
+        return json.dumps({"Zork": True})
+
+    cur = NicknameCursor(comments, catalog)
+    assert ra.mine_nicknames(cur, ask, max_calls=2) == Counter(suggested=2) and len(asks) == 2
+    cur = NicknameCursor(comments, catalog)
+    assert ra.mine_nicknames(cur, lambda m: None) == Counter(unavailable=1)
+    assert not cur.inserts()
+
+
+def test_nickname_dry_run_writes_nothing(capsys):
+    cur = _herc_cur()
+    assert ra.mine_nicknames(cur, lambda m: json.dumps({"Herc": True}), dry_run=True) == Counter(suggested=1)
+    assert not cur.inserts() and cur.connection.events == ["rollback"]
+    assert "Herc" in capsys.readouterr().out

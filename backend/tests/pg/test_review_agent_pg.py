@@ -299,3 +299,71 @@ def test_a_course_escalated_for_a_held_rating_is_merged_once_that_rating_is_appr
     assert run_courses(pg) == {"merge": 1}
     assert rows(pg, "SELECT status, resolved_code FROM survey_pending_courses") == [
         {"status": "merged", "resolved_code": "BIOL2299"}]
+
+
+def test_herc_merges_into_tsekourakis_with_a_pending_alias(live_server, pg):
+    truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
+    pending, rating = str(uuid.uuid4()), str(uuid.uuid4())
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professors (slug, name, name_key) VALUES ('iraklis-tsekourakis', "
+                    "'Iraklis Tsekourakis', 'iraklis tsekourakis')")
+        cur.execute("INSERT INTO professors_catalog (slug, name, name_key, department, total_reviews) VALUES "
+                    "('iraklis-tsekourakis', 'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science', 5)")
+        cur.execute("INSERT INTO survey_pending_professors (id, name, name_key, department) "
+                    "VALUES (%s, 'Herc Tsekourakis', 'herc tsekourakis', 'Computer Science')", (pending,))
+        cur.execute(
+            "INSERT INTO survey_ratings (id, pending_professor_id, course_code, term_label, rating, hours, status, "
+            "device_hash, new_device, network_type) "
+            "VALUES (%s, %s, 'CS2500', 'Fall 2025', 4, '3-4', 'accepted', 'd1', false, 'unknown')", (rating, pending))
+    pg.commit()
+
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        assert review_agent.review_pending_professors(cur, datetime.now(timezone.utc)) == {"merge": 1}
+
+    assert rows(pg, "SELECT professor_slug, pending_professor_id FROM survey_ratings") == [
+        {"professor_slug": "iraklis-tsekourakis", "pending_professor_id": None}]
+    assert rows(pg, "SELECT status, resolved_slug, agent_decision, agent_reason FROM survey_pending_professors") == [
+        {"status": "merged", "resolved_slug": "iraklis-tsekourakis", "agent_decision": "merge",
+         "agent_reason": "same last name and department; 1 rating(s)"}]
+    assert rows(pg, "SELECT alias_key, slug, source, status FROM professor_aliases") == [
+        {"alias_key": "herc", "slug": "iraklis-tsekourakis", "source": "merge", "status": "pending"}]
+
+    live_server._reset_alias_cache()
+    assert live_server.app.test_client().get("/api/search?q=herc").get_json() == []
+    truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
+
+
+def test_nicknames_are_mined_from_rmp_and_accepted_comments_only(pg):
+    truncate(pg, "rmp_reviews", "professors_catalog", "professor_aliases")
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professors (slug, name, name_key) VALUES ('iraklis-tsekourakis', "
+                    "'Iraklis Tsekourakis', 'iraklis tsekourakis')")
+        cur.execute("INSERT INTO professors_catalog (slug, name, name_key, department, total_reviews) VALUES "
+                    "('iraklis-tsekourakis', 'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science', 5)")
+        cur.execute("INSERT INTO rmp_reviews (professor_name, comment, name_key) VALUES "
+                    "('Iraklis Tsekourakis', 'But Prof. Herc really tries his hardest', 'iraklis tsekourakis')")
+        cur.execute("INSERT INTO rmp_reviews (professor_name, comment, name_key) "
+                    "SELECT 'Iraklis Tsekourakis', 'the prof is fine ' || n, 'iraklis tsekourakis' "
+                    "FROM generate_series(1, %s) n", (review_agent.COMMON_MIN,))
+        for status, comment, device in (("accepted", "Prof Herc is super nice", "d1"),
+                                        ("held", "Herc Herc Zork Zork", "d2")):
+            cur.execute(
+                "INSERT INTO survey_ratings (id, professor_slug, course_code, term_label, rating, hours, comment, "
+                "status, device_hash, new_device, network_type) "
+                "VALUES (%s, 'iraklis-tsekourakis', 'CS2500', 'Fall 2025', 4, '3-4', %s, %s, %s, false, 'unknown')",
+                (str(uuid.uuid4()), comment, status, device))
+    pg.commit()
+    asked = []
+
+    def ask(messages):
+        asked.append(json.loads(messages[1]["content"]))
+        return json.dumps({"Herc": True})
+
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        assert review_agent.mine_nicknames(cur, ask) == {"suggested": 1}
+        assert review_agent.mine_nicknames(cur, ask) == {}
+    assert len(asked) == 1 and asked[0]["professor"] == "Iraklis Tsekourakis"
+    assert list(asked[0]["words"]) == ["Herc"] and len(asked[0]["words"]["Herc"]) == 2  # the held comment is unused
+    assert rows(pg, "SELECT alias_key, slug, source, status FROM professor_aliases") == [
+        {"alias_key": "herc", "slug": "iraklis-tsekourakis", "source": "comment", "status": "pending"}]
+    truncate(pg, "rmp_reviews", "professors_catalog", "professor_aliases")
