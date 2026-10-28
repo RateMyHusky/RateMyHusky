@@ -60,7 +60,7 @@ def srow(**kw):
     return {"id": uuid.uuid4(), "professor_slug": "olin-guha", "course_code": "CS3500",
             "course_name": "Object-Oriented Design", "term_label": "Fall 2025", "term_enrollment": 40,
             "terms_in_year": 1, "rating": 5, "difficulty": 3, "hours": "5-7", "grade": "A",
-            "comment": "Loved it", "created_at": when, "updated_at": when, **kw}
+            "comment": "Loved it", "created_at": when, "updated_at": when, "hold_reasons": None, **kw}
 
 
 class FakeDB:

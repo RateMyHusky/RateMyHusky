@@ -2477,15 +2477,9 @@ def rate_submit():
     # a known pair is checked against who Banner and RMP have teaching the course.
     unverified = (bool(key["professor_slug"]) and bool(key["course_code"])
                   and not ratings.pair_taught(key["professor_slug"], key["course_code"], query_one))
-    # A reviewer took this rating's comment down (review_ratings.py remove-comment): the mark
-    # stays on the row, and any comment it carries again waits for review.
-    removed = bool(existing) and "comment_removed" in (existing["hold_reasons"] or "").split(",")
     status, reasons = rating_checks.assess(fill_seconds, network_type, bursts, duplicate,
                                            edit=bool(existing) and existing["status"] == "accepted",
-                                           unverified_pair=unverified,
-                                           comment_removed=removed and bool(clean["comment"]))
-    if removed and "comment_removed" not in reasons:
-        reasons.append("comment_removed")
+                                           unverified_pair=unverified)
     row = {
         **key,
         "term_label": clean["term_label"], "rating": clean["rating"], "difficulty": clean["difficulty"],

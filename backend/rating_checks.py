@@ -216,7 +216,7 @@ def comment_check_fields(action, reason, now):
 
 
 def assess(fill_seconds, network_type, bursts, duplicate_comment, edit=False,
-           unverified_pair=False, comment_removed=False):
+           unverified_pair=False):
     """("held", reasons) | ("accepted", []).
 
     Moderation plays no part: a blocked comment never gets here, and a flagged or
@@ -226,8 +226,6 @@ def assess(fill_seconds, network_type, bursts, duplicate_comment, edit=False,
     edit: this replaces an accepted rating. The form prefills the earlier answers,
     so a quick update is normal and only has to clear EDIT_MIN_FILL_SECONDS.
     unverified_pair: neither Banner nor RMP has this professor teaching this course.
-    comment_removed: this brings a comment back to a rating whose comment a
-    reviewer took down, so it waits for review.
     """
     reasons = []
     if fill_seconds is None:
@@ -243,6 +241,4 @@ def assess(fill_seconds, network_type, bursts, duplicate_comment, edit=False,
         reasons.append("unverified_pair")
     if duplicate_comment:
         reasons.append("duplicate_comment")
-    if comment_removed:
-        reasons.append("comment_removed")
     return ("held", reasons) if reasons else ("accepted", [])

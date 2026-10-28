@@ -3,7 +3,7 @@
     python review_ratings.py list                       # held ratings, comments to read, pending professors and courses
     python review_ratings.py approve-rating ID [ID...]  # held -> accepted
     python review_ratings.py reject-rating ID [ID...]   # delete the rating
-    python review_ratings.py approve-comment ID [ID...] # show a comment on the professor page
+    python review_ratings.py approve-comment ID@TIME [ID@TIME...]  # show a comment, as list printed it
     python review_ratings.py reject-comment ID [ID...]  # drop a waiting comment, keep its rating
     python review_ratings.py remove-comment PUBLIC_ID   # take down a shown comment by the id a report carries
     python review_ratings.py approve-professor ID [--slug SLUG]
@@ -24,7 +24,9 @@ a rating held as unverified_pair vouches for that professor teaching that
 course, so later ratings of the pair aren't held for it.
 
 A comment never shows until approve-comment, even on an accepted rating, and
-an edit to its text waits again. approve-rating counts the rating only: its
+an edit to its text waits again. approve-comment takes the ID@TIME `list`
+printed next to the comment, and refuses when the row changed since then, so
+an edit between reading and approving can't put unread text on the page. approve-rating counts the rating only: its
 comment stays in the comments list until approved there too.
 
 `list` shows each comment's model check (moderation_groq.py): flagged first,
@@ -148,27 +150,41 @@ def reject_rating(cur, *ids):
     return f"Rejected {len(ids)} rating(s)"
 
 
-def approve_comment(cur, *ids):
-    for rating_id in ids:
+def comment_version(rating_id, updated_at):
+    """What `list` prints for approve-comment: the short id and the row's updated_at."""
+    stamp = updated_at.isoformat() if hasattr(updated_at, "isoformat") else str(updated_at)
+    return f"{str(rating_id)[:8]}@{stamp}"
+
+
+def approve_comment(cur, *versions):
+    """Approve each comment as `list` printed it (ID@TIME). Any save since moves
+    updated_at, so an edit in between fails here instead of going live unread."""
+    for version in versions:
+        rating_id, sep, stamp = version.partition("@")
+        if not sep or not stamp:
+            raise ReviewError(f"Give {version!r} as the ID@TIME list printed, so the text approved is the text read")
+        try:
+            datetime.fromisoformat(stamp)
+        except ValueError:
+            raise ReviewError(f"Bad time in {version!r}") from None
         # Off the queue too, so a moderate_queue.py run racing this can't hold the rating.
         cur.execute("UPDATE survey_ratings SET comment_status = 'approved', comment_next_check_at = NULL "
-                    "WHERE id::text LIKE %s AND comment_status = 'pending' RETURNING id",
-                    (short_id_pattern(rating_id),))
+                    "WHERE id::text LIKE %s AND comment_status = 'pending' AND updated_at = %s::timestamptz "
+                    "RETURNING id", (short_id_pattern(rating_id), stamp))
         if len(cur.fetchall()) != 1:
-            raise ReviewError(f"{rating_id} is not exactly one comment waiting for review")
-    return f"Approved {len(ids)} comment(s)"
+            raise ReviewError(f"{version} is not exactly one comment waiting for review as list printed it; "
+                              "it may have been edited, so run list again")
+    return f"Approved {len(versions)} comment(s)"
 
 
-# The comment_removed hold reason stays on the row, so an edit that brings a comment
-# back is held (server.rate_submit); comment_hash stays too, so the same text from
-# another device is held as a duplicate_comment.
+# Clears the comment and nothing else. A comment the device writes again waits in
+# pending like any new one, so the rating needs no hold; and hold_reasons stays as
+# it was, since a non-NULL one would take the rating out of the surge counts for
+# good. comment_hash stays, so the same text from another device is held as a
+# duplicate_comment.
 _DROP_COMMENT_SQL = (
-    "UPDATE survey_ratings SET comment = NULL, comment_status = NULL, "
-    + "".join(f"{c} = NULL, " for c in ratings.CHECK_COLUMNS)
-    + "hold_reasons = CASE "
-    "WHEN hold_reasons IS NULL THEN 'comment_removed' "
-    "WHEN ',' || hold_reasons || ',' LIKE '%%,comment_removed,%%' THEN hold_reasons "
-    "ELSE hold_reasons || ',comment_removed' END ")
+    "UPDATE survey_ratings SET comment = NULL, comment_status = NULL"
+    + "".join(f", {c} = NULL" for c in ratings.CHECK_COLUMNS) + " ")
 
 
 def reject_comment(cur, *ids):
@@ -184,7 +200,7 @@ def reject_comment(cur, *ids):
 def remove_comment(cur, review_id):
     """Drop the comment of the review whose public id (the one on the page and in
     a report) is review_id; the rating keeps counting. Needs RATING_SECRET.
-    Marks the row as reject_comment does."""
+    Clears it as reject_comment does."""
     secret = os.getenv("RATING_SECRET")
     if not secret:
         raise ReviewError("RATING_SECRET is needed to match a public review id")
@@ -312,7 +328,8 @@ def list_pending(cur):
     for r in comments:
         print(f"  {str(r['id'])[:8]}  {clean(r['professor'])}  {clean(r['course'])}  {r['rating']}/5  "
               f"rating {r['status']}  {check_label(r['comment_check'], r['comment_check_reason'])}  "
-              f"{str(r['updated_at'])[:10]}\n      {clean(r['comment'])!r}")
+              f"{str(r['updated_at'])[:10]}\n      {clean(r['comment'])!r}\n"
+              f"      approve-comment {comment_version(r['id'], r['updated_at'])}")
 
     cur.execute(
         "SELECT p.id, p.name, p.name_key, p.department, count(r.id) AS n FROM survey_pending_professors p "

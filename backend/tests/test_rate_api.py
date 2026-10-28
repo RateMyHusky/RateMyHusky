@@ -572,18 +572,20 @@ def test_an_accepted_review_edited_into_a_held_one_drops_the_page_cache(rate, mo
     assert dropped == [{"alice-smith"}]
 
 
-def test_an_edit_bringing_back_a_removed_comment_is_held(rate):
+def test_an_edit_after_a_rejected_comment_is_not_held(rate):
+    # The new comment waits in pending like any other, so the rating keeps counting.
     server, client, state, ri = rate
+    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": None, "comment": None}
+    post(client, ri)
+    (sql, params), = rating_writes(state)
+    assert saved(server, params, "status") == "accepted" and saved(server, params, "hold_reasons") is None
+    assert saved(server, params, "comment_check") == "allow"
+
+
+def test_an_old_removed_mark_no_longer_holds_an_edit(rate):
+    server, client, state, ri = rate
+    # A row marked by the old reject-comment, before the migration strips the mark.
     state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": "comment_removed"}
     post(client, ri)
     (sql, params), = rating_writes(state)
-    assert "held" in params and "comment_removed" in params
-
-
-def test_an_edit_without_a_comment_keeps_the_removed_mark(rate):
-    server, client, state, ri = rate
-    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": "comment_removed"}
-    post(client, ri, {"comment": ""})
-    (sql, params), = rating_writes(state)
-    # Accepted, but the next edit that adds a comment is still held.
-    assert "accepted" in params and "comment_removed" in params
+    assert saved(server, params, "status") == "accepted" and saved(server, params, "hold_reasons") is None

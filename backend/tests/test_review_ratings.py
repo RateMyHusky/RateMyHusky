@@ -200,6 +200,7 @@ def test_list_prints_each_waiting_comment_in_full(capsys):
     assert "Comments to review (1):" in out and "beef5678" in out and "y" * 300 in out
     assert "rating accepted" in out and "1 comments to review" in summary
     assert "not yet checked" in out
+    assert "approve-comment beef5678@2026-10-01" in out
 
 
 def test_list_shows_each_comments_check_and_puts_flagged_first(capsys):
@@ -218,15 +219,24 @@ def test_list_shows_each_comments_check_and_puts_flagged_first(capsys):
 
 def test_approve_comment_only_touches_waiting_comments():
     cur = FakeCursor({"UPDATE survey_ratings": [{"id": "abcd1234"}]})
-    rr.approve_comment(cur, "abcd1234")
+    rr.approve_comment(cur, "abcd1234@2026-10-01T00:00:00+00:00")
     (sql, params), = cur.calls
     assert "comment_status = 'approved'" in sql and "comment_status = 'pending'" in sql
-    assert "status = 'held'" not in sql and "updated_at" not in sql
+    assert "AND updated_at = %s::timestamptz" in sql
+    # Sets nothing else: updated_at stays put, so a later edit still waits for review.
+    assert "status = 'held'" not in sql
+    assert "SET comment_status = 'approved', comment_next_check_at = NULL WHERE" in sql
     # Off the moderation queue, so a run racing the approval can't hold the rating.
     assert "comment_next_check_at = NULL" in sql
-    assert params == ("abcd1234%",)
+    assert params == ("abcd1234%", "2026-10-01T00:00:00+00:00")
     with pytest.raises(rr.ReviewError):
-        rr.approve_comment(FakeCursor(), "abcd1234")
+        rr.approve_comment(FakeCursor(), "abcd1234@2026-10-01T00:00:00+00:00")
+
+
+def test_approve_comment_needs_the_version_list_printed():
+    for bad in ("abcd1234", "abcd1234@", "abcd1234@yesterday"):
+        with pytest.raises(rr.ReviewError):
+            rr.approve_comment(FakeCursor({"UPDATE survey_ratings": [{"id": "abcd1234"}]}), bad)
 
 
 def test_reject_comment_drops_the_text_and_keeps_the_rating():
@@ -234,7 +244,8 @@ def test_reject_comment_drops_the_text_and_keeps_the_rating():
     rr.reject_comment(cur, "abcd1234")
     (sql, params), = cur.calls
     assert sql.startswith("UPDATE") and "comment = NULL" in sql and "comment_status = NULL" in sql
-    assert "'comment_removed'" in sql and "comment_hash" not in sql
+    # The rating stays out of hold_reasons: a non-NULL one exempts it from the surge counts.
+    assert "hold_reasons" not in sql and "comment_hash" not in sql
     assert "comment_check = NULL" in sql and "comment_next_check_at = NULL" in sql
     assert "WHERE id::text LIKE %s AND comment_status = 'pending'" in sql and params == ("abcd1234%",)
     with pytest.raises(rr.ReviewError):
@@ -325,7 +336,7 @@ def test_remove_comment_finds_the_review_by_its_public_id(monkeypatch):
     (sql, params), = cur.statements("UPDATE")
     assert "comment = NULL" in sql and "comment_hash" not in sql and params == (target,)
     assert "comment_status = NULL" in sql
-    assert "'comment_removed'" in sql   # marks the row, so an edit bringing the comment back is held
+    assert "hold_reasons" not in sql   # a comment written again just waits in pending
     # Only a shown comment has a public id to report.
     assert "comment_status = 'approved'" in cur.calls[0][0]
 

@@ -221,7 +221,8 @@ def test_a_queue_block_holds_the_rating_and_keeps_the_comment(pg, fake_groq):
 def test_an_approval_takes_the_comment_off_the_queue(pg, fake_groq):
     rating_id = insert(pg, comment_next_check_at=NOW - timedelta(minutes=1))
     with pg.cursor(cursor_factory=RealDictCursor) as cur:
-        review_ratings.approve_comment(cur, rating_id[:8])
+        (listed,) = rows(pg, "SELECT updated_at FROM survey_ratings WHERE id = %s", (rating_id,))
+        review_ratings.approve_comment(cur, review_ratings.comment_version(rating_id, listed["updated_at"]))
     pg.commit()
     assert get(pg, rating_id)["comment_next_check_at"] is None
     groq = fake_groq("BLOCK")

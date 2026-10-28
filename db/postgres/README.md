@@ -259,9 +259,10 @@ Student comments wait for a reviewer before they show (`review_ratings.py
 approve-comment`), while the rating itself counts as soon as it is accepted.
 That added one nullable column: `pending` or `approved` when the rating has a
 comment, NULL when it has none. Run this before deploying the backend that
-reads it, or the professor page drops its student numbers and reviews and every
-rating fails on the missing column. Comments saved before it start as pending,
-since no one has read them. All three are rerunnable:
+reads it, or saving a rating fails on the missing column and the professor page
+loses its review cards (it keeps the last pipeline run's numbers). Comments
+saved before it start as pending, since no one has read them. All three are
+rerunnable; the UPDATE runs again after the deploy (below):
 
 ```sql
 ALTER TABLE public.survey_ratings ADD COLUMN IF NOT EXISTS comment_status TEXT NULL;
@@ -321,6 +322,33 @@ DO $$ BEGIN
         CHECK (outcome IN ('allow', 'review', 'block', 'unavailable'));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+```
+
+Once the new backend is live, run this. Until then the old backend keeps
+saving comments with no `comment_status` or `comment_check`, which `list`,
+`approve-comment` and the professor page never see, and keeps carrying an
+approval over to edited text; so approve no comments before this. It backfills
+those rows, adds the CHECK that keeps a comment and its status together, and
+strips the `comment_removed` mark the old `reject-comment` and `remove-comment`
+added: it held every later edit that carried a comment, and its non-NULL
+`hold_reasons` kept the rating out of the weekly surge counts for good. A
+rating held only for that mark stays held with no reason, for `approve-rating`.
+Rerunnable:
+
+```sql
+UPDATE public.survey_ratings SET comment_status = 'pending'
+    WHERE comment IS NOT NULL AND comment_status IS NULL;
+UPDATE public.survey_ratings SET comment_check = 'unchecked', comment_check_attempts = 0
+    WHERE comment IS NOT NULL AND comment_check IS NULL;
+DO $$ BEGIN
+    ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_comment_has_status
+        CHECK ((comment IS NULL) = (comment_status IS NULL));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+UPDATE public.survey_ratings
+    SET hold_reasons = NULLIF(array_to_string(array_remove(string_to_array(hold_reasons, ','),
+                                                           'comment_removed'), ','), '')
+    WHERE string_to_array(hold_reasons, ',') @> ARRAY['comment_removed'];
 ```
 
 ### Optional cleanup (destructive; take a backup first)

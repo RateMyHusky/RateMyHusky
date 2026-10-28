@@ -21,9 +21,7 @@ def test_quick_edit_of_an_accepted_rating_is_not_too_fast():
     assert rc.assess(2, "campus", [], False, edit=True) == ("held", ["too_fast"])
 
 
-def test_a_comment_brought_back_after_removal_is_held():
-    assert rc.assess(30, "campus", [], False, edit=True, comment_removed=True) == (
-        "held", ["comment_removed"])
+def test_an_edit_still_needs_a_timer():
     assert rc.assess(None, "campus", [], False, edit=True) == ("held", ["no_timer"])
 
 

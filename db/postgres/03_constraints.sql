@@ -106,6 +106,8 @@ ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_difficulty CHECK (
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_status CHECK (status IN ('accepted', 'held'));
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_comment_status
     CHECK (comment_status IN ('pending', 'approved'));
+ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_comment_has_status
+    CHECK ((comment IS NULL) = (comment_status IS NULL));
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_comment_check
     CHECK (comment_check IN ('unchecked', 'allow', 'review'));
 CREATE INDEX survey_ratings_check_due ON public.survey_ratings (comment_next_check_at)

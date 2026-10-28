@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from survey_reviews import comment_count, live_summary_rows, public_id, shape_reviews, when
+from survey_reviews import comment_count, fetch_rows, live_summary_rows, public_id, shape_reviews, when
 
 CREATED = datetime(2025, 12, 1, tzinfo=timezone.utc)
 UUID = uuid.UUID("12345678-1234-5678-1234-567812345678")
@@ -12,7 +12,7 @@ UUID = uuid.UUID("12345678-1234-5678-1234-567812345678")
 def row(**kw):
     base = {"id": uuid.uuid4(), "course_code": "PHIL2325", "term_label": "Fall 2025", "term_enrollment": 40, "terms_in_year": 2,
             "rating": 4, "comment": "Good.", "created_at": CREATED,
-            "updated_at": datetime(2026, 10, 20, tzinfo=timezone.utc)}
+            "updated_at": datetime(2026, 10, 20, tzinfo=timezone.utc), "hold_reasons": None}
     return {**base, **kw}
 
 
@@ -94,3 +94,21 @@ def test_live_summary_rows_are_the_professor_and_course_rows_with_names():
         assert r["num_comments"] == 1 and r["difficulty"] == 3.0 and r["num_difficulty"] == 1
         assert r["hours_per_week"] == 2.25 and r["grade_distribution"] == {"A": 1}
     assert live_summary_rows([]) == []
+
+
+def test_fetch_rows_leaves_out_a_weekly_surge_the_pipeline_would_hold():
+    # A drip under the route's hourly and daily caps: 41 one-star ratings in a week on one
+    # professor. Before the weekly run holds them they must not move the live page.
+    from datetime import timedelta
+    from pipeline.survey import WEEKLY_SURGE_PROF
+    now = datetime(2026, 10, 28, 12, tzinfo=timezone.utc)
+    recent = [row(professor_slug="p", rating=1, updated_at=now - timedelta(hours=i)) for i in range(WEEKLY_SURGE_PROF + 1)]
+    approved = row(professor_slug="p", rating=5, updated_at=now, hold_reasons="weekly_surge")  # a reviewer let it through
+    old = row(professor_slug="p", rating=5, updated_at=now - timedelta(days=30))
+    seen = []
+    kept = fetch_rows("p", lambda sql, params: seen.append(sql) or [*recent, approved, old], now=now)
+    assert "r.hold_reasons" in seen[0]
+    assert kept == [approved, old]
+    # At the limit nothing is left out.
+    kept = fetch_rows("p", lambda sql, params: recent[:WEEKLY_SURGE_PROF], now=now)
+    assert len(kept) == WEEKLY_SURGE_PROF
