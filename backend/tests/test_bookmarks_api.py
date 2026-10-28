@@ -18,7 +18,7 @@ TEST_SECRET = "test-secret-0123456789abcdefghijklmnop"  # >=32 bytes for HS256  
 def make_token(sub="user-123", expired=False):
     delta = datetime.timedelta(days=-1 if expired else 7)
     return jwt.encode(
-        {"sub": sub, "email": "t@husky.neu.edu",
+        {"sub": sub, "email": "t@husky.neu.edu", "iss": "ratemyhusky", "aud": "ratemyhusky-web",
          "exp": datetime.datetime.now(datetime.timezone.utc) + delta},
         TEST_SECRET, algorithm="HS256",
     )
@@ -184,3 +184,12 @@ def test_delete_invalid_type_is_400(bm_client):
                          headers=auth_headers())
     assert resp.status_code == 400
     assert state["writes"] == []
+
+
+@pytest.mark.parametrize("body", [[1, 2], "text", 5, {"itemType": 5, "itemKey": "x"},
+                                  {"itemType": "professor", "itemKey": None}])
+def test_odd_bodies_are_a_400_not_a_500(bm_client, body):
+    client, state = bm_client
+    for method in (client.post, client.delete):
+        resp = method("/api/bookmarks", json=body, headers=auth_headers())
+        assert resp.status_code == 400, (method, body)

@@ -49,27 +49,55 @@ def test_unset_pattern_blocks_previews(server_mod, monkeypatch):
         assert resp is not None and resp[1] == 403
 
 
+def _flow_cookie(server_mod, resp):
+    """The Set-Cookie header of the sign-in's own auth_flow_<state> cookie."""
+    cookies = [c for c in resp.headers.getlist("Set-Cookie") if c.startswith(server_mod.AUTH_FLOW_COOKIE)]
+    assert len(cookies) == 1
+    return cookies[0]
+
+
 def test_login_from_preview_uses_preview_redirect(server_mod):
     client = server_mod.app.test_client()
     resp = client.get("/api/auth/google?popup=1", headers={"Referer": PREVIEW + "/courses"})
     assert resp.status_code == 302
     assert "redirect_uri=" + "https%3A%2F%2Frate-my-husky-abc123" in resp.headers["Location"]
-    assert any(c.startswith("auth_origin=" + PREVIEW) for c in resp.headers.getlist("Set-Cookie"))
+    assert PREVIEW in _flow_cookie(server_mod, resp)
 
 
 def test_login_from_prod_unchanged(server_mod):
     client = server_mod.app.test_client()
     resp = client.get("/api/auth/google?popup=1", headers={"Referer": "https://ratemyhusky.com/"})
     assert "redirect_uri=https%3A%2F%2Fratemyhusky.com%2Fapi" in resp.headers["Location"]
-    assert not any(c.startswith("auth_origin=") for c in resp.headers.getlist("Set-Cookie"))
+    assert "origin" not in _flow_cookie(server_mod, resp)
 
 
-@pytest.mark.parametrize("cookie,expected", [
-    (PREVIEW, PREVIEW),
-    ("https://evil.example", "https://ratemyhusky.com"),
-    ("", "https://ratemyhusky.com"),
+@pytest.mark.parametrize("flow,expected", [
+    ({"origin": PREVIEW}, PREVIEW),
+    ({"origin": "https://evil.example"}, "https://ratemyhusky.com"),
+    ({"origin": ["x"]}, "https://ratemyhusky.com"),
+    ({}, "https://ratemyhusky.com"),
+    (None, "https://ratemyhusky.com"),
 ])
-def test_callback_rechecks_cookie(server_mod, cookie, expected):
-    headers = {"Cookie": f"auth_origin={cookie}"} if cookie else {}
-    with server_mod.app.test_request_context("/api/auth/google/callback", headers=headers):
-        assert server_mod._callback_frontend() == expected
+def test_callback_rechecks_cookie(server_mod, flow, expected):
+    # The sign-in's own cookie is client-held, so its origin is re-checked.
+    assert server_mod._callback_frontend(flow) == expected
+
+
+def test_preview_sign_in_returns_to_the_preview(server_mod, monkeypatch):
+    from urllib.parse import parse_qs, urlparse
+
+    class Resp:
+        def __init__(self, body):
+            self.status_code, self._body = 200, body
+
+        def json(self):
+            return self._body
+
+    monkeypatch.setattr(server_mod.http_requests, "post", lambda *a, **k: Resp({"access_token": "at"}))
+    monkeypatch.setattr(server_mod.http_requests, "get", lambda *a, **k: Resp(
+        {"id": "u1", "email": "t@husky.neu.edu", "name": "T", "hd": "husky.neu.edu"}))
+    client = server_mod.app.test_client()
+    resp = client.get("/api/auth/google?returnTo=/courses", headers={"Referer": PREVIEW + "/courses"})
+    state = parse_qs(urlparse(resp.headers["Location"]).query)["state"][0]
+    resp = client.get(f"/api/auth/google/callback?code=c&state={state}")
+    assert resp.headers["Location"].startswith(PREVIEW + "/courses#auth_token=")

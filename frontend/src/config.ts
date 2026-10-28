@@ -1,7 +1,8 @@
 // Ask is disabled while it's being improved (backend mirror: CHAT_ENABLED=false on Railway).
 // Before flipping it back on, update the Privacy Policy and Terms: neither mentions Ask. It
-// logs each question with a session token and hashed IP (ask_log) and sends questions to
-// Groq, which isn't in either document's third-party list.
+// logs each question with the account id and hashed IP (ask_log, deleted after 30 days:
+// ASK_LOG_RETENTION_DAYS in server.py) and sends questions to Groq, which isn't in either
+// document's third-party list. While Ask is off, nothing is logged.
 // Flipping this back to true restores the search-bar Ask mode, the homepage "Try Now"
 // bubble, and Ask session restore — no other code changes needed.
 export const ASK_ENABLED = false;

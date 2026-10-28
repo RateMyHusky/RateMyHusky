@@ -143,7 +143,7 @@ const Privacy = () => {
                 Google OAuth handshake, short-lived <code>httpOnly</code> cookies are used
                 to carry the flow; once complete, the resulting JWT is stored in your
                 browser's <code>localStorage</code> and the handshake cookies are cleared.
-                The token expires automatically after 30 days. RateMyHusky does not maintain
+                The token expires automatically after 7 days. RateMyHusky does not maintain
                 user accounts or profiles; the only per-user data we store server-side is your
                 bookmarks{RATE_ENABLED ? ' and your ratings (which are pseudonymous)' : ''}, described below.
               </p>

@@ -203,6 +203,15 @@ const SOURCE_LABELS: Record<string, string> = { rmp: 'RMP' };
 /* A review's course as the backend groups it (whitespace stripped, uppercased); codes the backend rejects never appear in courses[]. */
 const courseCode = (raw: string) => raw.replace(/\s+/g, '').toUpperCase();
 
+// Links built from scraped data: absolute http(s) only, so a javascript:/data: URL
+// in the data can never become a clickable href.
+const safeHttpUrl = (url: string | null | undefined): string | undefined => {
+  if (!url) return undefined;
+  try {
+    return ['http:', 'https:'].includes(new URL(url).protocol) ? url : undefined;
+  } catch { return undefined; }
+};
+
 const STARS = ['5', '4', '3', '2', '1'] as const;
 const emptyDistribution = (): RatingDistribution => ({ '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 });
 
@@ -536,9 +545,7 @@ const Professor = () => {
   const safeRedditUrl = (url: string | null): string | null => {
     if (!url) return null;
     if (url.startsWith('/')) return `https://www.reddit.com${url}`;
-    try {
-      return ['http:', 'https:'].includes(new URL(url).protocol) ? url : null;
-    } catch { return null; }
+    return safeHttpUrl(url) ?? null;
   };
 
   const courseOptions = useMemo(
@@ -597,6 +604,7 @@ const Professor = () => {
   const rmp = profile.sources.rmp;
   // A selection of courses no one has rated has nothing to chart either.
   const noRatings = stats.numRatings === 0;
+  const rmpUrl = safeHttpUrl(rmp.professorUrl);
   // `?? []`: a payload cached before awards shipped has no key.
   const awards = profile.awards ?? [];
 
@@ -625,7 +633,7 @@ const Professor = () => {
       ...(identity.department ? { knowsAbout: identity.department } : {}),
       url: profCanonical,
       ...(identity.imageUrl ? { image: identity.imageUrl } : {}),
-      ...(rmp.professorUrl ? { sameAs: [rmp.professorUrl] } : {}),
+      ...(rmpUrl ? { sameAs: [rmpUrl] } : {}),
       ...(awards.length ? { award: awards.map(a => `${a.award}, ${a.awardingBody} (${a.yearLabel})`) } : {}),
       // schema.org Person does not support aggregateRating (Google rejects it
       // as an invalid object type in Rich Results), so it is intentionally omitted.
@@ -781,7 +789,7 @@ const Professor = () => {
                   <li key={a.award}>
                     <a
                       className="prof-award"
-                      href={a.sourceUrl}
+                      href={safeHttpUrl(a.sourceUrl)}
                       target="_blank"
                       rel="noopener noreferrer"
                       title={`${a.award}, ${a.awardingBody}, ${years.join(', ')}. Opens the latest announcement.`}
@@ -893,8 +901,8 @@ const Professor = () => {
         >
           Compare
         </Link>
-        {rmp.professorUrl && (
-          <a href={rmp.professorUrl} target="_blank" rel="noreferrer" className="prof-rmp-btn">
+        {rmpUrl && (
+          <a href={rmpUrl} target="_blank" rel="noreferrer" className="prof-rmp-btn">
             View on RMP →
           </a>
         )}

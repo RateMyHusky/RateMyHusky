@@ -26,6 +26,15 @@
       ]
     },
     {
+      "source": "/((?!maintenance\\.html).*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy-Report-Only",
+          "value": "default-src 'self'; script-src 'self' 'sha256-6gqNajBpcvwkyDT+BIH9blnc9Jq9KGEwqsxOk+/F1b0=' 'sha256-EamhYXc+/2fXDZS5pRyTGfemym+7y95VUX+H1Ol2GmE=' https://www.googletagmanager.com https://*.googlesyndication.com https://*.doubleclick.net https://*.google.com https://*.gstatic.com https://*.adtrafficquality.google https://challenges.cloudflare.com; connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com https://*.googlesyndication.com https://*.doubleclick.net https://*.google.com https://*.adtrafficquality.google https://challenges.cloudflare.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; frame-src https://challenges.cloudflare.com https://*.googlesyndication.com https://*.doubleclick.net https://*.google.com https://*.adtrafficquality.google; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; report-uri /api/csp-report"
+        }
+      ]
+    },
+    {
       "source": "/photos/(.*)",
       "headers": [
         {

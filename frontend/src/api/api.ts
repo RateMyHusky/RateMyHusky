@@ -283,12 +283,15 @@ export type ChatResponse =
    the 401 body and the various 200 modes. Returns a synthetic error on network failure so the
    caller never has to try/catch. */
 export async function askChat(q: string): Promise<{ status: number; body: ChatResponse }> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = localStorage.getItem('auth_token');
   if (token) headers['Authorization'] = `Bearer ${token}`;
   try {
-    const res = await fetch(`${API_BASE}/api/chat?mode=question&q=${encodeURIComponent(q)}`, {
+    // POST, not a query string, so the question stays out of server access logs.
+    const res = await fetch(`${API_BASE}/api/chat`, {
+      method: 'POST',
       headers,
+      body: JSON.stringify({ q }),
       cache: 'no-cache',
     });
     if (maintenanceGuard(res)) throw new Error('Site is under maintenance');

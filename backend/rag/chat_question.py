@@ -179,9 +179,8 @@ def handle_question(q, session_token, ip_hash, deps):
         log_ask(deps.log_fn, q, "question", professor_slug, result_status,
                 retrieved_count, answer_text, tokens_used, ms, session_token, ip_hash, flagged)
 
-    # 1. Kill switch
+    # 1. Kill switch. Not logged: with Ask off, nothing a user sends is stored.
     if not deps.chat_enabled:
-        _log("kill_switch")
         return {"mode": "error", "message": "The question feature is temporarily disabled."}, 503
 
     # 2. Abuse ban/cap
@@ -457,8 +456,9 @@ def selftest():
 
     # kill switch
     d = Deps(); d.chat_enabled = False
+    n_logged = len(logged)
     payload, code = handle_question("is guha hard", "s", "iphash", d)
-    check("kill switch -> 503 + status", code == 503 and logged[-1][_status_idx()] == "kill_switch")
+    check("kill switch -> 503, nothing logged", code == 503 and len(logged) == n_logged)
 
     # off-topic gate trip -> refusal logged as off_topic (a strike)
     d2 = Deps()

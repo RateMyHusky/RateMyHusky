@@ -65,7 +65,7 @@ const Terms = () => {
               </p>
               <p>
                 This information is encoded in a JWT (JSON Web Token) that is stored in your
-                browser's <code>localStorage</code>. The token expires after 30 days.
+                browser's <code>localStorage</code>. The token expires after 7 days.
                 RateMyHusky does not maintain user accounts or profiles. The only per-user data
                 we store server-side is your bookmarks{RATE_ENABLED ? ' and your pseudonymous ratings' : ''}, described
                 below and in our <a href="/privacy">Privacy Policy</a>. Signing out deletes the

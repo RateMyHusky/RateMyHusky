@@ -52,3 +52,19 @@ def test_usage_alert_tier_is_claimed_once_per_utc_day(live_server, pg):
             "SELECT alert_date = (now() AT TIME ZONE 'UTC')::date AS utc_today "
             "FROM usage_alerts WHERE tier = 50")
     assert row["utc_today"] is True
+
+
+def test_ask_log_purge_deletes_only_rows_past_retention(live_server, pg, monkeypatch):
+    # _chat_write swallows SQL errors, so only the remaining rows show the DELETE ran.
+    truncate(pg, "ask_log")
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO ask_log (query, mode, result_status, created_at) VALUES "
+                    "('old', 'question', 'ok', now() - interval '31 days'), "
+                    "('new', 'question', 'ok', now() - interval '29 days')")
+    pg.commit()
+    monkeypatch.setitem(live_server._ask_log_purge, "last", 0.0)
+    live_server._purge_ask_log_job()
+    with pg.cursor() as cur:
+        cur.execute("SELECT query FROM ask_log")
+        assert [r[0] for r in cur.fetchall()] == ["new"]
+    pg.commit()

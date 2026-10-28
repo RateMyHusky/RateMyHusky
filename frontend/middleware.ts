@@ -21,6 +21,9 @@
 
 import maintenance from './maintenance.config.json';
 
+// Share of CSP violation reports forwarded to the backend's /api/csp-report.
+const CSP_REPORT_SAMPLE = 0.1;
+
 // Skip the maintenance page itself, the assets it needs, crawler/AdSense
 // files, Vercel internals (analytics beacons, etc.), and professor photo
 // thumbnails (a catalog page loads dozens; each would be a middleware call).
@@ -131,7 +134,9 @@ async function proxyToBackend(request: Request, url: URL): Promise<Response> {
   // Railway appends the Vercel edge's own address to X-Forwarded-For, so the
   // last entry is Vercel, not the student. Vercel overwrites x-real-ip, so
   // pass it on as the one client IP the backend trusts; drop any client copy.
+  // No Cloudflare sits in front of us, so a CF-Connecting-IP is always client-sent.
   headers.delete('x-rmh-client-ip');
+  headers.delete('cf-connecting-ip');
   const clientIp = request.headers.get('x-real-ip');
   if (clientIp) headers.set('x-rmh-client-ip', clientIp);
 
@@ -176,16 +181,24 @@ const STATIC_RENDER: Record<string, string> = {
   '/departments': '/render/departments',
 };
 
-async function fetchSnapshot(pathname: string): Promise<Response | undefined> {
+// Headers for a snapshot fetch: the proxy key, and the crawler's IP so the backend
+// rate-limits each crawler on its own rather than all of them as Vercel's address.
+function snapshotHeaders(clientIp: string | null): Headers {
+  const headers = new Headers();
+  const proxyKey = process.env.PROXY_SECRET;
+  if (proxyKey) headers.set('x-proxy-key', proxyKey);
+  if (clientIp) headers.set('x-rmh-client-ip', clientIp);
+  return headers;
+}
+
+async function fetchSnapshot(pathname: string, clientIp: string | null): Promise<Response | undefined> {
   const origin = process.env.RAILWAY_ORIGIN;
   if (!origin) return undefined;
 
   // Exact-match home/listing routes (no slug → no SSRF decoding needed).
   const staticTarget = STATIC_RENDER[pathname];
   if (staticTarget) {
-    const headers = new Headers();
-    const proxyKey = process.env.PROXY_SECRET;
-    if (proxyKey) headers.set('x-proxy-key', proxyKey);
+    const headers = snapshotHeaders(clientIp);
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 4000);
@@ -218,9 +231,7 @@ async function fetchSnapshot(pathname: string): Promise<Response | undefined> {
   }
   const kind = m[1] === 'professors' ? 'professors' : m[1] === 'courses' ? 'courses' : 'departments';
   const target = new URL(`/render/${kind}/${slug}`, origin);
-  const headers = new Headers();
-  const proxyKey = process.env.PROXY_SECRET;
-  if (proxyKey) headers.set('x-proxy-key', proxyKey);
+  const headers = snapshotHeaders(clientIp);
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4000);
@@ -280,6 +291,12 @@ export default async function middleware(request: Request): Promise<Response | u
     return new Response(null, { status: 302, headers });
   }
 
+  // Report-only CSP violations (vercel.json's report-uri): a pageview with ads can
+  // send several, so only a sample reaches Railway; the rest end here.
+  if (url.pathname === '/api/csp-report' && Math.random() >= CSP_REPORT_SAMPLE) {
+    return new Response(null, { status: 204 });
+  }
+
   // Feedback stays open during maintenance (the page has its own form);
   // it's Turnstile-verified and rate-limited server-side. Previews keep it
   // gated (their page hides the form).
@@ -310,7 +327,7 @@ export default async function middleware(request: Request): Promise<Response | u
     isCrawler(request.headers.get('user-agent') || '') &&
     (DETAIL_RE.test(url.pathname) || url.pathname in STATIC_RENDER)
   ) {
-    const snapshot = await fetchSnapshot(url.pathname);
+    const snapshot = await fetchSnapshot(url.pathname, request.headers.get('x-real-ip'));
     if (snapshot) {
       return new Response(snapshot.body, {
         status: snapshot.status,

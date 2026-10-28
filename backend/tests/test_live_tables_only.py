@@ -95,6 +95,7 @@ def _get_paths():
 
 def test_no_route_errors_on_the_live_tables(client):
     token = jwt.encode({"sub": "u1", "email": "t@husky.neu.edu", "name": "T",
+                        "iss": "ratemyhusky", "aud": "ratemyhusky-web",
                         "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)},
                        TEST_SECRET, algorithm="HS256")
     failures = []

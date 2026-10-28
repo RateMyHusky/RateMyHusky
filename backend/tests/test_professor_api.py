@@ -16,7 +16,7 @@ TEST_SECRET = "test-secret-0123456789abcdefghijklmnop"  # gitleaks:allow
 
 
 def _token():
-    return jwt.encode({"sub": "u1", "email": "t@husky.neu.edu",
+    return jwt.encode({"sub": "u1", "email": "t@husky.neu.edu", "iss": "ratemyhusky", "aud": "ratemyhusky-web",
                        "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)},
                       TEST_SECRET, algorithm="HS256")
 
@@ -136,7 +136,7 @@ def _spy_cache(monkeypatch, payload):
 
 
 def test_failed_history_payload_is_served_but_not_cached(client, monkeypatch):
-    sets = _spy_cache(monkeypatch, {"version": 2, "_partial": True})
+    sets = _spy_cache(monkeypatch, {"version": 2, "identity": {"slug": "olin-guha"}, "_partial": True})
     resp = client.get("/api/professors/olin-guha/full")
     assert resp.status_code == 200
     assert "_partial" not in resp.get_json()
@@ -145,7 +145,7 @@ def test_failed_history_payload_is_served_but_not_cached(client, monkeypatch):
 
 
 def test_clean_payload_is_cached(client, monkeypatch):
-    sets = _spy_cache(monkeypatch, {"version": 2})
+    sets = _spy_cache(monkeypatch, {"version": 2, "identity": {"slug": "olin-guha"}})
     resp = client.get("/api/professors/olin-guha/full")
     assert resp.status_code == 200
     assert sets == ["prof_full:olin-guha"]
