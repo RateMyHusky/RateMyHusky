@@ -17,6 +17,8 @@ EDIT_MIN_FILL_SECONDS = 3
 MAX_FILL_SECONDS = 7200
 MAX_COMMENT = 2000
 MIN_DUPLICATE_CHARS = 20
+NEAR_DUPLICATE = 0.5
+SHINGLE_WORDS = 3
 COURSE_CODE_RE = re.compile(r"^[A-Z]{2,5}\d{4}[A-Z]?$", re.ASCII)
 # label_code alone would also accept "Summer Full", which is never a valid label.
 TERM_RE = re.compile(r"^(Fall|Spring|Summer 1|Summer 2|Summer|Winter) (\d{4})$", re.ASCII)
@@ -149,6 +151,25 @@ def comment_hash(text):
     return hashlib.sha256(norm.encode()).hexdigest()
 
 
+def _shingles(text):
+    words = normalize_comment(text).split()
+    if len(words) < SHINGLE_WORDS:
+        return {tuple(words)} if words else set()
+    return {tuple(words[i:i + SHINGLE_WORDS]) for i in range(len(words) - SHINGLE_WORDS + 1)}
+
+
+def similarity(a, b):
+    """Jaccard overlap, 0.0 to 1.0, of the word 3-grams of two comments. A copy with a
+    word prepended or a character tacked on still scores high where an exact hash
+    doesn't. NEAR_DUPLICATE was set on the Razzaq bomb (21 copies, each at least
+    0.86 to another) against per-professor RMP pairs (67 of 840K at 0.5, mostly
+    verbatim reposts)."""
+    sa, sb = _shingles(a), _shingles(b)
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
 def moderate(comment, score=moderation.score_texts):
     """None for an empty comment, else "allow" | "review" | "block", or
     "unavailable" when the scorer fails for any reason."""
@@ -161,7 +182,8 @@ def moderate(comment, score=moderation.score_texts):
 
 
 def assess(fill_seconds, network_type, bursts, duplicate_comment, moderation_action, edit=False,
-           unverified_pair=False, comment_removed=False):
+           unverified_pair=False, comment_removed=False, near_duplicate=False, skew_week=False,
+           silent_hold=False):
     """("rejected", [...]) | ("held", reasons) | ("accepted", []).
 
     edit: this replaces an accepted rating. The form prefills the earlier answers,
@@ -169,6 +191,9 @@ def assess(fill_seconds, network_type, bursts, duplicate_comment, moderation_act
     unverified_pair: neither Banner nor RMP has this professor teaching this course.
     comment_removed: this brings a comment back to a rating whose comment a
     reviewer took down, so it waits for review.
+    near_duplicate: the comment closely matches another rating's (see similarity).
+    skew_week: a run of same-direction ratings has landed on this professor this week.
+    silent_hold: the submitter's earlier ratings are already held, so this one is too.
     """
     if moderation_action == "block":
         return "rejected", ["moderation_block"]
@@ -182,14 +207,20 @@ def assess(fill_seconds, network_type, bursts, duplicate_comment, moderation_act
     if network_type == "datacenter":
         reasons.append("datacenter")
     reasons.extend(bursts)
+    if skew_week:
+        reasons.append("skew_week")
     if unverified_pair:
         reasons.append("unverified_pair")
     if duplicate_comment:
         reasons.append("duplicate_comment")
+    if near_duplicate:
+        reasons.append("near_duplicate")
     if comment_removed:
         reasons.append("comment_removed")
     if moderation_action == "review":
         reasons.append("moderation_review")
     elif moderation_action == "unavailable":
         reasons.append("moderation_unavailable")
+    if silent_hold:
+        reasons.append("silent_hold")
     return ("held", reasons) if reasons else ("accepted", [])

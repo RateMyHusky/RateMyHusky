@@ -9,6 +9,7 @@ timezone-aware UTC datetime.
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import rating_checks
 from prof_aliases import rmp_link_key
 
 # The burst thresholds count prior ratings in the window: the route counts before it saves.
@@ -22,6 +23,12 @@ IP_BURST = 10  # prior ratings from one IP hash in an hour
 PREFIX_BURST = 25  # prior ratings from one /24 or /64 hash in an hour
 COUNTER_MIN = 25  # the "huskies this term" counter is hidden below this
 IP_HASH_DAYS = 30
+NEAR_DUPLICATE_DAYS = 30  # how far back a comment can be a near copy of one on the same professor
+# skew_week thresholds are starting values to tune against real traffic.
+SKEW_DAYS = 7  # the window of new-device ratings for one professor
+SKEW_MIN_RATINGS = 8  # at least this many in it, counting the new one
+SKEW_DROP = 1.5  # ...averaging this far below the professor's blended mean
+SKEW_MAX_STDEV = 1.0  # ...and agreeing this tightly (population stdev)
 TERM_START_MONTHS = (1, 5, 9)
 
 # Every survey_ratings column except created_at / updated_at.
@@ -151,6 +158,82 @@ def duplicate_comment(comment_hash, exclude_id, query_one):
         "SELECT 1 FROM survey_ratings WHERE comment_hash = %s AND id IS DISTINCT FROM %s LIMIT 1",
         (comment_hash, exclude_id))
     return row is not None
+
+
+def near_duplicate_ids(comment, key, exclude_id, query, now):
+    """Ids of the professor's ratings from the last NEAR_DUPLICATE_DAYS whose comment
+    is a near copy of this one, held and accepted alike. Any course: a template gets
+    reused across a professor's courses. Short comments never match."""
+    if len(rating_checks.normalize_comment(comment or "")) < rating_checks.MIN_DUPLICATE_CHARS:
+        return []
+    rows = query(
+        f"SELECT id, comment FROM survey_ratings WHERE {_PROF_MATCH} AND created_at >= %s "
+        "AND comment IS NOT NULL AND id IS DISTINCT FROM %s",
+        (*_key_params(key)[:2], now - timedelta(days=NEAR_DUPLICATE_DAYS), exclude_id))
+    return [str(r["id"]) for r in rows
+            if rating_checks.similarity(comment, r["comment"]) >= rating_checks.NEAR_DUPLICATE]
+
+
+def hold_matches(ids, reason, write):
+    """Hold the accepted rows among `ids` for `reason`, and add it to held rows that
+    don't list it. A row a reviewer approved keeps its hold_reasons, so
+    `hold_reasons IS NULL` leaves approvals alone. All on one professor, whose
+    page the route already drops, so there is nothing to return."""
+    if not ids:
+        return
+    write(
+        "UPDATE survey_ratings SET status = 'held', hold_reasons = %s "
+        "WHERE status = 'accepted' AND hold_reasons IS NULL AND id::text = ANY(%s)",
+        (reason, ids))
+    write(
+        "UPDATE survey_ratings SET hold_reasons = hold_reasons || %s "
+        "WHERE status = 'held' AND hold_reasons IS NOT NULL AND id::text = ANY(%s) "
+        "AND NOT (%s = ANY(string_to_array(hold_reasons, ',')))",
+        ("," + reason, ids, reason))
+
+
+# The week's new-device ratings as count, sum and sum of squares. A row a reviewer
+# approved keeps its hold_reasons, so it is left out and can't re-trip the check.
+_SKEW_WEEK_SQL = (
+    "SELECT count(*) AS n, COALESCE(sum(rating), 0) AS total, "
+    "COALESCE(sum(rating * rating), 0) AS squares FROM survey_ratings "
+    f"WHERE {_PROF_MATCH} AND new_device = true AND created_at >= %s "
+    "AND NOT (status = 'accepted' AND hold_reasons IS NOT NULL)")
+
+
+def skew_week(key, rating, new_device, query_one, now):
+    """True when the professor's last SKEW_DAYS of new-device ratings, with this one,
+    are at least SKEW_MIN_RATINGS, average SKEW_DROP below the professor's
+    blended mean (professors_catalog.avg_rating, so RMP carries it in the first
+    weeks) and have a population stdev under SKEW_MAX_STDEV: a slow drip the
+    hourly bursts miss. Approved rows don't count: a reviewer-approved week would
+    otherwise re-trip on every later rating. A returning device, a pending
+    professor and a professor with no prior make no check."""
+    if not new_device or not key["professor_slug"]:
+        return False
+    week = query_one(_SKEW_WEEK_SQL, (*_key_params(key)[:2], now - timedelta(days=SKEW_DAYS)))
+    n = (week["n"] if week else 0) + 1
+    if n < SKEW_MIN_RATINGS:
+        return False
+    prior = query_one("SELECT avg_rating FROM professors_catalog WHERE slug = %s", (key["professor_slug"],))
+    if not prior or prior["avg_rating"] is None:
+        return False
+    # sum(bigint) is a Decimal and avg_rating a float, so convert before mixing them.
+    total, squares = float(week["total"]) + rating, float(week["squares"]) + rating * rating
+    mean = total / n
+    variance = max(squares / n - mean * mean, 0)
+    return prior["avg_rating"] - mean >= SKEW_DROP and variance ** 0.5 < SKEW_MAX_STDEV
+
+
+def hold_skew_week(key, write, now):
+    """Hold the professor's unreviewed new-device ratings from the last SKEW_DAYS
+    for skew_week. All on one professor, whose page the route already drops, so
+    there is nothing to return."""
+    write(
+        "UPDATE survey_ratings SET status = 'held', hold_reasons = 'skew_week' "
+        "WHERE status = 'accepted' AND hold_reasons IS NULL AND new_device = true "
+        f"AND created_at >= %s AND {_PROF_MATCH}",
+        (now - timedelta(days=SKEW_DAYS), *_key_params(key)[:2]))
 
 
 def _paced(row, hour, month, limit):

@@ -251,3 +251,57 @@ def test_apply_surge_holds_holds_only_unreviewed_accepted_rows(pg):
     assert held == [{"device_hash": "d1", "hold_reasons": "weekly_surge"},
                     {"device_hash": "d3", "hold_reasons": "weekly_surge"}]
     assert survey.apply_surge_holds(pg, set()) == 0
+
+
+def test_hold_matches_holds_accepted_appends_held_and_skips_approved(pg):
+    import ratings
+
+    insert(pg, "d1", "jane-doe", None, "CS2500", None)  # accepted, no reasons
+    insert(pg, "d2", "jane-doe", None, "CS2500", None, status="held")
+    insert(pg, "d3", "jane-doe", None, "CS2500", None)  # approved by a reviewer
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET hold_reasons = 'no_timer' WHERE device_hash = 'd2'")
+        cur.execute("UPDATE survey_ratings SET hold_reasons = 'burst_prof' WHERE device_hash = 'd3'")
+    pg.commit()
+    ids = [r["id"] for r in rows(pg, "SELECT id FROM survey_ratings")]
+    write = pg_write(pg)
+
+    def state():
+        return {r["device_hash"]: (r["status"], r["hold_reasons"])
+                for r in rows(pg, "SELECT device_hash, status, hold_reasons FROM survey_ratings")}
+
+    expected = {"d1": ("held", "near_duplicate"), "d2": ("held", "no_timer,near_duplicate"),
+                "d3": ("accepted", "burst_prof")}
+    ratings.hold_matches(ids, "near_duplicate", write)
+    assert state() == expected
+    ratings.hold_matches(ids, "near_duplicate", write)
+    assert state() == expected
+
+
+def test_skew_week_aggregate_and_hold_back(pg):
+    import ratings
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    truncate(pg, "professors_catalog")
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professors_catalog (slug, name, name_key, avg_rating) "
+                    "VALUES ('jane-doe', 'Jane Doe', 'jane doe', 4.2)")
+    for i in range(7):
+        insert(pg, f"d{i}", "jane-doe", None, "CS2500", None, rating=1 + i % 2)
+    insert(pg, "old", "jane-doe", None, "CS2500", None, rating=1)
+    insert(pg, "approved", "jane-doe", None, "CS2500", None, rating=1)
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET created_at = now() - interval '9 days' "
+                    "WHERE device_hash = 'old'")
+        cur.execute("UPDATE survey_ratings SET hold_reasons = 'burst_prof' "
+                    "WHERE device_hash = 'approved'")
+    pg.commit()
+    key = {"professor_slug": "jane-doe", "pending_professor_id": None,
+           "course_code": "CS2500", "pending_course_id": None}
+    assert ratings.skew_week(key, 1, True, pg_query_one(pg), now) is True
+    ratings.hold_skew_week(key, pg_write(pg), now)
+    held = [r["device_hash"] for r in rows(
+        pg, "SELECT device_hash FROM survey_ratings WHERE hold_reasons = 'skew_week'")]
+    assert sorted(held) == [f"d{i}" for i in range(7)]
+
