@@ -20,7 +20,7 @@ import math
 import sys
 import time
 from collections import Counter
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from itertools import combinations
 
 import requests
@@ -30,10 +30,11 @@ from pipeline.db import connect
 from rag.key_pool import KeyPool, load_entries
 from pipeline.read_models import DATA_VERSION_SQL
 from rag.llm_adapter import is_daily_limit, seconds_until_utc_midnight
+import course_typos
 import ratings
 from rating_checks import (APPROVABLE, APPROVABLE_IF_VARIED, MIN_DUPLICATE_CHARS, NEAR_DUPLICATE,
                            normalize_comment, similarity)
-from review_ratings import ReviewError, approve_rating
+from review_ratings import ReviewError, approve_rating, merge_course
 
 MODEL = "openai/gpt-oss-20b"
 GROUP_REASONS = APPROVABLE_IF_VARIED | {"near_duplicate"}
@@ -374,10 +375,103 @@ def review_held(cur, ask, dry_run=False):
     return counts
 
 
+PENDING_COURSES_SQL = (
+    "SELECT pc.id::text AS id, pc.code FROM survey_pending_courses pc WHERE pc.status = 'pending' "
+    "ORDER BY pc.created_at")
+COURSE_RATINGS_SQL = "SELECT professor_slug, status FROM survey_ratings WHERE pending_course_id = %s"
+RECORD_COURSE_SQL = ("UPDATE survey_pending_courses SET agent_decision = %s, agent_reason = %s, "
+                     "agent_reviewed_at = clock_timestamp() WHERE id = %s AND status = 'pending'")
+
+
+def _one_edit(a, b):
+    """Whether b is a, with one character substituted, inserted, deleted or swapped with its neighbor."""
+    if len(a) == len(b):
+        diff = [i for i in range(len(a)) if a[i] != b[i]]
+        return len(diff) == 1 or (len(diff) == 2 and diff[1] == diff[0] + 1
+                                  and a[diff[0]] == b[diff[1]] and a[diff[1]] == b[diff[0]])
+    short, long = sorted((a, b), key=len)
+    return len(long) - len(short) == 1 and any(long[:i] + long[i + 1:] == short for i in range(len(long)))
+
+
+def course_merge_target(code, rows, candidates, exists):
+    """(Banner code to merge a pending course into, reason), or (None, why a human decides).
+    `rows` are the course's ratings, `candidates` is course_typos.taught_candidates for their professors."""
+    if exists:
+        return None, "the code is a known course"
+    if not rows:
+        return None, "no ratings"
+    if any(r["status"] == "held" for r in rows):
+        return None, "a rating on it is held"
+    if any(not r["professor_slug"] for r in rows):
+        return None, "a rating is for a new professor"
+    slugs = sorted({r["professor_slug"] for r in rows})
+    for slug in slugs:
+        n = len(candidates.get(slug, []))
+        if n != 1:
+            return None, (f"{slug}: no candidates" if n == 0
+                          else f"{slug}: {n} candidates ({', '.join(sorted(candidates[slug]))})")
+    targets = {candidates[slug][0] for slug in slugs}
+    if len(targets) > 1:
+        return None, "professors have different candidates"
+    (target,) = targets
+    return target, f"one edit from {target}" if _one_edit(code, target) else f"subject variant {target}"
+
+
+def review_pending_courses(cur, now, dry_run=False):
+    """Merge each pending course that has one safe Banner candidate, and record an escalate on
+    the rest, for every pending course on every run. Counts merge and
+    escalate. Commits per course (cur.connection); a course merge_course refuses is rolled
+    back and left for the next run. A merge's reason ends with the number of ratings moved,
+    which the digest reads back, since moving them clears their link to the pending course."""
+    def query(sql, params):
+        cur.execute(sql, params)
+        return cur.fetchall()
+
+    def query_one(sql, params):
+        cur.execute(sql, params)
+        return cur.fetchone()
+
+    cur.execute(PENDING_COURSES_SQL)
+    counts = Counter()
+    for course in cur.fetchall():
+        cur.execute(COURSE_RATINGS_SQL, (course["id"],))
+        rows = cur.fetchall()
+        slugs = sorted({r["professor_slug"] for r in rows if r["professor_slug"]})
+        target, reason = course_merge_target(
+            course["code"], rows, course_typos.taught_candidates(course["code"], slugs, query) if slugs else {},
+            ratings.course_exists(course["code"], query_one))
+        decision = "merge" if target else "escalate"
+        if dry_run:
+            counts[decision] += 1
+            print(f"{decision}  {course['code']}  {target or '-'}  {reason}")
+            continue
+        try:
+            # Record while the course is still pending (RECORD_COURSE_SQL only touches pending
+            # rows); a merge then resolves it, and raises if a human settled it meanwhile.
+            cur.execute(RECORD_COURSE_SQL, (decision, f"{reason}; {len(rows)} rating(s)" if target else reason,
+                                            course["id"]))
+            if target:
+                merge_course(cur, course["id"], target)
+                cur.execute(DATA_VERSION_SQL)  # bump the cache version, like review_ratings.main
+        except ReviewError:
+            cur.connection.rollback()
+            continue
+        cur.connection.commit()
+        counts[decision] += 1
+    return counts
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    # Course merges are plain code, so they run with or without a Groq key.
+    conn = connect()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            print("courses", dict(review_pending_courses(cur, datetime.now(timezone.utc), dry_run=args.dry_run)))
+    finally:
+        conn.close()
     entries = load_entries()
     if not entries:
         print("no Groq keys; nothing reviewed")

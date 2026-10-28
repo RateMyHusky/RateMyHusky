@@ -37,6 +37,8 @@ def _main(monkeypatch, held, pending=(0, 0), key="re-test", approved=()):
     def fetch(conn, sql):
         if "FROM survey_ratings" in sql:
             return list(approved) if "agent_decision = 'approve'" in sql else held
+        if "resolved_code" in sql:
+            return []
         return [{"n": pending[0] if "professors" in sql else pending[1]}]
 
     monkeypatch.setattr(review_digest, "connect", lambda: SimpleNamespace(close=lambda: None))
@@ -155,3 +157,13 @@ def test_attack_times_are_printed_in_utc_whatever_the_session_timezone():
     rows = [{**r, "created_at": r["created_at"].astimezone(eastern)} for r in _bomb_rows()]
     _, text = review_digest.build_digest(rows, [], 0, 0, NOW)
     assert "  leena-razzaq: 23 ratings, 2025-04-11 01:00-02:01 UTC" in text
+
+
+def test_agent_course_merges_are_listed():
+    merges = [{"code": "BIO2299", "resolved_code": "BIOL2299", "n": 2},
+              {"code": "ACC1201", "resolved_code": "ACCT1201", "n": 1}]
+    subject, text = review_digest.build_digest([], [], 0, 0, NOW, merges)
+    assert "Agent course merges in the last 24 hours: 2" in text
+    assert "  BIO2299 -> BIOL2299 (2 ratings)" in text
+    assert "  ACC1201 -> ACCT1201 (1 rating)" in text
+    assert review_digest.build_digest([], [], 0, 0, NOW) is None

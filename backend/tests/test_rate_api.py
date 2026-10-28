@@ -305,6 +305,26 @@ def test_shared_network_is_exempt_from_the_ip_limit(rate):
             assert server._shared_network() is shared
 
 
+def test_course_suggestions_limit_skips_shared_networks(rate, monkeypatch):
+    server, client, state, ri = rate
+    suggestion_rows(server, monkeypatch)
+    url = "/api/rate/course-suggestions?code=BIO2299"
+    for network, limited in (("campus", False), ("relay", False), ("other", True)):
+        state["network"] = network
+        server.limiter.reset()
+        codes = {client.get(url).status_code for _ in range(31)}
+        assert (429 in codes) is limited
+
+
+def test_course_suggestions_shared_network_keeps_a_600_per_minute_cap(rate, monkeypatch):
+    server, client, state, ri = rate
+    monkeypatch.setattr(server.course_typos, "banner_candidates", lambda *a: [])
+    state["network"] = "campus"
+    server.limiter.reset()
+    codes = [client.get("/api/rate/course-suggestions?code=BIO2299").status_code for _ in range(601)]
+    assert codes[:600] == [200] * 600 and codes[600] == 429
+
+
 def test_network_type_is_looked_up_once_per_submit(rate, monkeypatch):
     server, client, state, ri = rate
     lookups = []

@@ -293,7 +293,7 @@ def list_pending(cur):
               f"same last name: {similar}")
 
     cur.execute(
-        "SELECT c.id, c.code, c.name, count(r.id) AS n, "
+        "SELECT c.id, c.code, c.name, c.agent_decision, c.agent_reason, count(r.id) AS n, "
         "EXISTS (SELECT 1 FROM course_catalog k WHERE k.code = c.code) AS in_catalog "
         "FROM survey_pending_courses c LEFT JOIN survey_ratings r ON r.pending_course_id = c.id "
         "WHERE c.status = 'pending' GROUP BY c.id ORDER BY c.created_at")
@@ -301,7 +301,9 @@ def list_pending(cur):
     print(f"Pending courses ({len(courses)}):")
     for c in courses:
         print(f"  {c['id']}  {clean(c['code'])}  {clean(c['name'])}  {c['n']} rating(s)  "
-              f"{'in' if c['in_catalog'] else 'not in'} course_catalog")
+              f"{'in' if c['in_catalog'] else 'not in'} course_catalog  "
+              f"agent: {clean(c['agent_decision'] or '-')}"
+              f"{' (' + clean(c['agent_reason']) + ')' if c['agent_reason'] else ''}")
     return f"{len(held)} held, {len(profs)} pending professors, {len(courses)} pending courses"
 
 

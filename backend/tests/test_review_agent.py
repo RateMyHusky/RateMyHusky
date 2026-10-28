@@ -603,3 +603,105 @@ def test_a_network_error_is_retried_once():
         return FakeResponse(200, OK_BODY)
     groq, _ = _groq(flaky, "k1")
     assert groq.ask(MSGS) == "{}" and len(calls) == 2
+
+
+def _rated(*slugs, status="accepted"):
+    return [{"professor_slug": slug, "status": status} for slug in slugs]
+
+
+@pytest.mark.parametrize("code, rows, candidates, exists, expected", [
+    ("BIO2299", _rated("jane-doe"), {"jane-doe": ["BIOL2299"]}, False, ("BIOL2299", "one edit from BIOL2299")),
+    ("CALC1241", _rated("jane-doe"), {"jane-doe": ["MATH1241"]}, False, ("MATH1241", "subject variant MATH1241")),
+    ("ENVR1110", _rated("jane-doe"), {"jane-doe": ["ENVR1101", "ENVR1120"]}, False, (None, "jane-doe: 2 candidates (ENVR1101, ENVR1120)")),
+    ("MGT4850", _rated("jane-doe"), {"jane-doe": []}, False, (None, "jane-doe: no candidates")),
+    ("ACC1201", _rated("jane-doe", "bob-lee"), {"jane-doe": ["ACCT1201"], "bob-lee": ["ACCT1201"]}, False,
+     ("ACCT1201", "one edit from ACCT1201")),
+    ("MGMT4450", _rated("jane-doe", "bob-lee"), {"jane-doe": ["MGMT4550"], "bob-lee": ["MGMT4440"]}, False,
+     (None, "professors have different candidates")),
+    ("CS2501", _rated("jane-doe"), {"jane-doe": ["CS2500", "CS2510"]}, False, (None, "jane-doe: 2 candidates (CS2500, CS2510)")),
+    ("BIO2299", _rated("jane-doe") + _rated("bob-lee", status="held"), {}, False, (None, "a rating on it is held")),
+    ("BIO2299", _rated("jane-doe") + [{"professor_slug": None, "status": "accepted"}], {}, False,
+     (None, "a rating is for a new professor")),
+    ("BIO2299", [], {}, False, (None, "no ratings")),
+    ("BIO2299", _rated("jane-doe"), {"jane-doe": ["BIOL2299"]}, True, (None, "the code is a known course")),
+])
+def test_course_merge_target(code, rows, candidates, exists, expected):
+    assert ra.course_merge_target(code, rows, candidates, exists) == expected
+
+
+class CourseCursor:
+    """Pending courses [{id, code, ratings, known, taught}] answered by statement."""
+    def __init__(self, courses):
+        self.courses = {c["id"]: c for c in courses}
+        self.calls, self._rows, self.connection = [], [], FakeConnection()
+
+    def execute(self, sql, params=None):
+        self.calls.append((sql, params))
+        if sql == ra.PENDING_COURSES_SQL:
+            self._rows = [{"id": c["id"], "code": c["code"]} for c in self.courses.values()]
+        elif sql == ra.COURSE_RATINGS_SQL:
+            self._rows = self.courses[params[0]]["ratings"]
+        elif "FROM banner_course_instructors" in sql:
+            course = next(c for c in self.courses.values() if c["code"][:3] in params[0][0])
+            self._rows = [{"professor_slug": s, "subject_course": c} for s, cs in course["taught"].items() for c in cs]
+        elif "FROM course_catalog" in sql:
+            self._rows = [{"one": 1}] if any(c["known"] for c in self.courses.values() if c["code"] == params[0]) else []
+        else:
+            self._rows = []
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self):
+        return list(self._rows)
+
+    def statements(self, prefix):
+        return [(s, p) for s, p in self.calls if s.startswith(prefix)]
+
+
+def _pending(id, code, taught, ratings=None, known=False):
+    return {"id": id, "code": code, "taught": taught, "known": known,
+            "ratings": _rated("jane-doe") if ratings is None else ratings}
+
+
+def test_a_safe_pending_course_is_recorded_then_merged_and_committed(monkeypatch):
+    merged = []
+    monkeypatch.setattr(ra, "merge_course", lambda cur, id, code: merged.append((id, code)))
+    cur = CourseCursor([_pending("c1", "BIO2299", {"jane-doe": ["BIOL2299"]})])
+    assert ra.review_pending_courses(cur, NOW) == Counter(merge=1)
+    assert merged == [("c1", "BIOL2299")]
+    ((_, params),) = cur.statements("UPDATE survey_pending_courses SET agent_decision")
+    assert params == ("merge", "one edit from BIOL2299; 1 rating(s)", "c1")
+    assert cur.connection.events == ["commit"]
+
+
+def test_an_unsafe_pending_course_is_escalated_without_a_merge(monkeypatch):
+    monkeypatch.setattr(ra, "merge_course", lambda *a: pytest.fail("merged"))
+    cur = CourseCursor([_pending("c1", "ENVR1110", {"jane-doe": ["ENVR1101", "ENVR1120"]})])
+    assert ra.review_pending_courses(cur, NOW) == Counter(escalate=1)
+    ((_, params),) = cur.statements("UPDATE survey_pending_courses SET agent_decision")
+    assert params == ("escalate", "jane-doe: 2 candidates (ENVR1101, ENVR1120)", "c1")
+    assert cur.connection.events == ["commit"]
+
+
+def test_a_course_merge_refuses_is_rolled_back_and_left(monkeypatch):
+    def refuse(cur, id, code):
+        raise ra.ReviewError("already merged")
+    monkeypatch.setattr(ra, "merge_course", refuse)
+    cur = CourseCursor([_pending("c1", "BIO2299", {"jane-doe": ["BIOL2299"]})])
+    assert ra.review_pending_courses(cur, NOW) == Counter()
+    assert cur.connection.events == ["rollback"]
+
+
+def test_the_pending_course_query_selects_every_pending_course():
+    sql = ra.PENDING_COURSES_SQL
+    assert "pc.status = 'pending'" in sql
+    assert "agent_reviewed_at" not in sql and "survey_ratings" not in sql
+
+
+def test_course_dry_run_writes_nothing(monkeypatch, capsys):
+    monkeypatch.setattr(ra, "merge_course", lambda *a: pytest.fail("merged"))
+    cur = CourseCursor([_pending("c1", "BIO2299", {"jane-doe": ["BIOL2299"]})])
+    assert ra.review_pending_courses(cur, NOW, dry_run=True) == Counter(merge=1)
+    assert not cur.statements("UPDATE") and cur.connection.events == []
+    assert "BIOL2299" in capsys.readouterr().out

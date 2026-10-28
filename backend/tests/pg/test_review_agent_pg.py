@@ -201,3 +201,101 @@ def test_a_resubmit_during_the_run_does_not_make_the_new_decision_stale(pg, pg_u
         other.close()
     held = rows(pg, "SELECT agent_decision, agent_reviewed_at, updated_at FROM survey_ratings")
     assert [review_agent.decision_of(r) for r in held] == ["escalate"]
+
+
+def seed_banner(pg, slug, codes):
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professors (slug, name, name_key) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                    (slug, slug, slug))
+        for code in codes:
+            cur.execute(
+                "INSERT INTO banner_course_offerings (subject_course, subject, course_title, first_term_code, "
+                "last_term_code, last_term_label, terms_offered, pattern, fall_years, spring_years, summer_years, "
+                "pattern_window_years, instructor_count) VALUES (%s, %s, 'Course', '202210', '202710', "
+                "'Fall 2026', 1, 'Fall', 1, 0, 0, 5, 1) ON CONFLICT DO NOTHING", (code, code[:4]))
+            cur.execute(
+                "INSERT INTO banner_course_instructors (subject_course, instructor_key, professor_slug, "
+                "match_method, terms_taught, sections, first_term_code, last_term_code, last_term_label) "
+                "VALUES (%s, %s, %s, 'exact', 1, 1, '202210', '202710', 'Fall 2026')", (code, slug, slug))
+    pg.commit()
+
+
+def pending_course(pg, code, *slugs_and_devices):
+    """A pending course with an accepted rating per (professor slug, device)."""
+    course_id = str(uuid.uuid4())
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO survey_pending_courses (id, code, name) VALUES (%s, %s, 'Typo')", (course_id, code))
+        for slug, device in slugs_and_devices:
+            cur.execute(
+                "INSERT INTO survey_ratings (id, professor_slug, pending_course_id, term_label, rating, hours, "
+                "status, device_hash, new_device, network_type) "
+                "VALUES (%s, %s, %s, 'Fall 2025', 4, '3-4', 'accepted', %s, false, 'unknown')",
+                (str(uuid.uuid4()), slug, course_id, device))
+    pg.commit()
+    return course_id
+
+
+def run_courses(pg):
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        return review_agent.review_pending_courses(cur, datetime.now(timezone.utc))
+
+
+def test_bio2299_merges_and_envr1110_escalates(pg):
+    seed_banner(pg, "jane-doe", ["BIOL2299", "ENVR1101", "ENVR1120"])
+    bio = pending_course(pg, "BIO2299", ("jane-doe", "d1"))
+    envr = pending_course(pg, "ENVR1110", ("jane-doe", "d2"))
+
+    assert run_courses(pg) == {"merge": 1, "escalate": 1}
+
+    got = {r["id"]: r for r in rows(pg, "SELECT id::text AS id, status, resolved_code, agent_decision, "
+                                        "agent_reason FROM survey_pending_courses")}
+    assert (got[bio]["status"], got[bio]["resolved_code"], got[bio]["agent_decision"]) == ("merged", "BIOL2299", "merge")
+    assert got[bio]["agent_reason"] == "one edit from BIOL2299; 1 rating(s)"
+    assert (got[envr]["status"], got[envr]["agent_decision"]) == ("pending", "escalate")
+    assert got[envr]["agent_reason"] == "jane-doe: 2 candidates (ENVR1101, ENVR1120)"
+    assert rows(pg, "SELECT course_code FROM survey_ratings WHERE device_hash = 'd1'") == [{"course_code": "BIOL2299"}]
+
+    # Every pending course is checked on every run, so the escalated one escalates again.
+    assert run_courses(pg) == {"escalate": 1}
+    assert scalar(pg, "SELECT agent_reason FROM survey_pending_courses WHERE id = %s", (envr,)) == \
+        "jane-doe: 2 candidates (ENVR1101, ENVR1120)"
+
+
+def test_a_merge_across_two_professors_keeps_the_newer_rating_per_device(pg):
+    seed_banner(pg, "jane-doe", ["ACCT1201"])
+    seed_banner(pg, "bob-lee", ["ACCT1201"])
+    with pg.cursor() as cur:
+        cur.execute(
+            "INSERT INTO survey_ratings (id, professor_slug, course_code, term_label, rating, hours, status, "
+            "device_hash, new_device, network_type, created_at, updated_at) VALUES (%s, 'jane-doe', 'ACCT1201', "
+            "'Fall 2025', 1, '3-4', 'accepted', 'd1', false, 'unknown', '2026-01-01', '2026-01-01')",
+            (str(uuid.uuid4()),))
+    pg.commit()
+    pending_course(pg, "ACC1201", ("jane-doe", "d1"), ("bob-lee", "d2"))
+
+    assert run_courses(pg) == {"merge": 1}
+
+    assert rows(pg, "SELECT professor_slug, course_code, rating FROM survey_ratings WHERE device_hash = 'd1'") == [
+        {"professor_slug": "jane-doe", "course_code": "ACCT1201", "rating": 4}]
+    assert scalar(pg, "SELECT count(*) FROM survey_ratings") == 2
+
+
+def test_a_course_escalated_for_a_held_rating_is_merged_once_that_rating_is_approved(pg):
+    seed_banner(pg, "jane-doe", ["BIOL2299"])
+    course = pending_course(pg, "BIO2299", ("jane-doe", "d1"))
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET status = 'held', hold_reasons = 'no_timer' WHERE pending_course_id = %s",
+                    (course,))
+    pg.commit()
+
+    assert run_courses(pg) == {"escalate": 1}
+    assert scalar(pg, "SELECT agent_reason FROM survey_pending_courses WHERE id = %s", (course,)) == "a rating on it is held"
+    assert run_courses(pg) == {"escalate": 1}
+
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET status = 'accepted' WHERE pending_course_id = %s", (course,))
+    pg.commit()
+
+    assert run_courses(pg) == {"merge": 1}
+    assert rows(pg, "SELECT status, resolved_code FROM survey_pending_courses") == [
+        {"status": "merged", "resolved_code": "BIOL2299"}]

@@ -48,17 +48,17 @@ def banner_candidates(code, query, slug=None):
     courses when `slug` has any, else every Banner course."""
     names = ("COALESCE(MAX(o.course_title), MAX(c.name)) AS name "
              "FROM banner_course_offerings o LEFT JOIN course_catalog c ON c.code = o.subject_course ")
-    params = [sorted(neighbors(code))]
+    near = sorted(neighbors(code))
     rows = []
     if slug:
         rows = query(
             "SELECT o.subject_course AS code, " + names +
             "WHERE o.subject_course = ANY(%s) AND o.subject_course IN "
             "(SELECT subject_course FROM banner_course_instructors WHERE professor_slug = %s) "
-            "GROUP BY o.subject_course", (params[0], slug))
+            "GROUP BY o.subject_course", (near, slug))
     if not rows:
         rows = query(
             "SELECT o.subject_course AS code, " + names +
-            "WHERE o.subject_course = ANY(%s) GROUP BY o.subject_course", (params[0],))
+            "WHERE o.subject_course = ANY(%s) GROUP BY o.subject_course", (near,))
     return [{"code": r["code"], "name": r["name"]}
             for r in sorted(rows, key=lambda r: r["code"])[:MAX_CANDIDATES]]

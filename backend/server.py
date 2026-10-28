@@ -2360,7 +2360,8 @@ def rate_professor(slug):
 
 
 @app.route("/api/rate/course-suggestions")
-@limiter.limit("30 per minute")
+@limiter.limit("600 per minute")
+@limiter.limit("30 per minute", exempt_when=_shared_network)
 def rate_course_suggestions():
     if not _rating_enabled():
         return _rating_unavailable()

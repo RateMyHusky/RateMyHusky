@@ -203,6 +203,16 @@ def test_list_shows_the_agent_decision_and_reason(capsys):
     assert "agent: -" in out and "" not in out
 
 
+def test_list_shows_the_agent_decision_and_reason_on_pending_courses(capsys):
+    base = {"id": "c1", "code": "ENVR1110", "name": "Typo", "n": 1, "in_catalog": False}
+    escalated = dict(base, agent_decision="escalate", agent_reason="jane-doe: 2 candidates (A, B)[2J")
+    unreviewed = dict(base, id="c2", code="BIO2299", agent_decision=None, agent_reason=None)
+    rr.list_pending(FakeCursor({"FROM survey_pending_courses": [escalated, unreviewed]}))
+    out = capsys.readouterr().out
+    assert "agent: escalate (jane-doe: 2 candidates (A, B)?[2J)" in out
+    assert "BIO2299  Typo  1 rating(s)  not in course_catalog  agent: -" in out
+
+
 def test_reject_rating_only_deletes_held_rows():
     cur = FakeCursor({"DELETE FROM survey_ratings": [{"id": "abcd1234"}]})
     rr.reject_rating(cur, "abcd1234")
@@ -222,7 +232,8 @@ def test_list_strips_control_characters(capsys):
                                                           "name_key": "eve x", "department": evil,
                                                           "n": 1}],
                       "FROM survey_pending_courses": [{"id": "c1", "code": evil, "name": evil,
-                                                       "n": 1, "in_catalog": False}]})
+                                                       "n": 1, "in_catalog": False,
+                                                       "agent_decision": evil, "agent_reason": evil}]})
     rr.list_pending(cur)
     assert "" not in capsys.readouterr().out
 

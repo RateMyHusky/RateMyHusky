@@ -7,9 +7,10 @@ on:
 
 # The review agent reads and writes the review queue, then the digest sends at
 # most one email; nothing here reads or writes the repo through GITHUB_TOKEN.
-# A missing Groq key reviews nothing but the digest still sends. The digest runs
-# even when the agent step failed or hit its 30-minute step timeout (a job
-# timeout would cancel the digest too), and the job still shows as failed. A missing
+# A missing Groq key skips the held-rating review but course merges still run,
+# and the digest still sends. The digest runs even when the agent step failed or
+# hit its 30-minute step timeout (a job timeout would cancel the digest too), and
+# the job still shows as failed. A missing
 # RESEND_API_KEY fails the run instead of silently skipping the email.
 permissions:
   contents: read
@@ -36,7 +37,7 @@ jobs:
         working-directory: backend
         run: pip install -r requirements-data.txt
 
-      - name: Review held ratings
+      - name: Review held ratings and pending courses
         timeout-minutes: 30  # a step timeout fails only this step, so the digest still runs
         working-directory: backend
         env:
