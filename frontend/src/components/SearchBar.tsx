@@ -302,6 +302,17 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
       }
       return;
     }
+    // Enter with nothing highlighted opens the catalog for the current mode, filtered by the query,
+    // so a search with no suggestions (or one the student didn't arrow into) still goes somewhere.
+    const highlighted = showSuggestions && activeIndex >= 0 ? suggestions[activeIndex] : undefined;
+    if (e.key === 'Enter' && !highlighted) {
+      const trimmed = query.trim();
+      if (!trimmed) return;
+      e.preventDefault();
+      setShowSuggestions(false);
+      navigate(`${searchType === 'Course' ? '/courses' : '/professors'}?q=${encodeURIComponent(trimmed)}`);
+      return;
+    }
     if (!showSuggestions || suggestions.length === 0) return;
 
     if (e.key === 'ArrowDown') {
