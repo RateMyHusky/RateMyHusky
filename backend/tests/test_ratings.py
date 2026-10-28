@@ -1,10 +1,16 @@
 """Unit tests for the rating data layer in ratings.py, using a recording fake."""
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+
+import pytest
 
 import ratings
+from tests.razzaq_bomb import BOMB
 
 NOW = datetime(2026, 10, 18, 12, 0, tzinfo=timezone.utc)
+LECTURES = next(r["comment"] for r in BOMB if r["comment"].startswith("Lecutres"))
+SERIOUSLY = next(r["comment"] for r in BOMB if r["comment"].startswith("Seriously"))
 KEY = {"professor_slug": "jane-doe", "pending_professor_id": None,
        "course_code": "CS2500", "pending_course_id": None}
 
@@ -169,6 +175,13 @@ def test_a_clean_edit_keeps_the_rows_hold_reasons():
     # A reviewer approved a held rating (accepted, reasons kept); a clean edit mustn't clear them.
     sql = ratings._UPSERT_SQL
     assert "hold_reasons = COALESCE(EXCLUDED.hold_reasons, survey_ratings.hold_reasons)" in sql
+
+
+def test_an_edit_without_a_difficulty_keeps_the_stored_one():
+    # A page still on the form from before the question sends none.
+    sql = ratings._UPSERT_SQL
+    assert "difficulty = COALESCE(EXCLUDED.difficulty, survey_ratings.difficulty)" in sql
+    assert "difficulty = EXCLUDED.difficulty" not in sql
 
 
 def test_burst_ip_skipped_on_campus_and_relay():
@@ -352,3 +365,155 @@ def test_purge_clears_hashes_older_than_30_days():
     f = Fake()
     ratings.purge_ip_hashes(f.write, NOW)
     assert f.writes[0][1] == (NOW - timedelta(days=30),)
+
+
+def test_near_duplicate_ids_returns_close_comments_on_the_professor():
+    f = Fake(many={"FROM survey_ratings": [
+        {"id": "r1", "comment": LECTURES},
+        {"id": "r2", "comment": "Totally different words about a fine class overall."}]})
+    assert ratings.near_duplicate_ids(SERIOUSLY, KEY, None, f.query, NOW) == ["r1"]
+    (sql, params), = f.calls
+    assert "professor_slug IS NOT DISTINCT FROM" in sql and "course_code" not in sql
+    assert params == ("jane-doe", None, NOW - timedelta(days=30), None)
+
+
+def test_near_duplicate_skips_short_comments_without_a_query():
+    f = Fake()
+    assert ratings.near_duplicate_ids("Great class!", KEY, None, f.query, NOW) == []
+    assert f.calls == []
+
+
+def test_near_duplicate_excludes_the_edited_row():
+    f = Fake()
+    ratings.near_duplicate_ids(SERIOUSLY, KEY, "r1", f.query, NOW)
+    assert f.calls[0][1][-1] == "r1"
+
+
+def test_hold_matches_holds_accepted_and_appends_to_held():
+    f = Fake()
+    ratings.hold_matches(["r1"], "near_duplicate", "dev", "ip", "net", "residential", f.write)
+    (hold_sql, hold_params), (append_sql, append_params) = f.writes
+    assert "SET status = 'held', hold_reasons = %s" in hold_sql
+    assert "status = 'accepted' AND hold_reasons IS NULL AND id::text = ANY(%s)" in hold_sql
+    assert hold_params == ("near_duplicate", ["r1"], "dev", True, "ip", "net")
+    assert "status = 'held'" in append_sql and "hold_reasons = hold_reasons || %s" in append_sql
+    assert append_params[0] == ",near_duplicate" and ["r1"] in append_params
+    assert "device_hash = %s" in hold_sql and "device_hash = %s" in append_sql
+
+
+def test_hold_matches_on_a_shared_network_links_by_device_only():
+    f = Fake()
+    ratings.hold_matches(["r1"], "near_duplicate", "dev", "ip", "net", "campus", f.write)
+    assert f.writes[0][1] == ("near_duplicate", ["r1"], "dev", False, "ip", "net")
+
+
+def test_hold_matches_with_no_ids_writes_nothing():
+    f = Fake()
+    ratings.hold_matches([], "near_duplicate", "dev", "ip", "net", "residential", f.write)
+    assert f.writes == []
+
+
+def _skew(new_device=True, rating=1, key=KEY, week=None, prior=None):
+    week = {"n": 7, "total": 10, "squares": 16} if week is None else week
+    f = Fake(one={"survey_ratings": week, "professors_catalog": {"avg_rating": 4.0} if prior is None else prior})
+    return ratings.skew_week(key, rating, new_device, "r1", f.query_one, NOW), f
+
+
+def test_skew_week_trips_on_eight_low_uniform_ratings():
+    assert _skew()[0] is True
+
+
+def test_skew_week_accepts_decimal_sums_from_postgres():
+    # sum(bigint) comes back as Decimal; the prior is a float
+    week = {"n": 7, "total": Decimal(10), "squares": Decimal(16)}
+    assert _skew(week=week, prior={"avg_rating": 4.0})[0] is True
+
+
+def test_skew_week_needs_eight_including_the_new_one():
+    assert _skew(week={"n": 6, "total": 9, "squares": 15})[0] is False
+
+
+def test_skew_week_needs_a_drop_of_one_and_a_half():
+    # mean 2.0 against a prior of 3.0
+    assert _skew(rating=2, week={"n": 7, "total": 14, "squares": 28}, prior={"avg_rating": 3.0})[0] is False
+
+
+def test_skew_week_needs_low_spread():
+    # 1,1,1,1,5,1,1 plus the new 1: mean 1.5, pstdev about 1.32
+    assert _skew(week={"n": 7, "total": 11, "squares": 31})[0] is False
+
+
+def test_skew_week_ignores_returning_devices_pending_and_unrated_professors():
+    ok, f = _skew(new_device=False)
+    assert ok is False and f.calls == []
+    ok, f = _skew(key={**KEY, "professor_slug": None, "pending_professor_id": "p1"})
+    assert ok is False and f.calls == []
+    assert _skew(prior={"avg_rating": None})[0] is False
+    f = Fake(one={"survey_ratings": {"n": 7, "total": 10, "squares": 16}})
+    assert ratings.skew_week(KEY, 1, True, None, f.query_one, NOW) is False
+
+
+def test_skew_week_sql_counts_new_devices_and_skips_approvals():
+    _, f = _skew()
+    sql, params = f.calls[0]
+    assert "new_device = true" in sql and "created_at >= %s" in sql
+    assert "NOT (status = 'accepted' AND hold_reasons IS NOT NULL)" in sql
+    assert NOW - timedelta(days=7) in params
+    assert "id IS DISTINCT FROM %s" in sql and params[-1] == "r1"
+
+
+def test_hold_skew_week_holds_the_unreviewed_new_device_week():
+    f = Fake()
+    ratings.hold_skew_week(KEY, f.write, NOW)
+    (sql, params), (append_sql, append_params) = f.writes
+    assert "SET status = 'held', hold_reasons = 'skew_week'" in sql
+    assert "status = 'accepted' AND hold_reasons IS NULL AND new_device = true" in sql
+    assert params == (NOW - timedelta(days=7), "jane-doe", None)
+    # A row held only on flags the agent may approve gets skew_week too, so the agent sees it in the group.
+    assert "hold_reasons = hold_reasons || %s" in append_sql
+    assert "status = 'held' AND hold_reasons IS NOT NULL" in append_sql
+    assert "NOT (%s = ANY(string_to_array(hold_reasons, ',')))" in append_sql
+    assert "new_device = true AND created_at >= %s" in append_sql
+    assert "string_to_array(hold_reasons, ',') <@ %s::text[]" in append_sql
+    assert "agent_decision IS DISTINCT FROM 'reject'" in append_sql
+    soft = append_params[-1]
+    assert append_params == (",skew_week", "skew_week", *params, soft)
+    assert "too_fast" in soft and "burst_prof" in soft
+    assert "unverified_pair" not in soft and "near_duplicate" not in soft and "moderation_review" not in soft
+
+
+def test_adding_a_reason_clears_the_agents_escalate_but_keeps_a_reject():
+    # The escalate predates the new reason, and updated_at isn't bumped, so only clearing it gets a re-review.
+    for call in (lambda w: ratings.hold_matches(["r1"], "near_duplicate", "dev", "ip", "net", "residential", w),
+                 lambda w: ratings.hold_skew_week(KEY, w, NOW)):
+        f = Fake()
+        call(f.write)
+        append_sql = f.writes[-1][0]
+        for column in ("agent_decision", "agent_reason", "agent_reviewed_at"):
+            assert f"{column} = CASE WHEN agent_decision = 'reject' THEN {column} END" in append_sql
+        assert "updated_at" not in append_sql
+
+
+def test_flagged_matches_a_device_or_a_recent_ip():
+    f = Fake(one={"FROM rating_flags": {"x": 1}})
+    assert ratings.flagged("d", "i", "other", f.query_one, NOW) is True
+    (sql, params), = f.calls
+    assert "kind = 'device' AND value_hash = %s" in sql
+    assert "kind = 'ip' AND value_hash = %s AND created_at >= %s" in sql
+    assert params == ("d", "i", NOW - timedelta(days=30))
+    assert ratings.flagged("d", "i", "other", Fake().query_one, NOW) is False
+
+
+@pytest.mark.parametrize("network, ip_hash", [("campus", "i"), ("relay", "i"), ("mobile", "i"), ("other", None)])
+def test_flagged_skips_the_ip_on_campus_relay_mobile_or_no_hash(network, ip_hash):
+    f = Fake()
+    ratings.flagged("d", ip_hash, network, f.query_one, NOW)
+    (sql, params), = f.calls
+    assert "'ip'" not in sql and params == ("d",)
+
+
+def test_purge_also_drops_expired_ip_flags():
+    f = Fake()
+    ratings.purge_ip_hashes(f.write, NOW)
+    cutoff = NOW - timedelta(days=30)
+    assert f.writes[1] == ("DELETE FROM rating_flags WHERE kind = 'ip' AND created_at < %s", (cutoff,))

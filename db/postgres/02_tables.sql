@@ -448,6 +448,9 @@ CREATE TABLE public.survey_ratings (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     difficulty BIGINT NULL,
+    agent_decision TEXT NULL,
+    agent_reason TEXT NULL,
+    agent_reviewed_at TIMESTAMPTZ NULL,
     CONSTRAINT survey_ratings_pkey PRIMARY KEY (id)
 );
 
@@ -459,6 +462,9 @@ CREATE TABLE public.survey_pending_professors (
     status TEXT NOT NULL DEFAULT 'pending',
     resolved_slug TEXT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    agent_decision TEXT NULL,
+    agent_reason TEXT NULL,
+    agent_reviewed_at TIMESTAMPTZ NULL,
     CONSTRAINT survey_pending_professors_pkey PRIMARY KEY (id)
 );
 
@@ -469,5 +475,15 @@ CREATE TABLE public.survey_pending_courses (
     status TEXT NOT NULL DEFAULT 'pending',
     resolved_code TEXT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    agent_decision TEXT NULL,
+    agent_reason TEXT NULL,
+    agent_reviewed_at TIMESTAMPTZ NULL,
     CONSTRAINT survey_pending_courses_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE public.rating_flags (
+    kind TEXT NOT NULL,
+    value_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (kind, value_hash)
 );

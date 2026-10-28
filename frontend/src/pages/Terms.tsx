@@ -12,7 +12,7 @@ const Terms = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Terms &amp; Conditions</h1>
-            <p className="terms-meta">Effective October 19, 2026 &middot; RateMyHusky</p>
+            <p className="terms-meta">Effective October 28, 2026 &middot; RateMyHusky</p>
           </header>
 
           <div className="terms-body">
@@ -160,6 +160,11 @@ const Terms = () => {
                 <li>
                   <strong>OpenAI Moderation</strong>: checks the text of rating comments for
                   abuse before they are stored.
+                </li>
+                )}
+                {RATE_ENABLED && (
+                <li>
+                  <strong>Groq</strong>: an automated reviewer checks ratings held for review.
                 </li>
                 )}
                 <li>

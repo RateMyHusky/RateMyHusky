@@ -127,6 +127,25 @@ def test_upsert_keeps_new_device_and_merges_hold_reasons(pg):
     assert saved == {"new_device": True, "hold_reasons": "burst_ip,duplicate_comment,too_fast"}
 
 
+def test_an_edit_without_a_difficulty_keeps_the_stored_one(pg):
+    import ratings
+
+    insert(pg, "d1", "jane-doe", None, "CS2500", None)
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET difficulty = 4")
+    pg.commit()
+    row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
+    row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
+               status="accepted", device_hash="d1", new_device=False,
+               network_type="unknown", collection="turnstile+device")
+    key = ratings.rating_key(row, None, None)
+    ratings.save_rating(row, ratings.existing_rating("d1", key, pg_query_one(pg)), pg_write(pg))
+    assert rows(pg, "SELECT rating, difficulty FROM survey_ratings") == [{"rating": 5, "difficulty": 4}]
+    ratings.save_rating({**row, "difficulty": 2}, ratings.existing_rating("d1", key, pg_query_one(pg)),
+                        pg_write(pg))
+    assert rows(pg, "SELECT difficulty FROM survey_ratings") == [{"difficulty": 2}]
+
+
 def test_hold_burst_skips_returning_devices_and_approved_rows(pg):
     import ratings
     from datetime import datetime, timezone
@@ -251,3 +270,136 @@ def test_apply_surge_holds_holds_only_unreviewed_accepted_rows(pg):
     assert held == [{"device_hash": "d1", "hold_reasons": "weekly_surge"},
                     {"device_hash": "d3", "hold_reasons": "weekly_surge"}]
     assert survey.apply_surge_holds(pg, set()) == 0
+
+
+def test_hold_matches_holds_accepted_appends_held_and_skips_approved(pg):
+    import ratings
+
+    insert(pg, "d1", "jane-doe", None, "CS2500", None)  # accepted, no reasons
+    insert(pg, "d2", "jane-doe", None, "CS2500", None, status="held")
+    insert(pg, "d3", "jane-doe", None, "CS2500", None)  # approved by a reviewer
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET hold_reasons = 'no_timer' WHERE device_hash = 'd2'")
+        cur.execute("UPDATE survey_ratings SET hold_reasons = 'burst_prof' WHERE device_hash = 'd3'")
+    pg.commit()
+    ids = [r["id"] for r in rows(pg, "SELECT id FROM survey_ratings")]
+    write = pg_write(pg)
+
+    def state():
+        return {r["device_hash"]: (r["status"], r["hold_reasons"])
+                for r in rows(pg, "SELECT device_hash, status, hold_reasons FROM survey_ratings")}
+
+    expected = {"d1": ("held", "near_duplicate"), "d2": ("held", "no_timer,near_duplicate"),
+                "d3": ("accepted", "burst_prof")}
+    for _ in range(2):
+        for device in ("d1", "d2", "d3"):
+            ratings.hold_matches(ids, "near_duplicate", device, None, None, "residential", write)
+        assert state() == expected
+
+
+def test_skew_week_aggregate_and_hold_back(pg):
+    import ratings
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    truncate(pg, "professors_catalog")
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professors_catalog (slug, name, name_key, avg_rating) "
+                    "VALUES ('jane-doe', 'Jane Doe', 'jane doe', 4.2)")
+    for i in range(7):
+        insert(pg, f"d{i}", "jane-doe", None, "CS2500", None, rating=1 + i % 2)
+    insert(pg, "old", "jane-doe", None, "CS2500", None, rating=1)
+    insert(pg, "approved", "jane-doe", None, "CS2500", None, rating=1)
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET created_at = now() - interval '9 days' "
+                    "WHERE device_hash = 'old'")
+        cur.execute("UPDATE survey_ratings SET hold_reasons = 'burst_prof' "
+                    "WHERE device_hash = 'approved'")
+    pg.commit()
+    key = {"professor_slug": "jane-doe", "pending_professor_id": None,
+           "course_code": "CS2500", "pending_course_id": None}
+    assert ratings.skew_week(key, 1, True, None, pg_query_one(pg), now) is True
+    ratings.hold_skew_week(key, pg_write(pg), now)
+    held = [r["device_hash"] for r in rows(
+        pg, "SELECT device_hash FROM survey_ratings WHERE hold_reasons = 'skew_week'")]
+    assert sorted(held) == [f"d{i}" for i in range(7)]
+
+
+def test_hold_skew_week_adds_its_reason_to_rows_already_held(pg):
+    import ratings
+    from datetime import datetime, timezone
+
+    reviewed = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    for device in ("fast", "both", "other", "escalated", "rejected", "pair", "burst_pair"):
+        insert(pg, device, "jane-doe" if device != "other" else "sam-lee", None, "CS2500", None, status="held")
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET hold_reasons = 'too_fast' "
+                    "WHERE device_hash IN ('fast', 'other', 'escalated', 'rejected')")
+        cur.execute("UPDATE survey_ratings SET hold_reasons = 'no_timer,skew_week' WHERE device_hash = 'both'")
+        cur.execute("UPDATE survey_ratings SET hold_reasons = 'too_fast,unverified_pair' WHERE device_hash = 'pair'")
+        cur.execute("UPDATE survey_ratings SET hold_reasons = 'burst_pair' WHERE device_hash = 'burst_pair'")
+        cur.execute("UPDATE survey_ratings SET agent_decision = %s, agent_reason = 'x', agent_reviewed_at = %s "
+                    "WHERE device_hash = %s", ("escalate", reviewed, "escalated"))
+        cur.execute("UPDATE survey_ratings SET agent_decision = %s, agent_reason = 'x', agent_reviewed_at = %s "
+                    "WHERE device_hash = %s", ("reject", reviewed, "rejected"))
+    pg.commit()
+    before = {r["device_hash"]: r["updated_at"] for r in rows(pg, "SELECT device_hash, updated_at FROM survey_ratings")}
+    key = {"professor_slug": "jane-doe", "pending_professor_id": None,
+           "course_code": "CS2500", "pending_course_id": None}
+    # Only rows the agent could approve on their own join; an escalate-only reason or a reject stays out.
+    expected = {"fast": "too_fast,skew_week", "both": "no_timer,skew_week", "other": "too_fast",
+                "escalated": "too_fast,skew_week", "rejected": "too_fast", "pair": "too_fast,unverified_pair",
+                "burst_pair": "burst_pair,skew_week"}
+    for _ in range(2):
+        ratings.hold_skew_week(key, pg_write(pg), datetime.now(timezone.utc))
+        assert {r["device_hash"]: r["hold_reasons"]
+                for r in rows(pg, "SELECT device_hash, hold_reasons FROM survey_ratings")} == expected
+    agent = {r["device_hash"]: (r["agent_decision"], r["agent_reason"], r["agent_reviewed_at"])
+             for r in rows(pg, "SELECT device_hash, agent_decision, agent_reason, agent_reviewed_at FROM survey_ratings")}
+    # The escalate predates skew_week, so it is cleared for a re-review; the reject stays.
+    assert agent["escalated"] == (None, None, None)
+    assert agent["rejected"] == ("reject", "x", reviewed)
+    assert {r["device_hash"]: r["updated_at"]
+            for r in rows(pg, "SELECT device_hash, updated_at FROM survey_ratings")} == before
+
+
+def test_hold_matches_holds_back_only_rows_sharing_the_copys_device_or_network(pg):
+    import ratings
+
+    for device, ip, prefix in [("mine", "x", "x"), ("ip", "ip1", "x"), ("net", "y", "net1"), ("stranger", "z", "z")]:
+        insert(pg, device, "jane-doe", None, "CS2500", None)
+        with pg.cursor() as cur:
+            cur.execute("UPDATE survey_ratings SET ip_hash = %s, ip_prefix_hash = %s WHERE device_hash = %s",
+                        (ip, prefix, device))
+    pg.commit()
+    ids = [r["id"] for r in rows(pg, "SELECT id::text AS id FROM survey_ratings")]
+
+    def held():
+        return sorted(r["device_hash"] for r in rows(
+            pg, "SELECT device_hash FROM survey_ratings WHERE status = 'held'"))
+
+    # On a shared network only the device counts: a classmate on campus wifi is no link.
+    ratings.hold_matches(ids, "near_duplicate", "mine", "ip1", "net1", "campus", pg_write(pg))
+    assert held() == ["mine"]
+    ratings.hold_matches(ids, "near_duplicate", "copier", "ip1", "net1", "residential", pg_write(pg))
+    assert held() == ["ip", "mine", "net"]
+
+
+def test_skew_week_leaves_out_the_row_being_edited(pg):
+    import ratings
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    truncate(pg, "professors_catalog")
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professors_catalog (slug, name, name_key, avg_rating) "
+                    "VALUES ('jane-doe', 'Jane Doe', 'jane doe', 4.2)")
+    for i in range(7):
+        insert(pg, f"d{i}", "jane-doe", None, "CS2500", None, rating=1)
+    pg.commit()
+    key = {"professor_slug": "jane-doe", "pending_professor_id": None,
+           "course_code": "CS2500", "pending_course_id": None}
+    edited = scalar(pg, "SELECT id::text FROM survey_ratings WHERE device_hash = 'd0'")
+    # d0 editing its own rating is still 7 ratings, not 8.
+    assert ratings.skew_week(key, 1, True, edited, pg_query_one(pg), now) is False
+    assert ratings.skew_week(key, 1, True, None, pg_query_one(pg), now) is True

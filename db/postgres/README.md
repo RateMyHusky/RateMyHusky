@@ -255,6 +255,64 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 ```
 
+Flagging abusive raters added the `rating_flags` table. Run this as `appuser`
+(or after `SET ROLE appuser`), since the table's owner otherwise lacks access
+and every `/api/rate` call fails. Run it before deploying the backend that
+reads it, or every rating fails on the missing table. Both are rerunnable:
+
+```sql
+CREATE TABLE IF NOT EXISTS public.rating_flags (
+    kind TEXT NOT NULL,
+    value_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (kind, value_hash)
+);
+DO $$ BEGIN
+    ALTER TABLE public.rating_flags ADD CONSTRAINT check_rating_flag_kind CHECK (kind IN ('device', 'ip'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+```
+
+The daily review agent added three nullable columns to each of `survey_ratings`,
+`survey_pending_professors` and `survey_pending_courses`. The rate form keeps
+working without them, but `review_agent.py`, `review_ratings.py list` and the
+digest need them, so run this before deploying. The block is rerunnable:
+
+```sql
+ALTER TABLE public.survey_ratings
+    ADD COLUMN IF NOT EXISTS agent_decision TEXT NULL,
+    ADD COLUMN IF NOT EXISTS agent_reason TEXT NULL,
+    ADD COLUMN IF NOT EXISTS agent_reviewed_at TIMESTAMPTZ NULL;
+ALTER TABLE public.survey_pending_professors
+    ADD COLUMN IF NOT EXISTS agent_decision TEXT NULL,
+    ADD COLUMN IF NOT EXISTS agent_reason TEXT NULL,
+    ADD COLUMN IF NOT EXISTS agent_reviewed_at TIMESTAMPTZ NULL;
+ALTER TABLE public.survey_pending_courses
+    ADD COLUMN IF NOT EXISTS agent_decision TEXT NULL,
+    ADD COLUMN IF NOT EXISTS agent_reason TEXT NULL,
+    ADD COLUMN IF NOT EXISTS agent_reviewed_at TIMESTAMPTZ NULL;
+DO $$ BEGIN
+    ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_agent_decision
+        CHECK (agent_decision IN ('approve', 'escalate', 'reject'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE public.survey_pending_professors ADD CONSTRAINT check_survey_pending_professor_agent_decision
+        CHECK (agent_decision IN ('merge', 'escalate'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE public.survey_pending_courses ADD CONSTRAINT check_survey_pending_course_agent_decision
+        CHECK (agent_decision IN ('merge', 'escalate'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+```
+
+To undo a wrong flag, run `DELETE FROM rating_flags WHERE kind = 'device' AND value_hash = '...'`
+(or `kind = 'ip'`). The hash is the rejected rating's `device_hash` (`ip_hash` for an
+IP), which `reject-rating --abuse` deletes with the row, so a reviewer should note it
+from the held row before rejecting.
+
 ### Optional cleanup (destructive; take a backup first)
 
 `02_tables.sql` no longer declares the old backup tables or the tables nothing

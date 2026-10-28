@@ -2427,6 +2427,9 @@ def rate_submit():
     existing = ratings.existing_rating(device_hash, key, query_one)
     chash = rating_checks.comment_hash(clean["comment"])
     duplicate = ratings.duplicate_comment(chash, existing["id"] if existing else None, query_one)
+    near = ratings.near_duplicate_ids(clean["comment"], key, existing["id"] if existing else None, query, now)
+    skew = ratings.skew_week(key, clean["rating"], new_device, existing["id"] if existing else None,
+                             query_one, now)
     bursts = ratings.burst_reasons(key, ip_hash, prefix_hash, network_type, query_one, now)
     # A pending professor or course counts nowhere until a reviewer approves it, so only
     # a known pair is checked against who Banner and RMP have teaching the course.
@@ -2435,10 +2438,13 @@ def rate_submit():
     # A reviewer took this rating's comment down (review_ratings.py remove-comment): the mark
     # stays on the row, and any comment it carries again waits for review.
     removed = bool(existing) and "comment_removed" in (existing["hold_reasons"] or "").split(",")
+    silent = ratings.flagged(device_hash, ip_hash, network_type, query_one, now)
     status, reasons = rating_checks.assess(fill_seconds, network_type, bursts, duplicate, moderation_action,
                                            edit=bool(existing) and existing["status"] == "accepted",
                                            unverified_pair=unverified,
-                                           comment_removed=removed and bool(clean["comment"]))
+                                           comment_removed=removed and bool(clean["comment"]),
+                                           near_duplicate=bool(near), skew_week=skew,
+                                           silent_hold=silent)
     if removed and "comment_removed" not in reasons:
         reasons.append("comment_removed")
     row = {
@@ -2453,6 +2459,10 @@ def rate_submit():
     }
     ratings.save_rating(row, existing, _write)
     held = ratings.hold_burst(bursts, key, ip_hash, prefix_hash, _write, now) if bursts else set()
+    if near:
+        ratings.hold_matches(near, "near_duplicate", device_hash, ip_hash, prefix_hash, network_type, _write)
+    if skew:
+        ratings.hold_skew_week(key, _write, now)
     # The page shows student reviews live. Any save can change it: a new review, an edit,
     # or an accepted review edited into a held one, whose old comment must come down. A burst
     # also holds reviews on other professors. Dropped after the hold, so no request between
