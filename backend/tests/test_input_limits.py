@@ -96,3 +96,39 @@ def test_unknown_sorts_share_alphas_cache_entry(monkeypatch):
         client.get(f"/api/courses-catalog?sort={sort}")
     assert len(server._cache) == 2
     server._cache.clear()
+
+
+@pytest.mark.parametrize("typed, searched", [
+    ("cs 3100", "cs3100"),          # course_catalog.search_text stores the code unspaced
+    ("CS  3100", "cs3100"),
+    ("cs3100", "cs3100"),
+    ("math 1341 calc", "math1341 calc"),
+    ("intro to cs", "intro to cs"),   # words only: nothing to join
+    ("3100", "3100"),
+])
+def test_course_search_joins_a_spaced_course_code(typed, searched):
+    assert server.course_search_text(typed) == searched
+
+
+def _course_like_params(monkeypatch, path):
+    seen = []
+    monkeypatch.setattr(server, "query", lambda sql, params=(): seen.append(params) or [])
+    monkeypatch.setattr(server, "query_one", lambda sql, params=(): {"cnt": 0, "total": 0})
+    monkeypatch.setattr(server, "data_version", lambda: 0)
+    server._cache.clear()
+    server.limiter.reset()
+    assert server.app.test_client().get(path, headers={"User-Agent": "Mozilla/5.0"}).status_code == 200
+    return [p for params in seen for p in params if isinstance(p, str) and "%" in p]
+
+
+@pytest.mark.parametrize("path", ["/api/search?type=Course&q=cs%203100",
+                                  "/api/courses-catalog?q=cs%203100"])
+def test_spaced_course_code_reaches_the_like_unspaced(monkeypatch, path):
+    likes = _course_like_params(monkeypatch, path)
+    assert likes and all("cs 3100" not in p for p in likes)
+    assert any("cs3100" in p for p in likes)
+
+
+def test_professor_search_keeps_its_spaces(monkeypatch):
+    # Only course searches join: a professor query like "li 2" isn't a course code.
+    assert server.search_text("cs 3100") == "cs 3100"

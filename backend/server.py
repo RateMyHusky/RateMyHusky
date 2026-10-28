@@ -142,6 +142,13 @@ def search_text(raw):
     return " ".join(q.split()[:SEARCH_MAX_WORDS])
 
 
+def course_search_text(raw):
+    """search_text for a course search, with a spaced code joined: "cs 3100" -> "cs3100".
+    course_catalog.search_text stores the code unspaced, so the spaced form a student
+    types only matched courses whose title happened to mention it."""
+    return re.sub(r"\b([a-z]{2,5}) (\d{4})\b", r"\1\2", search_text(raw))
+
+
 # Build a word-level mapping so partial/typeahead queries also resolve.
 # e.g. typing "virgiliu" (an RMP-only spelling) still finds "virgil".
 _WORD_ALIAS = {}
@@ -1181,6 +1188,7 @@ def search():
 
     else:
         # Course search
+        q = course_search_text(request.args.get("q", ""))
         rows = query("""
             SELECT code, name, department FROM course_catalog
             WHERE search_text LIKE %s
@@ -1695,7 +1703,7 @@ def course_departments():
 
 @app.route("/api/courses-catalog")
 def courses_catalog():
-    q = search_text(request.args.get("q", ""))
+    q = course_search_text(request.args.get("q", ""))
     dept = request.args.get("dept", "")
     sort = sort_arg(COURSE_SORTS)
     page = int_arg("page", 1, 1, 100000)
