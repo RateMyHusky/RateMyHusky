@@ -123,6 +123,10 @@ CREATE UNIQUE INDEX survey_pending_courses_one_pending ON public.survey_pending_
 ALTER TABLE public.survey_pending_courses ADD CONSTRAINT check_survey_pending_course_status
     CHECK (status IN ('pending', 'approved', 'merged', 'rejected'));
 
+-- rating_flags
+ALTER TABLE public.rating_flags ADD CONSTRAINT check_rating_flag_kind
+    CHECK (kind IN ('device', 'ip'));
+
 -- Foreign keys
 ALTER TABLE public.evidence_embeddings
     ADD CONSTRAINT evidence_embeddings_evidence_id_fkey

@@ -3,6 +3,8 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+import pytest
+
 import ratings
 from tests.razzaq_bomb import BOMB
 
@@ -453,3 +455,28 @@ def test_hold_skew_week_holds_the_unreviewed_new_device_week():
     assert "status = 'accepted' AND hold_reasons IS NULL AND new_device = true" in sql
     assert params == (NOW - timedelta(days=7), "jane-doe", None)
 
+
+
+def test_flagged_matches_a_device_or_a_recent_ip():
+    f = Fake(one={"FROM rating_flags": {"x": 1}})
+    assert ratings.flagged("d", "i", "other", f.query_one, NOW) is True
+    (sql, params), = f.calls
+    assert "kind = 'device' AND value_hash = %s" in sql
+    assert "kind = 'ip' AND value_hash = %s AND created_at >= %s" in sql
+    assert params == ("d", "i", NOW - timedelta(days=30))
+    assert ratings.flagged("d", "i", "other", Fake().query_one, NOW) is False
+
+
+@pytest.mark.parametrize("network, ip_hash", [("campus", "i"), ("relay", "i"), ("other", None)])
+def test_flagged_skips_the_ip_on_campus_relay_or_no_hash(network, ip_hash):
+    f = Fake()
+    ratings.flagged("d", ip_hash, network, f.query_one, NOW)
+    (sql, params), = f.calls
+    assert "'ip'" not in sql and params == ("d",)
+
+
+def test_purge_also_drops_expired_ip_flags():
+    f = Fake()
+    ratings.purge_ip_hashes(f.write, NOW)
+    cutoff = NOW - timedelta(days=30)
+    assert f.writes[1] == ("DELETE FROM rating_flags WHERE kind = 'ip' AND created_at < %s", (cutoff,))

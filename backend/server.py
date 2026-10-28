@@ -2437,11 +2437,13 @@ def rate_submit():
     # A reviewer took this rating's comment down (review_ratings.py remove-comment): the mark
     # stays on the row, and any comment it carries again waits for review.
     removed = bool(existing) and "comment_removed" in (existing["hold_reasons"] or "").split(",")
+    silent = ratings.flagged(device_hash, ip_hash, network_type, query_one, now)
     status, reasons = rating_checks.assess(fill_seconds, network_type, bursts, duplicate, moderation_action,
                                            edit=bool(existing) and existing["status"] == "accepted",
                                            unverified_pair=unverified,
                                            comment_removed=removed and bool(clean["comment"]),
-                                           near_duplicate=bool(near), skew_week=skew)
+                                           near_duplicate=bool(near), skew_week=skew,
+                                           silent_hold=silent)
     if removed and "comment_removed" not in reasons:
         reasons.append("comment_removed")
     row = {

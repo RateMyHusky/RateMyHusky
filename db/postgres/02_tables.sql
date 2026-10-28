@@ -471,3 +471,10 @@ CREATE TABLE public.survey_pending_courses (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT survey_pending_courses_pkey PRIMARY KEY (id)
 );
+
+CREATE TABLE public.rating_flags (
+    kind TEXT NOT NULL,
+    value_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (kind, value_hash)
+);

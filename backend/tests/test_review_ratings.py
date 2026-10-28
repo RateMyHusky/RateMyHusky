@@ -283,3 +283,49 @@ def test_remove_comment_needs_the_rating_secret(monkeypatch):
     monkeypatch.delenv("RATING_SECRET", raising=False)
     with pytest.raises(rr.ReviewError):
         rr.remove_comment(FakeCursor(), "abcdef123456")
+
+
+def _abuse_cursor(network):
+    return FakeCursor({"SELECT device_hash": [{"device_hash": "d", "ip_hash": "i", "network_type": network}],
+                       "DELETE FROM survey_ratings": [{"id": "abcd1234"}]})
+
+
+def test_abuse_reject_flags_device_and_ip_then_deletes():
+    cur = _abuse_cursor("other")
+    rr.reject_rating(cur, "abcd1234", abuse=True)
+    device, ip = cur.statements("INSERT INTO rating_flags")
+    assert "ON CONFLICT" in device[0] and "DO NOTHING" in device[0] and device[1] == ("device", "d")
+    assert "DO UPDATE SET created_at = now()" in ip[0] and ip[1] == ("ip", "i")
+    delete = index_of(cur, "DELETE FROM survey_ratings")
+    assert cur.calls.index(device) < delete and cur.calls.index(ip) < delete
+
+
+def test_abuse_reject_on_campus_flags_only_the_device():
+    cur = _abuse_cursor("campus")
+    rr.reject_rating(cur, "abcd1234", abuse=True)
+    assert [p for _, p in cur.statements("INSERT INTO rating_flags")] == [("device", "d")]
+
+
+def test_abuse_reject_with_a_purged_ip_flags_only_the_device():
+    cur = FakeCursor({"SELECT device_hash": [{"device_hash": "d", "ip_hash": None, "network_type": "other"}],
+                      "DELETE FROM survey_ratings": [{"id": "abcd1234"}]})
+    rr.reject_rating(cur, "abcd1234", abuse=True)
+    assert [p for _, p in cur.statements("INSERT INTO rating_flags")] == [("device", "d")]
+
+
+def test_abuse_reject_of_a_missing_id_flags_nothing():
+    cur = FakeCursor()
+    with pytest.raises(rr.ReviewError):
+        rr.reject_rating(cur, "abcd1234", abuse=True)
+    assert not cur.statements("INSERT INTO rating_flags") and not cur.statements("DELETE")
+
+
+def test_reject_without_abuse_flags_nothing():
+    cur = _abuse_cursor("other")
+    rr.reject_rating(cur, "abcd1234")
+    assert not cur.statements("INSERT INTO rating_flags")
+
+
+def test_parse_reject_rating_abuse_flag():
+    assert rr.parse_args(["reject-rating", "--abuse", "ab12cd34"]).abuse is True
+    assert rr.parse_args(["reject-rating", "ab12cd34"]).abuse is False

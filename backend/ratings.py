@@ -44,6 +44,8 @@ _KEY_MATCH = " AND ".join(f"{c} IS NOT DISTINCT FROM %s" for c in _KEY_COLUMNS)
 _PROF_MATCH = " AND ".join(f"{c} IS NOT DISTINCT FROM %s" for c in _KEY_COLUMNS[:2])
 _COURSE_MATCH = " AND ".join(f"{c} IS NOT DISTINCT FROM %s" for c in _KEY_COLUMNS[2:])
 _NO_NETWORK_BURST = ("campus", "relay")
+# Shared networks: one abusive student must not silence the rest of campus or a relay.
+FLAG_EXEMPT_NETWORKS = _NO_NETWORK_BURST
 _BURST_REASONS = ("burst_pair", "burst_prof", "burst_prof_day", "burst_course", "burst_ip", "burst_prefix")
 # A held row from a pair burst pauses that pair; a professor or course burst, all of it.
 _PAUSE_SQL = (
@@ -387,8 +389,20 @@ def professor_context(slug, device_hash, query):
          "comment": r["comment"] or ""} for r in rows]}
 
 
+def flagged(device_hash, ip_hash, network_type, query_one, now):
+    """Whether a reviewer flagged this device (for good) or this IP (for IP_HASH_DAYS,
+    never on a campus or relay network, where it is shared)."""
+    sql = "SELECT 1 FROM rating_flags WHERE (kind = 'device' AND value_hash = %s)"
+    params = [device_hash]
+    if ip_hash and network_type not in FLAG_EXEMPT_NETWORKS:
+        sql += " OR (kind = 'ip' AND value_hash = %s AND created_at >= %s)"
+        params += [ip_hash, now - timedelta(days=IP_HASH_DAYS)]
+    return query_one(sql + " LIMIT 1", tuple(params)) is not None
+
+
 def purge_ip_hashes(write, now):
-    """Clear IP and prefix hashes once they are older than IP_HASH_DAYS."""
+    """Clear IP and prefix hashes, and IP flags, once they are older than IP_HASH_DAYS."""
+    cutoff = now - timedelta(days=IP_HASH_DAYS)
     write("UPDATE survey_ratings SET ip_hash = NULL, ip_prefix_hash = NULL "
-          "WHERE created_at < %s AND ip_hash IS NOT NULL",
-          (now - timedelta(days=IP_HASH_DAYS),))
+          "WHERE created_at < %s AND ip_hash IS NOT NULL", (cutoff,))
+    write("DELETE FROM rating_flags WHERE kind = 'ip' AND created_at < %s", (cutoff,))

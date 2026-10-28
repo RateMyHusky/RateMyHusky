@@ -255,6 +255,23 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 ```
 
+Flagging abusive raters added the `rating_flags` table. Run this before
+deploying the backend that reads it, or every rating fails on the missing
+table. Both are rerunnable:
+
+```sql
+CREATE TABLE IF NOT EXISTS public.rating_flags (
+    kind TEXT NOT NULL,
+    value_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (kind, value_hash)
+);
+DO $$ BEGIN
+    ALTER TABLE public.rating_flags ADD CONSTRAINT check_rating_flag_kind CHECK (kind IN ('device', 'ip'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+```
+
 ### Optional cleanup (destructive; take a backup first)
 
 `02_tables.sql` no longer declares the old backup tables or the tables nothing
