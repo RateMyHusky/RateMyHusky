@@ -850,23 +850,26 @@ def _approved_aliases():
     """alias_key -> slugs of approved professor nicknames. Only used to find slugs:
     a nickname never goes into a response. Reloaded at most once per TTL, or when
     data_version() moves (approving or rejecting an alias bumps it); a failed load keeps
-    the last good map."""
+    the last good map. One request reloads while the others use the last map, so a slow
+    or failing load never queues searches behind it."""
     version = data_version()
-    with _alias_lock:
-        now = time.time()
-        loaded = _alias_cache["loaded_at"]
-        if loaded is None or now - loaded >= ALIAS_TTL_SECONDS or version != _alias_cache["version"]:
-            try:
-                rows = query("SELECT alias_key, slug FROM professor_aliases WHERE status = 'approved'")
-                fresh = {}
-                for r in rows:
-                    fresh.setdefault(r["alias_key"], []).append(r["slug"])
-                _alias_cache["map"] = fresh
-            except Exception as e:
-                print(f"approved aliases: load failed, keeping the last map: {e}")
+    now = time.time()
+    loaded = _alias_cache["loaded_at"]
+    stale = loaded is None or now - loaded >= ALIAS_TTL_SECONDS or version != _alias_cache["version"]
+    if stale and _alias_lock.acquire(blocking=False):
+        try:
+            rows = query("SELECT alias_key, slug FROM professor_aliases WHERE status = 'approved'")
+            fresh = {}
+            for r in rows:
+                fresh.setdefault(r["alias_key"], []).append(r["slug"])
+            _alias_cache["map"] = fresh
+        except Exception as e:
+            print(f"approved aliases: load failed, keeping the last map: {e}")
+        finally:
             _alias_cache["loaded_at"] = now
             _alias_cache["version"] = version
-        return _alias_cache["map"]
+            _alias_lock.release()
+    return _alias_cache["map"]
 
 
 def _professor_search(q, limit=5, rated_only=False):

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+import ratings
 import review_agent as ra
 from rag.key_pool import KeyPool
 from rating_checks import NEAR_DUPLICATE, similarity
@@ -711,31 +712,33 @@ HERC = {"name": "Herc Tsekourakis", "name_key": "herc tsekourakis", "department"
 IRAKLIS = {"slug": "iraklis-tsekourakis", "name_key": "iraklis tsekourakis", "department": "Computer Science",
            "listed": True}
 TAUGHT = {"iraklis-tsekourakis"}
+IRAK = {**HERC, "name": "Irak Tsekourakis", "name_key": "irak tsekourakis"}
 
 
 @pytest.mark.parametrize("pending, matches, taught, expected", [
-    # A different first name in the department is a new colleague as often as a nickname.
-    (HERC, [IRAKLIS], set(),
-     (None, "a different first name and didn't teach the course", None)),
-    (HERC, [IRAKLIS], TAUGHT,
-     ("iraklis-tsekourakis", "same last name and taught the course", "herc")),
+    # A different first name is a new colleague as often as a nickname, even on a course the
+    # match taught: a new hire Banner doesn't have yet.
+    (HERC, [IRAKLIS], set(), (None, "a different first name", None)),
+    (HERC, [IRAKLIS], TAUGHT, (None, "a different first name", None)),
+    ({**HERC, "department": "Biology"}, [IRAKLIS], TAUGHT, (None, "a different first name", None)),
     ({"name": "Wei Chen", "name_key": "wei chen", "department": "Computer Science"},
-     [{"slug": "jian-chen", "name_key": "jian chen", "department": "Computer Science", "listed": True}], set(),
-     (None, "a different first name and didn't teach the course", None)),
+     [{"slug": "jian-chen", "name_key": "jian chen", "department": "Computer Science", "listed": True}], TAUGHT,
+     (None, "a different first name", None)),
+    (IRAK, [IRAKLIS], set(), ("iraklis-tsekourakis", "same last name and department", "irak")),
     ({**HERC, "name": "Dan Tsekourakis", "name_key": "dan tsekourakis", "department": "computer science"},
      [{**IRAKLIS, "name_key": "daniel tsekourakis"}], set(),
      ("iraklis-tsekourakis", "same last name and department", "dan")),
-    ({**HERC, "department": "Biology"}, [IRAKLIS], {"iraklis-tsekourakis"},
-     ("iraklis-tsekourakis", "same last name and taught the course", "herc")),
-    ({**HERC, "department": None}, [IRAKLIS], {"iraklis-tsekourakis"},
-     ("iraklis-tsekourakis", "same last name and taught the course", "herc")),
+    ({**IRAK, "department": "Biology"}, [IRAKLIS], TAUGHT,
+     ("iraklis-tsekourakis", "same last name and taught the course", "irak")),
+    ({**IRAK, "department": None}, [IRAKLIS], TAUGHT,
+     ("iraklis-tsekourakis", "same last name and taught the course", "irak")),
     ({"name": "Peter Xu", "name_key": "peter xu", "department": "Mathematics"},
      [{"slug": "a-xu", "name_key": "a xu", "department": "Mathematics"},
       {"slug": "b-xu", "name_key": "b xu", "department": "Mathematics"}], {"a-xu"},
      (None, "2 professors named xu", None)),
     ({"name": "Peter Xu", "name_key": "peter xu", "department": "Mathematics"}, [], set(),
      (None, "no professor named xu", None)),
-    ({**HERC, "department": "Biology"}, [IRAKLIS], set(),
+    ({**IRAK, "department": "Biology"}, [IRAKLIS], set(),
      (None, "not in the department and didn't teach the course", None)),
     ({**HERC, "name": "I. Tsekourakis", "name_key": "i. tsekourakis"}, [IRAKLIS], set(),
      ("iraklis-tsekourakis", "same last name and department", None)),
@@ -743,15 +746,15 @@ TAUGHT = {"iraklis-tsekourakis"}
      ("iraklis-tsekourakis", "same last name and department", None)),
     ({**HERC, "name": "Tsekourakis", "name_key": "tsekourakis"}, [IRAKLIS], set(),
      ("iraklis-tsekourakis", "same last name and department", None)),
-    ({**HERC, "name": "Dr. Herc Tsekourakis", "name_key": "dr. herc tsekourakis"}, [IRAKLIS], TAUGHT,
-     ("iraklis-tsekourakis", "same last name and taught the course", "herc")),
-    ({**HERC, "name": "Jo. Tsekourakis", "name_key": "jo. tsekourakis"}, [IRAKLIS], set(),
-     (None, "a different first name and didn't teach the course", None)),
+    ({**HERC, "name": "Dr. Irak Tsekourakis", "name_key": "dr. irak tsekourakis"}, [IRAKLIS], set(),
+     ("iraklis-tsekourakis", "same last name and department", "irak")),
+    ({**HERC, "name": "Jo. Tsekourakis", "name_key": "jo. tsekourakis"}, [IRAKLIS], TAUGHT,
+     (None, "a different first name", None)),
     # A title is never a first name or an alias.
     ({**HERC, "name": "Professor Tsekourakis", "name_key": "professor tsekourakis"}, [IRAKLIS], set(),
      ("iraklis-tsekourakis", "same last name and department", None)),
-    ({**HERC, "name": "Prof Herc Tsekourakis", "name_key": "prof herc tsekourakis"}, [IRAKLIS], TAUGHT,
-     ("iraklis-tsekourakis", "same last name and taught the course", "herc")),
+    ({**HERC, "name": "Prof Irak Tsekourakis", "name_key": "prof irak tsekourakis"}, [IRAKLIS], TAUGHT,
+     ("iraklis-tsekourakis", "same last name and department", "irak")),
     # The catalog's one Tsekourakis may have an unlisted namesake, or be one.
     (HERC, [{**IRAKLIS, "listed": False}], TAUGHT,
      (None, "the only professor named tsekourakis isn't listed on the site", None)),
@@ -796,8 +799,7 @@ class ProfessorCursor:
         elif sql == ra.PROFESSOR_MATCHES_SQL:
             self._rows = next(iter(self.professors.values()))["matches"]
         elif sql == ra.PROFESSOR_TAUGHT_SQL:
-            self._rows = [{"professor_slug": s} for s in
-                          next(iter(self.professors.values()))["taught"]]
+            self._rows = [{"slug": s} for s in next(iter(self.professors.values()))["taught"]]
         else:
             self._rows = []
 
@@ -812,7 +814,7 @@ class ProfessorCursor:
 
 
 def _pending_prof(id="p1", matches=(IRAKLIS,), taught=tuple(TAUGHT), codes=("CS2500",), **fields):
-    return {**HERC, "id": id, "matches": list(matches), "taught": list(taught), "codes": list(codes), **fields}
+    return {**IRAK, "id": id, "matches": list(matches), "taught": list(taught), "codes": list(codes), **fields}
 
 
 def test_a_safe_pending_professor_is_recorded_merged_aliased_and_committed(monkeypatch):
@@ -822,10 +824,10 @@ def test_a_safe_pending_professor_is_recorded_merged_aliased_and_committed(monke
     assert ra.review_pending_professors(cur, NOW) == Counter(merge=1)
     assert merged == [("p1", "iraklis-tsekourakis")]
     ((_, params),) = cur.statements("UPDATE survey_pending_professors SET agent_decision")
-    assert params == ("merge", "same last name and taught the course; 1 rating(s)", "p1")
+    assert params == ("merge", "same last name and department; 1 rating(s)", "p1")
     ((sql, params),) = cur.statements("INSERT INTO professor_aliases")
     assert "'merge'" in sql and "ON CONFLICT (alias_key, slug) DO NOTHING" in sql
-    assert params == ("herc", "iraklis-tsekourakis")
+    assert params == ("irak", "iraklis-tsekourakis")
     assert cur.connection.events == ["commit"]
 
 
@@ -852,8 +854,8 @@ def _escalated(cur):
 
 def test_two_pending_professors_for_one_target_are_both_escalated(monkeypatch):
     monkeypatch.setattr(ra, "merge_professor", lambda *a: pytest.fail("merged"))
-    cur = ProfessorCursor([_pending_prof("p1", name="Aaa Tsekourakis", name_key="aaa tsekourakis"),
-                           _pending_prof("p2", name="Bbb Tsekourakis", name_key="bbb tsekourakis")])
+    cur = ProfessorCursor([_pending_prof("p1"),
+                           _pending_prof("p2", name="Ira Tsekourakis", name_key="ira tsekourakis")])
     assert ra.review_pending_professors(cur, NOW) == Counter(escalate=2)
     assert _escalated(cur) == [("escalate", "another pending professor for iraklis-tsekourakis", "p1"),
                                ("escalate", "another pending professor for iraklis-tsekourakis", "p2")]
@@ -880,6 +882,15 @@ def test_three_ratings_still_merge(monkeypatch):
     monkeypatch.setattr(ra, "merge_professor", lambda *a: None)
     cur = ProfessorCursor([_pending_prof(codes=["CS2500"] * 3)])
     assert ra.review_pending_professors(cur, NOW) == Counter(merge=1)
+
+
+def test_a_pending_professor_with_no_ratings_is_escalated(monkeypatch):
+    # Its only rating was rejected, say: nothing to merge, and its first name is no alias.
+    monkeypatch.setattr(ra, "merge_professor", lambda *a: pytest.fail("merged"))
+    cur = ProfessorCursor([_pending_prof(codes=[])])
+    assert ra.review_pending_professors(cur, NOW) == Counter(escalate=1)
+    assert _escalated(cur) == [("escalate", "no ratings", "p1")]
+    assert not cur.statements("INSERT")
 
 
 def test_a_pending_professor_with_a_held_rating_is_escalated(monkeypatch):
@@ -924,7 +935,18 @@ def test_the_professor_matches_query_escapes_like_wildcards():
     cur = ProfessorCursor([_pending_prof(name_key="herc ts%e_k", matches=[])])
     ra.review_pending_professors(cur, NOW, dry_run=True)
     ((_, params),) = cur.statements(ra.PROFESSOR_MATCHES_SQL)
-    assert params == (r"% ts\%e\_k",)
+    assert params == ("ts%e_k", r"% ts\%e\_k")
+
+
+def test_a_one_word_name_key_counts_as_a_namesake():
+    cur = ProfessorCursor([_pending_prof(matches=[])])
+    ra.review_pending_professors(cur, NOW, dry_run=True)
+    ((sql, params),) = cur.statements(ra.PROFESSOR_MATCHES_SQL)
+    assert "p.name_key = %s OR" in sql and params[0] == "tsekourakis"
+
+
+def test_the_taught_query_is_ratings_taught_sql():
+    assert ratings.TAUGHT_SQL.format(code="c.code", slug="s.slug") in ra.PROFESSOR_TAUGHT_SQL
 
 
 def test_professor_dry_run_writes_nothing(monkeypatch, capsys):
@@ -1091,6 +1113,23 @@ def test_mine_nicknames_stops_at_max_calls_or_unavailable():
     cur = NicknameCursor(comments, catalog)
     assert ra.mine_nicknames(cur, lambda m: None) == Counter(unavailable=1)
     assert not cur.inserts()
+
+
+def test_mine_nicknames_stops_at_the_deadline(monkeypatch):
+    # The workflow step has a 30-minute timeout, and the held-rating review runs first.
+    shared = ["Zork rules", "Zork is fun"]
+    comments = [(f"p{i}", c) for i in range(3) for c in shared]
+    catalog = [(f"p{i}", f"Pat P{i}", f"pat p{i}") for i in range(3)]
+    clock = [0.0]
+    monkeypatch.setattr(ra.time, "monotonic", lambda: clock[0])
+
+    def ask(messages):
+        clock[0] += 60
+        return json.dumps({"Zork": True})
+
+    cur = NicknameCursor(comments, catalog)
+    assert ra.mine_nicknames(cur, ask, deadline=100) == Counter(suggested=2, out_of_time=1)
+    assert len(cur.inserts()) == 2
 
 
 def test_nickname_dry_run_writes_nothing(capsys):

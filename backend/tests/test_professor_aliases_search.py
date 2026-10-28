@@ -121,6 +121,22 @@ def test_the_alias_cache_reloads_when_the_data_version_moves(stub, monkeypatch):
     assert sum("professor_aliases" in c for c in stub["calls"]) == 2
 
 
+def test_a_search_during_another_requests_reload_uses_the_last_map(stub, monkeypatch):
+    version = [1]
+    monkeypatch.setattr(server, "data_version", lambda: version[0])
+    stub["aliases"] = [{"alias_key": "herc", "slug": "iraklis-tsekourakis"}]
+    assert server._approved_aliases() == {"herc": ["iraklis-tsekourakis"]}
+    stub["aliases"] = []
+    version[0] = 2
+    assert server._alias_lock.acquire(blocking=False)  # another request is reloading
+    try:
+        assert server._approved_aliases() == {"herc": ["iraklis-tsekourakis"]}
+    finally:
+        server._alias_lock.release()
+    assert sum("professor_aliases" in c for c in stub["calls"]) == 1
+    assert server._approved_aliases() == {}
+
+
 def test_a_failed_alias_load_is_logged(stub, monkeypatch, capsys):
     def boom(sql, params=None):
         raise RuntimeError("db down")

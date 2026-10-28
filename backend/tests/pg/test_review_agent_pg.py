@@ -301,37 +301,59 @@ def test_a_course_escalated_for_a_held_rating_is_merged_once_that_rating_is_appr
         {"status": "merged", "resolved_code": "BIOL2299"}]
 
 
-def test_herc_merges_into_tsekourakis_with_a_pending_alias(live_server, pg):
-    truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
-    pending, rating = str(uuid.uuid4()), str(uuid.uuid4())
+def _pending_tsekourakis(pg, name, department):
+    pending = str(uuid.uuid4())
     with pg.cursor() as cur:
         cur.execute("INSERT INTO professors (slug, name, name_key, department) VALUES ('iraklis-tsekourakis', "
                     "'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science')")
         cur.execute("INSERT INTO professors_catalog (slug, name, name_key, department, total_reviews) VALUES "
                     "('iraklis-tsekourakis', 'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science', 5)")
         cur.execute("INSERT INTO survey_pending_professors (id, name, name_key, department) "
-                    "VALUES (%s, 'Herc Tsekourakis', 'herc tsekourakis', 'Computer Science')", (pending,))
+                    "VALUES (%s, %s, %s, %s)", (pending, name, name.lower(), department))
         cur.execute(
             "INSERT INTO survey_ratings (id, pending_professor_id, course_code, term_label, rating, hours, status, "
             "device_hash, new_device, network_type) "
-            "VALUES (%s, %s, 'CS2500', 'Fall 2025', 4, '3-4', 'accepted', 'd1', false, 'unknown')", (rating, pending))
+            "VALUES (%s, %s, 'CS2500', 'Fall 2025', 4, '3-4', 'accepted', 'd1', false, 'unknown')",
+            (str(uuid.uuid4()), pending))
     pg.commit()
-    # Herc isn't his first name, so the merge needs Banner to have him on the rated course.
-    seed_banner(pg, "iraklis-tsekourakis", ["CS2500"])
+
+
+def test_irak_merges_into_tsekourakis_through_an_rmp_course_with_a_pending_alias(pg):
+    truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases", "source_summary")
+    # Not in his department, so the merge needs him on the rated course: RMP has him there and
+    # Banner doesn't, which ratings.TAUGHT_SQL (as merge_professor uses it) counts.
+    _pending_tsekourakis(pg, "Irak Tsekourakis", "Biology")
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO source_summary (professor_slug, course_code, source) "
+                    "VALUES ('iraklis-tsekourakis', 'CS2500', 'rmp')")
+    pg.commit()
 
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         assert review_agent.review_pending_professors(cur, datetime.now(timezone.utc)) == {"merge": 1}
 
-    assert rows(pg, "SELECT professor_slug, pending_professor_id FROM survey_ratings") == [
-        {"professor_slug": "iraklis-tsekourakis", "pending_professor_id": None}]
+    assert rows(pg, "SELECT professor_slug, pending_professor_id, status FROM survey_ratings") == [
+        {"professor_slug": "iraklis-tsekourakis", "pending_professor_id": None, "status": "accepted"}]
     assert rows(pg, "SELECT status, resolved_slug, agent_decision, agent_reason FROM survey_pending_professors") == [
         {"status": "merged", "resolved_slug": "iraklis-tsekourakis", "agent_decision": "merge",
          "agent_reason": "same last name and taught the course; 1 rating(s)"}]
     assert rows(pg, "SELECT alias_key, slug, source, status FROM professor_aliases") == [
-        {"alias_key": "herc", "slug": "iraklis-tsekourakis", "source": "merge", "status": "pending"}]
+        {"alias_key": "irak", "slug": "iraklis-tsekourakis", "source": "merge", "status": "pending"}]
+    truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases", "source_summary")
 
-    live_server._reset_alias_cache()
-    assert live_server.app.test_client().get("/api/search?q=herc").get_json() == []
+
+def test_herc_is_escalated_even_though_banner_has_tsekourakis_on_the_course(pg):
+    # A different first name is a nickname as often as a new hire Banner doesn't list yet.
+    truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
+    _pending_tsekourakis(pg, "Herc Tsekourakis", "Computer Science")
+    seed_banner(pg, "iraklis-tsekourakis", ["CS2500"])
+
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        assert review_agent.review_pending_professors(cur, datetime.now(timezone.utc)) == {"escalate": 1}
+
+    assert rows(pg, "SELECT status, agent_decision, agent_reason FROM survey_pending_professors") == [
+        {"status": "pending", "agent_decision": "escalate", "agent_reason": "a different first name"}]
+    assert scalar(pg, "SELECT count(*) FROM survey_ratings WHERE pending_professor_id IS NOT NULL") == 1
+    assert rows(pg, "SELECT * FROM professor_aliases") == []
     truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
 
 
@@ -371,7 +393,7 @@ def test_two_pending_professors_for_one_catalog_professor_are_escalated_not_merg
                     "'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science')")
         cur.execute("INSERT INTO professors_catalog (slug, name, name_key, department, total_reviews) VALUES "
                     "('iraklis-tsekourakis', 'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science', 5)")
-        for first in ("Aaa", "Bbb"):
+        for first in ("Irak", "Ira"):
             pending = str(uuid.uuid4())
             cur.execute("INSERT INTO survey_pending_professors (id, name, name_key, department) "
                         "VALUES (%s, %s, %s, 'Computer Science')", (pending, f"{first} Tsekourakis", f"{first.lower()} tsekourakis"))
