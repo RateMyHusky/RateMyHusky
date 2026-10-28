@@ -179,6 +179,12 @@ def test_agent_professor_merges_are_listed_without_comment_text():
     assert "professor merges" not in review_digest.build_digest([], [], 1, 0, NOW)[1]
 
 
+def test_a_professor_merge_lists_the_ratings_it_held():
+    merges = [{"id": "0a1b2c3d-4e5f-6789-abcd-ef0123456789", "resolved_slug": "christopher-smith", "n": 2, "held": 2}]
+    _, text = review_digest.build_digest([], [], 0, 0, NOW, professor_merges=merges)
+    assert "  0a1b2c3d -> christopher-smith (2 ratings, 2 held)" in text
+
+
 def test_pending_nickname_suggestions_are_listed_and_alone_enough():
     aliases = [{"id": 12, "alias_key": "herc", "slug": "iraklis-tsekourakis", "source": "comment"}]
     subject, text = review_digest.build_digest([], [], 0, 0, NOW, aliases=aliases)

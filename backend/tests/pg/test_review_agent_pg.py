@@ -336,10 +336,28 @@ def test_chris_merges_into_christopher_smith_through_an_rmp_course_with_a_pendin
         {"professor_slug": "christopher-smith", "pending_professor_id": None, "status": "accepted"}]
     assert rows(pg, "SELECT status, resolved_slug, agent_decision, agent_reason FROM survey_pending_professors") == [
         {"status": "merged", "resolved_slug": "christopher-smith", "agent_decision": "merge",
-         "agent_reason": "same last name and taught the course; 1 rating(s)"}]
+         "agent_reason": "same last name and taught the course; 1 rating(s), 0 held"}]
     assert rows(pg, "SELECT alias_key, slug, source, status FROM professor_aliases") == [
         {"alias_key": "chris", "slug": "christopher-smith", "source": "merge", "status": "pending"}]
     truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases", "source_summary")
+
+
+def test_a_department_merge_reports_the_rating_merge_professor_held(pg, pg_env, capsys):
+    # Same first name and department, but no source has him on CS2500, so the moved rating is
+    # held as unverified_pair, and the digest says so.
+    truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
+    _pending_smith(pg, "Christopher Smith", "Computer Science")
+
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        assert review_agent.review_pending_professors(cur, datetime.now(timezone.utc)) == {"merge": 1}
+
+    assert rows(pg, "SELECT professor_slug, status, hold_reasons FROM survey_ratings") == [
+        {"professor_slug": "christopher-smith", "status": "held", "hold_reasons": "unverified_pair"}]
+    assert scalar(pg, "SELECT agent_reason FROM survey_pending_professors") == \
+        "same last name and department; 1 rating(s), 1 held"
+    assert review_digest.main(["--dry-run"]) == 0
+    assert "-> christopher-smith (1 rating, 1 held)\n" in capsys.readouterr().out
+    truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
 
 
 def test_a_different_first_name_is_escalated_even_though_banner_has_smith_on_the_course(pg):
@@ -480,3 +498,22 @@ def test_the_digest_counts_the_ratings_a_merge_kept(pg, pg_env, capsys):
     assert scalar(pg, "SELECT count(*) FROM survey_ratings WHERE course_code = 'BIOL2299'") == 2
     assert review_digest.main(["--dry-run"]) == 0
     assert "  BIO2299 -> BIOL2299 (1 rating)\n" in capsys.readouterr().out
+
+
+def test_namesakes_get_no_nicknames_from_rmp_comments(pg):
+    # rmp_reviews has no professor id, so its comments can't tell two Iraklis Tsekourakises apart.
+    truncate(pg, "rmp_reviews", "professors_catalog", "professor_aliases")
+    with pg.cursor() as cur:
+        for slug in ("iraklis-tsekourakis", "iraklis-tsekourakis-2"):
+            cur.execute("INSERT INTO professors (slug, name, name_key, department) VALUES (%s, "
+                        "'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science')", (slug,))
+            cur.execute("INSERT INTO professors_catalog (slug, name, name_key, department, total_reviews) VALUES "
+                        "(%s, 'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science', 5)", (slug,))
+        cur.execute("INSERT INTO rmp_reviews (professor_name, comment, name_key) VALUES "
+                    "('Iraklis Tsekourakis', 'But Prof. Herc really tries his hardest', 'iraklis tsekourakis'), "
+                    "('Iraklis Tsekourakis', 'Prof Herc is super nice', 'iraklis tsekourakis')")
+    pg.commit()
+
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        assert review_agent.mine_nicknames(cur, lambda m: pytest.fail("asked")) == {}
+    truncate(pg, "rmp_reviews", "professors_catalog", "professor_aliases")

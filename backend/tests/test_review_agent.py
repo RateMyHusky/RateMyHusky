@@ -731,10 +731,16 @@ CHRIS = {**MARY, "name": "Chris Smith", "name_key": "chris smith"}
     ({"name": "Wei Chen", "name_key": "wei chen", "department": "Computer Science"},
      [{"slug": "jian-chen", "name_key": "jian chen", "department": "Computer Science", "listed": True}], TAUGHT,
      (None, "a different first name", None)),
-    (CHRIS, [CHRISTOPHER], set(), ("christopher-smith", "same last name and department", "chris")),
+    # A partial first name is a short form as often as a longer real name ("Danielle" for Daniel),
+    # so only a taught course merges it.
+    (CHRIS, [CHRISTOPHER], set(), (None, "a partial first name and didn't teach the course", None)),
+    (CHRIS, [CHRISTOPHER], TAUGHT, ("christopher-smith", "same last name and taught the course", "chris")),
     ({**MARY, "name": "Dan Smith", "name_key": "dan smith", "department": "computer science"},
      [{**CHRISTOPHER, "slug": "daniel-smith", "name_key": "daniel smith"}], set(),
-     ("daniel-smith", "same last name and department", "dan")),
+     (None, "a partial first name and didn't teach the course", None)),
+    ({**MARY, "name": "Danielle Smith", "name_key": "danielle smith"},
+     [{**CHRISTOPHER, "slug": "daniel-smith", "name_key": "daniel smith"}], set(),
+     (None, "a partial first name and didn't teach the course", None)),
     ({**CHRIS, "department": "Biology"}, [CHRISTOPHER], TAUGHT,
      ("christopher-smith", "same last name and taught the course", "chris")),
     ({**CHRIS, "department": None}, [CHRISTOPHER], TAUGHT,
@@ -753,15 +759,17 @@ CHRIS = {**MARY, "name": "Chris Smith", "name_key": "chris smith"}
      ("christopher-smith", "same last name and department", None)),
     ({**MARY, "name": "Smith", "name_key": "smith"}, [CHRISTOPHER], set(),
      ("christopher-smith", "same last name and department", None)),
-    ({**MARY, "name": "Dr. Chris Smith", "name_key": "dr. chris smith"}, [CHRISTOPHER], set(),
-     ("christopher-smith", "same last name and department", "chris")),
+    ({**MARY, "name": "Dr. Chris Smith", "name_key": "dr. chris smith"}, [CHRISTOPHER], TAUGHT,
+     ("christopher-smith", "same last name and taught the course", "chris")),
+    ({**MARY, "name": "D. Smith", "name_key": "d. smith"}, [CHRISTOPHER], TAUGHT,
+     (None, "a different first name", None)),
     ({**MARY, "name": "Jo. Smith", "name_key": "jo. smith"}, [CHRISTOPHER], TAUGHT,
      (None, "a different first name", None)),
     # A title is never a first name or an alias.
     ({**MARY, "name": "Professor Smith", "name_key": "professor smith"}, [CHRISTOPHER], set(),
      ("christopher-smith", "same last name and department", None)),
     ({**MARY, "name": "Prof Chris Smith", "name_key": "prof chris smith"}, [CHRISTOPHER], TAUGHT,
-     ("christopher-smith", "same last name and department", "chris")),
+     ("christopher-smith", "same last name and taught the course", "chris")),
     # The catalog's one Smith may have an unlisted namesake, or be one.
     (MARY, [{**CHRISTOPHER, "listed": False}], TAUGHT,
      (None, "the only professor named smith isn't listed on the site", None)),
@@ -782,8 +790,9 @@ class ProfessorCursor:
     `recent` is the slugs the agent merged a professor into lately; a professor's `statuses` (default
     accepted) and `comments` (default none) are its ratings', one per code. `target_comments` are the
     comments of the target's recent ratings, which the near-copy check reads."""
-    def __init__(self, professors, recent=(), target_comments=()):
+    def __init__(self, professors, recent=(), target_comments=(), moved=None):
         self.professors = {p["id"]: p for p in professors}
+        self.moved = moved or {"n": 0, "held": 0}
         self.recent = set(recent)
         self.target_comments = list(target_comments)
         self.calls, self._rows, self.connection = [], [], FakeConnection()
@@ -801,6 +810,8 @@ class ProfessorCursor:
                           for i, c in enumerate(p["codes"])]
         elif sql.startswith("SELECT id, comment FROM survey_ratings"):
             self._rows = [{"id": f"t{i}", "comment": c} for i, c in enumerate(self.target_comments)]
+        elif sql == ra.MOVED_RATINGS_SQL:
+            self._rows = [self.moved]
         elif sql == ra.PROFESSOR_RECENT_MERGE_SQL:
             self._rows = [{"?column?": 1}] if params[0] in self.recent else []
         elif sql == ra.PROFESSOR_MATCHES_SQL:
@@ -827,11 +838,14 @@ def _pending_prof(id="p1", matches=(CHRISTOPHER,), taught=tuple(TAUGHT), codes=(
 def test_a_safe_pending_professor_is_recorded_merged_aliased_and_committed(monkeypatch):
     merged = []
     monkeypatch.setattr(ra, "merge_professor", lambda cur, id, slug: merged.append((id, slug)))
-    cur = ProfessorCursor([_pending_prof()])
+    cur = ProfessorCursor([_pending_prof()], moved={"n": 1, "held": 1})
     assert ra.review_pending_professors(cur, NOW) == Counter(merge=1)
     assert merged == [("p1", "christopher-smith")]
+    # Counted after the merge: merge_professor holds a moved rating on a pair TAUGHT_SQL doesn't know.
+    ((_, params),) = cur.statements(ra.MOVED_RATINGS_SQL)
+    assert params == (["p1-r0"],)
     ((_, params),) = cur.statements("UPDATE survey_pending_professors SET agent_decision")
-    assert params == ("merge", "same last name and department; 1 rating(s)", "p1")
+    assert params == ("merge", "same last name and taught the course; 1 rating(s), 1 held", "p1", "merged")
     ((sql, params),) = cur.statements("INSERT INTO professor_aliases")
     assert "'merge'" in sql and "ON CONFLICT (alias_key, slug) DO NOTHING" in sql
     assert params == ("chris", "christopher-smith")
@@ -850,13 +864,16 @@ def test_an_unsafe_pending_professor_is_escalated_without_a_merge(monkeypatch):
     cur = ProfessorCursor([_pending_prof(department="Biology", taught=())])
     assert ra.review_pending_professors(cur, NOW) == Counter(escalate=1)
     ((_, params),) = cur.statements("UPDATE survey_pending_professors SET agent_decision")
-    assert params == ("escalate", "not in the department and didn't teach the course", "p1")
+    assert params == ("escalate", "not in the department and didn't teach the course", "p1", "pending")
     assert not cur.statements("INSERT")
     assert cur.connection.events == ["commit"]
 
 
 def _escalated(cur):
-    return [p for _, p in cur.statements("UPDATE survey_pending_professors SET agent_decision")]
+    """The (decision, reason, id) recorded; an escalate leaves the professor pending."""
+    recorded = [p for _, p in cur.statements("UPDATE survey_pending_professors SET agent_decision")]
+    assert all(p[3] == "pending" for p in recorded)
+    return [p[:3] for p in recorded]
 
 
 def test_two_pending_professors_for_one_target_are_both_escalated(monkeypatch):
@@ -894,7 +911,7 @@ def test_three_ratings_still_merge(monkeypatch):
 def test_a_pending_professor_with_no_ratings_is_escalated(monkeypatch):
     # Its only rating was rejected, say: nothing to merge, and its first name is no alias.
     monkeypatch.setattr(ra, "merge_professor", lambda *a: pytest.fail("merged"))
-    cur = ProfessorCursor([_pending_prof(codes=[])])
+    cur = ProfessorCursor([_pending_prof(codes=[], name="C. Smith", name_key="c. smith")])
     assert ra.review_pending_professors(cur, NOW) == Counter(escalate=1)
     assert _escalated(cur) == [("escalate", "no ratings", "p1")]
     assert not cur.statements("INSERT")
@@ -1137,6 +1154,21 @@ def test_mine_nicknames_stops_at_the_deadline(monkeypatch):
     cur = NicknameCursor(comments, catalog)
     assert ra.mine_nicknames(cur, ask, deadline=100) == Counter(suggested=2, out_of_time=1)
     assert len(cur.inserts()) == 2
+
+
+def test_professors_with_the_fewest_decided_words_are_asked_first():
+    # Alphabetical order alone would ask p0 every week a new word turns up, and never reach p2.
+    comments = [(f"p{i}", c) for i in range(3) for c in ("Zork rules", "Zork is fun")]
+    catalog = [(f"p{i}", f"Pat P{i}", f"pat p{i}") for i in range(3)]
+    asked = []
+
+    def ask(messages):
+        asked.append(json.loads(messages[1]["content"])["professor"])
+        return json.dumps({"Zork": True})
+
+    cur = NicknameCursor(comments, catalog, known=[("herc", "p0"), ("bob", "p0"), ("herc", "p1")])
+    assert ra.mine_nicknames(cur, ask, max_calls=2) == Counter(suggested=2)
+    assert asked == ["Pat P2", "Pat P1"]
 
 
 def test_nickname_dry_run_writes_nothing(capsys):

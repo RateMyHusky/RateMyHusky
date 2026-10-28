@@ -481,7 +481,10 @@ PROFESSOR_MATCHES_SQL = (
 PROFESSOR_TAUGHT_SQL = ("SELECT DISTINCT s.slug FROM unnest(%s::text[]) s(slug), unnest(%s::text[]) c(code) "
                         f"WHERE {ratings.TAUGHT_SQL.format(code='c.code', slug='s.slug')}")
 RECORD_PROFESSOR_SQL = ("UPDATE survey_pending_professors SET agent_decision = %s, agent_reason = %s, "
-                        "agent_reviewed_at = clock_timestamp() WHERE id = %s AND status = 'pending'")
+                        "agent_reviewed_at = clock_timestamp() WHERE id = %s AND status = %s")
+# The ratings merge_professor left, and how many it held as unverified_pair (any held before escalates).
+MOVED_RATINGS_SQL = ("SELECT count(*) AS n, count(*) FILTER (WHERE status = 'held') AS held FROM survey_ratings "
+                     "WHERE id::text = ANY(%s)")
 PROFESSOR_RECENT_MERGE_SQL = (
     "SELECT 1 FROM survey_pending_professors WHERE status = 'merged' AND agent_decision = 'merge' "
     f"AND resolved_slug = %s AND agent_reviewed_at >= now() - interval '{PROFESSOR_MERGE_DAYS} days' LIMIT 1")
@@ -505,11 +508,12 @@ def professor_merge_target(pending, matches, taught, is_denied=is_denied):
     """(slug to merge a pending professor into, reason, first-name alias key), or (None, why a
     human decides, None). `matches` are the professors with the same last name_key word, each
     with `listed` (in the catalog), and `taught` the matched slugs ratings.TAUGHT_SQL has on a
-    course the pending professor was rated for. It merges only when the first names agree (one is
-    a prefix of the other, so an initial counts) or there is none, and the department or a taught
-    course matches. A different first name ("Herc" for Iraklis) is a nickname as often as a new
-    colleague on the same course, so a human decides. The alias is that first name when it is 3
-    or more letters (not an initial or a title) and differs from the matched professor's."""
+    course the pending professor was rated for. A matching first name, an initial or none merges
+    on the department or a taught course; a partial one ("Chris" for Christopher, but also
+    "Danielle" for Daniel) only on a taught course. A different first name ("Herc" for Iraklis) is
+    a nickname as often as a new colleague on the same course, so a human decides. The alias is
+    that first name when it is 3 or more letters (not an initial or a title) and differs from the
+    matched professor's."""
     last = pending["name_key"].split()[-1]
     if is_denied(pending["name"]):
         return None, "the submitted name is on the denylist", None
@@ -519,15 +523,18 @@ def professor_merge_target(pending, matches, taught, is_denied=is_denied):
     if not match["listed"]:
         return None, f"the only professor named {last} isn't listed on the site", None
     first, match_first = submitted_first_name(pending["name"]), match["name_key"].split()[0]
-    agrees = first is None or first.startswith(match_first) or match_first.startswith(first)
+    prefix = first is not None and (first.startswith(match_first) or match_first.startswith(first))
+    agrees = first is None or first == match_first or (prefix and min(len(first), len(match_first)) == 1)
     dept = (pending["department"] or "").lower()
     in_dept = dept and dept == (match["department"] or "").lower()
-    if not agrees:
+    if not prefix and not agrees:
         return None, "a different first name", None
-    if in_dept:
+    if agrees and in_dept:
         reason = "same last name and department"
     elif match["slug"] in taught:
         reason = "same last name and taught the course"
+    elif in_dept:
+        return None, "a partial first name and didn't teach the course", None
     else:
         return None, "not in the department and didn't teach the course", None
     alias = first if first and re.fullmatch(r"[a-z]{3,}", first) and first != match_first else None
@@ -562,7 +569,8 @@ def review_pending_professors(cur, now, dry_run=False):
     and record an escalate on the rest, for every pending professor on every run. A merge also
     records the submitted first name as a pending alias. Counts merge and escalate. Commits per
     professor (cur.connection); a merge merge_professor refuses is rolled back and left for the
-    next run. A merge's reason ends with the number of ratings moved, which the digest reads back.
+    next run. A merge's reason ends with the number of ratings moved and how many of those
+    merge_professor held, which the digest reads back.
     A merge waits for a human instead (professor_merge_hold) when its target is also another
     pending professor's or got an agent merge lately, or the entry has no ratings, many, a held one
     or a near copy of the target's recent ratings."""
@@ -603,15 +611,17 @@ def review_pending_professors(cur, now, dry_run=False):
             print(f"{decision}  {prof['name']}  {target or '-'}  {reason}  {alias or '-'}")
             continue
         try:
-            # Record while still pending (RECORD_PROFESSOR_SQL only touches pending rows); the
-            # merge then resolves it, and raises if a human settled it meanwhile.
-            cur.execute(RECORD_PROFESSOR_SQL, (decision, f"{reason}; {len(rated)} rating(s)" if target else reason,
-                                               prof["id"]))
+            # merge_professor raises if a human settled the professor meanwhile; RECORD_PROFESSOR_SQL
+            # then only touches the professor in the status this run left it.
             if target:
                 merge_professor(cur, prof["id"], target)
+                cur.execute(MOVED_RATINGS_SQL, ([r["id"] for r in rated],))
+                moved = cur.fetchone()
+                reason = f"{reason}; {moved['n']} rating(s), {moved['held']} held"
                 if alias:
                     cur.execute(ADD_ALIAS_SQL, (alias, target))
                 cur.execute(DATA_VERSION_SQL)
+            cur.execute(RECORD_PROFESSOR_SQL, (decision, reason, prof["id"], "merged" if target else "pending"))
         except ReviewError:
             cur.connection.rollback()
             continue
@@ -641,7 +651,8 @@ NICKNAME_COMMENTS_SQL = (
     "SELECT professor_slug AS slug, comment FROM survey_ratings WHERE status = 'accepted' "
     "AND professor_slug IS NOT NULL AND comment IS NOT NULL "
     "UNION ALL SELECT p.slug, r.comment FROM rmp_reviews r JOIN professors p ON p.name_key = r.name_key "
-    "WHERE r.comment IS NOT NULL")
+    # rmp_reviews has no professor id: namesakes would get each other's comments, and each other's nicknames.
+    "WHERE r.comment IS NOT NULL AND p.name_key IN (SELECT name_key FROM professors GROUP BY name_key HAVING count(*) = 1)")
 NICKNAME_CATALOG_SQL = "SELECT slug, name, name_key FROM professors_catalog"
 NICKNAME_KNOWN_SQL = "SELECT alias_key, slug FROM professor_aliases"
 ADD_NICKNAME_SQL = ("INSERT INTO professor_aliases (alias_key, slug, source, status) VALUES (%s, %s, 'comment', %s) "
@@ -706,8 +717,9 @@ def parse_nicknames(text, words):
 
 
 def mine_nicknames(cur, ask, max_calls=MAX_NICKNAME_CALLS, dry_run=False, deadline=None):
-    """Ask the model, one call per professor with candidate words (at most max_calls), whether each
-    word is a name students use for them. A yes is stored as a pending alias for a human to approve,
+    """Ask the model, one call per professor with candidate words (at most max_calls, those with the
+    fewest words already decided first, so every professor gets a turn), whether each word is a
+    name students use for them. A yes is stored as a pending alias for a human to approve,
     a no as rejected, so neither is asked again; an answer that isn't a clear yes or no is left for
     the next run. Counts suggested, rejected, unavailable (`ask` returned None, so it stopped) and
     out_of_time (time.monotonic() reached `deadline`, so it stopped; the rest wait for next week).
@@ -730,7 +742,8 @@ def mine_nicknames(cur, ask, max_calls=MAX_NICKNAME_CALLS, dry_run=False, deadli
     # End the read transaction, so none is open through the model calls.
     cur.connection.rollback()
     counts = Counter()
-    for slug in sorted(candidates)[:max_calls]:
+    decided = Counter(slug for _, slug in known)
+    for slug in sorted(candidates, key=lambda s: (decided[s], s))[:max_calls]:
         if deadline is not None and time.monotonic() >= deadline:
             counts["out_of_time"] += 1
             break
