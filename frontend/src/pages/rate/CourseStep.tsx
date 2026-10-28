@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchSearchSuggestions } from '../../api/api';
+import { fetchCourseSuggestions, fetchSearchSuggestions } from '../../api/api';
 import { useDebouncedValue } from '../../utils/useDebouncedValue';
 import { ChoiceGroup, StepFoot } from './ChoiceGroup';
 import type { ChoiceOption } from './ChoiceGroup';
@@ -76,11 +76,12 @@ const CODE_LIKE = /^[A-Za-z]{2,5}\s*\d{1,4}[A-Za-z]?$/;
 interface OtherCourseStepProps {
   own: RateCourse[];
   rated: string[];
+  slug: string | null;
   onPick: (c: RateCourse) => void;
   onBack: () => void;
 }
 
-export function OtherCourseStep({ own, rated, onPick, onBack }: OtherCourseStepProps) {
+export function OtherCourseStep({ own, rated, slug, onPick, onBack }: OtherCourseStepProps) {
   const [query, setQuery] = useState('');
   const [newName, setNewName] = useState('');
   const typed = query.trim();
@@ -109,6 +110,21 @@ export function OtherCourseStep({ own, rated, onPick, onBack }: OtherCourseStepP
     : [...mine, ...(catalog ?? []).filter((c) => !mine.some((m) => m.code === c.code))].slice(0, 5);
   const code = typed.replace(/\s+/g, '').toUpperCase();
   const canAdd = settled !== null && settled.length === 0 && NEW_CODE.test(code);
+  const addCode = canAdd ? code : '';
+  const debouncedAdd = useDebouncedValue(addCode, 200);
+  const [nearby, setNearby] = useState<{ q: string; items: RateCourse[] } | null>(null);
+
+  useEffect(() => {
+    if (!debouncedAdd) return;
+    let cancelled = false;
+    fetchCourseSuggestions(debouncedAdd, slug).then((rows) => {
+      if (!cancelled) setNearby({ q: debouncedAdd, items: rows.map((r) => ({ code: r.code, name: r.name ?? '', isNew: false, terms: [] })) });
+    });
+    return () => { cancelled = true; };
+  }, [debouncedAdd, slug]);
+
+  const answered = canAdd && nearby !== null && nearby.q === code;
+  const suggestions = answered ? nearby.items : [];
 
   return (
     <>
@@ -147,9 +163,28 @@ export function OtherCourseStep({ own, rated, onPick, onBack }: OtherCourseStepP
           })}
         </div>
       )}
-      {canAdd && (
+      {suggestions.length > 0 && (
         <>
-          <p className="rate-hint rate-note">{formatCode(code)} isn't in our catalog yet. Name it and it's added with your rating.</p>
+          <p className="rate-hint rate-note">Did you mean one of these?</p>
+          <div className="rate-suggs">
+            {suggestions.map((c) => (
+              <button key={c.code} type="button" className="rate-sugg" onClick={() => onPick(c)}>
+                <span>
+                  <b>{formatCode(c.code)}</b>
+                  {c.name && <small>{c.name}</small>}
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      {answered && (
+        <>
+          <p className="rate-hint rate-note">
+            {suggestions.length > 0
+              ? `Or keep ${formatCode(code)}: name it and it's added with your rating.`
+              : `${formatCode(code)} isn't in our catalog yet. Name it and it's added with your rating.`}
+          </p>
           <div className="rate-field">
             <label htmlFor="rate-course-name">Course name</label>
             <input
@@ -167,7 +202,7 @@ export function OtherCourseStep({ own, rated, onPick, onBack }: OtherCourseStepP
         <p className="rate-hint rate-note" role="status">No courses match. Type the full code, like CS 4999, to add a new one.</p>
       )}
       <StepFoot onBack={onBack}>
-        {canAdd && (
+        {answered && (
           <button
             type="button"
             className="rate-btn"

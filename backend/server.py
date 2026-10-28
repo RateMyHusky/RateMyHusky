@@ -44,6 +44,7 @@ import notify
 import ip_networks
 import rating_identity
 import rating_checks
+import course_typos
 import ratings
 import survey_reviews
 import usage_alert
@@ -2356,6 +2357,18 @@ def rate_professor(slug):
     device_hash = (rating_identity.keyed_hash(RATING_SECRET, "device", token)
                    if rating_identity.valid_device_token(token) else None)
     return _rating_response(ratings.professor_context(slug, device_hash, query), 200)
+
+
+@app.route("/api/rate/course-suggestions")
+@limiter.limit("30 per minute")
+def rate_course_suggestions():
+    if not _rating_enabled():
+        return _rating_unavailable()
+    code = re.sub(r"\s+", "", request.args.get("code", "")).upper()
+    if not rating_checks.COURSE_CODE_RE.fullmatch(code):
+        return _rating_response({"suggestions": []}, 200)
+    slug = request.args.get("slug") or None
+    return _rating_response({"suggestions": course_typos.banner_candidates(code, query, slug)}, 200)
 
 
 @app.route("/api/rate", methods=["POST"])

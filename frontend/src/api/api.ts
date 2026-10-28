@@ -581,6 +581,19 @@ export async function fetchRateContext(slug: string, deviceToken: string): Promi
   return res.json();
 }
 
+/* Near matches for a typed code that isn't a known course. Never blocks the form, so any error is no suggestions. */
+export async function fetchCourseSuggestions(code: string, slug: string | null): Promise<{ code: string; name: string | null }[]> {
+  try {
+    const params = new URLSearchParams({ code });
+    if (slug) params.set("slug", slug);
+    const res = await rateGet(`${API_BASE}/api/rate/course-suggestions?${params}`, {});
+    if (!res.ok) return [];
+    return (await res.json()).suggestions;
+  } catch {
+    return [];
+  }
+}
+
 /* status 0 = network failure or the maintenance redirect. */
 export async function submitRating(body: RateSubmission): Promise<RateSubmitResult> {
   let res: Response;
