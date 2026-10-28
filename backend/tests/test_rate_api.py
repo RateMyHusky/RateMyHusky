@@ -556,10 +556,10 @@ def suggestion_rows(server, monkeypatch):
     banner = {"BIOL2299": "Cell Biology", "BIOL2300": "Genetics"}
 
     def fake_query(sql, params=None):
-        codes = [c for c in params[0] if c in banner]
-        if "banner_course_instructors" in sql and params[1] != "alice-smith":
-            return []
-        return [{"code": c, "name": banner[c]} for c in codes if "banner_course_instructors" not in sql or c == "BIOL2299"]
+        slug, codes, code, limit = params
+        return sorted(({"code": c, "name": banner[c], "taught": slug == "alice-smith" and c == "BIOL2299"}
+                       for c in codes if c in banner),
+                      key=lambda r: (r["code"] != code, not r["taught"], r["code"]))[:limit]
 
     monkeypatch.setattr(server, "query", fake_query)
 
@@ -585,6 +585,13 @@ def test_course_suggestions_without_a_slug_uses_all_banner(rate, monkeypatch):
     resp = client.get("/api/rate/course-suggestions?code=BIO2299")
     assert resp.status_code == 200
     assert [s["code"] for s in resp.get_json()["suggestions"]] == ["BIOL2299"]
+
+
+def test_course_suggestions_lead_with_a_banner_only_exact_code(rate, monkeypatch):
+    server, client, state, ri = rate
+    suggestion_rows(server, monkeypatch)
+    resp = client.get("/api/rate/course-suggestions?code=BIOL2300")
+    assert [s["code"] for s in resp.get_json()["suggestions"]] == ["BIOL2300"]
 
 
 def test_course_suggestions_for_a_bad_code_is_empty(rate, monkeypatch):

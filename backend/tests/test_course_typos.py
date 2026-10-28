@@ -44,33 +44,35 @@ def test_taught_candidates_queries_once_with_all_neighbors():
     assert params[1] == ["a", "b", "c"]
 
 
-def test_banner_candidates_prefer_the_professors_courses():
+def test_banner_candidates_is_one_query_with_the_code_and_its_neighbors():
     calls = []
 
     def query(sql, params=()):
-        calls.append(sql)
-        if "banner_course_instructors" in sql:
-            return [{"code": "CS2500", "name": "Fundamentals"}]
-        return [{"code": "CS2050", "name": "Other"}]
+        calls.append(params)
+        return []
 
-    got = course_typos.banner_candidates("CS2501", query, slug="alice-smith")
+    assert course_typos.banner_candidates("CS2501", query, slug="alice-smith") == []
+    ((slug, codes, code, limit),) = calls
+    assert (slug, code, limit) == ("alice-smith", "CS2501", course_typos.MAX_CANDIDATES)
+    assert set(codes) == course_typos.neighbors("CS2501") | {"CS2501"}
+
+
+def test_banner_candidates_prefer_the_professors_courses():
+    rows = [{"code": "CS2500", "name": "Fundamentals", "taught": True},
+            {"code": "CS2050", "name": "Other", "taught": False}]
+    got = course_typos.banner_candidates("CS2501", lambda sql, params=(): rows, slug="alice-smith")
     assert got == [{"code": "CS2500", "name": "Fundamentals"}]
-    assert len(calls) == 1
 
 
 def test_banner_candidates_fall_back_to_all_banner():
-    def query(sql, params=()):
-        if "banner_course_instructors" in sql:
-            return []
-        return [{"code": "CS2500", "name": "B"}, {"code": "CS2050", "name": "A"}]
-
-    assert course_typos.banner_candidates("CS2501", query, slug="x") == [
-        {"code": "CS2050", "name": "A"}, {"code": "CS2500", "name": "B"}]
-    assert course_typos.banner_candidates("CS2501", query) == [
+    rows = [{"code": "CS2050", "name": "A", "taught": False}, {"code": "CS2500", "name": "B", "taught": False}]
+    assert course_typos.banner_candidates("CS2501", lambda sql, params=(): rows, slug="x") == [
         {"code": "CS2050", "name": "A"}, {"code": "CS2500", "name": "B"}]
 
 
-def test_banner_candidates_cap_at_five_sorted():
-    rows = [{"code": f"CS250{i}", "name": None} for i in range(9, 0, -1)]
-    got = course_typos.banner_candidates("CS2500", lambda sql, params=(): rows)
-    assert [r["code"] for r in got] == [f"CS250{i}" for i in range(1, 6)]
+def test_banner_candidates_keep_the_exact_code_beside_the_professors_courses():
+    rows = [{"code": "BIOL5541", "name": "Exact", "taught": False},
+            {"code": "BIOL5540", "name": "Taught", "taught": True},
+            {"code": "BIOL5542", "name": "Other", "taught": False}]
+    got = course_typos.banner_candidates("BIOL5541", lambda sql, params=(): rows, slug="x")
+    assert [r["code"] for r in got] == ["BIOL5541", "BIOL5540"]
