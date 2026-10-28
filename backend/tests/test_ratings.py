@@ -177,6 +177,13 @@ def test_a_clean_edit_keeps_the_rows_hold_reasons():
     assert "hold_reasons = COALESCE(EXCLUDED.hold_reasons, survey_ratings.hold_reasons)" in sql
 
 
+def test_an_edit_without_a_difficulty_keeps_the_stored_one():
+    # A page still on the form from before the question sends none.
+    sql = ratings._UPSERT_SQL
+    assert "difficulty = COALESCE(EXCLUDED.difficulty, survey_ratings.difficulty)" in sql
+    assert "difficulty = EXCLUDED.difficulty" not in sql
+
+
 def test_burst_ip_skipped_on_campus_and_relay():
     f = Fake(one={"ip_hash": {"cnt": 50}})
     for net in ("campus", "relay"):
@@ -450,10 +457,15 @@ def test_skew_week_sql_counts_new_devices_and_skips_approvals():
 def test_hold_skew_week_holds_the_unreviewed_new_device_week():
     f = Fake()
     ratings.hold_skew_week(KEY, f.write, NOW)
-    (sql, params), = f.writes
+    (sql, params), (append_sql, append_params) = f.writes
     assert "SET status = 'held', hold_reasons = 'skew_week'" in sql
     assert "status = 'accepted' AND hold_reasons IS NULL AND new_device = true" in sql
     assert params == (NOW - timedelta(days=7), "jane-doe", None)
+    # A row already held for something else gets skew_week too, so the agent sees it in the group.
+    assert "hold_reasons = hold_reasons || ',skew_week'" in append_sql
+    assert "status = 'held' AND hold_reasons IS NOT NULL AND new_device = true" in append_sql
+    assert "NOT ('skew_week' = ANY(string_to_array(hold_reasons, ',')))" in append_sql
+    assert append_params == params
 
 
 def test_flagged_matches_a_device_or_a_recent_ip():

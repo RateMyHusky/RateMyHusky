@@ -316,14 +316,22 @@ def test_an_approval_is_recorded_while_held_then_goes_through_approve_rating():
     second = next(i for i, s in enumerate(sqls) if s == AGENT_UPDATE)
     assert second < first
     assert cur.calls[second][1] == ("approve", "looks fine", NOW, ["abc0001"])
-    assert cur.connection.events == ["commit"]
+    assert cur.connection.events == ["rollback", "commit"]
+
+
+def test_the_read_transaction_ends_before_the_model_is_asked():
+    # An open transaction would hold survey_ratings' lock through the Groq call.
+    cur = FakeCursor([_held(1, "no_timer"), _held(2, "no_timer", 5, slug="other-prof")])
+    seen = []
+    ra.review_held(cur, lambda m: seen.append(list(cur.connection.events)) or APPROVE, NOW)
+    assert seen == [["rollback"], ["rollback", "commit", "rollback"]]
 
 
 def test_a_stale_group_is_rolled_back_and_skipped():
     rows = [_held(1, "no_timer", 0), _held(2, "no_timer", 5, slug="other-prof")]
     cur = FakeCursor(rows, approved=False)
     ra.review_held(cur, Ask(APPROVE), NOW)
-    assert cur.connection.events == ["rollback", "rollback"]
+    assert cur.connection.events == ["rollback"] * 4  # each group: before the model, then the stale write
     assert "commit" not in cur.connection.events
     assert len(cur.statements("UPDATE survey_ratings SET status")) == 2
 
@@ -332,7 +340,7 @@ def test_unavailable_stops_the_run_and_leaves_items():
     cur = FakeCursor([_held(1, "no_timer"), _held(2, "no_timer", 5, slug="other-prof")])
     ask = Ask(None)
     assert ra.review_held(cur, ask, NOW) == Counter(unavailable=1)
-    assert len(ask.calls) == 1 and not cur.statements("UPDATE") and not cur.connection.events
+    assert len(ask.calls) == 1 and not cur.statements("UPDATE") and cur.connection.events == ["rollback"]
 
 
 def test_injection_in_a_near_duplicate_comment_stays_held():
@@ -412,7 +420,7 @@ def test_a_refused_request_escalates_that_group_as_a_model_error_and_goes_on():
 def test_dry_run_writes_nothing():
     cur = FakeCursor([_held(1, "no_timer")])
     assert ra.review_held(cur, Ask(APPROVE), NOW, dry_run=True) == Counter(approve=1)
-    assert not cur.statements("UPDATE") and not cur.connection.events
+    assert not cur.statements("UPDATE") and cur.connection.events == ["rollback"]
 
 
 def test_the_decision_is_only_recorded_on_rows_still_held():
@@ -495,7 +503,7 @@ def test_an_approval_bumps_the_data_version_after_approving_and_an_escalate_does
     sqls = [s for s, _ in cur.calls]
     assert DATA_VERSION_SQL in sqls
     assert sqls.index(DATA_VERSION_SQL) > next(i for i, s in enumerate(sqls) if s.startswith("UPDATE survey_ratings SET status = 'accepted'"))
-    assert cur.connection.events == ["commit"]
+    assert cur.connection.events == ["rollback", "commit"]
     cur = FakeCursor([_held(1, "near_duplicate")])
     ra.review_held(cur, Ask(APPROVE), NOW)
     assert DATA_VERSION_SQL not in [s for s, _ in cur.calls]
@@ -512,7 +520,7 @@ def test_a_row_changed_while_the_model_answered_is_rolled_back_and_left_for_next
     cur = FakeCursor([row])
     cur.reread = [{**row, "hold_reasons": "no_timer,near_duplicate"}]
     assert ra.review_held(cur, Ask(APPROVE), NOW) == Counter()
-    assert cur.connection.events == ["rollback"]
+    assert cur.connection.events == ["rollback", "rollback"]
     assert not cur.statements("UPDATE")
     assert any("FOR UPDATE" in sql for sql, _ in cur.calls)
 
@@ -522,7 +530,7 @@ def test_a_row_gone_from_the_reread_is_rolled_back_and_the_unchanged_reread_is_l
     cur = FakeCursor([row])
     cur.reread = []
     assert ra.review_held(cur, Ask(APPROVE), NOW) == Counter()
-    assert cur.connection.events == ["rollback"] and not cur.statements("UPDATE")
+    assert cur.connection.events == ["rollback", "rollback"] and not cur.statements("UPDATE")
     order = [("FOR UPDATE" in sql) for sql, _ in cur.calls]
     assert order.index(True) > 0
 

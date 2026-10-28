@@ -56,6 +56,9 @@ function selftest(): number {
   check('edit course without shortcuts goes to otherTerm', nextStep('course', editedCourse) === 'otherTerm');
   const editedCourse2 = answer(a, { course: { ...cs2500, code: 'CS2510' } });
   check('edit course with shortcuts goes to term', nextStep('course', editedCourse2) === 'term');
+  // The difficulty question names the course, so another course asks it again.
+  check('edit course clears difficulty', editedCourse2.difficulty === undefined);
+  check('edit course: term -> difficulty', nextStep('term', answer(editedCourse2, { term: 'Fall 2025' })) === 'difficulty');
   const editedProf = answer(a, { professor: { ...alex, slug: 'other', name: 'Other Prof' } });
   check('edit professor clears course and term', editedProf.course === undefined && editedProf.term === undefined);
   check('edit professor keeps later answers', editedProf.rating === 5 && editedProf.hours === '5-7');

@@ -145,6 +145,8 @@ export function answer(a: Answers, change: Partial<Answers>): Answers {
   }
   if (change.course !== undefined && a.course?.code !== change.course.code) {
     if (!('term' in change)) delete next.term;
+    // The difficulty question names the course, so another course asks it again.
+    if (!('difficulty' in change)) delete next.difficulty;
   }
   return next;
 }

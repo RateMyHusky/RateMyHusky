@@ -31,6 +31,7 @@ from pipeline.db import connect
 from rag.key_pool import KeyPool, load_entries
 from pipeline.read_models import DATA_VERSION_SQL
 from rag.llm_adapter import _seconds_until_utc_midnight
+import ratings
 from rating_checks import MIN_DUPLICATE_CHARS, NEAR_DUPLICATE, normalize_comment, similarity
 from review_ratings import ReviewError, approve_rating
 
@@ -268,8 +269,9 @@ HISTORY_SQL = (
     "SELECT rating, difficulty, grade, course_code, term_label, comment FROM survey_ratings "
     "WHERE professor_slug = %s AND status = 'accepted' AND comment IS NOT NULL "
     "ORDER BY created_at DESC LIMIT %s")
-TAUGHT_SQL = ("SELECT EXISTS (SELECT 1 FROM banner_course_instructors "
-              "WHERE subject_course = %s AND professor_slug = %s) AS taught")
+# The rate route's rule (Banner, RMP or a reviewer-vouched pair), so the model isn't told a pair
+# the route accepted as taught is unverified. Takes (code, slug) three times.
+TAUGHT_SQL = f"SELECT {ratings.TAUGHT_SQL.format(code='%s', slug='%s')} AS taught"
 RECORD_SQL = ("UPDATE survey_ratings SET agent_decision = %s, agent_reason = %s, agent_reviewed_at = %s "
               "WHERE id::text = ANY(%s) AND status = 'held'")
 
@@ -298,7 +300,7 @@ def _context(cur, group):
     history = cur.fetchall()
     taught = {}
     for code in sorted({r["course_code"] for r in group if r.get("course_code")}):
-        cur.execute(TAUGHT_SQL, (code, slug))
+        cur.execute(TAUGHT_SQL, (code, slug) * 3)
         row = cur.fetchone()
         taught[code] = bool(row and row["taught"])
     return history, taught
@@ -318,6 +320,8 @@ def review_held(cur, ask, now, dry_run=False):
     for group in groups[:MAX_CALLS]:
         ids = [r["id"] for r in group]
         history, taught = _context(cur, group)
+        # End the read transaction, so no lock on survey_ratings is held through the model call.
+        cur.connection.rollback()
         text = ask(build_messages(sample(group), history, taught))
         if text is None:
             counts["unavailable"] += 1

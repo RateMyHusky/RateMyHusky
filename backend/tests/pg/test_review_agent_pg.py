@@ -16,7 +16,8 @@ NOW = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 @pytest.fixture(autouse=True)
 def clean(pg):
-    truncate(pg, "survey_ratings", "survey_pending_courses", "professors", "banner_course_instructors", "stats_cache")
+    truncate(pg, "survey_ratings", "survey_pending_courses", "professors", "banner_course_instructors", "stats_cache",
+             "source_summary")
 
 
 def insert(pg, slug, reasons, device, minute, comment=None):
@@ -120,3 +121,33 @@ def test_an_approval_rolls_the_whole_group_back_when_a_row_was_settled_mid_run(p
     assert by_id[ids[0]]["status"] == "accepted" and by_id[ids[0]]["agent_decision"] is None
     assert by_id[ids[1]]["status"] == "held" and by_id[ids[1]]["agent_decision"] is None
     assert by_id[ids[1]]["agent_reviewed_at"] is None
+
+
+def test_taught_counts_rmp_and_reviewer_vouched_pairs_like_the_rate_route(pg):
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO source_summary (professor_slug, course_code, source, num_ratings) "
+                    "VALUES ('sam-lee', 'CS2500', 'rmp', 4)")
+    insert(pg, "sam-lee", "burst_prof", "d1", 0)
+    pg.commit()
+    seen = []
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        review_agent.review_held(cur, lambda m: seen.append(json.loads(m[1]["content"])["taught"]) or "{}",
+                                 NOW, dry_run=True)
+    assert seen == [{"CS2500": True}]
+
+
+def test_no_transaction_is_open_while_the_model_answers(pg, pg_url):
+    insert(pg, "sam-lee", "no_timer", "d1", 0)
+    pg.commit()
+    agent = psycopg2.connect(pg_url, options="-c timezone=UTC")
+    states = []
+
+    def ask(messages):
+        states.append(rows(pg, "SELECT state FROM pg_stat_activity WHERE pid = %s",
+                           (agent.get_backend_pid(),))[0]["state"])
+        return json.dumps({"decision": "escalate", "recommend_reject": False, "reason": "x"})
+
+    with agent.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        review_agent.review_held(cur, ask, NOW)
+    agent.close()
+    assert states == ["idle"]

@@ -232,13 +232,21 @@ def skew_week(key, rating, new_device, query_one, now):
 
 def hold_skew_week(key, write, now):
     """Hold the professor's unreviewed new-device ratings from the last SKEW_DAYS
-    for skew_week. All on one professor, whose page the route already drops, so
-    there is nothing to return."""
+    for skew_week, and add it to held ones that don't list it, so the review agent
+    groups them instead of approving each on a soft flag. All on one professor,
+    whose page the route already drops, so there is nothing to return."""
+    params = (now - timedelta(days=SKEW_DAYS), *_key_params(key)[:2])
     write(
         "UPDATE survey_ratings SET status = 'held', hold_reasons = 'skew_week' "
         "WHERE status = 'accepted' AND hold_reasons IS NULL AND new_device = true "
         f"AND created_at >= %s AND {_PROF_MATCH}",
-        (now - timedelta(days=SKEW_DAYS), *_key_params(key)[:2]))
+        params)
+    write(
+        "UPDATE survey_ratings SET hold_reasons = hold_reasons || ',skew_week' "
+        "WHERE status = 'held' AND hold_reasons IS NOT NULL AND new_device = true "
+        "AND NOT ('skew_week' = ANY(string_to_array(hold_reasons, ','))) "
+        f"AND created_at >= %s AND {_PROF_MATCH}",
+        params)
 
 
 def _paced(row, hour, month, limit):
@@ -333,11 +341,12 @@ def hold_burst(reasons, key, ip_hash, prefix_hash, write, now):
 # status has its own held-stays-held rule below, and a clean resubmit keeps the
 # row's hold_reasons, so a reviewer's approval stays out of the burst and surge
 # counts. new_device keeps its first value, so an edit can't take a row out of
-# the burst_pair count.
+# the burst_pair count. A page still on the form from before the difficulty
+# question sends none, so an edit from it keeps the stored difficulty.
 _INSERT_COLUMNS = tuple(c for c in RATING_COLUMNS if c != "id")
 _SET_COLUMNS = tuple(
     c for c in _INSERT_COLUMNS
-    if c not in ("status", "hold_reasons", "device_hash", "new_device", *_KEY_COLUMNS))
+    if c not in ("status", "hold_reasons", "device_hash", "new_device", "difficulty", *_KEY_COLUMNS))
 _UPSERT_SQL = (
     f"INSERT INTO survey_ratings (id, {', '.join(_INSERT_COLUMNS)}) "
     f"VALUES (%s, {', '.join(['%s'] * len(_INSERT_COLUMNS))}) "
@@ -346,6 +355,7 @@ _UPSERT_SQL = (
     + ", ".join(f"{c} = EXCLUDED.{c}" for c in _SET_COLUMNS)
     + ", status = CASE WHEN survey_ratings.status = 'held' THEN 'held' ELSE EXCLUDED.status END"
     ", hold_reasons = COALESCE(EXCLUDED.hold_reasons, survey_ratings.hold_reasons)"
+    ", difficulty = COALESCE(EXCLUDED.difficulty, survey_ratings.difficulty)"
     ", updated_at = now()"
 )
 
