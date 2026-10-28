@@ -161,7 +161,7 @@ def test_honeypot_gets_the_normal_response_and_writes_nothing(rate):
 
 def test_json_nested_too_deep_to_parse_is_400_not_500(rate):
     server, client, state, ri = rate
-    body = '{"professor":' * 5000 + "1" + "}" * 5000
+    body = '{"professor":' * 100000 + "1" + "}" * 100000
     resp = client.post("/api/rate", data=body, content_type="application/json")
     assert resp.status_code == 400 and resp.get_json() == {"error": "Body must be a JSON object"}
     assert state["writes"] == []
