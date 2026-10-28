@@ -480,8 +480,9 @@ def test_a_near_copy_is_held_and_its_template_held_back(rate, monkeypatch):
     assert resp.status_code == 200 and resp.get_json()["ok"] is True
     (sql, params), = rating_writes(state)
     assert "held" in params and "near_duplicate" in params
-    assert [p for s, p in state["writes"] if "id::text = ANY" in s and "hold_reasons IS NULL" in s] == [
-        ("near_duplicate", ["t1"])]
+    (hold,) = [p for s, p in state["writes"] if "id::text = ANY" in s and "hold_reasons IS NULL" in s]
+    # Only if t1 shares this rating's device, or its IP or network (not a shared one here).
+    assert hold[:2] == ("near_duplicate", ["t1"]) and hold[3] is True and all(hold[2:])
 
 
 def test_a_one_sided_week_is_held_and_held_back(rate, monkeypatch):

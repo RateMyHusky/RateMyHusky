@@ -2428,7 +2428,8 @@ def rate_submit():
     chash = rating_checks.comment_hash(clean["comment"])
     duplicate = ratings.duplicate_comment(chash, existing["id"] if existing else None, query_one)
     near = ratings.near_duplicate_ids(clean["comment"], key, existing["id"] if existing else None, query, now)
-    skew = ratings.skew_week(key, clean["rating"], new_device, query_one, now)
+    skew = ratings.skew_week(key, clean["rating"], new_device, existing["id"] if existing else None,
+                             query_one, now)
     bursts = ratings.burst_reasons(key, ip_hash, prefix_hash, network_type, query_one, now)
     # A pending professor or course counts nowhere until a reviewer approves it, so only
     # a known pair is checked against who Banner and RMP have teaching the course.
@@ -2459,7 +2460,7 @@ def rate_submit():
     ratings.save_rating(row, existing, _write)
     held = ratings.hold_burst(bursts, key, ip_hash, prefix_hash, _write, now) if bursts else set()
     if near:
-        ratings.hold_matches(near, "near_duplicate", _write)
+        ratings.hold_matches(near, "near_duplicate", device_hash, ip_hash, prefix_hash, network_type, _write)
     if skew:
         ratings.hold_skew_week(key, _write, now)
     # The page shows student reviews live. Any save can change it: a new review, an edit,

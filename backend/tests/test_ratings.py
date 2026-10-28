@@ -391,25 +391,32 @@ def test_near_duplicate_excludes_the_edited_row():
 
 def test_hold_matches_holds_accepted_and_appends_to_held():
     f = Fake()
-    ratings.hold_matches(["r1"], "near_duplicate", f.write)
+    ratings.hold_matches(["r1"], "near_duplicate", "dev", "ip", "net", "residential", f.write)
     (hold_sql, hold_params), (append_sql, append_params) = f.writes
     assert "SET status = 'held', hold_reasons = %s" in hold_sql
     assert "status = 'accepted' AND hold_reasons IS NULL AND id::text = ANY(%s)" in hold_sql
-    assert hold_params == ("near_duplicate", ["r1"])
+    assert hold_params == ("near_duplicate", ["r1"], "dev", True, "ip", "net")
     assert "status = 'held'" in append_sql and "hold_reasons = hold_reasons || %s" in append_sql
     assert append_params[0] == ",near_duplicate" and ["r1"] in append_params
+    assert "device_hash = %s" in hold_sql and "device_hash = %s" in append_sql
+
+
+def test_hold_matches_on_a_shared_network_links_by_device_only():
+    f = Fake()
+    ratings.hold_matches(["r1"], "near_duplicate", "dev", "ip", "net", "campus", f.write)
+    assert f.writes[0][1] == ("near_duplicate", ["r1"], "dev", False, "ip", "net")
 
 
 def test_hold_matches_with_no_ids_writes_nothing():
     f = Fake()
-    ratings.hold_matches([], "near_duplicate", f.write)
+    ratings.hold_matches([], "near_duplicate", "dev", "ip", "net", "residential", f.write)
     assert f.writes == []
 
 
 def _skew(new_device=True, rating=1, key=KEY, week=None, prior=None):
     week = {"n": 7, "total": 10, "squares": 16} if week is None else week
     f = Fake(one={"survey_ratings": week, "professors_catalog": {"avg_rating": 4.0} if prior is None else prior})
-    return ratings.skew_week(key, rating, new_device, f.query_one, NOW), f
+    return ratings.skew_week(key, rating, new_device, "r1", f.query_one, NOW), f
 
 
 def test_skew_week_trips_on_eight_low_uniform_ratings():
@@ -443,7 +450,7 @@ def test_skew_week_ignores_returning_devices_pending_and_unrated_professors():
     assert ok is False and f.calls == []
     assert _skew(prior={"avg_rating": None})[0] is False
     f = Fake(one={"survey_ratings": {"n": 7, "total": 10, "squares": 16}})
-    assert ratings.skew_week(KEY, 1, True, f.query_one, NOW) is False
+    assert ratings.skew_week(KEY, 1, True, None, f.query_one, NOW) is False
 
 
 def test_skew_week_sql_counts_new_devices_and_skips_approvals():
@@ -452,6 +459,7 @@ def test_skew_week_sql_counts_new_devices_and_skips_approvals():
     assert "new_device = true" in sql and "created_at >= %s" in sql
     assert "NOT (status = 'accepted' AND hold_reasons IS NOT NULL)" in sql
     assert NOW - timedelta(days=7) in params
+    assert "id IS DISTINCT FROM %s" in sql and params[-1] == "r1"
 
 
 def test_hold_skew_week_holds_the_unreviewed_new_device_week():
@@ -476,7 +484,7 @@ def test_hold_skew_week_holds_the_unreviewed_new_device_week():
 
 def test_adding_a_reason_clears_the_agents_escalate_but_keeps_a_reject():
     # The escalate predates the new reason, and updated_at isn't bumped, so only clearing it gets a re-review.
-    for call in (lambda w: ratings.hold_matches(["r1"], "near_duplicate", w),
+    for call in (lambda w: ratings.hold_matches(["r1"], "near_duplicate", "dev", "ip", "net", "residential", w),
                  lambda w: ratings.hold_skew_week(KEY, w, NOW)):
         f = Fake()
         call(f.write)

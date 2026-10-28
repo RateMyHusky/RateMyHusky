@@ -72,12 +72,14 @@ def submit(server, row, i, device=None, opened=True):
 def test_the_razzaq_bomb_is_all_held(replay, pg):
     for i, row in enumerate(BOMB):
         assert submit(replay, row, i).status_code == 200
-    held = rows(pg, "SELECT status, hold_reasons, comment FROM survey_ratings")
+    held = rows(pg, "SELECT status, hold_reasons, comment FROM survey_ratings ORDER BY created_at")
     assert len(held) == len(BOMB)
     assert {r["status"] for r in held} == {"held"}
-    one_offs = {BOMB[0]["comment"], BOMB[1]["comment"]}
-    for r in held:
-        if r["comment"] not in one_offs:
+    # Every copy is held as one. A template's first copy, from a device and network of its
+    # own, isn't held back as one: the bursts and skew_week hold it.
+    for n, r in enumerate(held):
+        if any(rating_checks.similarity(r["comment"], b["comment"]) >= rating_checks.NEAR_DUPLICATE
+               for b in BOMB[:n]):
             assert "near_duplicate" in reasons(r), r["comment"]
 
 
@@ -103,8 +105,9 @@ def test_a_slow_drip_is_held(replay, pg):
     copies = rows(pg, "SELECT status, hold_reasons FROM survey_ratings WHERE left(device_hash, 5) = 'drip-' "
                       "AND comment = %s", (new_comment,))
     assert copies
+    # Held back by the bursts: the copies came from other devices and networks.
     for r in copies:
-        assert r["status"] == "held" and "near_duplicate" in reasons(r)
+        assert r["status"] == "held" and "near_duplicate" not in reasons(r)
     assert {r["status"] for r in rows(
         pg, "SELECT status FROM survey_ratings WHERE left(device_hash, 5) = 'drip-'")} == {"held"}
 

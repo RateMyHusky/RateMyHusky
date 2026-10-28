@@ -17,11 +17,10 @@ The model is exactly openai/gpt-oss-20b; the chat's 120b model is never used her
 import argparse
 import json
 import math
-import re
 import sys
 import time
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from itertools import combinations
 
 import requests
@@ -30,7 +29,7 @@ from psycopg2.extras import RealDictCursor
 from pipeline.db import connect
 from rag.key_pool import KeyPool, load_entries
 from pipeline.read_models import DATA_VERSION_SQL
-from rag.llm_adapter import _seconds_until_utc_midnight
+from rag.llm_adapter import is_daily_limit, seconds_until_utc_midnight
 import ratings
 from rating_checks import (APPROVABLE, APPROVABLE_IF_VARIED, MIN_DUPLICATE_CHARS, NEAR_DUPLICATE,
                            normalize_comment, similarity)
@@ -39,6 +38,9 @@ from review_ratings import ReviewError, approve_rating
 MODEL = "openai/gpt-oss-20b"
 GROUP_REASONS = APPROVABLE_IF_VARIED | {"near_duplicate"}
 GROUP_GAP = timedelta(hours=24)
+# ...and a group ends this long after its first rating, so a busy professor's weeks of
+# real ratings don't all land in one group with one attack (and one reject command).
+GROUP_SPAN = timedelta(hours=48)
 MAX_GROUP = 20
 # A group over MAX_GROUP sends the model a sample of MAX_GROUP rows and is never approved.
 COMMENT_CHARS = 400
@@ -48,8 +50,6 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 MAX_TOKENS = 800
 MAX_CALLS = 60
 CALL_GAP_SECONDS = 20
-# A per-minute 429 body can end "Upgrade to Dev Tier today", so match the limit's own wording.
-DAILY_LIMIT = re.compile(r"per day|\((?:tpd|rpd)\)")
 REQUEST_TIMEOUT = 30
 DEFAULT_RETRY_SECONDS = 60
 MAX_RETRY_SECONDS = 60
@@ -67,8 +67,10 @@ Answer with only this JSON object and nothing else:
 {"decision": "approve" or "escalate", "recommend_reject": true or false, "reason": "one short sentence, at most 200 characters"}"""
 
 REQUEST_FAILED = object()  # Groq.ask: this request failed (not the service being unavailable)
-# 401 and 403 mean a bad key, not a bad request, so they stop the run like no key does.
-KEY_ERRORS = (401, 403)
+# The 4xx errors that are about this group's request; any other 4xx (a bad key, a retired
+# model) would fail every group, so it stops the run like no key does.
+TOO_LARGE = ("request_too_large", "context_length_exceeded")
+BAD_JSON = "json_validate_failed"  # the model's output this time; retried once
 _UNREADABLE = {"decision": "escalate", "recommend_reject": False, "reason": "unreadable answer"}
 
 
@@ -79,7 +81,7 @@ def _prof(row):
 def group_held(rows):
     """Groups of held rows, ordered by their first rating. Rows with a GROUP_REASONS
     reason on one professor join a group until the gap to the previous row exceeds
-    GROUP_GAP; every other row is its own group."""
+    GROUP_GAP or the group spans GROUP_SPAN; every other row is its own group."""
     groups, by_prof = [], {}
     for row in rows:
         if set((row.get("hold_reasons") or "").split(",")) & GROUP_REASONS:
@@ -90,7 +92,8 @@ def group_held(rows):
         prof_rows.sort(key=lambda r: r["created_at"])
         current = [prof_rows[0]]
         for row in prof_rows[1:]:
-            if row["created_at"] - current[-1]["created_at"] > GROUP_GAP:
+            if (row["created_at"] - current[-1]["created_at"] > GROUP_GAP
+                    or row["created_at"] - current[0]["created_at"] > GROUP_SPAN):
                 groups.append(current)
                 current = []
             current.append(row)
@@ -189,6 +192,13 @@ def build_messages(group, history, taught):
             {"role": "user", "content": json.dumps(data, ensure_ascii=False)}]
 
 
+def _error_code(resp):
+    try:
+        return resp.json()["error"]["code"]
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
 def _retry_wait(header):
     """Seconds to wait after a per-minute 429: the retry-after header, else the default; capped."""
     try:
@@ -213,13 +223,14 @@ class Groq:
         return self.used.get(key, {"rpd": 0, "tpd": 0})
 
     def ask(self, messages):
-        """The reply's content; None when the service is unavailable (no key left, a
-        network or 5xx error, or a bad key); REQUEST_FAILED when this request was refused or
-        answered with nothing usable, which a retry would repeat."""
+        """The reply's content; None when the service is unavailable (no key left, a network
+        error twice, a 5xx, or a 4xx not about this request, like a bad key or a retired model);
+        REQUEST_FAILED when this request is too large, or answered with nothing usable,
+        which a retry would repeat."""
         est_tokens = len(json.dumps(messages)) // 3 + MAX_TOKENS
         payload = {"model": MODEL, "messages": messages, "reasoning_effort": "low", "temperature": 0,
                    "response_format": {"type": "json_object"}, "max_completion_tokens": MAX_TOKENS}
-        waited = False
+        waited = retried = False
         while True:
             entry = self.pool.acquire(est_tokens)
             if entry is None:
@@ -229,12 +240,15 @@ class Groq:
                 resp = self.post(GROQ_URL, headers={"Authorization": f"Bearer {key}"}, json=payload,
                                  timeout=REQUEST_TIMEOUT)
             except requests.RequestException:
-                return None
+                if retried:
+                    return None
+                retried = True
+                continue
             used = self.used.setdefault(key, {"rpd": 0, "tpd": 0})
             used["rpd"] += 1
             if resp.status_code == 429:
-                if DAILY_LIMIT.search(resp.text.lower()):
-                    self.pool.retire(key, cooldown_seconds=_seconds_until_utc_midnight())
+                if is_daily_limit(resp.text):
+                    self.pool.retire(key, cooldown_seconds=seconds_until_utc_midnight())
                     continue
                 if waited:
                     return None
@@ -242,8 +256,14 @@ class Groq:
                 self.sleep(_retry_wait(resp.headers.get("retry-after")))
                 continue
             if resp.status_code != 200:
-                if 400 <= resp.status_code < 500 and resp.status_code not in KEY_ERRORS:
+                code = _error_code(resp)
+                if code == BAD_JSON and not retried:
+                    retried = True
+                    continue
+                if resp.status_code == 413 or code in TOO_LARGE or code == BAD_JSON:
                     return REQUEST_FAILED
+                if 400 <= resp.status_code < 500:
+                    print(f"Groq {resp.status_code} {code}: stopping", file=sys.stderr)
                 return None
             try:
                 body = resp.json()
@@ -268,8 +288,10 @@ HISTORY_SQL = (
 # the route accepted as taught is unverified. One query for all the group's courses.
 TAUGHT_SQL = (f"SELECT t.code, {ratings.TAUGHT_SQL.format(code='t.code', slug='%(slug)s')} AS taught "
               "FROM unnest(%(codes)s::text[]) AS t(code)")
-RECORD_SQL = ("UPDATE survey_ratings SET agent_decision = %s, agent_reason = %s, agent_reviewed_at = %s "
-              "WHERE id::text = ANY(%s) AND status = 'held'")
+# Stamped when recorded, on the clock updated_at uses, so a resubmit earlier in the run doesn't
+# make this decision stale.
+RECORD_SQL = ("UPDATE survey_ratings SET agent_decision = %s, agent_reason = %s, "
+              "agent_reviewed_at = clock_timestamp() WHERE id::text = ANY(%s) AND status = 'held'")
 
 
 # What an edit or a new hold reason can change on a held row, compared before recording.
@@ -301,7 +323,7 @@ def _context(cur, group):
     return history, {r["code"]: bool(r["taught"]) for r in cur.fetchall()}
 
 
-def review_held(cur, ask, now, dry_run=False):
+def review_held(cur, ask, dry_run=False):
     """Decide every held group with a rating the agent hasn't decided (or decided before an
     edit), at most MAX_CALLS groups. Counts approve, escalate and reject, plus unavailable
     when `ask` returned None and the run stopped. A group over MAX_GROUP sends a sample and
@@ -340,7 +362,7 @@ def review_held(cur, ask, now, dry_run=False):
         try:
             # Record while the rows are still held (RECORD_SQL only touches held rows); an
             # approval then moves them out, and raises if a human settled one meanwhile.
-            cur.execute(RECORD_SQL, (decision, reason, now, record_ids))
+            cur.execute(RECORD_SQL, (decision, reason, record_ids))
             if decision == "approve":
                 approve_rating(cur, *ids)
                 cur.execute(DATA_VERSION_SQL)  # bump the cache version, like review_ratings.main
@@ -372,7 +394,7 @@ def main(argv=None):
     conn = connect()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            counts = review_held(cur, ask, datetime.now(timezone.utc), dry_run=args.dry_run)
+            counts = review_held(cur, ask, dry_run=args.dry_run)
     finally:
         conn.close()
     print(dict(counts))

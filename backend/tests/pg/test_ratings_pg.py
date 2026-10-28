@@ -291,10 +291,10 @@ def test_hold_matches_holds_accepted_appends_held_and_skips_approved(pg):
 
     expected = {"d1": ("held", "near_duplicate"), "d2": ("held", "no_timer,near_duplicate"),
                 "d3": ("accepted", "burst_prof")}
-    ratings.hold_matches(ids, "near_duplicate", write)
-    assert state() == expected
-    ratings.hold_matches(ids, "near_duplicate", write)
-    assert state() == expected
+    for _ in range(2):
+        for device in ("d1", "d2", "d3"):
+            ratings.hold_matches(ids, "near_duplicate", device, None, None, "residential", write)
+        assert state() == expected
 
 
 def test_skew_week_aggregate_and_hold_back(pg):
@@ -318,7 +318,7 @@ def test_skew_week_aggregate_and_hold_back(pg):
     pg.commit()
     key = {"professor_slug": "jane-doe", "pending_professor_id": None,
            "course_code": "CS2500", "pending_course_id": None}
-    assert ratings.skew_week(key, 1, True, pg_query_one(pg), now) is True
+    assert ratings.skew_week(key, 1, True, None, pg_query_one(pg), now) is True
     ratings.hold_skew_week(key, pg_write(pg), now)
     held = [r["device_hash"] for r in rows(
         pg, "SELECT device_hash FROM survey_ratings WHERE hold_reasons = 'skew_week'")]
@@ -362,3 +362,44 @@ def test_hold_skew_week_adds_its_reason_to_rows_already_held(pg):
     assert {r["device_hash"]: r["updated_at"]
             for r in rows(pg, "SELECT device_hash, updated_at FROM survey_ratings")} == before
 
+
+def test_hold_matches_holds_back_only_rows_sharing_the_copys_device_or_network(pg):
+    import ratings
+
+    for device, ip, prefix in [("mine", "x", "x"), ("ip", "ip1", "x"), ("net", "y", "net1"), ("stranger", "z", "z")]:
+        insert(pg, device, "jane-doe", None, "CS2500", None)
+        with pg.cursor() as cur:
+            cur.execute("UPDATE survey_ratings SET ip_hash = %s, ip_prefix_hash = %s WHERE device_hash = %s",
+                        (ip, prefix, device))
+    pg.commit()
+    ids = [r["id"] for r in rows(pg, "SELECT id::text AS id FROM survey_ratings")]
+
+    def held():
+        return sorted(r["device_hash"] for r in rows(
+            pg, "SELECT device_hash FROM survey_ratings WHERE status = 'held'"))
+
+    # On a shared network only the device counts: a classmate on campus wifi is no link.
+    ratings.hold_matches(ids, "near_duplicate", "mine", "ip1", "net1", "campus", pg_write(pg))
+    assert held() == ["mine"]
+    ratings.hold_matches(ids, "near_duplicate", "copier", "ip1", "net1", "residential", pg_write(pg))
+    assert held() == ["ip", "mine", "net"]
+
+
+def test_skew_week_leaves_out_the_row_being_edited(pg):
+    import ratings
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    truncate(pg, "professors_catalog")
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professors_catalog (slug, name, name_key, avg_rating) "
+                    "VALUES ('jane-doe', 'Jane Doe', 'jane doe', 4.2)")
+    for i in range(7):
+        insert(pg, f"d{i}", "jane-doe", None, "CS2500", None, rating=1)
+    pg.commit()
+    key = {"professor_slug": "jane-doe", "pending_professor_id": None,
+           "course_code": "CS2500", "pending_course_id": None}
+    edited = scalar(pg, "SELECT id::text FROM survey_ratings WHERE device_hash = 'd0'")
+    # d0 editing its own rating is still 7 ratings, not 8.
+    assert ratings.skew_week(key, 1, True, edited, pg_query_one(pg), now) is False
+    assert ratings.skew_week(key, 1, True, None, pg_query_one(pg), now) is True

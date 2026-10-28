@@ -17,7 +17,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 import notify
-from review_agent import decision_of, group_held
+from review_agent import decision_of, group_held, reasons_of
 from pipeline.db import connect, fetch_all
 
 TOP = 5
@@ -37,8 +37,8 @@ def _short(row):
 
 def _attack_lines(group):
     group = sorted(group, key=lambda r: r["created_at"])
-    first, last = group[0]["created_at"], group[-1]["created_at"]
-    reasons = sorted({x for r in group for x in (r["hold_reasons"] or "").split(",") if x})
+    first, last = (group[i]["created_at"].astimezone(timezone.utc) for i in (0, -1))
+    reasons = sorted(reasons_of(group))
     slug = group[0]["professor_slug"] or "pending-professor"
     end = f"{last:%H:%M}" if last.date() == first.date() else f"{last:%Y-%m-%d %H:%M}"
     return [f"  {slug}: {_plural(len(group), 'rating')}, "

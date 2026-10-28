@@ -10,9 +10,6 @@ import pytest
 import review_agent
 from tests.pg.pgutil import rows, scalar, truncate
 
-# After every row's updated_at (a default of now()), so a decision recorded at NOW is not stale.
-NOW = datetime(2100, 1, 1, tzinfo=timezone.utc)
-
 
 @pytest.fixture(autouse=True)
 def clean(pg):
@@ -45,19 +42,19 @@ def test_soft_flag_is_approved_and_a_near_duplicate_group_stays_held(pg):
     pg.commit()
 
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        counts = review_agent.review_held(cur, approve_everything, NOW)
+        counts = review_agent.review_held(cur, approve_everything)
     assert counts == {"approve": 1, "escalate": 1}
 
     (row,) = rows(pg, "SELECT status, agent_decision, agent_reviewed_at FROM survey_ratings WHERE id = %s", (soft,))
-    assert row["status"] == "accepted" and row["agent_decision"] == "approve" and row["agent_reviewed_at"] == NOW
+    assert row["status"] == "accepted" and row["agent_decision"] == "approve" and row["agent_reviewed_at"] is not None
     held = rows(pg, "SELECT status, agent_decision, agent_reviewed_at FROM survey_ratings "
                     "WHERE id::text = ANY(%s)", (group,))
     assert len(held) == 3
-    assert all(r["status"] == "held" and r["agent_decision"] == "escalate" and r["agent_reviewed_at"] == NOW
+    assert all(r["status"] == "held" and r["agent_decision"] == "escalate" and r["agent_reviewed_at"] is not None
                for r in held)
 
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        assert not review_agent.review_held(cur, approve_everything, NOW)
+        assert not review_agent.review_held(cur, approve_everything)
     assert scalar(pg, "SELECT value FROM stats_cache WHERE key = 'data_version'") == 1
 
     # An edit bumps updated_at past the decision, so the group is sent again.
@@ -65,7 +62,7 @@ def test_soft_flag_is_approved_and_a_near_duplicate_group_stays_held(pg):
         cur.execute("UPDATE survey_ratings SET updated_at = %s WHERE id = %s", (datetime(2101, 1, 1, tzinfo=timezone.utc), group[0]))
     pg.commit()
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        assert review_agent.review_held(cur, approve_everything, NOW) == {"escalate": 1}
+        assert review_agent.review_held(cur, approve_everything) == {"escalate": 1}
 
 
 VARIED = ["The recursion unit was taught with live coding and weekly quizzes that matched the exams closely.",
@@ -91,7 +88,7 @@ def test_a_group_with_a_row_a_human_settled_mid_run_is_rolled_back_then_decided_
     pg.commit()
 
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        review_agent.review_held(cur, settle_one_while_asking(pg_url, ids[0], "escalate"), NOW)
+        review_agent.review_held(cur, settle_one_while_asking(pg_url, ids[0], "escalate"))
 
     query = "SELECT id::text AS id, status, agent_decision, agent_reviewed_at FROM survey_ratings"
     by_id = {r["id"]: r for r in rows(pg, query)}
@@ -101,7 +98,7 @@ def test_a_group_with_a_row_a_human_settled_mid_run_is_rolled_back_then_decided_
                and by_id[i]["agent_reviewed_at"] is None for i in ids[1:])
 
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        review_agent.review_held(cur, approve_everything, NOW)
+        review_agent.review_held(cur, approve_everything)
     by_id = {r["id"]: r for r in rows(pg, query)}
     assert by_id[ids[0]]["agent_decision"] is None
     assert all(by_id[i]["status"] == "held" and by_id[i]["agent_decision"] == "escalate" for i in ids[1:])
@@ -114,7 +111,7 @@ def test_an_approval_rolls_the_whole_group_back_when_a_row_was_settled_mid_run(p
     pg.commit()
 
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        review_agent.review_held(cur, settle_one_while_asking(pg_url, ids[0], "approve"), NOW)
+        review_agent.review_held(cur, settle_one_while_asking(pg_url, ids[0], "approve"))
 
     by_id = {r["id"]: r for r in rows(pg, "SELECT id::text AS id, status, agent_decision, agent_reviewed_at "
                                            "FROM survey_ratings")}
@@ -135,7 +132,7 @@ def test_taught_counts_rmp_and_reviewer_vouched_pairs_like_the_rate_route(pg):
     seen = []
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         review_agent.review_held(cur, lambda m: seen.append(json.loads(m[1]["content"])["taught"]) or "{}",
-                                 NOW, dry_run=True)
+                                 dry_run=True)
     assert seen == [{"CS2500": True, "CS3500": False}]
 
 
@@ -146,8 +143,9 @@ def test_an_escalate_from_before_skew_week_is_reviewed_again_with_it(pg):
     # so without the escalate cleared this row would never be sent with skew_week.
     row = insert(pg, "sam-lee", "too_fast", "d1", 0)
     with pg.cursor() as cur:
+        # After the row's updated_at, so the escalate isn't stale on its own.
         cur.execute("UPDATE survey_ratings SET agent_decision = 'escalate', agent_reason = 'fast', "
-                    "agent_reviewed_at = %s WHERE id = %s", (NOW, row))
+                    "agent_reviewed_at = %s WHERE id = %s", (datetime(2100, 1, 1, tzinfo=timezone.utc), row))
     pg.commit()
 
     def write(sql, params):
@@ -161,7 +159,7 @@ def test_an_escalate_from_before_skew_week_is_reviewed_again_with_it(pg):
     seen = []
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         review_agent.review_held(cur, lambda m: seen.append(json.loads(m[1]["content"])["hold_reasons"]) or "{}",
-                                 NOW, dry_run=True)
+                                 dry_run=True)
     assert seen == [["skew_week", "too_fast"]]
 
 
@@ -177,6 +175,29 @@ def test_no_transaction_is_open_while_the_model_answers(pg, pg_url):
         return json.dumps({"decision": "escalate", "recommend_reject": False, "reason": "x"})
 
     with agent.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        review_agent.review_held(cur, ask, NOW)
+        review_agent.review_held(cur, ask)
     agent.close()
     assert states == ["idle"]
+
+
+def test_a_resubmit_during_the_run_does_not_make_the_new_decision_stale(pg, pg_url):
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professors (slug, name, name_key) VALUES ('jane-doe', 'Jane Doe', 'jane doe')")
+    first = insert(pg, "jane-doe", "unverified_pair", "d0", 0)
+    pg.commit()
+    other = psycopg2.connect(pg_url)
+
+    def ask(messages):
+        # A no-op resubmit of the first rating while the model answers bumps only updated_at.
+        with other.cursor() as cur:
+            cur.execute("UPDATE survey_ratings SET updated_at = now() WHERE id = %s", (first,))
+        other.commit()
+        return approve_everything(messages)
+
+    try:
+        with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            review_agent.review_held(cur, ask)
+    finally:
+        other.close()
+    held = rows(pg, "SELECT agent_decision, agent_reviewed_at, updated_at FROM survey_ratings")
+    assert [review_agent.decision_of(r) for r in held] == ["escalate"]
