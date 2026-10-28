@@ -47,7 +47,8 @@ const FAILURE_MESSAGES: Record<number, string> = {
   429: 'Too many ratings from this device for now. Try again later.',
   503: 'Ratings are paused right now. Try again later.',
 };
-const BLOCKED_MESSAGE = "We couldn't verify your browser. Try turning off a VPN or ad blocker, then try again.";
+// Only for a script that never loaded: it can't come back without a reload.
+const BLOCKED_MESSAGE = "We couldn't verify your browser. Try turning off a VPN or ad blocker, then reload the page.";
 const TOKEN_WAIT_MS = 15000;
 const NETWORK_MESSAGE = "Couldn't send. Check your connection and try again.";
 
@@ -68,8 +69,10 @@ export default function Rate() {
   const [typedName, setTypedName] = useState('');
   const [counter, setCounter] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState('');
-  // until: when the wait gives up, fixed at submit so a re-run of the timer effect can't extend it.
-  const [pending, setPending] = useState<{ skip: boolean; honeypot: string; until: number } | null>(null);
+  const [pending, setPending] = useState<{ skip: boolean; honeypot: string } | null>(null);
+  // When the wait for a pending submit gives up: set at submit, so a re-run of the timer effect can't
+  // extend it, and Infinity while Cloudflare's box waits for a click.
+  const deadline = useRef(0);
   const [sending, setSending] = useState(false);
   const [contextReload, setContextReload] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -79,7 +82,7 @@ export default function Rate() {
   const prefetchedFor = useRef<RateStart | null>(null);
   const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
   // The check runs on the comment step, while the student writes; only the submit waits for its token.
-  const { containerRef, token, failed, interactive, reset } = useTurnstile();
+  const { containerRef, token, failed, scriptFailed, interactive, reset } = useTurnstile();
 
   const slug = answers.professor?.slug ?? null;
   // null while the professor's courses load; a new professor has none to load.
@@ -202,7 +205,8 @@ export default function Rate() {
     else {
       // An earlier challenge error would end this wait at once, so run a fresh challenge.
       if (failed) reset();
-      setPending({ skip, honeypot, until: Date.now() + TOKEN_WAIT_MS });
+      deadline.current = Date.now() + TOKEN_WAIT_MS;
+      setPending({ skip, honeypot });
       if (!start) beginVisit();
     }
   };
@@ -216,20 +220,27 @@ export default function Rate() {
   }, [pending, token, start]);
 
   // Bound the wait for the token or the visit start so a blocked challenge can't leave the step stuck.
+  // No timer while Cloudflare's box waits for a click: that wait is the student's, and the box stays up.
+  // A click starts the wait over, for the token it sends.
   useEffect(() => {
     if (!pending) return;
     const giveUp = () => {
       setPending(null);
-      setSubmitError(!start ? NETWORK_MESSAGE : failed ? BLOCKED_MESSAGE : FAILURE_MESSAGES[403]);
+      setSubmitError(!start ? NETWORK_MESSAGE : scriptFailed ? BLOCKED_MESSAGE : FAILURE_MESSAGES[403]);
       reset();
     };
     if (failed || startFailed) {
       giveUp();
       return;
     }
-    const timer = setTimeout(giveUp, pending.until - Date.now());
+    if (interactive) {
+      deadline.current = Infinity;
+      return;
+    }
+    if (deadline.current === Infinity) deadline.current = Date.now() + TOKEN_WAIT_MS;
+    const timer = setTimeout(giveUp, deadline.current - Date.now());
     return () => clearTimeout(timer);
-  }, [pending, failed, startFailed, reset, start]);
+  }, [pending, failed, scriptFailed, startFailed, interactive, reset, start]);
 
   const rateAnother = () => {
     window.clearTimeout(pickTimer.current);
@@ -444,7 +455,7 @@ export default function Rate() {
     <div className="rate-page">
       <div className="rate-shell">
         <div className="rate-panel" ref={panelRef}>
-          <ProgressBar index={progressIndex(step)} done={step === 'thanks'} />
+          {ready && <ProgressBar index={progressIndex(step)} done={step === 'thanks'} />}
           {startFailed && <p className="rate-hint" role="alert">We couldn't start the form. Please reload and try again.</p>}
           {ready && step !== 'thanks' && (
             <div className="rate-top">

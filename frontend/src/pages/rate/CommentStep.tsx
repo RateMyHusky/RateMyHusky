@@ -73,11 +73,12 @@ export function CommentStep({ value, onChange, onSubmit, onBack, submitting, upd
       <StepFoot onBack={onBack} backDisabled={submitting}>
         {/* Empty unless Cloudflare needs a click; then the box shows right above Submit, pinned with it on desktop. */}
         <div className={`rate-verify${verifying ? ' is-on' : ''}`}>
-          {verifying && <p className="rate-verify-lead" role="status">One quick check before we send your rating.</p>}
+          {/* Always in the page, so screen readers announce the text when it's filled in. */}
+          <p className="rate-verify-lead" role="status">{verifying ? 'One quick check before we send your rating.' : ''}</p>
           <div ref={turnstileRef} className="rate-turnstile" />
         </div>
         <button type="button" className="rate-btn" disabled={submitting} onClick={() => onSubmit(false, honeypot)}>
-          {submitting ? 'Sending…' : updating ? 'Update rating' : 'Submit rating'}
+          {submitting ? (verifying ? 'Waiting for the check…' : 'Sending…') : updating ? 'Update rating' : 'Submit rating'}
         </button>
         {!updating && (
           <button type="button" className="rate-ghost" disabled={submitting} onClick={() => onSubmit(true, honeypot)}>
