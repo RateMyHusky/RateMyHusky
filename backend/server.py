@@ -150,6 +150,19 @@ def course_search_text(raw):
     return re.sub(r"\b([a-z]{2,5}) (\d{4})\b", r"\1\2", search_text(raw))
 
 
+def course_relevance(q):
+    """ORDER BY tier for a course search q (from course_search_text), with its params.
+    search_text holds the description too, so "calculus" matches every course that mentions
+    it: a code match ranks first, then a title that starts with q, then one that contains it,
+    then description-only matches. The code is compared unspaced, so a partial "cs 35" still
+    lands on CS35xx rather than on courses listing "CS 3500" as a prerequisite."""
+    return ("""CASE WHEN lower(course_catalog.code) LIKE %s THEN 0
+                    WHEN lower(course_catalog.name) LIKE %s THEN 1
+                    WHEN lower(course_catalog.name) LIKE %s THEN 2
+                    ELSE 3 END""",
+            [f"{q.replace(' ', '')}%", f"{q}%", f"%{q}%"])
+
+
 # Build a word-level mapping so partial/typeahead queries also resolve.
 # e.g. typing "virgiliu" (an RMP-only spelling) still finds "virgil".
 _WORD_ALIAS = {}
@@ -1190,21 +1203,14 @@ def search():
     else:
         # Course search
         q = course_search_text(request.args.get("q", ""))
-        # search_text holds the description too, so "calculus" matched every course that
-        # mentions it and code order put AAI5015 first. A code or title match ranks above a
-        # description-only one, and the most-rated course leads within each.
-        rows = query("""
+        # Best match first (course_relevance), the most-rated course leading within a tier.
+        tier, tier_params = course_relevance(q)
+        rows = query(f"""
             SELECT code, name, department FROM course_catalog
             WHERE search_text LIKE %s
-            ORDER BY
-                CASE WHEN lower(code) LIKE %s THEN 0
-                     WHEN lower(name) LIKE %s THEN 1
-                     WHEN lower(name) LIKE %s THEN 2
-                     ELSE 3 END,
-                num_ratings DESC NULLS LAST,
-                code
+            ORDER BY {tier}, num_ratings DESC NULLS LAST, code
             LIMIT %s
-        """, (f"%{q}%", f"{q}%", f"{q}%", f"%{q}%", limit))
+        """, [f"%{q}%", *tier_params, limit])
 
         results = []
         for r in rows:
@@ -1809,13 +1815,17 @@ def courses_catalog():
     page = max(1, min(page, total_pages))
     offset = (page - 1) * limit
 
+    # A search ranks like the typeahead it came from: best match first, the chosen sort
+    # within each tier, so Enter on "calculus" doesn't lead with a description-only match.
+    tier, tier_params = course_relevance(q) if q else ("", [])
+
     def page_rows(join, order):
         return query(f"""
             SELECT code, name, department, avg_rating, num_ratings FROM course_catalog {join}
             {where_str}
-            ORDER BY {order}
+            ORDER BY {tier + ", " if tier else ""}{order}
             LIMIT %s OFFSET %s
-        """, params + [limit, offset])
+        """, params + tier_params + [limit, offset])
 
     try:
         rows = page_rows(join, order)

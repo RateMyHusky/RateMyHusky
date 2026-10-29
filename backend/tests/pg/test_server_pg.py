@@ -68,3 +68,32 @@ def test_ask_log_purge_deletes_only_rows_past_retention(live_server, pg, monkeyp
         cur.execute("SELECT query FROM ask_log")
         assert [r[0] for r in cur.fetchall()] == ["new"]
     pg.commit()
+
+
+def _course(code, name, search_text, num_ratings):
+    return {"code": code, "name": name, "department": "Computer Science", "subject": "CS",
+            "search_text": search_text, "avg_rating": 4.0, "difficulty": 3.0, "num_ratings": num_ratings}
+
+
+@pytest.mark.parametrize("path, key", [
+    ("/api/search?type=Course&q=cs%2035", "code"),
+    ("/api/courses-catalog?q=cs%2035", "code"),
+    ("/api/courses-catalog?q=cs%2035&sort=recent", "code"),   # joins banner_course_offerings when present
+    ("/api/search?type=Course&q=calculus", "code"),
+    ("/api/courses-catalog?q=calculus", "code"),
+])
+def test_course_search_ranks_code_and_title_matches_above_descriptions(live_server, pg, path, key):
+    courses = [
+        _course("CS3500", "Object-Oriented Design", "cs3500 cs 3500 object-oriented design", 10),
+        # More rated, and its description names CS 3500 as a prerequisite.
+        _course("CS4500", "Software Development", "cs4500 cs 4500 software development prereq cs 3500", 90),
+        _course("MATH1341", "Calculus 1 for Science and Engineering", "math1341 math 1341 calculus 1", 20),
+        _course("PHYS1151", "Physics for Engineering", "phys1151 phys 1151 physics uses calculus", 80),
+    ]
+    truncate(pg, "professors_catalog", "course_catalog", "source_summary", "stats_cache")
+    read_models.write(pg, CATALOG, courses, SUMMARIES, COUNTS)
+    resp = live_server.app.test_client().get(path, headers={"User-Agent": "Mozilla/5.0"})
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:500]
+    body = resp.get_json()
+    rows = body["courses"] if isinstance(body, dict) else body
+    assert rows[0][key] == ("CS3500" if "cs" in path else "MATH1341"), rows
