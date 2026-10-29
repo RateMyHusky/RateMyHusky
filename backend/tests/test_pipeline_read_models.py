@@ -155,7 +155,7 @@ def test_retired_courses_take_the_successors_department_and_banners_title():
     cat = [{"code": "CS2000", "name": "Intro to Program Design", "department": "Computer Science",
             "subject": "CS", "search_text": "cs2000", "is_placeholder": False}]
     [row] = retired_courses(cat, {"CS2500": "Fundamentals of  Computer Science 1"})
-    assert row == {"code": "CS2500", "name": "Fundamentals of  Computer Science 1",
+    assert row == {"code": "CS2500", "name": "Fundamentals of Computer Science 1",
                    "department": "Computer Science", "subject": "CS",
                    "search_text": "cs2500 fundamentals of computer science 1", "is_placeholder": False}
 

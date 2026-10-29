@@ -116,9 +116,11 @@ def retired_courses(catalog_courses, titles):
         successor = by_code.get(new)
         if old in by_code or not successor or not titles.get(old):
             continue
-        out.append({"code": old, "name": titles[old], "department": successor["department"],
+        # Banner titles can carry doubled spaces; collapse them so name matches search_text.
+        name = " ".join(titles[old].split())
+        out.append({"code": old, "name": name, "department": successor["department"],
                     "subject": successor["subject"],
-                    "search_text": " ".join(f"{old} {titles[old]}".split()).lower(),
+                    "search_text": f"{old} {name}".lower(),
                     "is_placeholder": False})
     return out
 
