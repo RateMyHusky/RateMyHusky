@@ -275,6 +275,11 @@ const Homepage = () => {
   const [pillStyle, setPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
   const [isPillReady, setIsPillReady] = useState(false);
 
+  // A GOATED row from a backend older than its slug field falls back to the name slug, which is
+  // wrong only for namesakes, so the board works whichever side deploys first.
+  const goatSlug = (p: Professor) =>
+    p.slug ?? p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
   // Navigate to professor page
   const handleProfClick = (slug: string) => {
     navigate(`/professors/${slug}`, {
@@ -675,15 +680,15 @@ const Homepage = () => {
           ) : (
             profs.map((p, i) => (
               <div
-                key={p.slug}
+                key={goatSlug(p)}
                 className={`goat-row ${i < 3 ? 'goat-top3' : ''}`}
                 // Not a <Link>: the rating cell's click opens its tooltip instead of navigating.
                 // Keyboard handling matches the catalog cards.
                 role="link"
                 tabIndex={0}
                 aria-label={`${i + 1}. ${p.name}, ${p.dept}, rated ${p.avgRating.toFixed(2)} from ${(p.totalReviews ?? 0).toLocaleString()} ratings`}
-                onClick={() => handleProfClick(p.slug)}
-                onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && handleProfClick(p.slug)}
+                onClick={() => handleProfClick(goatSlug(p))}
+                onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && handleProfClick(goatSlug(p))}
               >
                 <span className="goat-col-rank">
                   {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
