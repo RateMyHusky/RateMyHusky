@@ -1,5 +1,6 @@
 import { useAuth } from '../context/AuthContext';
 import { useBookmarks } from '../context/BookmarksContext';
+import { savePendingBookmark } from '../utils/pendingBookmark';
 import './BookmarkButton.css';
 
 interface BookmarkButtonProps {
@@ -8,9 +9,11 @@ interface BookmarkButtonProps {
   size?: 'sm' | 'md';
   className?: string;
   onToggle?: () => void; // when set, parent owns the toggle (used for undo-able removal)
+  /** What the sign-in prompt names when a signed-out student taps it, e.g. "Prof. Bell" or "CS 3100". */
+  label?: string;
 }
 
-export default function BookmarkButton({ itemType, itemKey, size = 'sm', className, onToggle }: BookmarkButtonProps) {
+export default function BookmarkButton({ itemType, itemKey, size = 'sm', className, onToggle, label }: BookmarkButtonProps) {
   const { user } = useAuth();
   const { isBookmarked, toggleBookmark } = useBookmarks();
   const bookmarked = isBookmarked(itemType, itemKey);
@@ -19,7 +22,10 @@ export default function BookmarkButton({ itemType, itemKey, size = 'sm', classNa
     e.stopPropagation();
     e.preventDefault();
     if (!user) {
-      window.dispatchEvent(new CustomEvent('open-signin'));
+      // Saved once sign-in finishes (BookmarksContext), so the tap isn't lost to the detour.
+      const name = label || `this ${itemType}`;
+      savePendingBookmark({ itemType, itemKey, label: name });
+      window.dispatchEvent(new CustomEvent('open-signin', { detail: { reason: `Sign in to save ${name} to your bookmarks.` } }));
       return;
     }
     if (onToggle) {

@@ -3,6 +3,10 @@ import type { ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 import { fetchBookmarks, addBookmark, removeBookmark } from '../api/api';
 import type { CatalogProfessor, CatalogCourse } from '../api/api';
+import { takePendingBookmark } from '../utils/pendingBookmark';
+import './BookmarksContext.css';
+
+const SAVED_TOAST_MS = 4000;
 
 type ItemType = 'professor' | 'course';
 
@@ -32,6 +36,14 @@ export function BookmarksProvider({ children }: { children: ReactNode }) {
   const [courseCodes, setCourseCodes] = useState<Set<string>>(new Set());
   const [bookmarkedProfessors, setBookmarkedProfessors] = useState<BookmarkedProfessor[]>([]);
   const [bookmarkedCourses, setBookmarkedCourses] = useState<BookmarkedCourse[]>([]);
+  // "Saved <label> to your bookmarks", after a bookmark tapped signed-out is saved on sign-in.
+  const [savedToast, setSavedToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!savedToast) return;
+    const t = setTimeout(() => setSavedToast(null), SAVED_TOAST_MS);
+    return () => clearTimeout(t);
+  }, [savedToast]);
 
   // Single fetch whenever the user transitions from signed-out to signed-in;
   // clears everything on logout. This is what lets every card on a catalog
@@ -46,12 +58,29 @@ export function BookmarksProvider({ children }: { children: ReactNode }) {
       return;
     }
     setLoading(true);
+    const apply = (data: { professors: BookmarkedProfessor[]; courses: BookmarkedCourse[] }) => {
+      setProfessorSlugs(new Set(data.professors.map(p => p.slug)));
+      setCourseCodes(new Set(data.courses.map(c => c.code)));
+      setBookmarkedProfessors(data.professors);
+      setBookmarkedCourses(data.courses);
+    };
+    // Taken on sign-in only: a signed-in tap never stores one.
+    const pending = takePendingBookmark();
     fetchBookmarks()
-      .then(data => {
-        setProfessorSlugs(new Set(data.professors.map(p => p.slug)));
-        setCourseCodes(new Set(data.courses.map(c => c.code)));
-        setBookmarkedProfessors(data.professors);
-        setBookmarkedCourses(data.courses);
+      .then(async data => {
+        const saved = pending && (pending.itemType === 'professor'
+          ? data.professors.some(p => p.slug === pending.itemKey)
+          : data.courses.some(c => c.code === pending.itemKey));
+        if (pending && !saved) {
+          try {
+            await addBookmark(pending.itemType, pending.itemKey);
+            data = await fetchBookmarks();
+            setSavedToast(`Saved ${pending.label} to your bookmarks`);
+          } catch {
+            // Not saved: the flag stays empty and the student can tap it again.
+          }
+        }
+        apply(data);
       })
       .catch(() => {
         // Signed in but couldn't load bookmarks — leave state empty rather than stale.
@@ -119,6 +148,7 @@ export function BookmarksProvider({ children }: { children: ReactNode }) {
       value={{ loading, isBookmarked, toggleBookmark, bookmarkedProfessors, bookmarkedCourses }}
     >
       {children}
+      {savedToast && <div className="saved-toast" role="status">{savedToast}</div>}
     </BookmarksContext.Provider>
   );
 }

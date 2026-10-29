@@ -780,7 +780,7 @@ const Professor = () => {
           <div className="prof-hero-info">
             <h1 className="prof-name">
               {identity.name}
-              <BookmarkButton itemType="professor" itemKey={slug!} size="md" className="prof-hero-bookmark" />
+              <BookmarkButton itemType="professor" itemKey={slug!} size="md" className="prof-hero-bookmark" label={identity.name} />
             </h1>
             {identity.department && (
               <p className="prof-dept">

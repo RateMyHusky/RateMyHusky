@@ -171,7 +171,7 @@ const Course = () => {
 						<p className="course-code">{course.code}</p>
 						<h1>
 							{course.name}
-							<BookmarkButton itemType="course" itemKey={course.code} size="md" className="course-hero-bookmark" />
+							<BookmarkButton itemType="course" itemKey={course.code} size="md" className="course-hero-bookmark" label={course.code} />
 						</h1>
 						{/* Course departments mostly have no /departments page (those are built from
 						    professors' departments), so this opens the course list for the department. */}

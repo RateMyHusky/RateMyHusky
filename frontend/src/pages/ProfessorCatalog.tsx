@@ -722,7 +722,7 @@ export default function ProfessorCatalog() {
                     e.key === 'Enter' && e.target === e.currentTarget && navigate(`/professors/${prof.slug}`, { state: { fromCatalog: `/professors?${searchParams.toString()}` } })
                   }
                 >
-                  <BookmarkButton itemType="professor" itemKey={prof.slug} size="sm" className="prof-list-bookmark" />
+                  <BookmarkButton itemType="professor" itemKey={prof.slug} size="sm" className="prof-list-bookmark" label={prof.name} />
                   <div className="prof-list-avatar">
                     {prof.imageUrl ? (
                       <img
@@ -774,7 +774,7 @@ export default function ProfessorCatalog() {
                     e.key === 'Enter' && e.target === e.currentTarget && navigate(`/professors/${prof.slug}`, { state: { fromCatalog: `/professors?${searchParams.toString()}` } })
                   }
                 >
-                  <BookmarkButton itemType="professor" itemKey={prof.slug} size="sm" className="prof-card-bookmark" />
+                  <BookmarkButton itemType="professor" itemKey={prof.slug} size="sm" className="prof-card-bookmark" label={prof.name} />
                   <div className="prof-card-photo">
                     <div className="prof-avatar">
                       {prof.imageUrl ? (

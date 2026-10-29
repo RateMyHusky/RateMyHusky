@@ -498,7 +498,7 @@ export default function Courses() {
 									onClick={() => navigate(`/courses/${course.code.toLowerCase()}`)}
 									onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && navigate(`/courses/${course.code.toLowerCase()}`)}
 								>
-									<BookmarkButton itemType="course" itemKey={course.code} size="sm" className="prof-card-bookmark" />
+									<BookmarkButton itemType="course" itemKey={course.code} size="sm" className="prof-card-bookmark" label={course.code} />
 									<div className="course-card-header">
 										<span className="course-card-code">{course.code}</span>
 									</div>

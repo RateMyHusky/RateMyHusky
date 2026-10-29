@@ -11,6 +11,8 @@ const Navbar = () => {
   const { user, loading: authLoading, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [showSignIn, setShowSignIn] = useState(false);
+  // Why the modal opened, when the opener said (e.g. a signed-out bookmark tap).
+  const [signInReason, setSignInReason] = useState<string | undefined>();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const [pillStyle, setPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
@@ -31,7 +33,10 @@ const Navbar = () => {
 
   // Open the sign-in modal on request from elsewhere (e.g. Ask-mode 401 in SearchBar)
   useEffect(() => {
-    const handler = () => setShowSignIn(true);
+    const handler = (e: Event) => {
+      setSignInReason((e as CustomEvent<{ reason?: string } | undefined>).detail?.reason);
+      setShowSignIn(true);
+    };
     window.addEventListener('open-signin', handler);
     return () => window.removeEventListener('open-signin', handler);
   }, []);
@@ -196,7 +201,7 @@ const Navbar = () => {
             )}
           </div>
         ) : (
-          <button className="signin-btn" onClick={() => { setShowSignIn(true); setMenuOpen(false); }}>Sign In</button>
+          <button className="signin-btn" onClick={() => { setSignInReason(undefined); setShowSignIn(true); setMenuOpen(false); }}>Sign In</button>
         )}
 
         <div className="navbar-util-spacer" />
@@ -239,7 +244,7 @@ const Navbar = () => {
         onTouchStart={() => setMenuOpen(false)}
       />
     )}
-    <SignInModal open={showSignIn} onClose={() => setShowSignIn(false)} />
+    <SignInModal open={showSignIn} onClose={() => setShowSignIn(false)} reason={signInReason} />
     </>
   );
 };
