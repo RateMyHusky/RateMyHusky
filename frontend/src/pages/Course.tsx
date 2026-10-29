@@ -305,7 +305,9 @@ const Course = () => {
 									focusY={r.focusY}
 									rating={r.rating}
 									footerLeft={r.numRatings != null ? `${r.numRatings.toLocaleString()} rating${r.numRatings === 1 ? '' : 's'}` : '—'}
-									footerCenter={r.totalComments != null ? `${r.totalComments.toLocaleString()} comment${r.totalComments === 1 ? '' : 's'}` : '—'}
+									// This course's latest term, not the catalog-wide comment count, which beside
+									// this course's rating count read as "28 ratings, 55 comments".
+									footerCenter={r.terms[0] ?? '—'}
 									footerRight={r.wouldTakeAgainPct != null ? `${Math.round(r.wouldTakeAgainPct)}% again` : '—'}
 									to={r.slug ? `/professors/${r.slug}` : undefined}
 									fromPage={fromPage}
