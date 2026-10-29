@@ -346,6 +346,7 @@ export default function Rate() {
           <OtherCourseStep
             own={courses ?? []}
             rated={(rated ?? []).map((r) => r.code)}
+            slug={answers.professor?.slug ?? null}
             // A hit on the professor's list takes the listed course, so its terms show.
             onPick={(c) => go(pickCourse(answers, courses?.find((x) => x.code === c.code) ?? c, rated ?? [], new Date()), 'otherCourse')}
             onBack={back}

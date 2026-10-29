@@ -1,8 +1,8 @@
 """Review held survey ratings and new professors and courses (rating form, plan 3).
 
-    python review_ratings.py list                       # held ratings, comments to read, pending professors and courses
+    python review_ratings.py list                       # held ratings, comments to read, pending professors, courses and aliases
     python review_ratings.py approve-rating ID [ID...]  # held -> accepted
-    python review_ratings.py reject-rating ID [ID...]   # delete the rating
+    python review_ratings.py reject-rating [--abuse] ID [ID...]  # delete the rating; --abuse also silences its device and IP
     python review_ratings.py approve-comment ID@TIME [ID@TIME...]  # show a comment, as list printed it
     python review_ratings.py reject-comment ID [ID...]  # drop a waiting comment, keep its rating
     python review_ratings.py remove-comment PUBLIC_ID   # take down a shown comment by the id a report carries
@@ -12,7 +12,9 @@
     python review_ratings.py approve-course ID
     python review_ratings.py merge-course ID CODE
     python review_ratings.py reject-course ID
-    python review_ratings.py purge-ip                   # clear IP hashes older than 30 days
+    python review_ratings.py approve-alias ID           # pending nickname -> searchable
+    python review_ratings.py reject-alias ID            # keep the row as rejected so the word isn't suggested again
+    python review_ratings.py purge-ip                   # clear IP hashes older than 30 days and expired IP flags
 
 Rating ids may be the short id `list` prints. Each run is one transaction: it
 commits at the end, and rolls back and exits 1 on a bad id or a non-pending
@@ -141,8 +143,28 @@ def approve_rating(cur, *ids):
     return f"Approved {len(ids)} rating(s)"
 
 
-def reject_rating(cur, *ids):
+def flag_abuse(cur, rating_id):
+    """Silence the device (for good) and the IP (IP_HASH_DAYS; not on a shared network,
+    and not once a purge cleared it) of the one held rating `rating_id`: later ratings
+    from either are held as silent_hold. Raises before writing when the id isn't one held rating."""
+    cur.execute("SELECT device_hash, ip_hash, network_type FROM survey_ratings "
+                "WHERE id::text LIKE %s AND status = 'held' FOR UPDATE", (short_id_pattern(rating_id),))
+    found = cur.fetchall()
+    if len(found) != 1:
+        raise ReviewError(f"{rating_id} is not exactly one held rating")
+    row = found[0]
+    cur.execute("INSERT INTO rating_flags (kind, value_hash) VALUES (%s, %s) "
+                "ON CONFLICT DO NOTHING", ("device", row["device_hash"]))
+    if row["ip_hash"] and row["network_type"] not in ratings.FLAG_EXEMPT_NETWORKS:
+        cur.execute("INSERT INTO rating_flags (kind, value_hash) VALUES (%s, %s) "
+                    "ON CONFLICT (kind, value_hash) DO UPDATE SET created_at = now()",
+                    ("ip", row["ip_hash"]))
+
+
+def reject_rating(cur, *ids, abuse=False):
     for rating_id in ids:
+        if abuse:
+            flag_abuse(cur, rating_id)
         cur.execute("DELETE FROM survey_ratings WHERE id::text LIKE %s AND status = 'held' "
                     "RETURNING id", (short_id_pattern(rating_id),))
         if len(cur.fetchall()) != 1:
@@ -274,11 +296,32 @@ def reject_course(cur, entry_id):
     return reject(cur, COURSE, entry_id)
 
 
+def set_alias_status(cur, alias_id, status):
+    try:
+        alias_id = int(alias_id)
+    except ValueError:
+        raise ReviewError(f"Bad alias id {alias_id!r}") from None
+    cur.execute("UPDATE professor_aliases SET status = %s WHERE id = %s AND status <> %s "
+                "RETURNING alias_key, slug", (status, alias_id, status))
+    row = cur.fetchone()
+    if row is None:
+        raise ReviewError(f"Alias {alias_id} is missing or already {status}")
+    return f"Set alias {clean(row['alias_key'])} for {row['slug']} to {status}"
+
+
+def approve_alias(cur, alias_id):
+    return set_alias_status(cur, alias_id, "approved")
+
+
+def reject_alias(cur, alias_id):
+    return set_alias_status(cur, alias_id, "rejected")
+
+
 def purge_ip(cur):
     def write(sql, params):
         cur.execute(sql, params)
     ratings.purge_ip_hashes(write, datetime.now(timezone.utc))
-    return f"Cleared IP hashes older than {ratings.IP_HASH_DAYS} days"
+    return f"Cleared IP hashes older than {ratings.IP_HASH_DAYS} days and expired IP flags"
 
 
 def clean(value):
@@ -299,7 +342,12 @@ def list_pending(cur):
     cur.execute(
         "SELECT r.id, COALESCE(r.professor_slug, pp.name || ' (pending)') AS professor, "
         "COALESCE(r.course_code, pc.code || ' (pending)') AS course, r.term_label, r.rating, r.difficulty, "
-        "r.hold_reasons, r.comment, r.created_at "
+        "r.hold_reasons, "
+        "CASE WHEN r.agent_decision = 'reject' OR (r.agent_decision = 'escalate' "
+        "AND r.agent_reviewed_at >= r.updated_at) THEN r.agent_decision END AS agent_decision, "
+        "CASE WHEN r.agent_decision = 'reject' OR (r.agent_decision = 'escalate' "
+        "AND r.agent_reviewed_at >= r.updated_at) THEN r.agent_reason END AS agent_reason, "
+        "r.comment, r.created_at "
         "FROM survey_ratings r "
         "LEFT JOIN survey_pending_professors pp ON pp.id = r.pending_professor_id "
         "LEFT JOIN survey_pending_courses pc ON pc.id = r.pending_course_id "
@@ -311,6 +359,8 @@ def list_pending(cur):
         print(f"  {str(r['id'])[:8]}  {clean(r['professor'])}  {clean(r['course'])}  "
               f"{clean(r['term_label'])}  {r['rating']}/5  difficulty {r['difficulty'] or '-'}/5  "
               f"[{clean(r['hold_reasons'])}]  "
+              f"agent: {clean(r['agent_decision'] or '-')}"
+              f"{' (' + clean(r['agent_reason']) + ')' if r['agent_reason'] else ''}  "
               f"{comment!r}  {str(r['created_at'])[:10]}")
 
     # The whole text, since approving it puts every word on the page.
@@ -347,7 +397,7 @@ def list_pending(cur):
               f"same last name: {similar}")
 
     cur.execute(
-        "SELECT c.id, c.code, c.name, count(r.id) AS n, "
+        "SELECT c.id, c.code, c.name, c.agent_decision, c.agent_reason, count(r.id) AS n, "
         "EXISTS (SELECT 1 FROM course_catalog k WHERE k.code = c.code) AS in_catalog "
         "FROM survey_pending_courses c LEFT JOIN survey_ratings r ON r.pending_course_id = c.id "
         "WHERE c.status = 'pending' GROUP BY c.id ORDER BY c.created_at")
@@ -355,9 +405,19 @@ def list_pending(cur):
     print(f"Pending courses ({len(courses)}):")
     for c in courses:
         print(f"  {c['id']}  {clean(c['code'])}  {clean(c['name'])}  {c['n']} rating(s)  "
-              f"{'in' if c['in_catalog'] else 'not in'} course_catalog")
-    return (f"{len(held)} held, {len(comments)} comments to review, "
-            f"{len(profs)} pending professors, {len(courses)} pending courses")
+              f"{'in' if c['in_catalog'] else 'not in'} course_catalog  "
+              f"agent: {clean(c['agent_decision'] or '-')}"
+              f"{' (' + clean(c['agent_reason']) + ')' if c['agent_reason'] else ''}")
+
+    cur.execute("SELECT id, alias_key, slug, source FROM professor_aliases "
+                "WHERE status = 'pending' ORDER BY created_at, id")
+    aliases = cur.fetchall()
+    print(f"Pending aliases ({len(aliases)}):")
+    for a in aliases:
+        print(f"  {a['id']}  {clean(a['alias_key'])} -> {clean(a['slug'])}  {clean(a['source'])}")
+    return (f"{len(held)} held, {len(comments)} comments to review, {len(profs)} pending professors, "
+            f"{len(courses)} pending courses, "
+            f"{len(aliases)} pending aliases")
 
 
 def parse_args(argv):
@@ -366,7 +426,10 @@ def parse_args(argv):
     sub.add_parser("list")
     sub.add_parser("purge-ip")
     for name in ("approve-rating", "reject-rating", "approve-comment", "reject-comment"):
-        sub.add_parser(name).add_argument("ids", nargs="+")
+        rating = sub.add_parser(name)
+        rating.add_argument("ids", nargs="+")
+        if name == "reject-rating":
+            rating.add_argument("--abuse", action="store_true")
     approve = sub.add_parser("approve-professor")
     approve.add_argument("id")
     approve.add_argument("--slug")
@@ -374,7 +437,8 @@ def parse_args(argv):
         merge = sub.add_parser(name)
         merge.add_argument("id")
         merge.add_argument("target")
-    for name in ("reject-professor", "approve-course", "reject-course", "remove-comment"):
+    for name in ("reject-professor", "approve-course", "reject-course", "remove-comment",
+                 "approve-alias", "reject-alias"):
         sub.add_parser(name).add_argument("id")
     return parser.parse_args(argv)
 
@@ -385,7 +449,9 @@ def run(cur, args):
         return list_pending(cur)
     if command == "purge-ip":
         return purge_ip(cur)
-    if command in ("approve-rating", "reject-rating", "approve-comment", "reject-comment"):
+    if command == "reject-rating":
+        return reject_rating(cur, *args.ids, abuse=args.abuse)
+    if command in ("approve-rating", "approve-comment", "reject-comment"):
         return COMMANDS[command](cur, *args.ids)
     if command == "approve-professor":
         return approve_professor(cur, args.id, args.slug)
@@ -400,6 +466,7 @@ COMMANDS = {
     "reject-professor": reject_professor, "merge-professor": merge_professor,
     "approve-course": approve_course, "merge-course": merge_course,
     "reject-course": reject_course, "remove-comment": remove_comment,
+    "approve-alias": approve_alias, "reject-alias": reject_alias,
 }
 # Commands that can't change what a page shows; every other one bumps data_version
 # so the site's caches drop pages that show (or no longer show) student reviews.

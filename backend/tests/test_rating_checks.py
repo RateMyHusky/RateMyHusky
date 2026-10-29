@@ -3,6 +3,7 @@
 import pytest
 
 import rating_checks as rc
+from tests.razzaq_bomb import BOMB
 
 
 def test_assess_accepts_a_clean_rating():
@@ -236,3 +237,36 @@ def test_check_fields_for_each_outcome():
         fields = rc.comment_check_fields(skipped, None, now)
         assert fields["comment_check"] == "unchecked" and fields["comment_check_reason"] == skipped
         assert fields["comment_next_check_at"] is None and fields["comment_check_attempts"] == 0
+
+
+ONE_OFFS = {0, 1}  # the 01:00 and 01:01 comments were never copied
+
+
+def test_every_razzaq_copy_matches_another_bomb_comment():
+    comments = [r["comment"] for r in BOMB]
+    for i, c in enumerate(comments):
+        if i in ONE_OFFS:
+            continue
+        best = max(rc.similarity(c, o) for j, o in enumerate(comments) if j != i)
+        assert best >= rc.NEAR_DUPLICATE, c
+
+
+def test_prefix_word_and_trailing_character_edits_still_match():
+    base = "Lecutres weren't real, she would just read from the slides. The material was very difficult."
+    assert rc.similarity(base, "Honestly, " + base) >= rc.NEAR_DUPLICATE
+    assert rc.similarity(base, base + ".e") >= rc.NEAR_DUPLICATE
+
+
+def test_ordinary_different_comments_do_not_match():
+    pairs = [("Great professor, would definitely take again", "Great professor would take again if I could"),
+             ("Clear lectures and fair exams, would take again.", "Exams were fair but the lectures dragged on."),
+             ("Super helpful in office hours and the homework was fair.", "Homework was long and office hours were packed.")]
+    for a, b in pairs:
+        assert rc.similarity(a, b) < rc.NEAR_DUPLICATE
+
+
+def test_new_reasons_hold_in_a_fixed_order():
+    status, reasons = rc.assess(30, "other", ["burst_prof"], True, "allow",
+                                near_duplicate=True, skew_week=True, silent_hold=True)
+    assert status == "held"
+    assert reasons == ["burst_prof", "skew_week", "duplicate_comment", "near_duplicate", "silent_hold"]

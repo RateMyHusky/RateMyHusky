@@ -9,6 +9,7 @@ timezone-aware UTC datetime.
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import rating_checks
 from prof_aliases import rmp_link_key
 
 # The burst thresholds count prior ratings in the window: the route counts before it saves.
@@ -27,6 +28,12 @@ IP_HASH_DAYS = 30
 DEVICE_MODERATION_BUDGET = 3
 IP_MODERATION_BUDGET = 10
 SHARED_MODERATION_BUDGET = 100
+NEAR_DUPLICATE_DAYS = 30  # how far back a comment can be a near copy of one on the same professor
+# skew_week thresholds are starting values to tune against real traffic.
+SKEW_DAYS = 7  # the window of new-device ratings for one professor
+SKEW_MIN_RATINGS = 8  # at least this many in it, counting the new one
+SKEW_DROP = 1.5  # ...averaging this far below the professor's blended mean
+SKEW_MAX_STDEV = 1.0  # ...and agreeing this tightly (population stdev)
 TERM_START_MONTHS = (1, 5, 9)
 
 # Every survey_ratings column except created_at / updated_at.
@@ -46,6 +53,9 @@ _KEY_MATCH = " AND ".join(f"{c} IS NOT DISTINCT FROM %s" for c in _KEY_COLUMNS)
 _PROF_MATCH = " AND ".join(f"{c} IS NOT DISTINCT FROM %s" for c in _KEY_COLUMNS[:2])
 _COURSE_MATCH = " AND ".join(f"{c} IS NOT DISTINCT FROM %s" for c in _KEY_COLUMNS[2:])
 _NO_NETWORK_BURST = ("campus", "relay")
+# Shared networks: one abusive student must not silence the rest of campus, a relay,
+# or a carrier, which shares IPv4 addresses across many subscribers.
+FLAG_EXEMPT_NETWORKS = (*_NO_NETWORK_BURST, "mobile")
 _BURST_REASONS = ("burst_pair", "burst_prof", "burst_prof_day", "burst_course", "burst_ip", "burst_prefix")
 # A held row from a pair burst pauses that pair; a professor or course burst, all of it.
 _PAUSE_SQL = (
@@ -175,6 +185,111 @@ def duplicate_comment(comment_hash, exclude_id, query_one):
     return row is not None
 
 
+def near_duplicate_ids(comment, key, exclude_id, query, now):
+    """Ids of the professor's ratings from the last NEAR_DUPLICATE_DAYS whose comment
+    is a near copy of this one, held and accepted alike. Any course: a template gets
+    reused across a professor's courses. Short comments never match."""
+    if len(rating_checks.normalize_comment(comment or "")) < rating_checks.MIN_DUPLICATE_CHARS:
+        return []
+    rows = query(
+        f"SELECT id, comment FROM survey_ratings WHERE {_PROF_MATCH} AND created_at >= %s "
+        "AND comment IS NOT NULL AND id IS DISTINCT FROM %s",
+        (*_key_params(key)[:2], now - timedelta(days=NEAR_DUPLICATE_DAYS), exclude_id))
+    mine = rating_checks.shingles(comment)
+    return [str(r["id"]) for r in rows
+            if rating_checks.shingle_similarity(mine, rating_checks.shingles(r["comment"]))
+            >= rating_checks.NEAR_DUPLICATE]
+
+
+def _add_reason(reason, condition, params, write):
+    """Add `reason` to the held rows matching `condition` that don't list it. The
+    agent's escalate predates the new reason, so it is cleared for a re-review; a
+    reject stays, since only a human clears one. Doesn't bump updated_at, which the
+    burst windows count."""
+    write(
+        "UPDATE survey_ratings SET hold_reasons = hold_reasons || %s, "
+        "agent_decision = CASE WHEN agent_decision = 'reject' THEN agent_decision END, "
+        "agent_reason = CASE WHEN agent_decision = 'reject' THEN agent_reason END, "
+        "agent_reviewed_at = CASE WHEN agent_decision = 'reject' THEN agent_reviewed_at END "
+        "WHERE status = 'held' AND hold_reasons IS NOT NULL "
+        f"AND NOT (%s = ANY(string_to_array(hold_reasons, ','))) AND {condition}",
+        ("," + reason, reason, *params))
+
+
+# A match shares the new rating's device, or its IP or network when that isn't a shared one.
+_LINKED = "(device_hash = %s OR (%s AND (ip_hash = %s OR ip_prefix_hash = %s)))"
+
+
+def hold_matches(ids, reason, device_hash, ip_hash, prefix_hash, network_type, write):
+    """Hold the accepted rows among `ids` linked to the new rating for `reason`, and add
+    it to linked held rows that don't list it. An unlinked match stays up: otherwise
+    anyone could hide a real review by reposting it. A row a reviewer approved keeps
+    its hold_reasons, so `hold_reasons IS NULL` leaves approvals alone. All on one
+    professor, whose page the route already drops, so there is nothing to return."""
+    if not ids:
+        return
+    linked = (device_hash, network_type not in FLAG_EXEMPT_NETWORKS, ip_hash, prefix_hash)
+    write(
+        "UPDATE survey_ratings SET status = 'held', hold_reasons = %s "
+        f"WHERE status = 'accepted' AND hold_reasons IS NULL AND id::text = ANY(%s) AND {_LINKED}",
+        (reason, ids, *linked))
+    _add_reason(reason, f"id::text = ANY(%s) AND {_LINKED}", (ids, *linked), write)
+
+
+# The week's new-device ratings as count, sum and sum of squares. A row a reviewer
+# approved keeps its hold_reasons, so it is left out and can't re-trip the check. The
+# row being edited is left out too: the new rating replaces it.
+_SKEW_WEEK_SQL = (
+    "SELECT count(*) AS n, COALESCE(sum(rating), 0) AS total, "
+    "COALESCE(sum(rating * rating), 0) AS squares FROM survey_ratings "
+    f"WHERE {_PROF_MATCH} AND new_device = true AND created_at >= %s "
+    "AND NOT (status = 'accepted' AND hold_reasons IS NOT NULL) AND id IS DISTINCT FROM %s")
+
+
+def skew_week(key, rating, new_device, exclude_id, query_one, now):
+    """True when the professor's last SKEW_DAYS of new-device ratings, with this one,
+    are at least SKEW_MIN_RATINGS, average SKEW_DROP below the professor's
+    blended mean (professors_catalog.avg_rating, so RMP carries it in the first
+    weeks) and have a population stdev under SKEW_MAX_STDEV: a slow drip the
+    hourly bursts miss. Approved rows don't count: a reviewer-approved week would
+    otherwise re-trip on every later rating. A returning device, a pending
+    professor and a professor with no prior make no check."""
+    if not new_device or not key["professor_slug"]:
+        return False
+    week = query_one(_SKEW_WEEK_SQL, (*_key_params(key)[:2], now - timedelta(days=SKEW_DAYS), exclude_id))
+    n = (week["n"] if week else 0) + 1
+    if n < SKEW_MIN_RATINGS:
+        return False
+    prior = query_one("SELECT avg_rating FROM professors_catalog WHERE slug = %s", (key["professor_slug"],))
+    if not prior or prior["avg_rating"] is None:
+        return False
+    # sum(bigint) is a Decimal and avg_rating a float, so convert before mixing them.
+    total, squares = float(week["total"]) + rating, float(week["squares"]) + rating * rating
+    mean = total / n
+    variance = max(squares / n - mean * mean, 0)
+    return prior["avg_rating"] - mean >= SKEW_DROP and variance ** 0.5 < SKEW_MAX_STDEV
+
+
+def hold_skew_week(key, write, now):
+    """Hold the professor's unreviewed new-device ratings from the last SKEW_DAYS
+    for skew_week, and add it to held ones the agent could otherwise approve one by
+    one on a soft flag, so it groups them. A row held for an escalate-only reason or
+    carrying the agent's reject goes to a human anyway, so it stays out of the group.
+    All on one professor, whose page the route already drops, so there is nothing
+    to return."""
+    condition = f"new_device = true AND created_at >= %s AND {_PROF_MATCH}"
+    params = (now - timedelta(days=SKEW_DAYS), *_key_params(key)[:2])
+    write(
+        "UPDATE survey_ratings SET status = 'held', hold_reasons = 'skew_week' "
+        f"WHERE status = 'accepted' AND hold_reasons IS NULL AND {condition}",
+        params)
+    _add_reason(
+        "skew_week",
+        f"{condition} AND string_to_array(hold_reasons, ',') <@ %s::text[] "
+        "AND agent_decision IS DISTINCT FROM 'reject'",
+        (*params, sorted(rating_checks.APPROVABLE | rating_checks.APPROVABLE_IF_VARIED)), write)
+
+
 def _paced(row, hour, month, limit):
     """At least `limit` in the hour and PAIR_PACE_FACTOR times the 30-day mean hourly count."""
     return row[hour] >= limit and row[hour] >= PAIR_PACE_FACTOR * row[month] / 720
@@ -270,12 +385,14 @@ def hold_burst(reasons, key, ip_hash, prefix_hash, write, now):
 # the burst_pair count. A comment a reviewer approved stays approved while its text
 # is unchanged; new or edited text waits for review again. The CHECK_COLUMNS follow
 # the text the same way: unchanged text keeps its check, even one moderate_queue.py
-# recorded after the route read the row.
+# recorded after the route read the row. A page still on the form from before the
+# difficulty question sends none, so an edit from it keeps the stored difficulty
+# (temporary, see rating_checks.validate_submission).
 _INSERT_COLUMNS = tuple(c for c in RATING_COLUMNS if c != "id")
 _SET_COLUMNS = tuple(
     c for c in _INSERT_COLUMNS
-    if c not in ("status", "hold_reasons", "comment_status", "device_hash", "new_device", *_KEY_COLUMNS,
-                 *CHECK_COLUMNS))
+    if c not in ("status", "hold_reasons", "comment_status", "device_hash", "new_device", "difficulty",
+                 *_KEY_COLUMNS, *CHECK_COLUMNS))
 _UPSERT_SQL = (
     f"INSERT INTO survey_ratings (id, {', '.join(_INSERT_COLUMNS)}) "
     f"VALUES (%s, {', '.join(['%s'] * len(_INSERT_COLUMNS))}) "
@@ -289,7 +406,8 @@ _UPSERT_SQL = (
     "ELSE 'pending' END"
     + "".join(f", {c} = CASE WHEN EXCLUDED.comment IS NOT DISTINCT FROM survey_ratings.comment "
               f"THEN survey_ratings.{c} ELSE EXCLUDED.{c} END" for c in CHECK_COLUMNS)
-    + ", updated_at = now()"
+    + ", difficulty = COALESCE(EXCLUDED.difficulty, survey_ratings.difficulty)"
+    ", updated_at = now()"
 )
 
 
@@ -337,13 +455,24 @@ def professor_context(slug, device_hash, query):
          "comment": r["comment"] or ""} for r in rows]}
 
 
+def flagged(device_hash, ip_hash, network_type, query_one, now):
+    """Whether a reviewer flagged this device (for good) or this IP (for IP_HASH_DAYS,
+    never on a shared network: campus, relay or mobile)."""
+    sql = "SELECT 1 FROM rating_flags WHERE (kind = 'device' AND value_hash = %s)"
+    params = [device_hash]
+    if ip_hash and network_type not in FLAG_EXEMPT_NETWORKS:
+        sql += " OR (kind = 'ip' AND value_hash = %s AND created_at >= %s)"
+        params += [ip_hash, now - timedelta(days=IP_HASH_DAYS)]
+    return query_one(sql + " LIMIT 1", tuple(params)) is not None
+
+
 def purge_ip_hashes(write, now):
-    """Clear IP and prefix hashes once they are older than IP_HASH_DAYS."""
+    """Clear IP and prefix hashes, and IP flags, once they are older than IP_HASH_DAYS."""
+    cutoff = now - timedelta(days=IP_HASH_DAYS)
     write("UPDATE survey_ratings SET ip_hash = NULL, ip_prefix_hash = NULL "
-          "WHERE created_at < %s AND ip_hash IS NOT NULL",
-          (now - timedelta(days=IP_HASH_DAYS),))
-    write("UPDATE moderation_calls SET ip_hash = NULL WHERE called_at < %s AND ip_hash IS NOT NULL",
-          (now - timedelta(days=IP_HASH_DAYS),))
+          "WHERE created_at < %s AND ip_hash IS NOT NULL", (cutoff,))
+    write("DELETE FROM rating_flags WHERE kind = 'ip' AND created_at < %s", (cutoff,))
+    write("UPDATE moderation_calls SET ip_hash = NULL WHERE called_at < %s AND ip_hash IS NOT NULL", (cutoff,))
 
 
 def moderation_budget_left(device_hash, ip_hash, shared, query_one, now):

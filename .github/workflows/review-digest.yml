@@ -5,16 +5,25 @@ on:
     - cron: "0 13 * * *"  # 13:00 UTC daily: 9:00 Boston in summer, 8:00 in winter
   workflow_dispatch:
 
-# Reads the review queue and sends at most one email; nothing here reads or
-# writes the repo through GITHUB_TOKEN. A missing RESEND_API_KEY fails the run
-# instead of silently skipping the email.
+# The review agent reads and writes the review queue, then the digest sends at
+# most one email; nothing here reads or writes the repo through GITHUB_TOKEN.
+# A missing Groq key skips the held-rating review but course merges still run,
+# and the digest still sends. The digest runs even when the agent step failed or
+# hit its 30-minute step timeout (a job timeout would cancel the digest too), and
+# the job still shows as failed. A missing
+# RESEND_API_KEY fails the run instead of silently skipping the email.
 permissions:
   contents: read
+
+# Two runs never overlap: the agent's sticky-reject guard assumes one writer.
+concurrency:
+  group: review-digest
+  cancel-in-progress: false
 
 jobs:
   digest:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -28,7 +37,21 @@ jobs:
         working-directory: backend
         run: pip install -r requirements-data.txt
 
+      - name: Review held ratings, pending professors and courses, and nickname suggestions
+        timeout-minutes: 30  # a step timeout fails only this step, so the digest still runs
+        working-directory: backend
+        env:
+          ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
+          groq1: ${{ secrets.groq1 }}
+          groq2: ${{ secrets.groq2 }}
+          groq3: ${{ secrets.groq3 }}
+          groq4: ${{ secrets.groq4 }}
+          groq5: ${{ secrets.groq5 }}
+          groq6: ${{ secrets.groq6 }}
+        run: python review_agent.py
+
       - name: Send the review digest
+        if: ${{ !cancelled() }}
         working-directory: backend
         env:
           ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}

@@ -9,7 +9,7 @@ const Privacy = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Privacy Policy</h1>
-            <p className="terms-meta">Effective October 27, 2026 &middot; RateMyHusky</p>
+            <p className="terms-meta">Effective October 28, 2026 &middot; RateMyHusky</p>
           </header>
 
           <div className="terms-body">
@@ -98,7 +98,11 @@ const Privacy = () => {
                   or device without it. This data is <strong>pseudonymous, not anonymous</strong>:
                   it is not tied to your name or email, but the device ID hash links ratings
                   from the same device to each other. Comment text is also sent to OpenAI's
-                  moderation service, which checks it for abuse before it is stored. See{' '}
+                  moderation service, which checks it for abuse before it is stored. If a rating is
+                  held for review, its answers and comment, and why it was held, are also sent to
+                  Groq, where an automated reviewer checks it. Recent ratings and comments for the same
+                  professor go with it as context. The reviewer can approve a held rating, but
+                  it never removes one: only our team does. See{' '}
                   <em>Retention of Ratings</em> in Section 4 for how long each item is kept.
                 </li>
                 )}
@@ -167,7 +171,10 @@ const Privacy = () => {
                 kept for 30 days and then deleted in routine cleanup; the rating itself stays,
                 and so do the network type and the form fill time. The device
                 ID hash and a hash of the comment text (used to spot copied comments) live with
-                the rating and are deleted with it. Comments are stored but are not shown
+                the rating and are deleted with it, with one exception: when we remove a rating for
+                abuse, we keep its device ID hash to block further abuse from that device, and
+                its IP hash for 30 days after removal. IP hashes from campus networks, mobile
+                networks and Private Relay are never kept this way. Comments are stored but are not shown
                 publicly. A rating is kept until we remove it or you ask us to delete it (see{' '}
                 <em>Your Rights &amp; Choices</em>).
               </p>
@@ -291,6 +298,20 @@ const Privacy = () => {
                     rel="noopener noreferrer"
                   >
                     OpenAI's Privacy Policy
+                  </a>.
+                </li>
+                <li>
+                  <strong>Groq</strong>: the answers and comments of ratings held for review, why
+                  they were held, and recent ratings and comments for the same professor, are sent to Groq for an
+                  automated check. Comments, including public RateMyProfessors comments, are also used to
+                  suggest nicknames that help search find a professor. Nicknames are used only in search and are
+                  never shown. Subject to{' '}
+                  <a
+                    href="https://groq.com/privacy-policy/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Groq's Privacy Policy
                   </a>.
                 </li>
                 <li>

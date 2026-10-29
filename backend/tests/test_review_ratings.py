@@ -180,6 +180,7 @@ def test_approve_rating_only_touches_held_rows():
 def test_list_prints_no_hashes(capsys):
     held = {"id": "abcd1234-0000", "professor": "jane-doe", "course": "CS2500",
             "term_label": "Fall 2025", "rating": 2, "difficulty": 5, "hold_reasons": "burst",
+            "agent_decision": None, "agent_reason": None,
             "comment": "x" * 100, "created_at": "2026-10-01",
             "device_hash": "DEVICEHASH", "ip_hash": "IPHASH"}
     cur = FakeCursor({"comment_status = 'pending'": [], "FROM survey_ratings": [held]})
@@ -252,6 +253,28 @@ def test_reject_comment_drops_the_text_and_keeps_the_rating():
         rr.reject_comment(FakeCursor(), "abcd1234")
 
 
+def test_list_shows_the_agent_decision_and_reason(capsys):
+    base = {"id": "abcd1234-0000", "professor": "jane-doe", "course": "CS2500",
+            "term_label": None, "rating": 2, "difficulty": None, "hold_reasons": "burst",
+            "comment": "hi", "created_at": "2026-10-01"}
+    rejected = dict(base, agent_decision="reject", agent_reason="templated cluster[2J")
+    unreviewed = dict(base, id="ffff5678-0000", agent_decision=None, agent_reason=None)
+    rr.list_pending(FakeCursor({"comment_status = 'pending'": [], "FROM survey_ratings": [rejected, unreviewed]}))
+    out = capsys.readouterr().out
+    assert "agent: reject (templated cluster?[2J)" in out
+    assert "agent: -" in out and "" not in out
+
+
+def test_list_shows_the_agent_decision_and_reason_on_pending_courses(capsys):
+    base = {"id": "c1", "code": "ENVR1110", "name": "Typo", "n": 1, "in_catalog": False}
+    escalated = dict(base, agent_decision="escalate", agent_reason="jane-doe: 2 candidates (A, B)[2J")
+    unreviewed = dict(base, id="c2", code="BIO2299", agent_decision=None, agent_reason=None)
+    rr.list_pending(FakeCursor({"FROM survey_pending_courses": [escalated, unreviewed]}))
+    out = capsys.readouterr().out
+    assert "agent: escalate (jane-doe: 2 candidates (A, B)?[2J)" in out
+    assert "BIO2299  Typo  1 rating(s)  not in course_catalog  agent: -" in out
+
+
 def test_reject_rating_only_deletes_held_rows():
     cur = FakeCursor({"DELETE FROM survey_ratings": [{"id": "abcd1234"}]})
     rr.reject_rating(cur, "abcd1234")
@@ -264,6 +287,7 @@ def test_list_strips_control_characters(capsys):
     evil = "[2J"
     held = {"id": "abcd1234-0000", "professor": "jane-doe", "course": "CS2500",
             "term_label": None, "rating": 2, "difficulty": None, "hold_reasons": "burst",
+            "agent_decision": None, "agent_reason": None,
             "comment": "hi" + evil, "created_at": "2026-10-01"}
     waiting = {"id": "beef5678-0000", "professor": "jane-doe", "course": "CS2500", "status": "accepted",
                "rating": 2, "comment": "yo" + evil, "updated_at": "2026-10-01",
@@ -273,7 +297,8 @@ def test_list_strips_control_characters(capsys):
                                                           "name_key": "eve x", "department": evil,
                                                           "n": 1}],
                       "FROM survey_pending_courses": [{"id": "c1", "code": evil, "name": evil,
-                                                       "n": 1, "in_catalog": False}]})
+                                                       "n": 1, "in_catalog": False,
+                                                       "agent_decision": evil, "agent_reason": evil}]})
     rr.list_pending(cur)
     assert "" not in capsys.readouterr().out
 
@@ -352,3 +377,103 @@ def test_remove_comment_needs_the_rating_secret(monkeypatch):
     monkeypatch.delenv("RATING_SECRET", raising=False)
     with pytest.raises(rr.ReviewError):
         rr.remove_comment(FakeCursor(), "abcdef123456")
+
+
+def _abuse_cursor(network):
+    return FakeCursor({"SELECT device_hash": [{"device_hash": "d", "ip_hash": "i", "network_type": network}],
+                       "DELETE FROM survey_ratings": [{"id": "abcd1234"}]})
+
+
+def test_abuse_reject_flags_device_and_ip_then_deletes():
+    cur = _abuse_cursor("other")
+    rr.reject_rating(cur, "abcd1234", abuse=True)
+    device, ip = cur.statements("INSERT INTO rating_flags")
+    assert "ON CONFLICT" in device[0] and "DO NOTHING" in device[0] and device[1] == ("device", "d")
+    assert "DO UPDATE SET created_at = now()" in ip[0] and ip[1] == ("ip", "i")
+    delete = index_of(cur, "DELETE FROM survey_ratings")
+    assert cur.calls.index(device) < delete and cur.calls.index(ip) < delete
+
+
+def test_abuse_reject_on_campus_flags_only_the_device():
+    cur = _abuse_cursor("campus")
+    rr.reject_rating(cur, "abcd1234", abuse=True)
+    assert [p for _, p in cur.statements("INSERT INTO rating_flags")] == [("device", "d")]
+
+
+def test_abuse_reject_on_mobile_flags_only_the_device():
+    cur = _abuse_cursor("mobile")
+    rr.reject_rating(cur, "abcd1234", abuse=True)
+    assert [p for _, p in cur.statements("INSERT INTO rating_flags")] == [("device", "d")]
+
+
+def test_abuse_reject_with_a_purged_ip_flags_only_the_device():
+    cur = FakeCursor({"SELECT device_hash": [{"device_hash": "d", "ip_hash": None, "network_type": "other"}],
+                      "DELETE FROM survey_ratings": [{"id": "abcd1234"}]})
+    rr.reject_rating(cur, "abcd1234", abuse=True)
+    assert [p for _, p in cur.statements("INSERT INTO rating_flags")] == [("device", "d")]
+
+
+def test_abuse_reject_of_a_missing_id_flags_nothing():
+    cur = FakeCursor()
+    with pytest.raises(rr.ReviewError):
+        rr.reject_rating(cur, "abcd1234", abuse=True)
+    assert not cur.statements("INSERT INTO rating_flags") and not cur.statements("DELETE")
+
+
+def test_reject_without_abuse_flags_nothing():
+    cur = _abuse_cursor("other")
+    rr.reject_rating(cur, "abcd1234")
+    assert not cur.statements("INSERT INTO rating_flags")
+
+
+def test_parse_reject_rating_abuse_flag():
+    assert rr.parse_args(["reject-rating", "--abuse", "ab12cd34"]).abuse is True
+    assert rr.parse_args(["reject-rating", "ab12cd34"]).abuse is False
+
+
+def test_approve_alias_sets_approved_on_a_row_that_is_not_approved():
+    cur = FakeCursor({"UPDATE professor_aliases": [{"alias_key": "bob", "slug": "robert-smith"}]})
+    summary = rr.approve_alias(cur, "7")
+    (sql, params), = cur.calls
+    assert "SET status = %s" in sql and "status <> %s" in sql
+    assert params == ("approved", 7, "approved")
+    assert "bob" in summary and "robert-smith" in summary
+
+
+def test_reject_alias_sets_rejected_on_a_row_that_is_not_rejected():
+    cur = FakeCursor({"UPDATE professor_aliases": [{"alias_key": "bob", "slug": "robert-smith"}]})
+    summary = rr.reject_alias(cur, "7")
+    (sql, params), = cur.calls
+    assert "SET status = %s" in sql and "status <> %s" in sql
+    assert params == ("rejected", 7, "rejected")
+    assert "bob" in summary
+
+
+@pytest.mark.parametrize("command", [rr.approve_alias, rr.reject_alias])
+def test_alias_commands_raise_for_a_missing_or_already_set_row(command):
+    with pytest.raises(rr.ReviewError):
+        command(FakeCursor(), "7")
+
+
+@pytest.mark.parametrize("command", [rr.approve_alias, rr.reject_alias])
+def test_alias_commands_raise_for_a_non_integer_id_without_querying(command):
+    cur = FakeCursor()
+    for bad in ("abc", "1; DROP", "", "1.5"):
+        with pytest.raises(rr.ReviewError):
+            command(cur, bad)
+    assert not cur.calls
+
+
+def test_list_prints_pending_aliases_cleaned(capsys):
+    cur = FakeCursor({"FROM professor_aliases": [
+        {"id": 3, "alias_key": "bob", "slug": "robert-smith", "source": "merge"}]})
+    rr.list_pending(cur)
+    out = capsys.readouterr().out
+    assert "Pending aliases (1):" in out
+    assert "  3  bob? -> robert-smith  merge" in out
+    assert "" not in out
+
+
+def test_parse_alias_commands():
+    assert rr.parse_args(["approve-alias", "7"]).id == "7"
+    assert rr.parse_args(["reject-alias", "7"]).command == "reject-alias"

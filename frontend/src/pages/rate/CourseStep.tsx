@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchSearchSuggestions } from '../../api/api';
+import { fetchCourseSuggestions, fetchSearchSuggestions } from '../../api/api';
 import { useDebouncedValue } from '../../utils/useDebouncedValue';
 import { ChoiceGroup, StepFoot } from './ChoiceGroup';
 import type { ChoiceOption } from './ChoiceGroup';
@@ -76,11 +76,12 @@ const CODE_LIKE = /^[A-Za-z]{2,5}\s*\d{1,4}[A-Za-z]?$/;
 interface OtherCourseStepProps {
   own: RateCourse[];
   rated: string[];
+  slug: string | null;
   onPick: (c: RateCourse) => void;
   onBack: () => void;
 }
 
-export function OtherCourseStep({ own, rated, onPick, onBack }: OtherCourseStepProps) {
+export function OtherCourseStep({ own, rated, slug, onPick, onBack }: OtherCourseStepProps) {
   const [query, setQuery] = useState('');
   const [newName, setNewName] = useState('');
   const typed = query.trim();
@@ -109,6 +110,43 @@ export function OtherCourseStep({ own, rated, onPick, onBack }: OtherCourseStepP
     : [...mine, ...(catalog ?? []).filter((c) => !mine.some((m) => m.code === c.code))].slice(0, 5);
   const code = typed.replace(/\s+/g, '').toUpperCase();
   const canAdd = settled !== null && settled.length === 0 && NEW_CODE.test(code);
+  // canAdd waits on the catalog search for the debounced term, so this needs no debounce of its own.
+  const addCode = canAdd ? code : '';
+  const [nearby, setNearby] = useState<{ q: string; items: RateCourse[] } | null>(null);
+
+  useEffect(() => {
+    if (!addCode) return;
+    let cancelled = false;
+    fetchCourseSuggestions(addCode, slug).then((rows) => {
+      if (!cancelled) setNearby({ q: addCode, items: rows.map((r) => ({ code: r.code, name: r.name ?? '', isNew: false, terms: [] })) });
+    });
+    return () => { cancelled = true; };
+  }, [addCode, slug]);
+
+  const answered = canAdd && nearby !== null && nearby.q === code;
+  // A Banner-only code typed exactly is a pick like any search result, not a new course.
+  const exact = answered ? nearby.items.find((c) => c.code === code) : undefined;
+  const suggestions = answered && !exact ? nearby.items : [];
+  const adding = answered && !exact;
+
+  const courseButton = (c: RateCourse) => {
+    const isRated = rated.includes(c.code);
+    return (
+      <button
+        key={c.code}
+        type="button"
+        className={`rate-sugg${isRated ? ' rated' : ''}`}
+        aria-label={isRated ? courseAria(c, true) : undefined}
+        onClick={() => onPick(c)}
+      >
+        <span>
+          <b>{formatCode(c.code)}</b>
+          {c.name && <small>{c.name}</small>}
+        </span>
+        {isRated && <Pencil />}
+      </button>
+    );
+  };
 
   return (
     <>
@@ -126,30 +164,22 @@ export function OtherCourseStep({ own, rated, onPick, onBack }: OtherCourseStepP
         />
       </div>
       {settled && settled.length > 0 && (
-        <div className="rate-suggs">
-          {settled.map((c) => {
-            const isRated = rated.includes(c.code);
-            return (
-              <button
-                key={c.code}
-                type="button"
-                className={`rate-sugg${isRated ? ' rated' : ''}`}
-                aria-label={isRated ? courseAria(c, true) : undefined}
-                onClick={() => onPick(c)}
-              >
-                <span>
-                  <b>{formatCode(c.code)}</b>
-                  {c.name && <small>{c.name}</small>}
-                </span>
-                {isRated && <Pencil />}
-              </button>
-            );
-          })}
-        </div>
+        <div className="rate-suggs">{settled.map(courseButton)}</div>
       )}
-      {canAdd && (
+      {exact && <div className="rate-suggs">{courseButton(exact)}</div>}
+      {suggestions.length > 0 && (
         <>
-          <p className="rate-hint rate-note">{formatCode(code)} isn't in our catalog yet. Name it and it's added with your rating.</p>
+          <p className="rate-hint rate-note">Did you mean one of these?</p>
+          <div className="rate-suggs">{suggestions.map(courseButton)}</div>
+        </>
+      )}
+      {adding && (
+        <>
+          <p className="rate-hint rate-note">
+            {suggestions.length > 0
+              ? `Or keep ${formatCode(code)}: name it and it's added with your rating.`
+              : `${formatCode(code)} isn't in our catalog yet. Name it and it's added with your rating.`}
+          </p>
           <div className="rate-field">
             <label htmlFor="rate-course-name">Course name</label>
             <input
@@ -167,7 +197,7 @@ export function OtherCourseStep({ own, rated, onPick, onBack }: OtherCourseStepP
         <p className="rate-hint rate-note" role="status">No courses match. Type the full code, like CS 4999, to add a new one.</p>
       )}
       <StepFoot onBack={onBack}>
-        {canAdd && (
+        {adding && (
           <button
             type="button"
             className="rate-btn"
