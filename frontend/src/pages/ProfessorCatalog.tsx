@@ -700,9 +700,14 @@ export default function ProfessorCatalog() {
             </div>
           ) : professors.length === 0 ? (
             <div className="catalog-empty">
-              <p>{filters.q.trim() ? <>No professors match “{filters.q.trim()}”.</> : 'No professors match your filters.'}</p>
+              {/* Blame the query only when it's the sole filter; otherwise a filter may be the cause. */}
+              <p>
+                {!filters.q.trim() ? 'No professors match your filters.'
+                  : activeFilterCount > 1 ? <>No professors match “{filters.q.trim()}” with these filters.</>
+                  : <>No professors match “{filters.q.trim()}”.</>}
+              </p>
               {/* A course code or title typed here belongs in the course catalog. */}
-              {filters.q.trim() && (
+              {filters.q.trim() && activeFilterCount === 1 && (
                 <Link className="catalog-empty-alt" to={`/courses?q=${encodeURIComponent(filters.q.trim())}`}>
                   Search courses for “{filters.q.trim()}” →
                 </Link>
