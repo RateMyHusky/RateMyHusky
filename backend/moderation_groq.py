@@ -2,7 +2,7 @@
 
 Used by server.rate_submit and moderate_queue.py when GROQ_MODERATION_KEY is set;
 without it the form falls back to moderation.score_texts (OpenAI). Only new
-rating comments are checked: RMP, Reddit and TRACE comments never are.
+rating comments are checked: RMP and Reddit comments never are.
 
 Quota: Groq's free plan allows this model 3 requests and 2,000 tokens a minute,
 1,000 requests and 200,000 tokens a day, for the whole organization. A call is
