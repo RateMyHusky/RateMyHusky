@@ -9,6 +9,8 @@ import './SearchBar.css';
 
 // Navigation state a clicked citation carries so the destination breadcrumb reads "← Ask" and
 // clicking it lands back on the homepage with the Ask box re-hydrated from sessionStorage.
+// A course code as a student types it: "cs2500", "CS 2500", "math 1341".
+const COURSE_CODE = /^[a-z]{2,5}\s*\d{4}[a-z]?$/i;
 const ASK_FROM_STATE = { fromPage: { label: 'Ask', url: '/' }, restoreAsk: true } as const;
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -221,7 +223,8 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
         const results = await fetchSearchSuggestions(trimmedQuery, searchType);
         const limitedResults = searchType === 'Professor' ? results.slice(0, 3) : results;
         setSuggestions(limitedResults);
-        setShowSuggestions(limitedResults.length > 0);
+        // Open even with no matches: the "See all results" row is always there.
+        setShowSuggestions(true);
         setActiveIndex(-1);
       } catch {
         setSuggestions([]);
@@ -292,6 +295,19 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
     }
   };
 
+  // Where Enter and the dropdown's last row go: the catalog for the current mode, filtered by
+  // the query. A course code ("cs 2500") is never a professor's name, so it opens the course
+  // catalog from either mode.
+  const trimmedQuery = query.trim();
+  const codeInProfessorMode = searchType === 'Professor' && COURSE_CODE.test(trimmedQuery);
+  const catalogHref = `${searchType === 'Course' || codeInProfessorMode ? '/courses' : '/professors'}?q=${encodeURIComponent(trimmedQuery)}`;
+  const openCatalog = () => {
+    setShowSuggestions(false);
+    navigate(catalogHref);
+  };
+  // The "See all results" row sits after the suggestions, at index suggestions.length.
+  const rowCount = suggestions.length + 1;
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (isAsk) {
       if (e.key === 'Enter') {
@@ -302,30 +318,28 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
       }
       return;
     }
-    // Enter with nothing highlighted opens the catalog for the current mode, filtered by the query,
-    // so a search with no suggestions (or one the student didn't arrow into) still goes somewhere.
+    // Enter with no suggestion highlighted opens the catalog, so a search with no suggestions
+    // (or one the student didn't arrow into) still goes somewhere.
     const highlighted = showSuggestions && activeIndex >= 0 ? suggestions[activeIndex] : undefined;
     if (e.key === 'Enter' && !highlighted) {
-      const trimmed = query.trim();
-      if (!trimmed) return;
+      if (!trimmedQuery) return;
       e.preventDefault();
-      setShowSuggestions(false);
-      navigate(`${searchType === 'Course' ? '/courses' : '/professors'}?q=${encodeURIComponent(trimmed)}`);
+      openCatalog();
       return;
     }
-    if (!showSuggestions || suggestions.length === 0) return;
+    if (!showSuggestions) return;
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setActiveIndex((prev) => {
-        const next = prev < suggestions.length - 1 ? prev + 1 : 0;
+        const next = prev < rowCount - 1 ? prev + 1 : 0;
         document.querySelector(`.suggestion-item:nth-child(${next + 1})`)?.scrollIntoView({ block: 'nearest' });
         return next;
       });
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setActiveIndex((prev) => {
-        const next = prev > 0 ? prev - 1 : suggestions.length - 1;
+        const next = prev > 0 ? prev - 1 : rowCount - 1;
         document.querySelector(`.suggestion-item:nth-child(${next + 1})`)?.scrollIntoView({ block: 'nearest' });
         return next;
       });
@@ -386,7 +400,7 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
         <ul className="search-suggestions">
           {suggestions.map((s, i) => (
             <li
-              key={s.type === 'professor' ? s.name : s.code}
+              key={s.type === 'professor' ? s.slug : s.code}
               className={`suggestion-item ${i === activeIndex ? 'active' : ''}`}
               onClick={() => handleSelect(s)}
               onMouseEnter={() => setActiveIndex(i)}
@@ -412,6 +426,17 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
               )}
             </li>
           ))}
+          <li
+            className={`suggestion-item suggestion-see-all ${activeIndex === suggestions.length ? 'active' : ''}`}
+            onClick={openCatalog}
+            onMouseEnter={() => setActiveIndex(suggestions.length)}
+          >
+            {codeInProfessorMode
+              ? <>Search courses for “{trimmedQuery.toUpperCase()}” →</>
+              : suggestions.length === 0
+                ? <>No quick matches. Search all {searchType === 'Course' ? 'courses' : 'professors'} for “{trimmedQuery}” →</>
+                : <>See all results for “{trimmedQuery}” →</>}
+          </li>
         </ul>
       )}
 

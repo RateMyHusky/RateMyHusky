@@ -1242,6 +1242,21 @@
   font-size: 1rem;
 }
 
+.catalog-empty-alt {
+  color: #b8384a;
+  font-weight: 700;
+  font-size: 0.95rem;
+  text-decoration: none;
+}
+
+.catalog-empty-alt:hover {
+  text-decoration: underline;
+}
+
+.dark .catalog-empty-alt {
+  color: #e8697a;
+}
+
 .clear-btn.prominent {
   padding: 10px 24px;
   background: #d6394c;

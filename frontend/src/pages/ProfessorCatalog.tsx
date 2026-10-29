@@ -697,7 +697,13 @@ export default function ProfessorCatalog() {
             </div>
           ) : professors.length === 0 ? (
             <div className="catalog-empty">
-              <p>No professors match your filters.</p>
+              <p>{filters.q.trim() ? <>No professors match “{filters.q.trim()}”.</> : 'No professors match your filters.'}</p>
+              {/* A course code or title typed here belongs in the course catalog. */}
+              {filters.q.trim() && (
+                <Link className="catalog-empty-alt" to={`/courses?q=${encodeURIComponent(filters.q.trim())}`}>
+                  Search courses for “{filters.q.trim()}” →
+                </Link>
+              )}
               <button className="clear-btn prominent" onClick={clearFilters}>
                 Clear filters
               </button>
