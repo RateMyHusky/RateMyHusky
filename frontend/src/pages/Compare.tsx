@@ -776,8 +776,8 @@ function Compare() {
 
 						<div className="compare-table-scroll">
 							<div
-								className={`compare-table ${selectedCount > 0 ? 'has-selection' : ''}`}
-								style={{ '--cols': selectedCount || MAX_SLOTS } as React.CSSProperties}
+								className="compare-table has-selection"
+								style={{ '--cols': selectedCount } as React.CSSProperties}
 								role="table"
 								aria-label="Professor metrics comparison table"
 							>
