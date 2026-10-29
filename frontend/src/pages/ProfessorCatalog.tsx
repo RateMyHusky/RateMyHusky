@@ -748,8 +748,8 @@ export default function ProfessorCatalog() {
                     <StarRating rating={prof.avgRating ?? 0} size="sm" />
                   </div>
                   <div className="prof-list-stats">
-                    <span className="prof-list-stat">{prof.totalReviews.toLocaleString()} ratings</span>
-                    <span className="prof-list-stat">{prof.totalComments.toLocaleString()} comments</span>
+                    <span className="prof-list-stat">{prof.totalReviews.toLocaleString()} rating{prof.totalReviews === 1 ? '' : 's'}</span>
+                    <span className="prof-list-stat">{prof.totalComments.toLocaleString()} comment{prof.totalComments === 1 ? '' : 's'}</span>
                     <span className="prof-list-stat">{prof.wouldTakeAgainPct != null ? `${Math.round(prof.wouldTakeAgainPct)}% again` : '—'}</span>
                   </div>
                 </div>
@@ -810,8 +810,8 @@ export default function ProfessorCatalog() {
                     {/* No per-source sub-score: RMP is the only source in the catalog, so it would
                         repeat the overall rating. Bring it back when a second source joins the row. */}
                     <div className="prof-card-footer">
-                      <span className="prof-rating-count">{prof.totalReviews.toLocaleString()} ratings</span>
-                      <span className="prof-rating-count prof-rating-count--center">{prof.totalComments.toLocaleString()} comments</span>
+                      <span className="prof-rating-count">{prof.totalReviews.toLocaleString()} rating{prof.totalReviews === 1 ? '' : 's'}</span>
+                      <span className="prof-rating-count prof-rating-count--center">{prof.totalComments.toLocaleString()} comment{prof.totalComments === 1 ? '' : 's'}</span>
                       <span className="prof-rating-count">{prof.wouldTakeAgainPct != null ? `${Math.round(prof.wouldTakeAgainPct)}% again` : '—'}</span>
                     </div>
                   </div>

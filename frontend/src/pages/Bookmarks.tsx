@@ -100,8 +100,8 @@ function ProfCard({ prof, onOpen, onRemove, compare }: { prof: BookmarkedProfess
         <span className="prof-dept-label">{prof.department}</span>
         {/* No per-source sub-score: one source would repeat the overall rating (as in the catalog). */}
         <div className="prof-card-footer">
-          <span className="prof-rating-count">{prof.totalReviews.toLocaleString()} ratings</span>
-          <span className="prof-rating-count prof-rating-count--center">{prof.totalComments.toLocaleString()} comments</span>
+          <span className="prof-rating-count">{prof.totalReviews.toLocaleString()} rating{prof.totalReviews === 1 ? '' : 's'}</span>
+          <span className="prof-rating-count prof-rating-count--center">{prof.totalComments.toLocaleString()} comment{prof.totalComments === 1 ? '' : 's'}</span>
           <span className="prof-rating-count">{prof.wouldTakeAgainPct != null ? `${Math.round(prof.wouldTakeAgainPct)}% again` : '—'}</span>
         </div>
       </div>
