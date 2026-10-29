@@ -144,8 +144,9 @@ def search_text(raw):
 
 def course_search_text(raw):
     """search_text for a course search, with a spaced code joined: "cs 3100" -> "cs3100".
-    course_catalog.search_text stores the code unspaced, so the spaced form a student
-    types only matched courses whose title happened to mention it."""
+    course_catalog.search_text holds the code unspaced, plus the spaced form from the read
+    model (pipeline/read_models.course_search_text) once a pipeline run has rebuilt it; that
+    covers partial codes ("cs 31"), this keeps a complete one matching until then."""
     return re.sub(r"\b([a-z]{2,5}) (\d{4})\b", r"\1\2", search_text(raw))
 
 

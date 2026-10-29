@@ -5,6 +5,8 @@ homepage counts in stats_cache and data_version += 1, which invalidates the
 API's caches. Readers keep the previous snapshot until COMMIT.
 """
 
+import re
+
 from psycopg2.extras import Json
 
 from denylist import is_denied_key
@@ -77,6 +79,16 @@ def catalog_rows(professors, links, pages, summary_rows, is_denied=is_denied_key
     return rows
 
 
+def course_search_text(code, search_text):
+    """search_text with the code's spaced form added ("cs3500 ..." also holds "cs 3500"), so a
+    search typed with a space matches at every prefix ("cs 3", "cs 35"), not only once the
+    API joins a complete code."""
+    text = (search_text or "").lower()
+    m = re.fullmatch(r"([a-z]+)(\d+)", (code or "").lower())
+    spaced = f"{m.group(1)} {m.group(2)}" if m else ""
+    return f"{text} {spaced}".strip() if spaced and spaced not in text else text
+
+
 def course_rows(catalog_courses, summary_rows):
     blend = _index(summary_rows, "blend")
     rows = []
@@ -85,7 +97,7 @@ def course_rows(catalog_courses, summary_rows):
         if c.get("is_placeholder") and not b:
             continue
         rows.append({"code": c["code"], "name": c["name"], "department": c["department"],
-                     "subject": c["subject"], "search_text": (c["search_text"] or "").lower(),
+                     "subject": c["subject"], "search_text": course_search_text(c["code"], c["search_text"]),
                      "avg_rating": b.get("rating"), "difficulty": b.get("difficulty"),
                      "num_ratings": b.get("num_ratings", 0)})
     return rows
