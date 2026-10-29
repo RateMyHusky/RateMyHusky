@@ -9,6 +9,7 @@ import StarRating from '../components/StarRating';
 import SignInModal from '../components/SignInModal';
 import Footer from '../components/Footer';
 import { getInitials, splitProfName, stripPrefix } from '../utils/nameUtils';
+import { photoThumb, thumbOnError } from '../utils/photoThumb';
 import './ProfessorCatalog.css';
 import './Courses.css';
 import './Bookmarks.css';
@@ -54,16 +55,15 @@ function ProfCard({ prof, onOpen, onRemove }: { prof: BookmarkedProfessor; onOpe
         <div className="prof-avatar">
           {prof.imageUrl ? (
             <img
-              src={prof.imageUrl}
+              src={photoThumb(prof.imageUrl)}
               alt=""
               className="prof-avatar-img"
               style={{ objectPosition: `${prof.focusX ?? 50}% ${prof.focusY ?? 30}%` }}
-              onError={(e) => {
-                const target = e.currentTarget;
+              onError={thumbOnError(prof.imageUrl, (target) => {
                 target.style.display = 'none';
                 const fallback = target.parentElement?.querySelector('.prof-avatar-initials') as HTMLElement;
                 if (fallback) fallback.style.display = 'flex';
-              }}
+              })}
             />
           ) : null}
           <span className="prof-avatar-initials" style={prof.imageUrl ? { display: 'none' } : undefined}>

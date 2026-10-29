@@ -15,7 +15,7 @@ NOW = datetime(2026, 10, 1, tzinfo=timezone.utc)
 OFFERING = {
     "subject_course": "CS3100", "course_title": "Program Design and Implementation 2",
     "last_term_label": "Fall 2026", "pattern": "Fall and Spring",
-    "median_section_size": 98.0, "credit_hours": "4", "instructor_count": 8,
+    "median_section_size": 98.0, "credit_hours": "4",
     "offered_now": "Fall 2026",
     "first_term_code": "202610", "first_term_label": "Fall 2025",
     "offering_years": json.dumps({"window": [2026], "Fall": [2026], "Spring": [2026],
@@ -78,7 +78,6 @@ def test_course_history_summary():
     assert got["offeredNow"] == ["Fall 2026"]
     assert got["creditHours"] == "4"
     assert got["typicalClassSize"] == 98
-    assert got["instructorCount"] == 8
 
 
 def test_course_history_offering_years_use_the_season_keys_and_the_first_year():

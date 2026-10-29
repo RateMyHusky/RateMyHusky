@@ -27,8 +27,9 @@ const feedbackOptions = [
   { value: 'bug', label: 'Bug Report' },
   { value: 'incorrectdata', label: 'Wrong or Missing Data' },
   { value: 'general', label: 'Idea or General Feedback' },
-  { value: 'professor', label: 'Professor: Correct or Remove My Page' },
-  { value: 'datadeletion', label: 'Data Deletion Request' },
+  { value: 'reviewreport', label: 'Report a Review' },
+  { value: 'professor', label: 'Data Deletion' },
+  { value: 'datadeletion', label: 'Account Deletion' },
   { value: 'banappeal', label: 'Ask Ban Appeal' },
 ].filter((o) => ASK_ENABLED || o.value !== 'banappeal');
 
@@ -61,7 +62,13 @@ const FeedbackTab = () => {
   const widgetIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const handler = () => setIsOpen(true);
+    // A "Report" link on a review sends { type, description } to open the form prefilled.
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ type?: string; description?: string } | undefined>).detail;
+      if (detail?.type) setFeedbackType(detail.type);
+      if (detail?.description) setDescription(detail.description);
+      setIsOpen(true);
+    };
     window.addEventListener('open-feedback', handler);
     return () => window.removeEventListener('open-feedback', handler);
   }, []);

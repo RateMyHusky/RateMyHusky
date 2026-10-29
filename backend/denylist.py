@@ -7,11 +7,12 @@ someone's rows by hand removes them until the next refresh puts them back. So th
 list lives in the repo, is read by every loader, and is applied before a row is
 ever written.
 
-Three enforcement points, because the data arrives by three routes:
+Four enforcement points, because the data arrives by four routes:
 
   load_rmp   drops their rows at CSV load (raw tables)
   precompute        drops them from the catalog build (their page)
   load_evidence     keeps them out of the RAG corpus (chat cannot quote them)
+  match_banner_instructors  keeps them out of the Banner history (course pages)
 
 and purge_denied.py removes what is already loaded, which the filters cannot —
 a filter only governs the next write.

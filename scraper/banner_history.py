@@ -157,7 +157,8 @@ def build_course_instructors(rows, match):
 
     Spellings that match the same professor ("Williams, Tom" and "Williams,
     Thomas") are merged into one row per course, as build_rows merges them for
-    the chip; the row keeps the newest spelling. Unmatched spellings stay apart.
+    the chip; the row keeps the newest spelling, and instructor_keys lists every
+    spelling merged into it. Unmatched spellings stay apart.
 
     Cancelled sections (is_cancelled) are dropped before grouping.
     """
@@ -192,11 +193,12 @@ def build_course_instructors(rows, match):
         m = merged.get((course, name_key or ("unmatched", key)))
         if m is None:
             merged[(course, name_key or ("unmatched", key))] = {
-                **g, "key": key, "newest": newest,
+                **g, "key": key, "keys": {key}, "newest": newest,
                 "slug": slug, "name_key": name_key, "method": method}
             continue
         if newest > m["newest"]:
             m.update(key=key, name=g["name"], newest=newest)
+        m["keys"].add(key)
         m["terms"] |= g["terms"]
         for sec in g["sections"]:
             if (sec["term_code"], sec["crn"]) not in m["crns"]:
@@ -229,6 +231,7 @@ def build_course_instructors(rows, match):
             "was_primary": g["primary"],
             "campuses": "|".join(sorted(g["campuses"])) or None,
             "methods": "|".join(sorted(g["methods"])) or None,
+            "instructor_keys": "|".join(sorted(g["keys"])),
         })
     return out
 

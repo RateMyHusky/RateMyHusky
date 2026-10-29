@@ -46,13 +46,20 @@ COURSE_RANKING_SYSTEM_PROMPT = (
 
 _ZERO_WIDTH = dict.fromkeys(map(ord, "​‌‍﻿"), None)
 
+def _untag(text):
+    """Swap < and > for look-alike angle quotes. The prompt's sections are tags
+    (<question>, <professor_facts>, <reddit_comments>, ...), so untrusted text that
+    could close or open one could plant fake facts; stripping only some tag names
+    left the rest spoofable."""
+    return text.replace("<", "‹").replace(">", "›")
+
 def _sanitize(text):
     text = unicodedata.normalize("NFKC", text or "")
     text = text.translate(_ZERO_WIDTH)
     text = re.sub(r"</?\s*(system|user|assistant|instructions?|prompt)\s*>", "", text, flags=re.I)
     text = re.sub(r"<\|.*?\|>", "", text)
     text = "".join(ch for ch in text if ch == " " or ord(ch) >= 32)
-    return re.sub(r"\s+", " ", text).strip()[:800]
+    return _untag(re.sub(r"\s+", " ", text).strip()[:800])
 
 def _datamark(text):
     # interleave the marker at every word boundary (Microsoft spotlighting) so an
@@ -108,7 +115,7 @@ def build_user_message(question, facts, comments):
         numbered.append(f"[{i}] {prov}: {_datamark(_sanitize(c.get('body')))}")
     return (
         f"<question>{_sanitize(question)}</question>\n\n"
-        f"<professor_facts>\n" + "\n".join(_facts_lines(facts)) + "\n</professor_facts>\n\n"
+        f"<professor_facts>\n" + _untag("\n".join(_facts_lines(facts))) + "\n</professor_facts>\n\n"
         f"<reddit_comments>\n" + "\n".join(numbered) + "\n</reddit_comments>\n\n"
         "Answer the question using ONLY the provided evidence."
     )
@@ -125,8 +132,8 @@ def build_multi_user_message(question, blocks):
             prov = _provenance(c)
             numbered.append(f"[{n}] {prov}: {_datamark(_sanitize(c.get('body')))}")
         sections.append(
-            f"<entity_facts entity=\"{_sanitize(name)}\">\n"
-            + "\n".join(_facts_lines(facts))
+            f"<entity_facts entity=\"{_sanitize(name).replace(chr(34), chr(39))}\">\n"
+            + _untag("\n".join(_facts_lines(facts)))
             + "\n</entity_facts>\n"
             + "<reddit_comments>\n" + "\n".join(numbered) + "\n</reddit_comments>")
     return (

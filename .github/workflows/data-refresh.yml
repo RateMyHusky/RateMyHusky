@@ -159,11 +159,11 @@ jobs:
           import os, sys, psycopg2
           conn = psycopg2.connect(os.environ["ORACLE_DATABASE_URL"], sslmode="require")
           cur = conn.cursor()
-          cur.execute("SELECT count(*) FROM professors_catalog")
+          cur.execute("SELECT count(*) FROM professors_catalog WHERE professor_url IS NOT NULL OR num_ratings > 0")
           n = cur.fetchone()[0]
-          print(f"professors_catalog: {n} rows")
+          print(f"professors_catalog: {n} shown rows")
           if n < 3000:
-              print(f"::error::professors_catalog has only {n} rows after pipeline.run (< 3000). Store push skipped; investigate before re-running.")
+              print(f"::error::professors_catalog has only {n} shown rows after pipeline.run (< 3000). Store push skipped; investigate before re-running.")
               sys.exit(1)
           cur.execute("SELECT count(*) FROM (SELECT 1 FROM rmp_reviews WHERE name_key IS NULL LIMIT 1001) AS probe")
           nulls = cur.fetchone()[0]

@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from pipeline import course_codes, name_keys, read_models
+from pipeline import banner_roster, course_codes, name_keys, read_models
 from tests.pg.pgutil import rows, scalar, schema_snapshot, truncate
 from tests.pg.seed import CATALOG, COUNTS, COURSES, SUMMARIES
 
@@ -60,3 +60,35 @@ def test_course_codes_and_name_keys_apply_through_temp_tables(pg):
     got = {r["id"]: (r["course_code"], r["name_key"]) for r in rows(
         pg, "SELECT id, course_code, name_key FROM rmp_reviews")}
     assert got == {10: ("CS2500", "alice smith"), 11: (None, "alice smith")}
+
+
+def test_apply_banner_professors_writes_origin_and_skips_taken_slugs(pg):
+    truncate(pg, "professors", "banner_course_instructors")
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professors (slug, name, name_key) "
+                    "VALUES ('lucia-nunez', 'Lucia Nunez', 'lucia nunez')")
+        for key in ("wei wang", "lucia nunez"):
+            cur.execute("INSERT INTO banner_course_instructors (subject_course, instructor_key, "
+                        "match_method, terms_taught, sections, first_term_code, last_term_code, "
+                        "last_term_label) VALUES ('CS2500', %s, 'no_match', 1, 1, '202610', "
+                        "'202610', 'Fall 2025')", (key,))
+    pg.commit()
+
+    def banner(slug, name):
+        return {"slug": slug, "name": name, "name_key": name.lower(), "department": None,
+                "college": "Other", "image_url": None, "focus_x": None, "focus_y": None,
+                "origin": "banner"}
+
+    banner_roster.apply_banner_professors(
+        pg, [banner("lucia-nunez", "Lucia Nunez"), banner("wei-wang", "Wei Wang")])
+
+    assert [
+        (r["slug"], r["origin"])
+        for r in rows(pg, "SELECT slug, origin FROM professors ORDER BY slug")
+    ] == [("lucia-nunez", "rmp"), ("wei-wang", "banner")]
+    # Only the inserted professor's rows are linked; the taken slug's are left to the matcher.
+    assert [
+        (r["instructor_key"], r["professor_slug"], r["name_key"], r["match_method"])
+        for r in rows(pg, "SELECT instructor_key, professor_slug, name_key, match_method "
+                          "FROM banner_course_instructors ORDER BY instructor_key")
+    ] == [("lucia nunez", None, None, "no_match"), ("wei wang", "wei-wang", "wei wang", "name_key")]

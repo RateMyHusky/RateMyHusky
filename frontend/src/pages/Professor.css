@@ -121,19 +121,21 @@
   display: flex; gap: 10px;
   animation: profSlideUp 0.5s 0.45s ease both;
 }
-.prof-compare-btn, .prof-rmp-btn {
-  display: inline-flex; align-items: center; gap: 6px;
+.prof-rate-btn, .prof-compare-btn, .prof-rmp-btn {
+  display: inline-flex; min-height: 44px; box-sizing: border-box; align-items: center; gap: 6px;
   padding: 10px 22px; border-radius: 10px;
   font-family: 'Nunito', sans-serif; font-size: 0.9rem; font-weight: 700;
   text-decoration: none; cursor: pointer;
   transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
 }
-.prof-compare-btn {
+.prof-rate-btn, .prof-compare-btn {
   background: #d6394c; color: #fff; border: none;
   box-shadow: 0 2px 8px rgba(214,57,76,0.2);
 }
 .prof-compare-btn svg { width: 14px; height: 14px; }
-.prof-compare-btn:hover { background: #b82e3f; transform: scale(1.03); box-shadow: 0 4px 16px rgba(214,57,76,0.3); }
+.prof-rate-btn { font-weight: 800; }
+.prof-rate-btn svg { width: 1em; height: 1em; flex-shrink: 0; }
+.prof-rate-btn:hover, .prof-compare-btn:hover { background: #b82e3f; transform: scale(1.03); box-shadow: 0 4px 16px rgba(214,57,76,0.3); }
 .prof-rmp-btn { background: transparent; color: #d6394c; border: 1.5px solid #d6394c; }
 .prof-rmp-btn:hover { background: #fef0f0; transform: scale(1.03); }
 
@@ -144,16 +146,24 @@
   position: relative; z-index: 2;
 }
 @media (min-width: 1280px) {
-  .prof-stats { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 14px; }
+  .prof-stats { grid-template-columns: none; grid-template-rows: repeat(3, auto); grid-auto-flow: column; grid-auto-columns: 1fr; gap: 14px; }
 }
+/* Each card's value, label and third row are rows of the shared grid, so a label that wraps
+   grows its row for every card and nothing falls out of line. */
 .prof-stat-card {
-  background: #fff; border-radius: 16px; padding: 22px 18px 20px;
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  background: #fff; border-radius: 16px; padding: 21px 18px;
+  display: grid; grid-row: span 3; grid-template-rows: subgrid; grid-template-columns: 100%; justify-items: center; row-gap: 6px;
+  /* Lets a 1fr column stay narrower than an unshrunk term, so FitText has a width to fit. */
+  min-width: 0;
   box-shadow: 0 2px 12px rgba(0,0,0,0.06);
   transition: transform 0.2s, box-shadow 0.2s;
   animation: profCardIn 0.5s ease both;
   position: relative;
 }
+/* Every card has value, label and this fixed-height third row, so all three line up across
+   the row and each card's padding stays even. */
+.prof-stat-extra { height: 20px; width: 100%; display: flex; align-items: center; justify-content: center; }
+.prof-stat-extra .prof-difficulty-bar, .prof-stat-extra .prof-stat-hint { margin-top: 0; }
 .prof-stat-card:nth-child(1) { animation-delay: 0.05s; }
 .prof-stat-card:nth-child(2) { animation-delay: 0.10s; }
 .prof-stat-card:nth-child(3) { animation-delay: 0.15s; }
@@ -200,8 +210,8 @@
 .prof-stat-value { font-size: clamp(1.6rem, 2.5vw, 2.3rem); font-weight: 900; color: #333; line-height: 1; }
 .prof-stat-value.accent { color: #d6394c; }
 .prof-stat-value.green { color: #27ae60; }
-/* Line box sized like .prof-stat-value's so the label lines up with the number cards. */
-.prof-stat-value-text { font-size: clamp(1.3rem, 2vw, 1.9rem); line-height: clamp(1.6rem, 2.5vw, 2.3rem); text-align: center; }
+/* Full card width, which FitText shrinks the term to fit. */
+.prof-stat-value-text { justify-self: stretch; text-align: center; }
 .prof-stat-label {
   font-size: 0.72rem;
   font-weight: 700;
@@ -261,7 +271,9 @@
 .prof-active-filter strong { color: #333; }
 
 /* ═══════════ CHARTS ROW ═══════════ */
-.prof-charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding-left: clamp(12px, 2.5vw, 40px); padding-right: clamp(12px, 2.5vw, 40px); padding-bottom: 28px; }
+.prof-charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+/* Sits close under the actions row at every width, so it outranks the responsive .prof-section padding. */
+.prof-section.prof-charts-row { padding-top: 24px; }
 .prof-chart-card { background: #fff; border-radius: 16px; padding: 28px 32px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); outline: none; }
 .prof-chart-card:focus, .prof-chart-card *:focus { outline: none; }
 .prof-chart-card svg, .prof-chart-card svg * { outline: none; }
@@ -281,7 +293,7 @@
 .prof-course-row:last-child { border-bottom: none; }
 .prof-course-row:hover { background: #fef8f8; }
 .prof-course-row.selected { background: #fff5f5; border-left: 4px solid #d6394c; padding-left: 24px; }
-.prof-course-row-unrated { cursor: default; }
+.prof-course-row-static { cursor: default; }
 .prof-course-row-main { display: flex; align-items: center; gap: 12px; }
 .prof-course-code { font-weight: 800; font-size: 0.95rem; color: #d6394c; min-width: 100px; flex-shrink: 0; }
 .prof-course-title { flex: 1; font-size: 0.95rem; font-weight: 600; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -291,7 +303,7 @@
 .prof-course-term-more { color: #999; background: #f0f0f0; font-style: italic; cursor: pointer; transition: background 0.15s, color 0.15s; }
 .prof-course-term-more:hover { background: #e4e4e4; color: #d6394c; }
 .prof-course-lower { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 6px; gap: 8px; }
-.prof-course-view { display: flex; flex-shrink: 0; }
+.prof-course-view { display: flex; flex-shrink: 0; margin-left: auto; }
 .prof-course-view-btn { font-size: 0.78rem; font-weight: 700; color: #d6394c; text-decoration: none; padding: 4px 10px; border-radius: 6px; border: 1.5px solid #d6394c; transition: background 0.15s, color 0.15s; }
 .prof-course-view-btn:hover { background: #d6394c; color: #fff; }
 
@@ -460,7 +472,8 @@
   background: #f0f0f0;
   border: 1px solid #e0e0e0;
 }
-.prof-review-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.prof-review-pills { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.prof-review-report { margin-left: auto; font-size: 0.78rem; }
 .prof-review-pill { font-size: 0.78rem; font-weight: 600; color: #888; background: #f5f5f5; padding: 5px 12px; border-radius: 8px; }
 
 /* ═══════════ REDDIT TAB ═══════════ */
@@ -654,7 +667,7 @@
 .dark .prof-award:hover { background: #352c18; border-color: #7a6331; }
 .dark .prof-tag { background: #262626; border-color: #3a3a3a; color: #cfcfcf; }
 
-.dark .prof-compare-btn { box-shadow: 0 2px 8px rgba(214,57,76,0.15); }
+.dark .prof-rate-btn, .dark .prof-compare-btn { box-shadow: 0 2px 8px rgba(214,57,76,0.15); }
 .dark .prof-rmp-btn { color: #e06070; border-color: #e06070; }
 .dark .prof-rmp-btn:hover { background: #3a2020; }
 
@@ -742,8 +755,9 @@
   .prof-reviews-header { flex-direction: row; align-items: center; gap: 10px; }
   .prof-review-top { flex-direction: row; }
   .prof-review-meta { flex-direction: column; align-items: flex-end; gap: 4px; }
-  .prof-reviews-filters { flex-direction: column; }
-  .prof-reviews-filters .feedback-dropdown { width: 100%; min-width: unset; }
+  /* Side by side, like RMP and Reddit; a lone sort dropdown takes the whole row. */
+  .prof-reviews-filters { flex-wrap: nowrap; gap: 8px; }
+  .prof-reviews-filters .feedback-dropdown { flex: 1 1 0; width: auto; min-width: 0; }
 
   .prof-course-row-main { gap: 2px 8px; flex-wrap: wrap; }
   .prof-course-code { min-width: 70px; font-size: 0.82rem; }
@@ -771,12 +785,11 @@
   .prof-avatar { width: 60px; height: 60px; font-size: 1.3rem; }
 
   .prof-hero-actions-row { flex-direction: column; align-items: center; }
-  .prof-compare-btn, .prof-rmp-btn { justify-content: center; min-width: 180px; }
+  .prof-rate-btn, .prof-compare-btn, .prof-rmp-btn { justify-content: center; min-width: 180px; }
 
   .prof-stats { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .prof-stat-value { font-size: 1.5rem; }
-  .prof-stat-value-text { line-height: 1.5rem; }
-  .prof-stat-card { padding: 18px 12px 16px; }
+  .prof-stat-card { padding: 17px 12px; }
   .prof-section { padding: 28px clamp(12px, 3vw, 16px) 0; }
   .prof-section-title { font-size: 1.15rem; }
 
@@ -795,6 +808,11 @@
     height: 32px;
     font-size: 1.35rem;
   }
+}
+
+/* Keeps "Would Take Again" on one line in 360px-wide cards so its number lines up with its neighbour's. */
+@media (max-width: 380px) {
+  .prof-stat-label { letter-spacing: 0.4px; }
 }
 
 .prof-avatar {

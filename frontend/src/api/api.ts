@@ -67,6 +67,30 @@ export interface RmpData {
   reviews: ProfessorReview[];
 }
 
+export interface SurveyData {
+  /** False without survey ratings; every number below is null then. */
+  available: boolean;
+  rating: number | null;
+  numRatings: number;
+  hoursPerWeek: number | null;
+  ratingDistribution: RatingDistribution;
+  gradeDistribution: Record<string, number>;
+  /** Accepted /rate comments, newest first, at most 200. Never carries the grade.
+   *  Missing from a /full cached before it shipped. */
+  reviews?: SurveyReview[];
+}
+
+export interface SurveyReview {
+  /** A keyed hash, not the row id: for anchors and reports. */
+  id: string;
+  course: string | null;
+  /** "Fall 2025" when the class was big enough to show the term, else the year when the
+   *  professor taught the course in 2+ terms that year, else "" (no date shown). */
+  when: string;
+  rating: number;
+  comment: string;
+}
+
 export interface ProfessorCourse {
   code: string;
   /** The catalog name, else Banner's title. null when neither has one. */
@@ -100,7 +124,7 @@ export interface ProfessorPage {
   version: 2;
   identity: ProfessorIdentity;
   summary: ProfessorSummary;
-  sources: { rmp: RmpData };
+  sources: { rmp: RmpData; survey: SurveyData };
   courses: ProfessorCourse[];
   redditMentions: RedditMention[];
   awards: TeachingAward[];
@@ -138,6 +162,9 @@ export interface RedditMention {
 const _courseCache = new Map<string, CourseDetail>();
 
 const _profPageCache = new Map<string, ProfessorPage>();
+/* Pages this tab just rated: the next /full skips the browser's HTTP cache (max-age=3600),
+   so the rater sees their own review instead of the copy fetched before they saved. */
+const _ratedProfPages = new Set<string>();
 
 /* ---- Maintenance detection ----
    While maintenance mode is on, Vercel 307-redirects /api/* to
@@ -145,7 +172,7 @@ const _profPageCache = new Map<string, ProfessorPage>();
    send this tab to the maintenance page and report true so callers bail. */
 export function maintenanceGuard(res: Response): boolean {
   if (res.redirected && new URL(res.url).pathname === '/maintenance.html') {
-    window.location.replace('/maintenance.html');
+    window.location.replace(res.url); // keeps ?mode=preview on previews
     return true;
   }
   return false;
@@ -164,21 +191,21 @@ export class ApiError extends Error {
    status 0 = network failure or the maintenance redirect. */
 export type Fetched<T> = { ok: true; data: T } | { ok: false; status: number };
 
-async function fetchWithStatus<T>(path: string): Promise<Fetched<T>> {
+async function fetchWithStatus<T>(path: string, signal?: AbortSignal, fresh = false): Promise<Fetched<T>> {
   try {
-    return { ok: true, data: await get<T>(path) };
+    return { ok: true, data: await get<T>(path, signal, fresh) };
   } catch (e) {
     return { ok: false, status: e instanceof ApiError ? e.status : 0 };
   }
 }
 
-async function get<T>(path: string): Promise<T> {
+async function get<T>(path: string, signal?: AbortSignal, fresh = false): Promise<T> {
   const headers: Record<string, string> = {};
   const token = localStorage.getItem('auth_token');
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  const res = await fetch(`${API_BASE}${path}`, { headers, cache: token ? 'no-cache' : 'default' });
+  const res = await fetch(`${API_BASE}${path}`, { headers, cache: token || fresh ? 'no-cache' : 'default', signal });
   if (maintenanceGuard(res)) throw new Error('Site is under maintenance');
   if (!res.ok) throw new ApiError(res.status, `API ${res.status}: ${res.statusText}`);
   return res.json();
@@ -206,11 +233,15 @@ export const fetchPopularTags = () =>
 /* ---- Professor page fetchers ---- */
 /* The Professor page's single round-trip. Every visitor gets the same payload, so the
    cache is keyed by slug alone; failures are not cached. */
-export async function fetchProfessorFull(slug: string): Promise<Fetched<ProfessorPage>> {
+export async function fetchProfessorFull(slug: string, signal?: AbortSignal): Promise<Fetched<ProfessorPage>> {
   const cached = _profPageCache.get(slug);
   if (cached) return { ok: true, data: cached };
-  const res = await fetchWithStatus<ProfessorPage>(`/api/professors/${encodeURIComponent(slug)}/full`);
-  if (res.ok) _profPageCache.set(slug, res.data);
+  const fresh = _ratedProfPages.has(slug);
+  const res = await fetchWithStatus<ProfessorPage>(`/api/professors/${encodeURIComponent(slug)}/full`, signal, fresh);
+  if (res.ok) {
+    _profPageCache.set(slug, res.data);
+    _ratedProfPages.delete(slug);
+  }
   return res;
 }
 
@@ -264,12 +295,15 @@ export type ChatResponse =
    the 401 body and the various 200 modes. Returns a synthetic error on network failure so the
    caller never has to try/catch. */
 export async function askChat(q: string): Promise<{ status: number; body: ChatResponse }> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = localStorage.getItem('auth_token');
   if (token) headers['Authorization'] = `Bearer ${token}`;
   try {
-    const res = await fetch(`${API_BASE}/api/chat?mode=question&q=${encodeURIComponent(q)}`, {
+    // POST, not a query string, so the question stays out of server access logs.
+    const res = await fetch(`${API_BASE}/api/chat`, {
+      method: 'POST',
       headers,
+      body: JSON.stringify({ q }),
       cache: 'no-cache',
     });
     if (maintenanceGuard(res)) throw new Error('Site is under maintenance');
@@ -396,7 +430,6 @@ export interface CourseHistory {
   offeredNow: string[];
   creditHours: string | null;
   typicalClassSize: number | null;
-  instructorCount: number | null;
   /** Taught it in the 12 months up to the newest term, newest first, at most 10. */
   recentInstructors: RecentInstructor[];
   replacedBy: HistoryCourseLink | null;
@@ -497,6 +530,106 @@ export async function submitFeedback(payload: {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error ?? `API ${res.status}`);
   }
+}
+
+/* ---- Student ratings (/rate) ---- */
+export interface RateStart { opened: string; deviceToken: string; counter: number | null }
+export interface RatedCourse {
+  /* pending: the course is still awaiting review, so the form resends it as a new course. */
+  code: string; name: string | null; pending: boolean; term: string | null;
+  /* difficulty: null for a rating from before the form asked it. */
+  rating: number; difficulty: number | null; hours: string; grade: string | null; comment: string;
+}
+export interface RateProfessorContext { ratedCourses: RatedCourse[] }
+export interface RateSubmission {
+  professor: { slug: string } | { name: string; department: string | null };
+  course: { code: string } | { code: string; name: string };
+  term: string | null;
+  rating: number;
+  difficulty: number;
+  hours: string;
+  grade: string | null;
+  comment: string;
+  opened: string;
+  deviceToken: string | null;
+  website: string;
+  turnstileToken: string;
+}
+export type RateSubmitResult = { ok: true; counter: number | null } | { ok: false; status: number; error: string };
+
+/* The form waits on start, the context and the professor before it shows courses, so a hung request fails like any other. */
+const RATE_WAIT_MS = 10000;
+/* The course name field waits on suggestions, so they get a short wait and no retry. */
+const SUGGEST_WAIT_MS = 3000;
+
+/* AbortSignal.timeout needs Safari 16, so the timer is set by hand. */
+function rateSignal(ms = RATE_WAIT_MS): AbortSignal {
+  const abort = new AbortController();
+  setTimeout(() => abort.abort(), ms);
+  return abort.signal;
+}
+
+/* One retry, so a slow cold start of the backend doesn't end the form. */
+async function rateGet(url: string, headers: Record<string, string>): Promise<Response> {
+  try {
+    return await fetch(url, { headers, signal: rateSignal() });
+  } catch {
+    return fetch(url, { headers, signal: rateSignal() });
+  }
+}
+
+export const fetchRateProfessor = (slug: string) => fetchProfessorFull(slug, rateSignal());
+
+/* The localStorage mirror of the device token goes in a header so it stays out of access logs. */
+export async function startRating(deviceMirror: string | null): Promise<RateStart> {
+  const res = await rateGet(`${API_BASE}/api/rate/start`, deviceMirror ? { "X-Rmh-Device": deviceMirror } : {});
+  if (maintenanceGuard(res)) throw new Error("Site is under maintenance");
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+/* The device cookie doesn't reach a cross-site API, so the token also goes in the header. */
+export async function fetchRateContext(slug: string, deviceToken: string): Promise<RateProfessorContext | null> {
+  const res = await rateGet(`${API_BASE}/api/rate/professors/${encodeURIComponent(slug)}`, { "X-Rmh-Device": deviceToken });
+  if (maintenanceGuard(res)) throw new Error("Site is under maintenance");
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+/* Near matches for a typed code that isn't a known course. Never blocks the form, so any error is no suggestions. */
+export async function fetchCourseSuggestions(code: string, slug: string | null): Promise<{ code: string; name: string | null }[]> {
+  try {
+    const params = new URLSearchParams({ code });
+    if (slug) params.set("slug", slug);
+    const res = await fetch(`${API_BASE}/api/rate/course-suggestions?${params}`, { signal: rateSignal(SUGGEST_WAIT_MS) });
+    if (!res.ok) return [];
+    return (await res.json()).suggestions;
+  } catch {
+    return [];
+  }
+}
+
+/* status 0 = network failure or the maintenance redirect. */
+export async function submitRating(body: RateSubmission): Promise<RateSubmitResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/api/rate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    return { ok: false, status: 0, error: "" };
+  }
+  if (maintenanceGuard(res)) return { ok: false, status: 0, error: "" };
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, status: res.status, error: typeof data.error === "string" ? data.error : "" };
+  if ("slug" in body.professor) {
+    _profPageCache.delete(body.professor.slug);
+    _ratedProfPages.add(body.professor.slug);
+  }
+  return { ok: true, counter: typeof data.counter === "number" ? data.counter : null };
 }
 
 /* ---- Bookmarks ---- */

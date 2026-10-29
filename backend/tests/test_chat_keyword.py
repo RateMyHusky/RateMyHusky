@@ -31,7 +31,7 @@ def test_chat_keyword_returns_results(chat_client):
 def test_chat_question_mode_requires_account(chat_client):
     # question mode is account-gated: an unauthenticated request is rejected (401)
     # before the orchestrator is ever reached.
-    resp = chat_client.get("/api/chat?q=is+Guha+hard&mode=question",
+    resp = chat_client.post("/api/chat", json={"q": "is Guha hard"},
                            headers={"Origin": "http://localhost:5173"})
     assert resp.status_code == 401
 

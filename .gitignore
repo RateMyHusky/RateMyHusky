@@ -22,3 +22,5 @@ scraper/*/cookies.txt
 scraper/*/data/
 backend/rag/eval/pool.json*
 backend/rag/eval/runs/*/answers.json*
+.playwright-mcp/
+.superpowers/

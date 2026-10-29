@@ -11,7 +11,8 @@ Deletion order is forced by how the tables reference each other:
                         slug-keyed tables are found by.
   2. evidence_embeddings then evidence   the embedding references the evidence
                         row; the other order leaves vectors joined to nothing.
-  3. everything else
+  3. everything else, the Banner history included: a course page names its
+     instructors from those rows, catalog row or not
 
 Run with --dry-run first. It reports the same counts without deleting.
 
@@ -137,6 +138,38 @@ def find_targets(cur):
     return sorted(slugs), sorted(name_keys), sorted(review_ids)
 
 
+def banner_keys(cur, slugs):
+    """instructor_keys of a denied professor's Banner rows.
+
+    A course page lists its instructors from banner_course_instructors and
+    names one from instructor_name when no catalog row joins, so dropping the
+    catalog row leaves the name, terms and class sizes on every course they
+    taught. The matcher filters them from the next run; this removes what an
+    earlier run wrote. A row matches by its own key, or by a slug already
+    resolved as denied, which covers a Banner-only spelling the matcher aliased
+    to them.
+    """
+    keys = set()
+    for table, sql in (
+            ("banner_course_instructors",
+             "SELECT DISTINCT instructor_key, professor_slug FROM banner_course_instructors"),
+            ("banner_unmatched",
+             "SELECT DISTINCT instructor_key, NULL FROM banner_unmatched")):
+        try:
+            cur.execute(sql)
+            found = cur.fetchall()
+        except Exception:
+            # Absent on a database the Banner matcher never ran on. Rolled back
+            # for the same reason as the slug probe in find_targets.
+            conn = getattr(cur, "connection", None)
+            if conn is not None:
+                conn.rollback()
+            continue
+        keys.update(key for key, slug in found
+                    if slug in slugs or is_denied_key(key) or is_denied(key))
+    return sorted(keys)
+
+
 def purge(conn, dry_run=False):
     """Delete every row belonging to a denied professor. Returns per-table counts."""
     if not denied_hashes():
@@ -145,9 +178,11 @@ def purge(conn, dry_run=False):
 
     cur = conn.cursor()
     slugs, name_keys, review_ids = find_targets(cur)
+    instructor_keys = banner_keys(cur, set(slugs))
     print(f"Matched {len(slugs)} catalog slugs, {len(name_keys)} name keys, "
-          f"{len(review_ids)} un-keyed review rows")
-    if not (slugs or name_keys or review_ids):
+          f"{len(review_ids)} un-keyed review rows, "
+          f"{len(instructor_keys)} Banner instructor keys")
+    if not (slugs or name_keys or review_ids or instructor_keys):
         print("Nothing to purge.")
         return {}
 
@@ -176,6 +211,12 @@ def purge(conn, dry_run=False):
             "reddit_mentions",
             "DELETE FROM reddit_mentions WHERE professor_slug = ANY(%s)",
             "SELECT count(*) FROM reddit_mentions WHERE professor_slug = ANY(%s)",
+            (slugs,)))
+        # The "teaching now" chip on their page.
+        steps.append((
+            "professor_teaching",
+            "DELETE FROM professor_teaching WHERE professor_slug = ANY(%s)",
+            "SELECT count(*) FROM professor_teaching WHERE professor_slug = ANY(%s)",
             (slugs,)))
         steps.append((
             "professors_catalog",
@@ -225,6 +266,18 @@ def purge(conn, dry_run=False):
             "SELECT count(*) FROM rmp_reviews WHERE id = ANY(%s)",
             (review_ids,)))
 
+    if instructor_keys:
+        steps.append((
+            "banner_course_instructors",
+            "DELETE FROM banner_course_instructors WHERE instructor_key = ANY(%s)",
+            "SELECT count(*) FROM banner_course_instructors WHERE instructor_key = ANY(%s)",
+            (instructor_keys,)))
+        steps.append((
+            "banner_unmatched",
+            "DELETE FROM banner_unmatched WHERE instructor_key = ANY(%s)",
+            "SELECT count(*) FROM banner_unmatched WHERE instructor_key = ANY(%s)",
+            (instructor_keys,)))
+
     results = {}
     for label, delete_sql, count_sql, params in steps:
         try:
@@ -233,13 +286,13 @@ def purge(conn, dry_run=False):
         except Exception as exc:
             conn.rollback()
             cur = conn.cursor()
-            print(f"  {label:22s} skipped ({str(exc).splitlines()[0][:60]})")
+            print(f"  {label:25s} skipped ({str(exc).splitlines()[0][:60]})")
             continue
         results[label] = n
         if n and not dry_run:
             cur.execute(delete_sql, params)
             conn.commit()
-        print(f"  {label:22s} {n:>7,} rows" + (" (dry run)" if dry_run and n else ""))
+        print(f"  {label:25s} {n:>7,} rows" + (" (dry run)" if dry_run and n else ""))
 
     # rmp_professors keys on the display name, not name_key.
     try:
@@ -249,7 +302,7 @@ def purge(conn, dry_run=False):
         if ids and not dry_run:
             cur.execute("DELETE FROM rmp_professors WHERE id = ANY(%s)", (ids,))
             conn.commit()
-        print(f"  {'rmp_professors':22s} {len(ids):>7,} rows"
+        print(f"  {'rmp_professors':25s} {len(ids):>7,} rows"
               + (" (dry run)" if dry_run and ids else ""))
     except Exception as exc:
         conn.rollback()

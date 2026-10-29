@@ -2,6 +2,7 @@
 Primary Homepage Codespace
 */
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import SearchBar from '../components/SearchBar';
 import Footer from '../components/Footer';
@@ -10,6 +11,7 @@ import { fetchGoatProfessors, fetchProfessorsCatalog } from '../api/api';
 import type { CatalogProfessor, Professor } from '../api/api';
 import neuIcon from '../assets/neu-circle-icon.png';
 import { ASK_ENABLED } from '../config';
+import { useMediaQuery } from './rate/useMediaQuery';
 import './Homepage.css';
 
 const STATS = [
@@ -19,9 +21,10 @@ const STATS = [
   { label: 'Departments', value: '80' },
 ];
 
+// Law and Professional Studies are left out: see BOARD_COLLEGES in server.py.
 const COLLEGES = [
   'Business', 'CAMD', 'CSSH', 'Engineering',
-  'Health Sciences', 'Khoury', 'Law', 'Professional Studies', 'Science',
+  'Health Sciences', 'Khoury', 'Science',
 ];
 
 // Module-level caches so data survives component unmounts
@@ -98,8 +101,8 @@ const Stars = ({ rating }: { rating: number }) => {
 /* ---- how the board is ordered ----
    The board sorts on the rating shrunk toward the site average by how many
    ratings back it, while the Rating column shows the unshrunk average — so that
-   column legitimately moves backwards between adjacent rows, 2-4 times per board
-   on every board.
+   column legitimately moves backwards between adjacent rows, 2-6 times per board
+   on every board with two or more rows.
 
    Behind a "?" beside the heading rather than always on. What keeps the board
    from going unexplained without it is that both Rating and Ratings carry
@@ -129,7 +132,8 @@ const Stars = ({ rating }: { rating: number }) => {
 const RANK_NOTE =
   'Professors are ranked by their rating and by how many students rated them. ' +
   'A very high score from only a few students counts for less than a slightly ' +
-  'lower score from hundreds. That is why the ratings below do not always go ' +
+  'lower score from hundreds, and professors with at least 30 ratings always ' +
+  'come before those with fewer. That is why the ratings below do not always go ' +
   'from highest to lowest.';
 
 /* ---- rating cell with hover/click tooltip ---- */
@@ -205,13 +209,22 @@ const Homepage = () => {
     return restored && COLLEGES.includes(restored) ? restored : COLLEGES[0];
   });
   const [profs, setProfs] = useState<Professor[]>([]);
-  const [profsLoading, setProfsLoading] = useState(false);
+  // Starts true so the board shows a skeleton, not the empty message, before
+  // the section scrolls into view and the first fetch starts.
+  const [profsLoading, setProfsLoading] = useState(true);
+  const [profsError, setProfsError] = useState(false);
   const [goatVisible, setGoatVisible] = useState(false);
   const goatSectionRef = useRef<HTMLElement>(null);
   const [shuffleVisible, setShuffleVisible] = useState(false);
   const shuffleSectionRef = useRef<HTMLElement>(null);
   const [shuffling, setShuffling] = useState(false);
   const [openTooltip, setOpenTooltip] = useState<number | null>(null);
+  const [rankSheetOpen, setRankSheetOpen] = useState(false);
+  const isMobile = useMediaQuery('(max-width: 768px)');
+  // The sheet's styles exist only at phone width, so it closes if the screen grows past it.
+  const showRankSheet = rankSheetOpen && isMobile;
+  const rankHelpRef = useRef<HTMLButtonElement>(null);
+  const rankSheetBtnRef = useRef<HTMLButtonElement>(null);
   const [showAskTip, setShowAskTip] = useState(() => localStorage.getItem('home_ask_tip_dismissed') !== '1');
   const [askTrigger, setAskTrigger] = useState<number | undefined>(undefined);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -236,6 +249,27 @@ const Homepage = () => {
     el.addEventListener('scroll', updateLeaderFade, { passive: true });
     return () => el.removeEventListener('scroll', updateLeaderFade);
   }, [profs, updateLeaderFade]);
+
+  // The ranking sheet takes focus while open, locks the page scroll, closes on Escape, and hands focus back to the "?".
+  useEffect(() => {
+    if (!rankSheetOpen) return;
+    if (!isMobile) { setRankSheetOpen(false); return; }
+    const help = rankHelpRef.current;
+    rankSheetBtnRef.current?.focus();
+    // "Got it" is the sheet's only control, so Tab stays on it.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setRankSheetOpen(false);
+      if (e.key === 'Tab') e.preventDefault();
+    };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.removeEventListener('keydown', onKey);
+      help?.focus();
+    };
+  }, [rankSheetOpen, isMobile]);
 
   // Pill animation state
   const [pillStyle, setPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
@@ -332,6 +366,8 @@ const Homepage = () => {
     const cached = goatCache.get(selectedCollege);
     if (cached) {
       setProfs(cached);
+      setProfsError(false);
+      setProfsLoading(false);
       setOpenTooltip(null);
       return;
     }
@@ -340,6 +376,7 @@ const Homepage = () => {
 
     async function loadProfs() {
       setProfsLoading(true);
+      setProfsError(false);
       setOpenTooltip(null);
       try {
         const data = await fetchGoatProfessors(selectedCollege);
@@ -349,6 +386,11 @@ const Homepage = () => {
         }
       } catch (err) {
         console.error('Failed to load professors:', err);
+        // Clear the previous college's board so it can't show under this tab.
+        if (!cancelled) {
+          setProfs([]);
+          setProfsError(true);
+        }
       } finally {
         if (!cancelled) setProfsLoading(false);
       }
@@ -492,10 +534,12 @@ const Homepage = () => {
 
       {/* ======== Hero ======== */}
       <main className="homepage-hero">
-        <div
-          className="hero-bg-pattern"
-          style={{ backgroundImage: `url(${neuIcon})` }}
-        />
+        <div className="hero-bg-clip">
+          <div
+            className="hero-bg-pattern"
+            style={{ backgroundImage: `url(${neuIcon})` }}
+          />
+        </div>
         <h1 className="hero-tagline">
           Find the <span>right professor</span>, every semester
         </h1>
@@ -523,21 +567,33 @@ const Homepage = () => {
             <h2 className="section-title">GOATED Professors</h2>
             {/* A real button, not a styled span, so the tooltip is reachable
                 without a pointer: it opens on :hover for mice and :focus-visible
-                for keyboards, and on a touch device a tap fires the sticky
-                :hover. All three paths are CSS, so there is no open/closed state
-                to track here — unlike RatingCell, which needs click-toggling
-                because its tooltip sits inside a row that is itself a link. */}
+                for keyboards. Both paths are CSS. On a phone the bubble is hidden
+                and a tap opens the bottom sheet below instead. */}
             <button
               type="button"
               className="goat-rank-help"
               aria-label="How the ranking works"
               aria-describedby="goat-rank-note"
+              ref={rankHelpRef}
+              onClick={() => { if (isMobile) setRankSheetOpen(true); }}
             >
               ?
               <span id="goat-rank-note" role="tooltip" className="goat-rank-tooltip">
                 {RANK_NOTE}
               </span>
             </button>
+            {/* Portaled so the overlay escapes the section and covers the fixed navbar too. */}
+            {showRankSheet && createPortal(
+              <>
+                <div className="goat-rank-overlay" onClick={() => setRankSheetOpen(false)} />
+                <div className="goat-rank-sheet" role="dialog" aria-modal="true" aria-labelledby="goat-rank-sheet-title">
+                  <h2 id="goat-rank-sheet-title">How the ranking works</h2>
+                  <p>{RANK_NOTE}</p>
+                  <button type="button" ref={rankSheetBtnRef} onClick={() => setRankSheetOpen(false)}>Got it</button>
+                </div>
+              </>,
+              document.body,
+            )}
           </div>
         </div>
 
@@ -604,9 +660,15 @@ const Homepage = () => {
                 <span className="goat-col-reviews"><span className="skeleton-bone skeleton-reviews" /></span>
               </div>
             ))
-          ) : profs.length === 0 ? (
+          ) : profsError ? (
             <div className="goat-row" style={{ justifyContent: 'center', opacity: 0.6 }}>
-              No professors found for this college.
+              Couldn't load this board. Try again later.
+            </div>
+          ) : profs.length === 0 ? (
+            // No number: the floor is BOARD_MIN_REVIEWS in server.py, and an empty
+            // board can also mean the college has no professors at all.
+            <div className="goat-row" style={{ justifyContent: 'center', opacity: 0.6 }}>
+              No {selectedCollege} professors have enough ratings to rank yet.
             </div>
           ) : (
             profs.map((p, i) => (

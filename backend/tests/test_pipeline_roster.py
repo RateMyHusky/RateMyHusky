@@ -1,4 +1,4 @@
-from pipeline.roster import resolve_roster, unique_slug
+from pipeline.roster import recollege, resolve_roster, unique_slug
 
 URL = "https://www.ratemyprofessors.com/professor/{}"
 
@@ -77,3 +77,16 @@ def test_denied_id_blocks_a_name_variant_in_either_order():
     for pages in ([page("Jane Doe", 9), page("J Doe", 9)], [page("J Doe", 9), page("Jane Doe", 9)]):
         links, profs, _ = resolve_roster(pages, [], [], deny)
         assert links == [] and profs == []
+
+
+def test_recollege_corrects_only_a_college_that_left_college_map():
+    stale = {**prof("jane-doe", "jane doe"), "department": "Counseling & Educational Psych",
+             "college": "Professional Studies"}
+    unmapped = {**prof("ada-l", "ada l"), "department": "Underwater Basket Weaving"}
+    assert recollege([prof("olin-guha", "olin guha"), stale, unmapped]) == [("jane-doe", "Health Sciences")]
+
+
+def test_recollege_matches_a_department_spelled_with_the_ampersand_stripped():
+    stale = {**prof("jane-doe", "jane doe"), "department": "Counseling  Educational Psych",
+             "college": "Professional Studies"}
+    assert recollege([stale]) == [("jane-doe", "Health Sciences")]

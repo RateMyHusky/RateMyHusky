@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import Footer from '../components/Footer';
 import Seo from '../components/Seo';
+import { BANNER_SINCE, RATE_ENABLED } from '../config';
 import './Terms.css';
 import './Faq.css';
 
@@ -42,7 +43,9 @@ const Faq = () => {
 
               <h3>Where do the ratings and reviews come from?</h3>
               <p>
-                Ratings and written reviews come from RateMyProfessors. The Reddit tab on a
+                Ratings and written reviews come from RateMyProfessors
+                {RATE_ENABLED ? ', and ratings also come from students through our own rating form' : ''}.
+                The Reddit tab on a
                 professor's page shows public posts and comments from Northeastern subreddits
                 that mention that professor, with a link back to each original. We refresh the
                 data every week.
@@ -55,12 +58,18 @@ const Faq = () => {
                 RateMyProfessors.
               </p>
 
+              {RATE_ENABLED && (<>
               <h3>Can I write a review here?</h3>
               <p>
-                Not on RateMyHusky itself. Reviews are collected from RateMyProfessors, so the
-                best way to add yours is to post it there. It will show up here after the next
-                weekly refresh.
+                Yes. Use the <Link to="/rate">rating form</Link> to rate a professor and course you
+                took: you answer a few questions, add an optional comment, and no sign-in is
+                needed. Once accepted, your rating shows up here after the next weekly refresh; a rating
+                that is held, or that names a new professor or course, needs our review first.
+                Comments aren't
+                shown on the site yet. You can still post a review on RateMyProfessors too, and
+                it will show up here after the refresh.
               </p>
+              </>)}
 
               <h3>How are the GOATED Professors ranked?</h3>
               <p>
@@ -87,10 +96,36 @@ const Faq = () => {
                 don't have one there, so we don't either.
               </p>
 
+              <h3>Why does a professor have a page but no ratings?</h3>
+              <p>
+                Most instructors on Northeastern's course schedule since {BANNER_SINCE} get a
+                page even when nobody has rated them on RateMyProfessors{RATE_ENABLED ? ' or here' : ''}. Their page
+                shows the courses and terms they taught, and ratings appear after students
+                submit them and the next weekly refresh runs.
+              </p>
+
               <h3>Why is a course missing from a professor's page?</h3>
               <p>
-                A professor's course list shows the courses students have rated them in. A
-                course they taught that nobody has reviewed yet won't appear.
+                A professor's course list combines the courses students have rated them in with
+                the courses Northeastern's schedule shows them teaching since {BANNER_SINCE}. A
+                course they taught before then that nobody has reviewed won't appear.
+              </p>
+
+              <h3>Where do &ldquo;Last Taught&rdquo; and &ldquo;When it's offered&rdquo; come from?</h3>
+              <p>
+                From Northeastern's public course schedule, going back to {BANNER_SINCE}. They show
+                when a course ran and who taught it, to read alongside the reviews. For seats,
+                meeting times, and registration, use Northeastern's registration system or
+                SearchNEU.
+              </p>
+
+              <h3>How does Compare pick the best professor?</h3>
+              <p>
+                For each row, Compare marks the professor with the best number among the
+                professors you picked, and the second best when there are at least three
+                different numbers. Nobody is marked when everyone ties. A professor with fewer than 10 ratings
+                is still shown but greyed out and never marked best, and if too few of your
+                picks have enough ratings, Compare says so instead of recommending anyone.
               </p>
 
               <h3>Where do the teaching award badges come from?</h3>
@@ -113,19 +148,29 @@ const Faq = () => {
 
               <h3>What does RateMyHusky publish about me?</h3>
               <p>
-                Your name, department, and college; your ratings and reviews from
-                RateMyProfessors; public Reddit comments that mention you; any teaching awards
+                Your name, department, and college; the courses and terms you taught and their
+                average class sizes, from Northeastern's public course schedule; your ratings and
+                reviews from RateMyProfessors{RATE_ENABLED ? ', and ratings from our rating form' : ''}; public Reddit
+                comments that mention you; any teaching awards
                 Northeastern has announced; and a photo if Northeastern publishes one on its
                 directory pages. We publish no contact details and nothing that isn't already
                 public in those sources. The full list is in{' '}
                 the professors section of our <Link to="/privacy">Privacy Policy</Link>.
               </p>
 
+              <h3>Why do I have a page if I'm not on RateMyProfessors?</h3>
+              <p>
+                Pages are built from Northeastern's public course schedule as well as from
+                RateMyProfessors, so most instructors who taught a course since {BANNER_SINCE} have
+                one, listing the courses and terms they taught. You can have it corrected or removed the
+                same way as any other page.
+              </p>
+
               <h3>How do you know a request is really from me?</h3>
               <p>
                 By your email. Whenever you contact us as a professor, include your
                 Northeastern email address. On the feedback form (the Feedback tab on the left
-                edge of any page), choose &ldquo;Professor: Correct or Remove My Page&rdquo;; it requires an email. Without one we have no way to tell your request apart from someone else using
+                edge of any page), choose &ldquo;Data Deletion&rdquo;; it requires an email. Without one we have no way to tell your request apart from someone else using
                 your name, and no way to reply to you. We confirm the request with you at that
                 address before we change or remove anything.
               </p>
@@ -135,7 +180,7 @@ const Faq = () => {
                 Yes, including if you no longer teach at Northeastern. Email{' '}
                 <a href="mailto:legal@ratemyhusky.com">legal@ratemyhusky.com</a> from your
                 Northeastern address, or use the feedback form, choose
-                &ldquo;Professor: Correct or Remove My Page&rdquo;, and enter your Northeastern email. We honor these requests once
+                &ldquo;Data Deletion&rdquo;, and enter your Northeastern email. We honor these requests once
                 we've confirmed them with you. Your name goes on a removal list that every
                 weekly refresh checks, so your page won't come back. We can't remove your data
                 from RateMyProfessors or Reddit themselves.
@@ -144,7 +189,7 @@ const Faq = () => {
               <h3>Something on my page is wrong. Will you fix it?</h3>
               <p>
                 Yes. If your photo, department, college, course list, or awards are wrong or
-                missing, use the feedback form, choose &ldquo;Professor: Correct or Remove My Page&rdquo;,
+                missing, use the feedback form, choose &ldquo;Data Deletion&rdquo;,
                 and enter your Northeastern email; or email{' '}
                 <a href="mailto:support@ratemyhusky.com">support@ratemyhusky.com</a> from that
                 address. For a missing teaching award, include a link to Northeastern's
@@ -168,7 +213,7 @@ const Faq = () => {
 
               <h3>A Reddit comment on my page is about someone else, or its sentiment label is wrong.</h3>
               <p>
-                Tell us through the feedback form (&ldquo;Professor: Correct or Remove My Page&rdquo;) with your
+                Tell us through the feedback form (&ldquo;Data Deletion&rdquo;) with your
                 Northeastern email, a link to your page, and the comment. Reddit comments are
                 matched to professors by name, and a comment about someone else is removed from your page. A sentiment label
                 that clearly misreads the comment is corrected.

@@ -184,12 +184,16 @@ def test_spellings_of_one_professor_merge_into_one_row():
     assert (r["terms_taught"], r["sections"]) == (3, 3)
     assert (r["first_term_code"], r["last_term_code"]) == ("202530", "202630")
     assert r["avg_enrollment"] == 26.7
+    # Every merged spelling, so a query by raw instructor_key can still find the row.
+    assert r["instructor_keys"] == "thomas williams|tom williams"
 
 
 def test_unmatched_spellings_stay_apart():
     rows = [ins("202610", "1", key="tom williams"),
             ins("202630", "2", key="thomas williams")]
-    assert len(build_course_instructors(rows, matcher({}))) == 2
+    got = build_course_instructors(rows, matcher({}))
+    assert len(got) == 2
+    assert {r["instructor_keys"] for r in got} == {"tom williams", "thomas williams"}
 
 
 def test_non_place_campus_is_dropped():

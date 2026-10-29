@@ -212,4 +212,8 @@ jobs:
         with:
           python-version: '3.11'
       - run: python .github/scripts/legacy_terms_guard.py --selftest
-      - run: python .github/scripts/legacy_terms_guard.py --base "origin/${{ github.base_ref }}"
+      # Through env, not inlined into the script: ${{ }} is pasted into the shell
+      # before it runs, so a crafted ref name would be executed as code.
+      - run: python .github/scripts/legacy_terms_guard.py --base "origin/$BASE_REF"
+        env:
+          BASE_REF: ${{ github.base_ref }}

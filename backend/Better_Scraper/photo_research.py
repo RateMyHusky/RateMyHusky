@@ -12,7 +12,7 @@ _BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _BACKEND_DIR not in sys.path:
     sys.path.insert(0, _BACKEND_DIR)
 
-from pipeline.names import normalize_name, upgrade_image_url, COLLEGE_MAP  # noqa: E402
+from pipeline.names import COLLEGE_MAP, department_key, normalize_name, upgrade_image_url  # noqa: E402
 from prof_aliases import ALIAS_MAP  # noqa: E402
 
 
@@ -100,10 +100,10 @@ SKIP_PATTERNS = [
 ]
 
 # Local, photo-pipeline-only department->college mapping. Supplements
-# precompute.COLLEGE_MAP (which we intentionally do NOT modify) so the photo
+# pipeline.names.COLLEGE_MAP, which the site's colleges come from, so the photo
 # run can organize the ~2,800 professors whose department strings are
-# not in the app's COLLEGE_MAP. Keys are verbatim from the data, including the
-# double-space artifacts left when "&" was stripped upstream.
+# not in the app's COLLEGE_MAP. Looked up as COLLEGE_MAP is, by department_key,
+# so the double-space artifacts left when "&" was stripped upstream match too.
 SUPPLEMENTAL_COLLEGE_MAP = {
     # CAMD
     "Art and Design": "CAMD",
@@ -124,7 +124,6 @@ SUPPLEMENTAL_COLLEGE_MAP = {
     "Health Sci - Interdisciplinary": "Health Sciences",
     "Health Informatics": "Health Sciences",
     "Physician Assistant": "Health Sciences",
-    "Health  Physical Education": "Health Sciences",
     # Engineering
     "Mech  Industrial Engineering": "Engineering",
     "Electrical and Comp Engineerng": "Engineering",
@@ -145,36 +144,26 @@ SUPPLEMENTAL_COLLEGE_MAP = {
     "Managerial Economics": "CSSH",
     # Business
     "Entrepreneurship  Innovation": "Business",
-    "Finance  Insurance": "Business",
     "International Bus  Strategy": "Business",
     "Management Science": "Business",
     "Management Information Systems": "Business",
     "Technological Entrepreneurship": "Business",
     # Khoury
     "Information Assurance": "Khoury",
-    "Computer  Informational Tech.": "Khoury",
-    # Professional Studies
-    "Counseling  Educational Psych": "Professional Studies",
 }
 
 
+# Built once: dept_to_college runs per professor. COLLEGE_MAP wins a shared key.
+_COLLEGE_BY_KEY = {department_key(k): v
+                   for m in (SUPPLEMENTAL_COLLEGE_MAP, COLLEGE_MAP) for k, v in m.items()}
+
+
 def dept_to_college(department):
-    """Map a department string to its college via precompute.COLLEGE_MAP."""
-    if not department:
+    """Map a department string to its college via pipeline.names.COLLEGE_MAP,
+    then the supplemental local mapping. A non-string (a pandas NaN) is Unknown."""
+    if not isinstance(department, str):
         return "Unknown"
-    raw = re.sub(r"\s+", " ", str(department)).strip()
-    if raw in COLLEGE_MAP:
-        return COLLEGE_MAP[raw]
-    # case-insensitive fallback
-    low = raw.lower()
-    for k, v in COLLEGE_MAP.items():
-        if k.lower() == low:
-            return v
-    # Supplemental local mapping (collapse whitespace on keys to match `raw`)
-    for k, v in SUPPLEMENTAL_COLLEGE_MAP.items():
-        if re.sub(r"\s+", " ", k).strip() == raw:
-            return v
-    return "Unknown"
+    return _COLLEGE_BY_KEY.get(department_key(department), "Unknown")
 
 
 def is_plausible_photo_url(url):

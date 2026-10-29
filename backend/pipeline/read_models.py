@@ -47,7 +47,11 @@ def drop_denied(professors, links, is_denied=is_denied_key):
     return kept, [l for l in links if l["slug"] in slugs]
 
 
-def catalog_rows(professors, links, pages, summary_rows, is_denied=is_denied_key):
+def catalog_rows(professors, links, pages, summary_rows, is_denied=is_denied_key, colleges=None):
+    """colleges overrides professors.college per slug. professors.college is set
+    once from a department label and never rewritten, so a better source is
+    applied here, where the catalog is rebuilt every run."""
+    colleges = colleges or {}
     ratings_by_page = {p["rmp_id"]: p["num_ratings"] or 0 for p in pages}
     best_url = {}
     for l in sorted(links, key=lambda l: (-ratings_by_page.get(l["rmp_id"], 0), l["rmp_id"])):
@@ -55,17 +59,18 @@ def catalog_rows(professors, links, pages, summary_rows, is_denied=is_denied_key
     blend, rmp = _index(summary_rows, "blend"), _index(summary_rows, "rmp")
     rows = []
     for p in professors:
-        if p["slug"] not in best_url or is_denied(p["name_key"]):
+        # An RMP professor needs a link; a Banner or survey one is listed without.
+        if (p.get("origin", "rmp") == "rmp" and p["slug"] not in best_url) or is_denied(p["name_key"]):
             continue
         b = blend.get((p["slug"], ""), {})
         r = rmp.get((p["slug"], ""), {})
         rows.append({
             "slug": p["slug"], "name": p["name"], "name_key": p["name_key"],
-            "department": p["department"], "college": p["college"],
+            "department": p["department"], "college": colleges.get(p["slug"], p["college"]),
             "avg_rating": b.get("rating"), "rmp_rating": r.get("rating"),
             "num_ratings": r.get("num_ratings", 0), "total_reviews": b.get("num_ratings", 0),
             "would_take_again_pct": b.get("would_take_again_pct"), "difficulty": b.get("difficulty"),
-            "professor_url": best_url[p["slug"]], "image_url": p["image_url"],
+            "professor_url": best_url.get(p["slug"]), "image_url": p["image_url"],
             "focus_x": p["focus_x"], "focus_y": p["focus_y"],
             "total_comments": b.get("num_comments", 0),
         })
@@ -90,16 +95,23 @@ def keep_summaries(summary_rows, catalog_slugs):
     return [r for r in summary_rows if r["professor_slug"] == "" or r["professor_slug"] in catalog_slugs]
 
 
+def _shown(catalog):
+    """Rows with an RMP link or ratings: what the homepage counts and verify floors on."""
+    return [r for r in catalog if r["professor_url"] or r["num_ratings"] > 0]
+
+
 def stats(catalog, courses, summary_rows):
-    return {"professors": len(catalog), "courses": len(courses),
+    shown = _shown(catalog)
+    return {"professors": len(shown), "courses": len(courses),
             "comments": sum(r["total_comments"] for r in catalog),
-            "departments": len({r["department"] for r in catalog if r["department"]})}
+            "departments": len({r["department"] for r in shown if r["department"]})}
 
 
 def verify(catalog, courses):
     errors = []
-    if len(catalog) < MIN_PROFESSORS:
-        errors.append(f"professors {len(catalog)} < {MIN_PROFESSORS}")
+    shown = len(_shown(catalog))
+    if shown < MIN_PROFESSORS:
+        errors.append(f"professors {shown} < {MIN_PROFESSORS}")
     if len(courses) < MIN_COURSES:
         errors.append(f"courses {len(courses)} < {MIN_COURSES}")
     return errors

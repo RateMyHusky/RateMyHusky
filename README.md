@@ -6,7 +6,7 @@
 
 **Find the right professor, every semester.**
 
-RateMyProfessors ratings and Reddit chatter for 3,800+ Northeastern professors — searchable, comparable, and answerable in one place.
+RateMyProfessors ratings, Reddit chatter, and Northeastern's course schedule for 3,800+ Northeastern professors — searchable and comparable in one place.
 
 [![Live Site](https://img.shields.io/badge/Live-ratemyhusky.com-e63946?style=for-the-badge)](https://ratemyhusky.com)
 [![React](https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](frontend)
@@ -24,25 +24,33 @@ RateMyProfessors ratings and Reddit chatter for 3,800+ Northeastern professors �
 
 ## Why RateMyHusky?
 
-Choosing classes at Northeastern means juggling RateMyProfessors tabs and Reddit threads — each with a fragment of the picture. RateMyHusky unifies both sources into a single profile per professor, then layers search, comparison, and an AI question-answering mode on top. On-site student reviews are planned.
+Choosing classes at Northeastern means juggling RateMyProfessors tabs and Reddit threads — each with a fragment of the picture. RateMyHusky unifies both, along with Northeastern's own course schedule, into a single profile per professor, then layers search and comparison on top. An AI question-answering mode is paused while it's being improved, and an on-site rating form is in testing.
 
 | Source | Scale |
 |---|---|
 | RateMyProfessors | 43K+ ratings & reviews |
 | Reddit (r/NEU and beyond) | ~9K verified professor mentions, sentiment-scored |
-| Professor profiles | 3,800+ professors, ~2,000 photos, courses they're reviewed for |
+| Northeastern course schedule (NUBanner) | Who taught each course, every term since Fall 2021 |
+| Northeastern course catalog | Course descriptions, credits, and NUpath attributes |
+| Northeastern teaching awards | Award badges, each linked to its announcement |
+| Professor profiles | 3,800+ professors, ~2,000 photos, courses they're reviewed for or taught |
 
 ## Features
 
 ### Explore
 - **Professor catalog** — filter by college, department, rating, and review volume
-- **Rich profile pages** — RMP ratings and department comparison, grade distributions, review feeds from RMP and Reddit, and the courses each professor is reviewed for
-- **Course catalog** — course detail pages with ratings and the professors reviewed for each course
+- **Rich profile pages** — RMP ratings and department comparison, grade distributions, review feeds from RMP and Reddit with review tags, teaching award badges, and the courses and terms each professor taught
+- **Schedule-built pages** — most instructors on the course schedule since Fall 2021 get a page even with no ratings yet
+- **Course catalog** — course detail pages with ratings, catalog descriptions, when the course is offered, and who taught it each term
+- **Department pages** — every department's professors in one place
 - **Side-by-side compare** — stack any professors against each other
 - **GOATED leaderboard** — top-rated professors by college
 - **Search that keeps up** — instant autocomplete across professors and courses, plus a shuffle wheel for serendipity
 
-### Ask (AI)
+### Ask (AI, paused)
+
+Ask is turned off while it's being improved: `ASK_ENABLED` in `frontend/src/config.ts` and `CHAT_ENABLED` on the backend.
+
 - **Ask a real question** — *"Is Rachlin a fair grader?"* — and get a cited, single-shot answer grounded in actual student reviews
 - **Hybrid retrieval** — full-text search + 384-dim [BGE-small](https://huggingface.co/BAAI/bge-small-en-v1.5) embeddings fused with Reciprocal Rank Fusion over review excerpts from RMP and Reddit
 - **Citations that jump** — every cited snippet pins, scrolls to, and highlights its source on the professor page
@@ -50,13 +58,17 @@ Choosing classes at Northeastern means juggling RateMyProfessors tabs and Reddit
 
 ### Account
 - **Bookmarks** — one-click bookmark toggle on professor and course cards/profiles, backed by a global bookmarks context for instant, optimistic updates
-- **Bookmarks tab** — a dedicated view under Account listing all bookmarked professors and courses, reusing the catalog's card layout
+- **Bookmarks page** — `/bookmarks` lists all bookmarked professors and courses, reusing the catalog's card layout
 - Signed-out bookmark clicks prompt Google sign-in instead of failing silently
-- Profile/Bookmarks tabs share an animated sliding underline indicator
+
+### Rate (in testing)
+- **Student rating form** — `/rate` takes a professor and course rating with an optional comment, no sign-in needed, behind a Turnstile checkpoint; held ratings and new professors or courses are reviewed before they publish
+- Live on dev (Vercel Preview) and locally only; `RATE_ENABLED` in `frontend/src/config.ts` hides it in production
 
 ### Polished throughout
 - Dark mode, responsive layout, breadcrumb navigation
 - Google OAuth sign-in for gated functionality
+- FAQ for students and professors, and a Feedback tab for bug reports, data corrections, and professor removal requests
 - Precomputed catalog aggregates and prerendered pages for fast loads and SEO
 
 ## Architecture
@@ -71,7 +83,7 @@ flowchart LR
     API --> DB[("PostgreSQL 16 + pgvector<br/>Oracle Cloud VM")]
     ASK --> DB
 
-    SCRAPE["Scrapers: RMP, Reddit"] --> INGEST["Match, score, dedupe"]
+    SCRAPE["Scrapers: RMP, Reddit, NUBanner schedule, NEU catalog"] --> INGEST["Match, score, dedupe"]
     INGEST --> PRECOMP["precompute - rebuilds the catalog tables the API reads"]
     PRECOMP --> EMBED["Evidence build + BGE-small embedding backfill"]
     PRECOMP --> DB
@@ -98,22 +110,29 @@ flowchart LR
 .
 ├── frontend/                  # React 19 + TypeScript SPA (Vercel)
 │   └── src/
-│       ├── pages/             #   Homepage, catalogs, profiles, compare,
-│       │                      #   Account + AccountBookmarks
+│       ├── pages/             #   Homepage, catalogs, profiles, departments,
+│       │   │                  #   compare, bookmarks, FAQ, legal pages
+│       │   └── rate/          #   /rate student rating form steps
 │       ├── components/        #   SearchBar (+ Ask mode), breadcrumbs,
-│       │                      #   BookmarkButton, Navbar, ...
-│       ├── context/           #   BookmarksContext (global bookmark state)
+│       │                      #   BookmarkButton, FeedbackTab, Navbar, ...
+│       ├── context/           #   AuthContext, BookmarksContext
 │       ├── api/               #   Typed backend client
+│       ├── config.ts          #   Feature flags (ASK_ENABLED, RATE_ENABLED, ...)
 │       └── utils/             #   Ask session persistence, citation pinning
 ├── backend/                   # Flask API (Railway)
 │   ├── server.py              #   Routes, auth, connection pool
 │   ├── bookmarks.py           #   Bookmark add/remove/list (pure functions)
+│   ├── ratings.py             #   Rating form SQL layer
+│   ├── pipeline/              #   Rebuilds everything the site reads
 │   ├── rag/                   #   Ask pipeline: gate, retrieve, answer,
 │   │   │                      #   validate, cache, throttle, abuse,
 │   │   │                      #   ONNX BGE-small query embeddings
 │   │   └── eval/              #   Retrieval eval sets + RAG metrics
 │   └── Better_Scraper/        #   RMP scrapers + CSV outputs
-└── scraper/                   # Reddit corpus + evidence/embedding pipeline
+├── db/postgres/               # PostgreSQL schema
+├── extension/                 # Chrome extension popup (early shell)
+└── scraper/                   # Reddit, NUBanner schedule, NEU catalog,
+                               # evidence/embedding pipeline
 ```
 
 ## Getting Started
@@ -144,8 +163,23 @@ FRONTEND_URL=http://localhost:5173
 # copy the id it shows. Unset means no extension can reach the API.
 EXTENSION_ORIGINS=chrome-extension://<your-unpacked-extension-id>
 
-# Optional — AI Ask mode
+# Optional — AI Ask mode (off unless CHAT_ENABLED=true)
+CHAT_ENABLED=true
 GROQ_API_KEYS=<key1>,<key2>
+
+# Optional — student rating form. The rating routes return 503 until
+# RATING_SECRET (at least 32 characters) is set.
+RATING_SECRET=<generate-with-openssl-rand-hex-32>
+# Professor pages show /rate comments only when true. Turn on with the
+# frontend's RATE_ENABLED at launch.
+SHOW_STUDENT_REVIEWS=false
+IPINFO_TOKEN=<ipinfo-token-for-the-ip-data-fetch-script>
+IP_DATA_DIR=/tmp/ipdata
+
+# Optional — Cloudflare Turnstile CAPTCHA on feedback and ratings (skipped
+# when unset), and Resend for emailing feedback submissions
+TURNSTILE_SECRET_KEY=<turnstile-secret-key>
+RESEND_API_KEY=<resend-api-key>
 ```
 
 ```bash
@@ -183,9 +217,26 @@ npm install
 npm run dev                  # → http://localhost:5173
 ```
 
-The dev frontend talks to the backend on port 5001 automatically.
+The dev frontend talks to the backend on port 5001 automatically. Optional `frontend/.env`:
+
+```env
+VITE_API_URL=<backend-url>                    # unset: same origin, proxied to 5001 in dev
+VITE_TURNSTILE_SITE_KEY=<turnstile-site-key>  # required for production builds
+```
+
+### Browser extension
+
+```bash
+cd extension
+npm install
+npm run build                # → extension/dist
+```
+
+Load `extension/dist` as an unpacked extension at `chrome://extensions`, then put the id it shows in the backend's `EXTENSION_ORIGINS`.
 
 ### Scheduled jobs
+
+`data-refresh` rebuilds the site's data every Sunday and `banner-refresh` pulls the course schedule every Monday.
 
 `catalog-edition-watch` checks every Monday for the NEU catalog's new academic-year edition, which goes live between July and September. GitHub disables scheduled workflows in a public repo after 60 days without activity, so **before July each year, confirm it is still enabled in the Actions tab**.
 

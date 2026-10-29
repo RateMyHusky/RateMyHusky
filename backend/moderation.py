@@ -1,4 +1,22 @@
 """Comment moderation. this is where the scores go.
+
+Only new rating comments get scored (server.py, on submit). Existing RMP and
+Reddit comments are left alone, so keep MODERATION_ENFORCE unset: turning it on
+hides every comment that was never scored, which is all of them.
+
+Quota: the OpenAI account has bought no credits, so it's on the free tier.
+OpenAI's docs list that as 250 requests/min, 5,000/day and 10,000 tokens/min,
+counted from the request's character count. On 2026-10-25 the rate-limit
+headers showed a stricter cap the docs don't describe: 100k tokens that refill
+over 30 days (about 3,300 a day, roughly 20-50 comments). Limits apply to the
+whole organization, so every key on the account shares them with production.
+The $5 Build tier (500/min, 20k tokens/min) would lift this, and moderation
+stays free there. Don't bulk-test or run moderate_backfill.py against
+it: about 600 calls on 2026-10-25 drained it, and while it's empty every new
+rating with a comment is held as moderation_unavailable. Check what's left with
+one call, which reports it in the x-ratelimit-remaining-tokens header.
+Batches of 100 get a 429 too: one request can pass 10k tokens/min, so
+BATCH_SIZE is too big for a backfill here.
 """
 
 import os

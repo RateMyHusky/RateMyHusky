@@ -201,25 +201,30 @@ def professor_html(profile: dict, reviews: list, canonical: str) -> str:
     diff = profile.get("rmpDifficulty") if has_rmp else None
     rmp_count = len(reviews)
 
-    title = f"{name} Reviews & Ratings — Northeastern {dept}"
+    # A NULL department (Banner-only professors) drops the department words, so
+    # nothing reads "Northeastern null" or leaves a double space. Professor.tsx
+    # does the same.
+    dept_part = f" {dept}" if dept else ""
+    title = f"{name} Reviews & Ratings — Northeastern{dept_part}"
     wta_txt = f" ({wta_txt_n}% would take again)" if wta is not None else ""
     summary = (
         f"{name} professor reviews and ratings: {rmp_txt}/5 from {rmp_n} RMP ratings "
         f"at Northeastern{wta_txt}. RateMyProfessor + Reddit."
         if has_rmp else
-        f"{name}, Northeastern {dept} professor: no Rate My Professors ratings yet. "
+        f"{name}, Northeastern{dept_part} professor: no Rate My Professors ratings yet. "
         "RateMyProfessor + Reddit."
     )
     month_year = _month_year(date.today())
 
     diff_clause = f", with {diff}/5 RMP difficulty" if diff is not None else ""
     wta_clause = f" and {wta_txt_n}% who would take them again" if wta is not None else ""
+    dept_professor = f"{_article(dept)} {dept} professor" if dept else "a professor"
     verdict = (
-        f"{name} is {_article(dept)} {dept} professor at Northeastern University rated "
+        f"{name} is {dept_professor} at Northeastern University rated "
         f"{rmp_txt}/5 on Rate My Professors by {rmp_n} students{diff_clause}{wta_clause} "
         f"(RateMyProfessors + Reddit, updated {month_year})."
         if has_rmp else
-        f"{name} is {_article(dept)} {dept} professor at Northeastern University "
+        f"{name} is {dept_professor} at Northeastern University "
         f"with no Rate My Professors ratings yet "
         f"(RateMyProfessors + Reddit, updated {month_year})."
     )
@@ -319,7 +324,7 @@ def professor_html(profile: dict, reviews: list, canonical: str) -> str:
             "name": "Northeastern University",
             "sameAs": "https://www.northeastern.edu",
         },
-        "knowsAbout": dept,
+        **({"knowsAbout": dept} if dept else {}),
         "url": canonical,
     }
     if profile.get("imageUrl"):
@@ -340,7 +345,7 @@ def professor_html(profile: dict, reviews: list, canonical: str) -> str:
 
     return _page(title, summary, canonical, body, [profilepage, breadcrumb],
                  image=profile.get("imageUrl"), og_type="profile",
-                 image_alt=f"{name}, professor of {dept} at Northeastern University",
+                 image_alt=f"{name}, professor{f' of {dept}' if dept else ''} at Northeastern University",
                  noindex=is_zero_content)
 
 

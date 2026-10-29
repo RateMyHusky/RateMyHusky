@@ -1,4 +1,5 @@
 import os
+import sys
 
 import pytest
 
@@ -22,6 +23,16 @@ os.environ["JWT_SECRET"] = "test-secret"
 # so nothing in the unit suite can connect, and a real URL here could never let
 # a stray test reach prod. The PG integration tests set their own URL.
 os.environ["ORACLE_DATABASE_URL"] = "postgresql://test:test@localhost:1/test"
+
+
+@pytest.fixture(autouse=True)
+def _no_background_ask_log_purge(monkeypatch):
+    """Tests that set RAILWAY_ENVIRONMENT would otherwise start the hourly ask_log
+    purge thread, which races the tests that drive the purge clock themselves.
+    Marked as just run; a test that wants the purge resets "last" itself."""
+    server = sys.modules.get("server")
+    if server is not None:
+        monkeypatch.setitem(server._ask_log_purge, "last", float("inf"))
 
 
 @pytest.fixture
@@ -55,7 +66,11 @@ def render_client(monkeypatch):
                 "ratingDistribution": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 1},
                 "gradeDistribution": {},
                 "reviews": [{"course": "ECON1115", "quality": 5, "difficulty": 3,
-                             "date": "2024", "comment": "Excellent lecturer."}]}},
+                             "date": "2024", "comment": "Excellent lecturer."}]},
+                        "survey": {"available": False, "rating": None, "numRatings": 0,
+                                   "hoursPerWeek": None,
+                                   "ratingDistribution": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0},
+                                   "gradeDistribution": {}}},
             "courses": [{"code": "ECON1115", "name": "Macroeconomics", "rating": 5.0,
                          "difficulty": 3.0, "numRatings": 1,
                          "ratingDistribution": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 1},

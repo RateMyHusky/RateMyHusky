@@ -22,7 +22,6 @@ def upgrade_image_url(url):
 COLLEGE_MAP = {
     "Computer Science": "Khoury", "Information Science": "Khoury",
     "Information Systems": "Khoury", "Computer & Informational Tech.": "Khoury",
-    "Computer amp Informational Tech.": "Khoury", "Computer  Informational Tech.": "Khoury",
     "Computer Engineering": "Khoury", "Cybersecurity": "Khoury",
     "Data Science": "Khoury", "Computer Information Systm": "Khoury",
     "Grad Engineering - Multidiscpl": "Engineering",
@@ -66,7 +65,7 @@ COLLEGE_MAP = {
     "Speech & Hearing Sciences": "Health Sciences",
     "Speech Language Pathology": "Health Sciences",
     "Health Management": "Health Sciences",
-    "Health  Physical Education": "Health Sciences",
+    "Health & Physical Education": "Health Sciences",
     "Medicine": "Health Sciences", "Regulatory Affairs": "Health Sciences",
     "Counseling Psychology": "Health Sciences", "Applied Psychology": "Health Sciences",
     "Political Science": "CSSH", "Economics": "CSSH", "History": "CSSH",
@@ -86,14 +85,23 @@ COLLEGE_MAP = {
     "Urban Studies": "CSSH", "Humanities": "CSSH",
     "Education": "Professional Studies", "Professional Studies": "Professional Studies",
     "Col of Professional Studies": "Professional Studies",
-    "Counseling & Educational Psych": "Professional Studies",
-    "Counseling amp Educational Psych": "Professional Studies",
-    "Counseling  Educational Psych": "Professional Studies",
+    # CAEP, Bouve's Department of Applied Psychology, like Counseling Psychology above.
+    "Counseling & Educational Psych": "Health Sciences",
     "Law": "Law",
 }
 
 
-def get_college(dept):
+def department_key(dept):
+    """dept as COLLEGE_MAP is looked up: case and whitespace ignored, and "&"
+    the same as the "amp" or bare gap it is left as when stripped upstream."""
+    return re.sub(r"\s+", " ", re.sub(r"&|\bamp\b", " ", dept.lower())).strip()
+
+
+# Built once: get_college runs per professor.
+_COLLEGE_BY_KEY = {department_key(d): c for d, c in COLLEGE_MAP.items()}
+
+
+def get_college(dept, default="Other"):
     if not isinstance(dept, str):
-        return "Other"
-    return COLLEGE_MAP.get(dept, "Other")
+        return default
+    return _COLLEGE_BY_KEY.get(department_key(dept), default)

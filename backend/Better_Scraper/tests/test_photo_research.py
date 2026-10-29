@@ -47,6 +47,12 @@ def test_dept_to_college_known_and_unknown():
     assert pr.dept_to_college("Underwater Basket Weaving") == "Unknown"
 
 
+def test_dept_to_college_matches_double_space_college_map_keys():
+    # Only COLLEGE_MAP has these, spelled with "&"; get_college matches the stripped form.
+    assert pr.dept_to_college("Counseling  Educational Psych") == "Health Sciences"
+    assert pr.dept_to_college("Computer  Informational Tech.") == "Khoury"
+
+
 def test_is_plausible_photo_url():
     assert pr.is_plausible_photo_url("https://x.edu/uploads/jane-doe-400x400.jpg")
     assert pr.is_plausible_photo_url("https://x.edu/p.png?cb=1")
@@ -56,10 +62,11 @@ def test_is_plausible_photo_url():
 
 
 def test_dept_to_college_supplemental_mapping():
-    # Department strings present in the data but absent from precompute.COLLEGE_MAP
+    # Department strings present in the data but absent from pipeline.names.COLLEGE_MAP
     assert pr.dept_to_college("Art and Design") == "CAMD"
     assert pr.dept_to_college("Chemistry  Chemical Biology") == "Science"   # double space
     assert pr.dept_to_college("Mech  Industrial Engineering") == "Engineering"
     # genuinely unmapped admin departments stay Unknown
     assert pr.dept_to_college("Army ROTC") == "Unknown"
     assert pr.dept_to_college("") == "Unknown"
+    assert pr.dept_to_college(float("nan")) == "Unknown"

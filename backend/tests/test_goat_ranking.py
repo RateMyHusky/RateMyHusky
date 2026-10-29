@@ -1,7 +1,7 @@
 """Tests for the GOATED leaderboard's Bayesian ranking.
 
 Ranking by raw avg_rating let a 5.00 from 3 reviews outrank a 4.9 from 500 --
-276 professors sit at exactly 5.00 and 95% of them have fewer than 15 reviews.
+551 professors sit at exactly 5.00 and 97% of them have fewer than 15 reviews.
 The board now sorts on a shrunk posterior mean instead, while still *displaying*
 avg_rating.
 """
@@ -177,15 +177,15 @@ def test_leaderboard_returns_total_reviews():
 def test_cache_key_was_versioned():
     # A stale entry would serve the previous ordering after deploy — bumped for
     # the shrunk score, again when the prior changed, again for the single review
-    # floor plus the name tiebreak.
+    # floor plus the name tiebreak, again for the Law/Professional Studies floor.
     import inspect
-    assert 'goat:v5:' in inspect.getsource(server.goat_professors)
+    assert 'goat:v6:' in inspect.getsource(server.goat_professors)
 
 
 # ── the review floor ────────────────────────────────────────────────────────
 #
-# One floor for every college, at the same 30 the prior uses. It replaced a floor
-# of 100 carrying an exception that dropped Law and Professional Studies to 5.
+# One floor for every college at the same 30 the prior uses. A board short of
+# 10 at 30 is filled from professors with 5, ranked below everyone at 30.
 
 
 def test_board_floor_matches_the_prior_floor():
@@ -193,12 +193,51 @@ def test_board_floor_matches_the_prior_floor():
     assert server.BOARD_MIN_REVIEWS == server.RANKING_PRIOR_MIN_REVIEWS
 
 
-def test_no_per_college_floor_exception():
-    import inspect
-    body = inspect.getsource(server.goat_professors)
-    assert not hasattr(server, "NO_MIN_COLLEGES"), \
-        "the per-college floor exception is what put 7-rating professors on a board"
-    assert "college in" not in body, "no college may get its own evidence floor"
+def _board_params(monkeypatch, college):
+    seen = []
+    monkeypatch.setattr(server, "query", lambda sql, params: seen.append((sql, params)) or [])
+    monkeypatch.setattr(server, "query_one", lambda sql, params: {"prior": C})
+    monkeypatch.setattr(server, "cache_get", lambda key: None)
+    monkeypatch.setattr(server, "cache_set", lambda key, val: None)
+    with server.app.test_request_context(f"/api/goat-professors?college={college}"):
+        server.goat_professors()
+    return seen
+
+
+@pytest.mark.parametrize("college", ["Khoury", "Business", "Health Sciences"])
+def test_every_college_gets_the_same_fill_rule(monkeypatch, college):
+    # No per-college floors: a short board fills from 5 wherever it is short.
+    [(_, params)] = _board_params(monkeypatch, college)
+    assert params == (college, server.BOARD_FILL_MIN_REVIEWS, C, server.BOARD_MIN_REVIEWS, C, 10)
+
+
+def test_the_fill_ranks_below_every_well_measured_professor(monkeypatch):
+    # Shrinkage alone puts 5.00 on 20 ratings above 4.50 on 30.
+    assert server.shrunk_score(5.0, 20, C) > server.shrunk_score(4.50, 30, C)
+    [(sql, _)] = _board_params(monkeypatch, "Health Sciences")
+    order = " ".join(sql.split()).split("ORDER BY ")[1]
+    assert order.startswith("total_reviews >= %s DESC,"), "the 30+ tier must sort first"
+
+
+@pytest.mark.parametrize("college", ["Law", "Professional Studies"])
+def test_law_and_professional_studies_have_no_board(monkeypatch, college):
+    assert college not in server.BOARD_COLLEGES
+    assert _board_params(monkeypatch, college) == []
+
+
+def test_every_other_college_has_a_board():
+    assert server.BOARD_COLLEGES == set(server.COLLEGE_MAP.values()) - {"Law", "Professional Studies"}
+
+
+def test_a_below_average_rating_is_off_the_board(monkeypatch):
+    # A 2.86 on 250 ratings sat at Health Sciences #5 before this.
+    [(sql, params)] = _board_params(monkeypatch, "Health Sciences")
+    assert "avg_rating >= %s" in " ".join(sql.split())
+    assert params[2] == C, "the cutoff is the same prior the score shrinks toward"
+
+
+def test_the_fill_floor_is_below_the_board_floor():
+    assert server.BOARD_FILL_MIN_REVIEWS < server.BOARD_MIN_REVIEWS
 
 
 def test_floor_defaults_to_the_constant_not_a_literal():
@@ -208,10 +247,15 @@ def test_floor_defaults_to_the_constant_not_a_literal():
     assert '"100"' not in body, "the old 100 default must be gone"
 
 
-def test_thin_professors_cannot_reach_a_board_even_at_a_perfect_score():
-    # The Professional Studies failure: 4.96 from 7 reviews held rank 7. Below the
-    # floor it is not eligible at all, and even if it were, shrinkage sinks it.
-    assert 7 < server.BOARD_MIN_REVIEWS
+def test_thin_professors_reach_a_board_only_as_fill(monkeypatch):
+    # 7 reviews clear the fill floor but not the board floor, so a perfect 5.00
+    # on 7 sorts below every professor at 30. Within the fill, shrinkage still
+    # sinks it below real evidence.
+    assert server.BOARD_FILL_MIN_REVIEWS <= 7 < server.BOARD_MIN_REVIEWS
+    [(sql, params)] = _board_params(monkeypatch, "Khoury")
+    order = " ".join(sql.split()).split("ORDER BY ")[1]
+    assert order.startswith("total_reviews >= %s DESC,")
+    assert params[3] == server.BOARD_MIN_REVIEWS, "the tier splits at the board floor"
     thin = server.shrunk_score(5.0, 7, C)
     real = server.shrunk_score(4.68, 96, C)
     assert real > thin, "96 reviews at 4.68 outweigh 7 at a perfect 5.00"
@@ -276,3 +320,35 @@ def test_board_row_has_exactly_these_keys(monkeypatch):
 def test_board_is_one_statement(monkeypatch):
     _, seen = _run_leaderboard(monkeypatch, [ROW])
     assert len(seen) == 1   # the prior goes through query_one, so GOAT is two statements in all
+
+
+def test_an_empty_board_is_served_from_cache(monkeypatch):
+    # A college with no professor over the floor caches []; it must not re-run the queries.
+    monkeypatch.setattr(server, "cache_get", lambda key: [])
+    monkeypatch.setattr(server, "query", lambda *a: pytest.fail("cached board re-queried"))
+    monkeypatch.setattr(server, "query_one", lambda *a: pytest.fail("cached board re-queried"))
+    with server.app.test_request_context("/api/goat-professors?college=Khoury"):
+        assert server.goat_professors().get_json() == []
+
+
+def test_an_unknown_college_is_not_queried_or_cached(monkeypatch):
+    monkeypatch.setattr(server, "cache_get", lambda key: pytest.fail("unknown college read the cache"))
+    monkeypatch.setattr(server, "cache_set", lambda *a: pytest.fail("unknown college cached"))
+    monkeypatch.setattr(server, "query", lambda *a: pytest.fail("unknown college queried"))
+    monkeypatch.setattr(server, "query_one", lambda *a: pytest.fail("unknown college queried"))
+    with server.app.test_request_context("/api/goat-professors?college=xyz"):
+        assert server.goat_professors().get_json() == []
+
+
+@pytest.mark.parametrize("args, limit", [("limit=-5", 1), ("limit=500", 50), ("limit=x", 10)])
+def test_the_limit_is_clamped_and_the_floor_is_not_a_parameter(monkeypatch, args, limit):
+    # Free values would each store a cache entry, and LIMIT -5 is a Postgres error.
+    seen = []
+    monkeypatch.setattr(server, "query", lambda sql, params: seen.append(params) or [])
+    monkeypatch.setattr(server, "query_one", lambda sql, params: {"prior": C})
+    monkeypatch.setattr(server, "cache_get", lambda key: seen.append(key) and None)
+    monkeypatch.setattr(server, "cache_set", lambda key, val: None)
+    with server.app.test_request_context(f"/api/goat-professors?college=Khoury&{args}&min_reviews=1"):
+        server.goat_professors()
+    assert seen == [f"goat:v6:Khoury:{limit}",
+                    ("Khoury", server.BOARD_FILL_MIN_REVIEWS, C, server.BOARD_MIN_REVIEWS, C, limit)]

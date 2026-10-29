@@ -19,6 +19,7 @@ import BookmarkButton from '../components/BookmarkButton';
 import Seo from '../components/Seo';
 import { getInitials, splitProfName, stripPrefix } from '../utils/nameUtils';
 import { useDebouncedValue } from '../utils/useDebouncedValue';
+import { photoThumb, thumbOnError } from '../utils/photoThumb';
 
 import './ProfessorCatalog.css';
 
@@ -766,16 +767,15 @@ export default function ProfessorCatalog() {
                   <div className="prof-list-avatar">
                     {prof.imageUrl ? (
                       <img
-                        src={prof.imageUrl}
+                        src={photoThumb(prof.imageUrl)}
                         alt=""
                         className="prof-avatar-img"
                         style={{ objectPosition: `${prof.focusX ?? 50}% ${prof.focusY ?? 30}%` }}
-                        onError={(e) => {
-                          const target = e.currentTarget;
+                        onError={thumbOnError(prof.imageUrl, (target) => {
                           target.style.display = 'none';
                           const fallback = target.parentElement?.querySelector('.prof-avatar-initials') as HTMLElement;
                           if (fallback) fallback.style.display = 'flex';
-                        }}
+                        })}
                       />
                     ) : null}
                     <span
@@ -820,16 +820,15 @@ export default function ProfessorCatalog() {
                     <div className="prof-avatar">
                       {prof.imageUrl ? (
                         <img
-                          src={prof.imageUrl}
+                          src={photoThumb(prof.imageUrl)}
                           alt=""
                           className="prof-avatar-img"
                           style={{ objectPosition: `${prof.focusX ?? 50}% ${prof.focusY ?? 30}%` }}
-                          onError={(e) => {
-                            const target = e.currentTarget;
+                          onError={thumbOnError(prof.imageUrl, (target) => {
                             target.style.display = 'none';
                             const fallback = target.parentElement?.querySelector('.prof-avatar-initials') as HTMLElement;
                             if (fallback) fallback.style.display = 'flex';
-                          }}
+                          })}
                         />
                       ) : null}
                       <span

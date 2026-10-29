@@ -255,8 +255,9 @@ class FakeCursor:
     """
 
     def __init__(self, catalog, rmp_reviews, slug_rows=(), null_key_reviews=(),
-                 professors=()):
+                 professors=(), banner=()):
         self._data = {
+            "banner": banner,
             "catalog": catalog,
             "professors": professors,
             "rmp_reviews": rmp_reviews,
@@ -267,7 +268,9 @@ class FakeCursor:
 
     def execute(self, sql, params=None):
         flat = " ".join(sql.split())
-        if "FROM professors_catalog" in flat:
+        if "FROM banner_course_instructors" in flat:
+            key = "banner"
+        elif "FROM professors_catalog" in flat:
             key = "catalog"
         elif "FROM professors" in flat:
             key = "professors"
@@ -529,3 +532,52 @@ def test_purge_deletes_the_pipeline_identity_rows(listfile):
     purge(Conn())
     assert "DELETE FROM rmp_links WHERE slug = ANY(%s)" in Recording.executed
     assert "DELETE FROM professors WHERE slug = ANY(%s)" in Recording.executed
+
+
+def test_purge_finds_banner_rows_by_name_and_by_slug(listfile):
+    """A course page names its instructors from banner_course_instructors, catalog
+    row or not, so a removal that left these rows left the professor's name,
+    terms and class sizes on every course they taught."""
+    from purge_denied import banner_keys
+    listfile("Julia Garrett")
+    cur = FakeCursor(catalog=[], rmp_reviews=[], banner=[
+        ("julia garrett", None),                 # unmatched: found by name
+        ("julia a garrett", "julia-garrett"),    # Banner-only spelling, matched
+        ("garrett morrow", "garrett-morrow"),
+    ])
+    assert banner_keys(cur, {"julia-garrett"}) == ["julia a garrett", "julia garrett"]
+
+
+def test_purge_deletes_the_banner_history_and_chip(listfile):
+    from purge_denied import purge
+    listfile("Julia Garrett")
+
+    class Recording(FakeCursor):
+        executed = []
+
+        def execute(self, sql, params=None):
+            Recording.executed.append(" ".join(sql.split()))
+            super().execute(sql, params)
+
+        def fetchone(self):
+            return (1,)
+
+    cur = Recording(catalog=[("julia-garrett", "Julia Garrett", "julia garrett")],
+                    rmp_reviews=[], banner=[("julia garrett", "julia-garrett")])
+
+    class Conn:
+        def cursor(self):
+            return cur
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    purge(Conn())
+    assert ("DELETE FROM banner_course_instructors WHERE instructor_key = ANY(%s)"
+            in Recording.executed)
+    assert "DELETE FROM banner_unmatched WHERE instructor_key = ANY(%s)" in Recording.executed
+    assert ("DELETE FROM professor_teaching WHERE professor_slug = ANY(%s)"
+            in Recording.executed)

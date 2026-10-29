@@ -166,7 +166,15 @@
   z-index: 20;
   padding: 120px 24px 60px;
   background-color: #f5f5f5;
+}
+
+/* Clips the oversized, rotated pattern. Kept off .homepage-hero itself so the search
+   suggestions can hang past the hero over the stats banner. */
+.hero-bg-clip {
+  position: absolute;
+  inset: 0;
   overflow: hidden;
+  pointer-events: none;
 }
 
 .hero-bg-pattern {
@@ -496,11 +504,7 @@
   text-decoration: none;
 }
 
-/* position: relative so the mobile override below can hand the tooltip a
-   containing block that spans the section's content width instead of an 18px
-   button — see the @media (max-width: 768px) block. */
 .goat-title-row {
-  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1405,38 +1409,78 @@
     transform: rotate(45deg);
   }
 
-  /* Centring the ranking tooltip on the "?" cannot be kept here. The icon sits
-     wherever the heading's text ends — around x=225 on a 320px screen — so a
-     centred panel wide enough to hold two sentences runs off the right edge,
-     and right-anchoring it to the icon runs off the left instead. There is no
-     fixed offset that survives both, because the overflow direction depends on
-     the title's rendered width.
-     So the anchor moves off the icon: position: static drops the button out of
-     the containing-block chain, .goat-title-row (position: relative) takes over,
-     and the panel grows rightward from the section's content edge, capped at the
-     content width. Both edges are then inside the padding by construction.
-     The arrow goes with it — it can no longer point at the icon, and an arrow
-     aimed at the middle of a heading is worse than none. */
-  .goat-rank-help {
-    position: static;
-  }
-
+  /* A tap opens the ranking sheet instead. The bubble opened downward under the
+     college tabs, and a tap's sticky :hover would leave it showing behind the sheet. */
   .goat-rank-tooltip {
-    top: calc(100% + 8px);
-    left: 0;
-    right: auto;
-    max-width: calc(100vw - 32px); /* .section padding is 16px at this breakpoint */
-    transform: translateY(4px);
-  }
-
-  .goat-rank-help:hover .goat-rank-tooltip,
-  .goat-rank-help:focus-visible .goat-rank-tooltip {
-    transform: translateY(0);
-  }
-
-  .goat-rank-tooltip::before {
     display: none;
   }
+
+  .goat-rank-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 150; /* above the fixed navbar, like the Bookmarks sort sheet */
+  }
+
+  .goat-rank-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 151;
+    padding: 10px 20px calc(24px + env(safe-area-inset-bottom));
+    border-radius: 18px 18px 0 0;
+    background: #fff;
+    font-family: 'Nunito', sans-serif;
+    animation: goatSheetUp 0.22s ease;
+  }
+
+  .goat-rank-sheet::before {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 4px;
+    margin: 0 auto 14px;
+    border-radius: 2px;
+    background: #ddd;
+  }
+
+  .goat-rank-sheet h2 {
+    margin: 0 0 8px;
+    font-size: 1.1rem;
+    font-weight: 900;
+    color: #222;
+  }
+
+  .goat-rank-sheet p {
+    margin: 0 0 18px;
+    font-size: 0.92rem;
+    line-height: 1.5;
+    color: #5c5c5c;
+  }
+
+  .goat-rank-sheet button {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 10px;
+    background: #d6394c;
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .dark .goat-rank-sheet { background: #232323; }
+  .dark .goat-rank-sheet::before { background: #444; }
+  .dark .goat-rank-sheet h2 { color: #e0e0e0; }
+  .dark .goat-rank-sheet p { color: #b0b0b0; }
+}
+
+@keyframes goatSheetUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
 }
 
 /* ==============================

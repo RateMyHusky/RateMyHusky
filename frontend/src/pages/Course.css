@@ -88,23 +88,65 @@
 	z-index: 2;
 }
 
-@media (min-width: 768px) {
-	.course-stats-grid { grid-template-columns: repeat(6, 1fr); }
+/* One row once cards are wide enough that "Typical Class Size" stays on one line. Columns
+   follow the card count, so a course without Banner history doesn't leave empty ones. */
+@media (min-width: 1280px) {
+	.course-stats-grid {
+		grid-template-columns: none;
+		grid-template-rows: repeat(3, auto);
+		grid-auto-flow: column;
+		grid-auto-columns: 1fr;
+	}
 }
 
+/* Each card's value, label and third row are rows of the shared grid, so a label that wraps
+   grows its row for every card and nothing falls out of line. */
 .course-stat-card {
 	background: #fff;
 	border-radius: 16px;
-	padding: 22px 18px 20px;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 6px;
-	min-height: 130px;
+	padding: 21px 18px;
+	display: grid;
+	grid-row: span 3;
+	grid-template-rows: subgrid;
+	grid-template-columns: 100%;
+	justify-items: center;
+	row-gap: 6px;
+	/* Lets a 1fr column stay narrower than an unshrunk term, so FitText has a width to fit. */
+	min-width: 0;
 	box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 	transition: transform 0.2s, box-shadow 0.2s;
 	animation: courseCardIn 0.5s ease both;
 	position: relative;
+}
+
+/* Every card has value, label and this fixed-height third row, so all three line up across
+   the row and each card's padding stays even. */
+.course-stat-extra {
+	height: 20px;
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.course-stat-extra .course-difficulty-bar {
+	align-self: center;
+	margin-top: 0;
+}
+
+.course-stat-hint {
+	font-size: 0.72rem;
+	color: #bbb;
+	font-weight: 600;
+	transition: color 0.2s;
+}
+
+.course-stat-clickable {
+	cursor: pointer;
+}
+
+.course-stat-clickable:hover .course-stat-hint {
+	color: #d6394c;
 }
 
 .course-stat-breakdown {
@@ -164,11 +206,9 @@
 	white-space: nowrap;
 }
 
-/* Line box sized like .course-stat-value's so the label lines up with the number cards. */
+/* Full card width, which FitText shrinks the term to fit. */
 .course-stat-value--text {
-	font-size: clamp(1.3rem, 2vw, 1.9rem);
-	line-height: clamp(1.6rem, 2.5vw, 2.3rem);
-	white-space: normal;
+	justify-self: stretch;
 	text-align: center;
 }
 
@@ -179,7 +219,6 @@
 	letter-spacing: 0.7px;
 	color: #aaa;
 	text-align: center;
-	margin-top: auto;
 }
 
 .course-difficulty-bar {
@@ -617,24 +656,19 @@
 		font-size: 1rem;
 	}
 
-	/* Stats: 3 columns on small screens */
+	/* Stats: 2 columns on small screens */
 	.course-stats-grid {
-		grid-template-columns: repeat(3, 1fr);
+		grid-template-columns: repeat(2, 1fr);
 		gap: 10px;
 	}
 
 	.course-stat-card {
-		padding: 18px 12px 16px;
-		min-height: 105px;
+		padding: 17px 12px;
 	}
 
 	.course-stat-value {
 		font-size: 1.5rem;
 		white-space: normal;
-	}
-
-	.course-stat-value--text {
-		line-height: 1.5rem;
 	}
 
 	/* Top prof cards: 2 columns on small screens */
@@ -703,6 +737,14 @@
 
 .dark .course-stat-label {
 	color: #777;
+}
+
+.dark .course-stat-hint {
+	color: #555;
+}
+
+.dark .course-stat-clickable:hover .course-stat-hint {
+	color: #d6394c;
 }
 
 .dark .course-difficulty-bar {
@@ -854,16 +896,16 @@
 	line-height: 1.55;
 }
 
+/* Rows share one grid so the label column is only as wide as the longest label. */
 .course-catalog-facts {
 	display: grid;
-	gap: 10px;
+	grid-template-columns: max-content 1fr;
+	gap: 10px 16px;
 	margin: 0;
 }
 
 .course-catalog-facts > div {
-	display: grid;
-	grid-template-columns: 120px 1fr;
-	gap: 12px;
+	display: contents;
 }
 
 .course-catalog-facts dt {
@@ -895,9 +937,14 @@
 }
 
 @media (max-width: 600px) {
-	.course-catalog-facts > div {
+	.course-catalog-facts {
 		grid-template-columns: 1fr;
-		gap: 2px;
+		row-gap: 2px;
+	}
+
+	/* Each dt/dd pair is wrapped in its own div, so the gap goes on the next pair's dt. */
+	.course-catalog-facts > div + div dt {
+		margin-top: 8px;
 	}
 }
 
@@ -964,21 +1011,32 @@
 .course-offering-bar {
 	display: flex;
 	gap: 3px;
-	height: 10px;
+	height: 18px;
 }
 
 .course-offering-seg {
 	flex: 1;
-	border-radius: 3px;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+	border-radius: 4px;
 	background: #e2e2e2;
+	color: #6b6b6b;
+	font-size: 0.62rem;
+	font-weight: 700;
+	white-space: nowrap;
 }
 
 .course-offering-seg--ran {
 	background: #1b6d5e;
+	color: #fff;
 }
 
+/* Faint stripes so the year on top stays readable. */
 .course-offering-seg--before {
-	background: repeating-linear-gradient(135deg, #d0d0d0 0 2px, transparent 2px 5px);
+	background: repeating-linear-gradient(135deg, #e2e2e2 0 2px, #f6f6f6 2px 5px);
 }
 
 .course-offering-count,
@@ -992,15 +1050,17 @@
 	margin: 10px 0 0;
 }
 
-.course-offering-note,
-.course-offering-taught {
+.course-offering-note {
 	margin: 0 0 6px;
 	color: #3a3a3a;
 	font-size: 0.9rem;
 }
 
-.course-offering-taught {
-	margin-top: 10px;
+/* Five tiles across leave the segments a few px short of a full year label. */
+@media (min-width: 541px) and (max-width: 640px) {
+	.course-offering-seg {
+		font-size: 0.55rem;
+	}
 }
 
 @media (max-width: 540px) {
@@ -1054,13 +1114,12 @@
 .dark .course-offering-pattern,
 .dark .course-offering-tile-label { color: #e0e0e0; }
 .dark .course-offering-successor,
-.dark .course-offering-note,
-.dark .course-offering-taught { color: #c8c8c8; }
+.dark .course-offering-note { color: #c8c8c8; }
 .dark .course-offering-count,
 .dark .course-offering-caption { color: #8a8a8a; }
 .dark .course-offering-tile { background: #1e1e1e; }
-.dark .course-offering-seg { background: #333; }
-.dark .course-offering-seg--ran { background: #7fd1bd; }
+.dark .course-offering-seg { background: #333; color: #9a9a9a; }
+.dark .course-offering-seg--ran { background: #7fd1bd; color: #10302a; }
 .dark .course-offering-seg--before {
-	background: repeating-linear-gradient(135deg, #4a4a4a 0 2px, transparent 2px 5px);
+	background: repeating-linear-gradient(135deg, #333 0 2px, #1e1e1e 2px 5px);
 }

@@ -29,3 +29,41 @@ export function termSortKey(title: string): number {
 
   return year * 10 + subKey;
 }
+
+const SEASONS = ['spring', 'summer', 'fall'] as const;
+
+/** "Summer 1 2026" / "Summer Full 2026" -> "Summer 2026", short enough for a stat card. */
+export const seasonYear = (label: string) => label.replace(/^Summer (?:1|2|Full) /, 'Summer ');
+
+/**
+ * Reads a Banner term label ("Fall 2026", "Summer 1 2026", "Winter 2027") against today:
+ * "This semester", "Next semester", "Upcoming", "Last semester", "Last summer", "2 years ago".
+ * Summer sessions count as one summer, Winter as spring. Null for a label it can't read.
+ */
+export function relativeTerm(label: string, now = new Date()): string | null {
+  const m = label.match(/^(Fall|Winter|Spring|Summer(?: 1| 2| Full)?) (\d{4})$/);
+  if (!m) return null;
+  const season = m[1].startsWith('Summer') ? 'summer' : m[1] === 'Fall' ? 'fall' : 'spring';
+  const index = (year: number, s: typeof SEASONS[number]) => year * 3 + SEASONS.indexOf(s);
+  const month = now.getMonth();
+  const current = index(now.getFullYear(), month < 4 ? 'spring' : month < 8 ? 'summer' : 'fall');
+  const term = index(Number(m[2]), season);
+  const isSummer = season === 'summer';
+
+  if (term > current) {
+    // The first spring/fall after now, skipping a summer the same way lastSemester does.
+    let nextSemester = current + 1;
+    if (nextSemester % 3 === SEASONS.indexOf('summer')) nextSemester += 1;
+    if (term === nextSemester) return 'Next semester';
+    if (isSummer && term - current < 3) return 'Next summer';
+    return 'Upcoming';
+  }
+  if (term === current) return isSummer ? 'This summer' : 'This semester';
+  // The newest spring/fall before now; summers in between don't count as a semester.
+  let lastSemester = current - 1;
+  if (lastSemester % 3 === SEASONS.indexOf('summer')) lastSemester -= 1;
+  if (term === lastSemester) return 'Last semester';
+  if (isSummer && current - term < 3) return 'Last summer';
+  const years = Math.max(1, Math.floor((current - term) / 3));
+  return years === 1 ? '1 year ago' : `${years} years ago`;
+}

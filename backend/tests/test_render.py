@@ -1047,3 +1047,57 @@ def test_professor_view_marks_courses_without_a_page():
     view = _professor_view(payload, [])
     assert view["courses"] == ["CS3500", "CS9999"]
     assert view["unlinkedCourses"] == ["CS9999"]
+
+
+def test_render_professor_without_ratings(render_client, monkeypatch):
+    import render
+
+    def banner_only_payload(slug):
+        return {
+            "version": 2,
+            "identity": {"slug": "ada-newhire", "name": "Ada Newhire", "department": "Khoury",
+                         "college": "Khoury", "imageUrl": None, "focusX": None, "focusY": None},
+            "summary": {"rating": None, "difficulty": None, "wouldTakeAgainPct": None,
+                        "numRatings": 0, "numComments": 0, "hoursPerWeek": None,
+                        "bySource": {"rmp": {"rating": None, "numRatings": 0}}},
+            "sources": {"rmp": {"available": False, "rating": None, "difficulty": None,
+                                "wouldTakeAgainPct": None, "numRatings": 0, "professorUrl": None,
+                                "ratingDistribution": {}, "gradeDistribution": {}, "reviews": []}},
+            "awards": [],
+            "courses": [{"code": "CS3100", "name": "Program Design and Implementation 2",
+                         "rating": None, "difficulty": None, "numRatings": 0,
+                         "ratingDistribution": None, "terms": ["Spring 2026"],
+                         "lastTerm": "Spring 2026", "hasPage": False}],
+            "lastTaught": "Spring 2026",
+            "redditMentions": [],
+        }
+
+    monkeypatch.setattr(render, "_get_professor_payload", lambda: banner_only_payload, raising=False)
+    resp = render_client.get("/render/professors/ada-newhire")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert re.search(r"<h1>[^<]*Ada Newhire", body)
+    assert "CS3100" in body
+    assert "0.0" not in body
+    assert "ratemyprofessors.com" not in body
+
+
+def test_professor_html_with_no_department_drops_it_without_null_or_double_space():
+    """A Banner-only professor can have a NULL department: the title, description
+    and verdict must not say "null" or leave a gap where the department was."""
+    profile = _base_profile(department=None, avgRating=None, totalRatings=0,
+                            wouldTakeAgainPct=None, difficulty=None, rmpRating=None,
+                            rmpNumRatings=0, rmpDifficulty=None)
+    html = professor_html(profile, [], "https://ratemyhusky.com/professors/x")
+    title = re.search(r"<title>(.*?)</title>", html).group(1)
+    assert title == "Francis Georges Reviews &amp; Ratings — Northeastern"
+    desc = _meta_description(html)
+    assert desc.startswith("Francis Georges, Northeastern professor: no Rate My Professors ratings yet.")
+    assert "Francis Georges is a professor at Northeastern University" in html
+    verdict = re.search(r"Francis Georges is a professor[^<]*", html).group(0)
+    alt = re.search(r'<meta property="og:image:alt" content="(.*?)"', html).group(1)
+    assert alt == "Francis Georges, professor at Northeastern University"
+    assert '"knowsAbout"' not in html                       # no empty JSON-LD field
+    for text in (title, desc, verdict, alt):
+        assert "null" not in text.lower() and "None" not in text
+        assert "  " not in text

@@ -65,3 +65,38 @@ def test_professor_departments_split_on_the_separator(professor_params):
 def test_professor_colleges_split_on_the_separator(professor_params):
     params = professor_params(college="Khoury|CSSH")
     assert "Khoury" in params and "CSSH" in params
+
+
+def test_search_keeps_a_zero_review_professor_whose_name_starts_with_the_query(monkeypatch):
+    """The 100-row cut runs in SQL before Python ranks, so with more substring
+    matches than the cut it must order word-start matches first, not by reviews."""
+    pool = [{"slug": f"s{i}", "name": f"Xlee{i} Smith", "name_key": f"xlee{i} smith",
+             "department": "D", "avg_rating": 4.0, "total_reviews": 50} for i in range(120)]
+    pool.append({"slug": "banner", "name": "Ann Lee", "name_key": "ann lee",
+                 "department": None, "avg_rating": None, "total_reviews": 0})
+
+    def fake_query(sql, params=None):
+        *like, starts, word_starts = params
+        rows = [r for r in pool if all(p.strip("%") in r["name_key"] for p in like)]
+        # Honor the cut the way Postgres would: the ORDER BY decides who survives.
+        assert "ORDER BY (name_key LIKE %s OR name_key LIKE %s) DESC, total_reviews DESC" in sql
+        rows.sort(key=lambda r: (
+            not (r["name_key"].startswith(starts[:-1]) or (" " + starts[:-1]) in " " + r["name_key"]),
+            -r["total_reviews"]))
+        return rows[:100]
+
+    monkeypatch.setattr(server, "query", fake_query)
+    monkeypatch.setattr(server, "_approved_aliases", lambda: {})
+    assert server._professor_search("lee", limit=5)[0]["slug"] == "banner"
+
+
+def test_rated_only_search_filters_before_the_cut(monkeypatch):
+    """The catalog page keeps only rated rows, so it must drop unrated ones in SQL
+    or they fill the 100-row cut and push rated matches out."""
+    seen = []
+    monkeypatch.setattr(server, "query", lambda sql, params=None: seen.append(sql) or [])
+    monkeypatch.setattr(server, "_approved_aliases", lambda: {})
+    server._professor_search("lee", limit=200, rated_only=True)
+    server._professor_search("lee", limit=5)
+    assert "avg_rating IS NOT NULL" in seen[0].split("ORDER BY")[0]
+    assert "avg_rating IS NOT NULL" not in seen[1]

@@ -166,9 +166,12 @@ def test_banner_aliases_are_normalized_like_instructor_keys():
     with a capital or a stray double space can never be hit.
     """
     from banner_api import normalize_instructor_key
+    from prof_aliases import _normalize_name
     for k, v in BANNER_ALIASES.items():
         assert k == normalize_instructor_key(k), f"key not normalized: {k!r}"
-        assert v == normalize_instructor_key(v), f"value not normalized: {v!r}"
+        # A value is a catalog name_key, normalized without the comma flip
+        # ("martin schwarz, jr." is one).
+        assert v == _normalize_name(v), f"value not normalized: {v!r}"
 
 
 def test_banner_aliases_never_map_a_name_to_itself():
@@ -878,6 +881,14 @@ def test_department_subjects_learn_only_from_unambiguous_exact_names():
         "Business": {"FINA": {"wei-wang"}}}
 
 
+def test_department_subjects_skip_banner_only_professors():
+    """A Banner-only professor's department is a guess from these same votes."""
+    index = {"wei wang": [("wei-wang", "wei wang")], "ada park": [("ada-park", "ada park")]}
+    rows = [hist("202610", "FINA2201", "wei wang"), hist("202610", "CHEM1211", "ada park")]
+    assert department_subjects(rows, index, {"wei-wang": "Business", "ada-park": "Business"},
+                               skip={"ada-park"}) == {"Business": {"FINA": {"wei-wang"}}}
+
+
 def test_the_chip_keeps_only_courses_that_belong_to_the_professor():
     """ALIAS_MAP needs its subject to belong outright; on the chip, a course in an
     unrelated subject is dropped and the rest are kept."""
@@ -928,3 +939,46 @@ def test_chip_is_stamped_with_its_oldest_term_scrape():
             {"term_code": "202715", "scraped_at": "2026-09-29 08:00:00"},
             {"term_code": "202630", "scraped_at": "2026-01-01 08:00:00"}]
     assert chip_scraped_at(rows, ["202710", "202715"]).startswith("2026-09-01T08:00:00")
+
+
+def test_a_denied_professor_leaves_every_banner_table(monkeypatch):
+    # The course page names an instructor from instructor_name even with no
+    # catalog row, so the rows themselves have to go, not just the profile link.
+    import match_banner_instructors as m
+    monkeypatch.setattr(m, "is_denied", lambda name: False)
+    monkeypatch.setattr(m, "is_denied_key", lambda key: key == "yvonne leung")
+    rows = [{"instructor_key": "wan yee yvonne leung"},   # Banner's spelling, aliased
+            {"instructor_key": "yvonne leung"},
+            {"instructor_key": "annie witte"}]
+    assert m.drop_denied(rows) == [{"instructor_key": "annie witte"}]
+
+
+def test_the_matcher_drops_denied_instructors_before_building(monkeypatch, tmp_path):
+    import match_banner_instructors as m
+    monkeypatch.setattr(m, "is_denied", lambda name: name == "annie witte")
+    path = str(tmp_path / "stage.db")
+    conn = sqlite3.connect(path)
+    c = conn.cursor()
+    apply_ddl(c)
+    stats = {"section_count": 1, "attributed_sections": 1, "instructor_count": 2}
+    write_term(c, "202630", {"label": "Spring 2026", "season": "Spring",
+                             "season_group": "Spring", "year": 2026,
+                             "track": "Semester", "view_only": False}, None,
+               {"sections": [{"crn": "1", "subject": "CS", "subject_course": "CS3500",
+                              "schedule_type": "Lecture", "enrollment": 30}],
+                "instructors": [{"term_code": "202630", "crn": "1",
+                                 "instructor_key": "annie witte",
+                                 "instructor_name": "Witte, Annie", "is_primary": True},
+                                {"term_code": "202630", "crn": "1",
+                                 "instructor_key": "patrick hurley",
+                                 "instructor_name": "Hurley, Patrick", "is_primary": False}],
+                "stats": stats})
+    conn.commit()
+    conn.close()
+
+    assert m.main(["--local-db", path]) == 0
+    db = sqlite3.connect(path)
+    assert db.execute("SELECT instructor_key FROM banner_course_instructors").fetchall() \
+        == [("patrick hurley",)]
+    assert ("annie witte",) not in db.execute(
+        "SELECT instructor_key FROM banner_unmatched").fetchall()

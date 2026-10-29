@@ -122,7 +122,7 @@ HISTORY = {
                       "fall": [2023, 2024, 2025, 2026], "spring": [2023, 2024, 2025, 2026],
                       "summer1": [], "summer2": [], "summer": []},
     "firstOffered": "Fall 2021", "lastOffered": "Fall 2026", "offeredNow": ["Fall 2026"],
-    "creditHours": "4", "typicalClassSize": 43, "instructorCount": 3,
+    "creditHours": "4", "typicalClassSize": 43,
     "replacedBy": None, "replaces": None,
     "instructors": [
         _inst("olin-guha", "Olin Guha",

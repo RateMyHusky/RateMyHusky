@@ -232,6 +232,21 @@
 	font-weight: 700;
 }
 
+.compare-retry {
+	margin-top: 10px;
+	background: #d6394c;
+	color: #fff;
+	border: none;
+	border-radius: 10px;
+	padding: 8px 16px;
+	font-weight: 800;
+	cursor: pointer;
+}
+
+.compare-retry:hover {
+	background: #b82f40;
+}
+
 /* ---- Profile cards ---- */
 .compare-panels {
 	margin-top: 18px;

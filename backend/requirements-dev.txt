@@ -10,3 +10,5 @@ pytest
 # astype(str)'s handling of NaN, and the suite passed under it anyway because
 # nothing exercises precompute.main(). Lift both pins together, never one.
 pandas>=2.2,<3
+# backend/photo_thumbs.py; pinned to match requirements-data.txt, where the script runs.
+pillow==12.0.0

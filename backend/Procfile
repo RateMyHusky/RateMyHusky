@@ -1,1 +1,1 @@
-web: gunicorn server:app --bind 0.0.0.0:$PORT --preload --workers 1 --threads 8 --limit-request-line 8190
+web: python fetch_ip_data.py; gunicorn server:app --bind 0.0.0.0:$PORT --preload --workers 1 --threads 8 --limit-request-line 8190

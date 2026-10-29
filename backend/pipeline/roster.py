@@ -61,6 +61,20 @@ def resolve_roster(pages, links, professors, is_denied=is_denied_key):
     return new_links, new_professors, counts
 
 
+def recollege(professors):
+    """[(slug, college)] for professors whose stored college is no longer
+    get_college's for their department: a label corrected after they were
+    created. A department COLLEGE_MAP doesn't list is left alone rather than
+    sent to Other, so a key removed or renamed in COLLEGE_MAP leaves its
+    professors on their old college. Pure. run.py applies these to the
+    professors it loads and never writes them back: only the pipeline reads
+    professors.college, so the catalog and every vote see the correction, and
+    the next edit to an existing key is picked up the same way."""
+    looked_up = ((p, get_college(p["department"], None)) for p in professors)
+    return [(p["slug"], college) for p, college in looked_up
+            if college is not None and college != p["college"]]
+
+
 def apply_roster(conn, new_links, new_professors):
     cur = conn.cursor()
     chunk_insert(cur, f"INSERT INTO professors ({', '.join(PROFESSOR_FIELDS)}) VALUES %s "

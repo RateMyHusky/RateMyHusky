@@ -49,6 +49,7 @@ from banner_api import pattern_season, section_label  # noqa: E402
 from banner_history import (academic_year,  # noqa: E402
                             build_course_instructors, build_course_offerings,
                             is_teaching, place, rename_candidates)
+from denylist import is_denied, is_denied_key  # noqa: E402
 from prof_aliases import ALIAS_MAP  # noqa: E402
 
 # One definition of how to reach the database, shared with the loader: sslmode must
@@ -151,6 +152,12 @@ BANNER_ALIASES = {
     # source record, not a field-width cap (16- and 17-char first names exist).
     # ALIAS_MAP already points "sriram rajagopalan" at the same truncated key.
     "sriramasundararajan rajagopalan": "sriramasundarar rajagopalan",
+    # A generational suffix only one side carries. Same subject and department
+    # on both sides (checked 2026-10-19); before these, each got a Banner-only
+    # page of its own.
+    "martin schwarz jr": "martin schwarz, jr.",   # MATH / Mathematics
+    "richard melloni jr": "richard melloni",      # PSYC / Psychology
+    "william lovely iii": "william lovely",       # INTB / Business Administration
 }
 
 
@@ -211,6 +218,7 @@ CREATE TABLE IF NOT EXISTS banner_course_instructors (
     was_primary      BOOLEAN,
     campuses         TEXT,              -- "|"-joined
     methods          TEXT,              -- "|"-joined
+    instructor_keys  TEXT,              -- "|"-joined: every spelling merged into the row
     PRIMARY KEY (subject_course, instructor_key)
 );
 CREATE INDEX IF NOT EXISTS bci_slug ON banner_course_instructors (professor_slug);
@@ -261,6 +269,7 @@ HISTORY_ADDED_COLUMNS = (
     ("banner_course_offerings", "summer2_years", "BIGINT NOT NULL DEFAULT 0"),
     ("banner_course_offerings", "first_term_label", "TEXT"),
     ("banner_course_offerings", "offering_years", "TEXT"),
+    ("banner_course_instructors", "instructor_keys", "TEXT"),
 )
 
 
@@ -293,7 +302,7 @@ COURSE_INSTRUCTOR_COLUMNS = (
     "subject_course", "instructor_key", "instructor_name", "professor_slug",
     "name_key", "match_method", "terms_taught", "sections", "first_term_code",
     "last_term_code", "last_term_label", "recent_terms", "avg_enrollment",
-    "was_primary", "campuses", "methods")
+    "was_primary", "campuses", "methods", "instructor_keys")
 OFFERING_COLUMNS = (
     "subject_course", "subject", "course_title", "first_term_code",
     "last_term_code", "last_term_label", "terms_offered", "pattern",
@@ -330,13 +339,19 @@ def catalog_departments(cur):
     return out
 
 
+def banner_origin_slugs(cur):
+    """Slugs of professors created from Banner alone, not from an RMP page."""
+    cur.execute("SELECT slug FROM professors WHERE origin = 'banner'")
+    return {slug for (slug,) in cur.fetchall()}
+
+
 def subject_of(subject_course):
     """"CHEM1211" -> "CHEM"."""
     m = _SUBJECT_RE.match(subject_course or "")
     return m.group(0).upper() if m else None
 
 
-def department_subjects(instructor_rows, index, departments):
+def department_subjects(instructor_rows, index, departments, skip=frozenset()):
     """{department: {subject: {slugs}}} from exact, unambiguous name matches.
 
     What a department teaches, learned from Banner itself: every professor whose
@@ -344,6 +359,10 @@ def department_subjects(instructor_rows, index, departments):
     they teach to their catalog department. RMP departments ("Business",
     "Engineering") don't map one-to-one onto Banner subjects, so this is learned
     rather than hand-written.
+
+    `skip` is the Banner-only professors (professors.origin = 'banner'). Their
+    department was guessed from this same evidence (pipeline.banner_roster), so
+    counting them would let a guess vouch for itself.
     """
     out = {}
     for r in instructor_rows:
@@ -355,7 +374,7 @@ def department_subjects(instructor_rows, index, departments):
             continue
         slug = hits[0][0]
         dept = departments.get(slug)
-        if dept:
+        if dept and slug not in skip:
             out.setdefault(dept, {}).setdefault(subject, set()).add(slug)
     return out
 
@@ -868,6 +887,22 @@ def read_banner(cur):
     return terms, sections, instructors
 
 
+def is_denied_instructor(key):
+    """Denied as the key itself, as a name, or under its Banner alias. The same
+    test as pipeline.banner_roster.is_denied_banner_key, which imports this
+    module and so cannot be imported by it."""
+    return is_denied_key(key) or is_denied(key) or is_denied_key(BANNER_ALIASES.get(key))
+
+
+def drop_denied(instructors, denied=is_denied_instructor):
+    """Instructor rows minus the professors on the denylist.
+
+    Applied before anything is built, so a denied professor reaches none of the
+    published tables: not the chip, and not a course page's instructor list,
+    which names them from instructor_name even with no catalog row to join."""
+    return [r for r in instructors if not denied(r["instructor_key"])]
+
+
 def read_roster_duplicates(cur):
     """{(term_code, instructor_key)} a term's roster listed more than once."""
     cur.execute("SELECT term_code, instructor_key FROM banner_roster_duplicates")
@@ -932,6 +967,7 @@ def main(argv=None):
     conn.commit()
 
     term_rows, sections, instructors = read_banner(cur)
+    instructors = drop_denied(instructors)
     if not sections:
         print("banner_sections is empty — run load_banner.py first",
               file=sys.stderr)
@@ -941,14 +977,16 @@ def main(argv=None):
     local_catalog = bool(args.local_db) and cur.execute(
         "SELECT 1 FROM sqlite_master WHERE name = 'professors_catalog'").fetchone()
     if args.local_db and not local_catalog:
-        index, departments = {}, {}
+        index, departments, banner_only = {}, {}, set()
         print("local staging file: no professors_catalog, so every instructor is "
               "unmatched — history is built, profile links are not")
     else:
         index = catalog_index(cur)
         departments = catalog_departments(cur)
+        # A staging file's copied catalog has no professors table to read origin from.
+        banner_only = set() if args.local_db else banner_origin_slugs(cur)
     identity = Identity(index, departments,
-                        department_subjects(instructors, index, departments),
+                        department_subjects(instructors, index, departments, banner_only),
                         read_roster_duplicates(cur), subjects_by_term(instructors))
     # The last run's matches, the baseline for the gate. Read before anything
     # is written, so it is always the previous run's count, never this one's.

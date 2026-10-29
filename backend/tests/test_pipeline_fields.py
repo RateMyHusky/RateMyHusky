@@ -28,3 +28,11 @@ def test_names():
     assert name_to_slug("jose garcia") == "jose-garcia"
     assert get_college("Law") == "Law"
     assert get_college(None) == "Other"
+
+
+def test_get_college_ignores_case_whitespace_and_how_the_ampersand_was_stripped():
+    for dept in ("Counseling & Educational Psych", "Counseling amp Educational Psych",
+                 "Counseling  Educational Psych", " counseling &  educational psych ",
+                 "Counseling Amp Educational Psych"):
+        assert get_college(dept) == "Health Sciences"
+    assert get_college("Underwater Basket Weaving", None) is None

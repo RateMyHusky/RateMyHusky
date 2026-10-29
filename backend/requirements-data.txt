@@ -12,3 +12,7 @@ tqdm
 requests
 psycopg2-binary
 python-dotenv
+# Pinned: photo_thumbs.py --refresh compares WebP bytes with the committed copies,
+# and other Pillow/libwebp versions encode differently, rewriting every file.
+# 12.0.0 made the committed copies. Bump it with a full --refresh, in the same commit.
+pillow==12.0.0

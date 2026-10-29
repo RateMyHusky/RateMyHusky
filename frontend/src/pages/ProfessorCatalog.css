@@ -724,17 +724,64 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 12px 18px;
+  padding: 12px 18px 12px 42px;
   border-bottom: 1px solid #f0f0f0;
   cursor: pointer;
   transition: background 0.12s;
   position: relative;
 }
 
-.prof-list-bookmark {
+/* Ribbon hanging from the row's top edge, clear of the list's rounded corner. The button is
+   the bigger transparent hit area; ::before draws the ribbon, which drops down on hover. */
+.prof-list-bookmark.bookmark-btn {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 0;
+  left: 9px;
+  width: 28px;
+  height: 36px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.prof-list-bookmark.bookmark-btn:hover {
+  transform: none;
+}
+
+.prof-list-bookmark.bookmark-btn:focus-visible {
+  outline: 2px solid #d6394c;
+  outline-offset: 2px;
+}
+
+.prof-list-bookmark svg {
+  display: none;
+}
+
+.prof-list-bookmark::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 7px;
+  width: 14px;
+  height: 18px;
+  background: #cfcfcf;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% calc(100% - 5px), 0 100%);
+  transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s;
+}
+
+.prof-list-bookmark.bookmarked::before {
+  background: #d6394c;
+}
+
+/* Hover only where it exists: on touch, :hover sticks after a tap and leaves the ribbon dropped. */
+@media (hover: hover) {
+  .prof-list-bookmark:hover::before {
+    height: 32px;
+    background: #b5b5b5;
+  }
+
+  .prof-list-bookmark.bookmarked:hover::before {
+    background: #b82e3f;
+  }
 }
 
 .prof-list-item:last-child {
@@ -833,7 +880,8 @@
   align-items: center;
   gap: 6px;
   position: absolute;
-  left: 50%;
+  /* Past the middle by the 24px the ribbon added to the row's left padding. */
+  left: calc(50% + 24px);
   top: 50%;
   transform: translate(-50%, -50%);
   white-space: nowrap;
@@ -1416,9 +1464,22 @@
     font-size: 0.55rem;
   }
 
+  /* Room for the ribbon, paid for with a smaller avatar; the rating shifts by the same 14px
+     the text does, so it keeps the spacing it had before the ribbon. */
   .catalog-list .prof-list-item {
-    padding: 14px 12px;
+    padding: 14px 12px 14px 34px;
     min-height: 72px;
+  }
+
+  /* Ends at 34px, where the row's padding does, so a tap on the avatar's edge isn't a bookmark. */
+  .catalog-list .prof-list-bookmark.bookmark-btn {
+    left: 7px;
+    width: 27px;
+  }
+
+  .catalog-list .prof-list-avatar {
+    width: 46px;
+    height: 46px;
   }
 
   .catalog-list .prof-list-name {
@@ -1437,7 +1498,7 @@
   .catalog-list .prof-list-rating-center {
     flex-direction: row;
     flex-wrap: nowrap;
-    left: 55%;
+    left: calc(55% + 14px);
   }
 
   .catalog-list .prof-list-avg-num {
@@ -1664,6 +1725,24 @@
 
 .dark .prof-list-item:hover {
   background: #2d2020;
+}
+
+.dark .prof-list-bookmark.bookmark-btn {
+  background: transparent;
+}
+
+.dark .prof-list-bookmark::before {
+  background: #4a4a4a;
+}
+
+@media (hover: hover) {
+  .dark .prof-list-bookmark:hover::before {
+    background: #5e5e5e;
+  }
+}
+
+.dark .prof-list-bookmark.bookmarked::before {
+  background: #e06070;
 }
 
 .dark .prof-list-item.skeleton {

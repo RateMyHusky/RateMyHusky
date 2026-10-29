@@ -4,6 +4,11 @@ A fake query records every statement, so the round-trip budget and the tables
 touched are pinned alongside the contract's exact key sets.
 """
 
+import uuid
+from datetime import datetime, timezone
+
+import psycopg2.errors
+
 from professor_full import build_payload
 
 CATALOG = {"slug": "olin-guha", "name": "Olin Guha", "name_key": "olin guha",
@@ -49,9 +54,19 @@ SUMMARY_ROWS = [
 ]
 
 
+def srow(**kw):
+    """An accepted survey_ratings row as survey_reviews.fetch_rows returns it."""
+    when = datetime(2026, 10, 20, tzinfo=timezone.utc)
+    return {"id": uuid.uuid4(), "course_code": "CS3500", "term_label": "Fall 2025", "term_enrollment": 40,
+            "terms_in_year": 1, "rating": 5, "comment": "Loved it", "created_at": when, "updated_at": when, **kw}
+
+
 class FakeDB:
-    def __init__(self, catalog=CATALOG, reviews=REVIEWS, summaries=SUMMARY_ROWS):
+    """`survey`: the survey_ratings rows, or an exception the read raises."""
+
+    def __init__(self, catalog=CATALOG, reviews=REVIEWS, summaries=SUMMARY_ROWS, survey=()):
         self.catalog, self.reviews, self.summaries = catalog, reviews, summaries
+        self.survey = survey
         self.calls = []
 
     def query(self, sql, params=None):
@@ -61,6 +76,10 @@ class FakeDB:
             return [dict(r) for r in self.reviews]
         if "from source_summary" in s:
             return [dict(r) for r in self.summaries]
+        if "from survey_ratings" in s:
+            if isinstance(self.survey, Exception):
+                raise self.survey
+            return [dict(r) for r in self.survey]
         if "from banner_course_instructors" in s:
             return []
         raise AssertionError(f"unexpected query: {sql}")
@@ -79,7 +98,7 @@ AWARDS = {"olin guha": [{"award": "University Excellence in Teaching Award", "aw
                           "year": 2023, "yearLabel": "2022\u201323", "sourceUrl": "https://example.edu/awards"}]}
 
 
-def _build(slug="olin-guha", db=None, mentions=MENTIONS, awards=AWARDS, history=None):
+def _build(slug="olin-guha", db=None, mentions=MENTIONS, awards=AWARDS, history=None, review_id=None):
     """`history`: a fake course_history_for. None runs the real one against FakeDB,
     which has no Banner rows."""
     db = db or FakeDB()
@@ -91,6 +110,8 @@ def _build(slug="olin-guha", db=None, mentions=MENTIONS, awards=AWARDS, history=
         return [dict(m) for m in mentions]
 
     extra = {} if history is None else {"course_history_for": history}
+    if review_id is not None:
+        extra["review_id"] = review_id
     data = build_payload(slug, db.query, db.query_one, lambda t: t, fetch_reddit_mentions,
                          awards_for=lambda key: [dict(a) for a in awards.get(key, [])], **extra)
     return data, db, seen
@@ -131,12 +152,31 @@ def test_summary_keys_and_values():
     }
 
 
-def test_sources_holds_rmp_only_with_exact_keys():
+def test_sources_holds_rmp_and_survey_with_exact_keys():
     data, _, _ = _build()
-    assert set(data["sources"]) == {"rmp"}
+    assert set(data["sources"]) == {"rmp", "survey"}
     assert set(data["sources"]["rmp"]) == {
         "available", "rating", "difficulty", "wouldTakeAgainPct", "numRatings",
         "professorUrl", "ratingDistribution", "gradeDistribution", "reviews"}
+
+
+def test_survey_section_present_and_empty_without_ratings():
+    data, _, _ = _build()
+    assert data["sources"]["survey"] == {
+        "available": False, "rating": None, "numRatings": 0, "hoursPerWeek": None,
+        "ratingDistribution": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}, "gradeDistribution": {},
+        "reviews": []}
+
+
+def test_survey_section_from_the_survey_row():
+    survey = {"course_code": "", "source": "survey", "rating": 4.0, "difficulty": None,
+              "would_take_again_pct": None, "num_ratings": 3, "num_comments": 1, "hours_per_week": 8.5,
+              "rating_distribution": {"3": 1, "4": 1, "5": 1}, "grade_distribution": {"A": 2}, "course_name": None}
+    data, _, _ = _build(db=FakeDB(summaries=[*SUMMARY_ROWS, survey]))
+    assert data["sources"]["survey"] == {
+        "available": True, "rating": 4.0, "numRatings": 3, "hoursPerWeek": 8.5,
+        "ratingDistribution": {"1": 0, "2": 0, "3": 1, "4": 1, "5": 1}, "gradeDistribution": {"A": 2},
+        "reviews": []}
 
 
 def test_course_row_keys():
@@ -274,12 +314,68 @@ def test_history_failure_flags_the_payload_so_it_is_not_cached():
         raise RuntimeError("banner down")
 
     data, _, _ = _build(history=broken)
-    assert data["_historyFailed"] is True
+    assert data["_partial"] is True
 
 
 def test_history_success_has_no_failure_flag():
     data, _ = _with_history()
-    assert "_historyFailed" not in data
+    assert "_partial" not in data
+
+
+# ── student reviews ──
+
+def test_survey_reviews_reach_the_payload():
+    data, _, _ = _build(db=FakeDB(survey=[srow(), srow(comment="Hard but fair")]), review_id=lambda u: "abc")
+    assert [r["comment"] for r in data["sources"]["survey"]["reviews"]] == ["Loved it", "Hard but fair"]
+
+
+def test_survey_comments_are_sanitized():
+    db = FakeDB(survey=[srow(comment="<script>x</script>hi")])
+    data = build_payload("olin-guha", db.query, db.query_one, lambda t: t.replace("<script>x</script>", ""),
+                         lambda *a: [], awards_for=lambda k: [], review_id=lambda u: "abc")
+    assert data["sources"]["survey"]["reviews"][0]["comment"] == "hi"
+
+
+def test_no_review_id_means_no_survey_cards():
+    data, _, _ = _build(db=FakeDB(survey=[srow()]))
+    assert data["sources"]["survey"]["reviews"] == []
+
+
+def test_reviews_off_skips_the_survey_read_and_keeps_the_pipeline_count():
+    summaries = [{**r, "num_comments": 8} if r["source"] == "blend" and r["course_code"] == "" else r
+                 for r in SUMMARY_ROWS] + [{**SUMMARY_ROWS[0], "source": "survey", "num_comments": 5}]
+    db = FakeDB(summaries=summaries, survey=[srow(), srow()])
+    data, _, _ = _build(db=db)
+    assert not any("survey_ratings" in sql for sql, _ in db.calls)
+    assert data["summary"]["numComments"] == 8 + len(MENTIONS)
+
+
+def test_num_comments_counts_live_survey_comments_not_the_stale_survey_row():
+    # own rows: blend num_comments 8 (rmp 3 + a stale survey 5), survey num_comments 5; live: 2 comments
+    summaries = [{**r, "num_comments": 8} if r["source"] == "blend" and r["course_code"] == "" else r
+                 for r in SUMMARY_ROWS] + [{**SUMMARY_ROWS[0], "source": "survey", "num_comments": 5}]
+    db = FakeDB(summaries=summaries, survey=[srow(), srow(), srow(comment=None)])
+    data, _, _ = _build(db=db, review_id=lambda u: "abc")
+    assert data["summary"]["numComments"] == 8 - 5 + 2 + len(MENTIONS)
+
+
+def test_missing_survey_table_is_no_reviews_and_stays_cacheable():
+    db = FakeDB(survey=psycopg2.errors.UndefinedTable('relation "survey_ratings" does not exist'))
+    data, _, _ = _build(db=db, review_id=lambda u: "abc")
+    assert data["sources"]["survey"]["reviews"] == []
+    assert "_partial" not in data
+
+
+def test_missing_banner_table_in_the_survey_read_is_a_failure_not_no_reviews():
+    db = FakeDB(survey=psycopg2.errors.UndefinedTable('relation "banner_terms" does not exist'))
+    data, _, _ = _build(db=db, review_id=lambda u: "abc")
+    assert data["_partial"] is True
+
+
+def test_survey_read_failure_flags_the_payload_so_it_is_not_cached(caplog):
+    data, _, _ = _build(db=FakeDB(survey=RuntimeError("boom")), review_id=lambda u: "abc")
+    assert data["_partial"] is True and data["sources"]["survey"]["reviews"] == []
+    assert len([r for r in caplog.records if r.levelname == "ERROR"]) == 1
 
 
 # ── edge cases ──
@@ -299,6 +395,23 @@ def test_unrated_professor_is_all_null():
     assert rmp["available"] is False
     assert (rmp["rating"], rmp["difficulty"], rmp["wouldTakeAgainPct"]) == (None, None, None)
     assert data["courses"] == []
+
+
+def test_banner_only_professor_payload():
+    banner_only = {**CATALOG, "slug": "ada-newhire", "name": "Ada Newhire", "name_key": "ada newhire",
+                   "avg_rating": None, "rmp_rating": None, "num_ratings": 0, "total_reviews": 0,
+                   "would_take_again_pct": None, "difficulty": None, "professor_url": None,
+                   "total_comments": 0}
+    history = [{"code": "CS3100", "name": "Program Design and Implementation 2", "termsTaught": 1,
+                "lastTerm": "Spring 2026", "recentTerms": ["Spring 2026"],
+                "avgClassSize": 100, "hasPage": False}]
+    data, _ = _with_history(history, slug="ada-newhire", db=FakeDB(catalog=banner_only, reviews=[], summaries=[]), mentions=[])
+    assert data["sources"]["rmp"]["available"] is False
+    assert data["sources"]["rmp"]["professorUrl"] is None
+    assert data["summary"]["rating"] is None
+    assert data["summary"]["numRatings"] == 0
+    assert [c["code"] for c in data["courses"]] == ["CS3100"]
+    assert data["lastTaught"] == "Spring 2026"
 
 
 def test_zero_ratings_are_null_not_zero():
@@ -330,9 +443,10 @@ def test_missing_professor_is_none():
 
 # ── round trips ──
 
-def test_at_most_five_statements_and_only_live_tables():
-    _, db, _ = _build()
-    assert len(db.calls) <= 5
+def test_at_most_six_statements_and_only_live_tables():
+    _, db, _ = _build(review_id=lambda u: "abc")
+    assert len(db.calls) <= 6
     tables = " ".join(sql.lower() for sql, _ in db.calls)
-    for table in ("professors_catalog", "rmp_reviews", "source_summary", "banner_course_instructors"):
+    for table in ("professors_catalog", "rmp_reviews", "source_summary", "banner_course_instructors",
+                  "survey_ratings"):
         assert table in tables

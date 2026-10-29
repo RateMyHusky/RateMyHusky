@@ -1,7 +1,7 @@
 flask
 flask-cors
 flask-compress
-flask-limiter
+flask-limiter~=4.1  # deduct_when and the route-first decorator order rely on 4.x
 pyjwt
 requests
 python-dotenv
@@ -12,3 +12,4 @@ onnxruntime
 tokenizers
 huggingface_hub
 numpy
+maxminddb
