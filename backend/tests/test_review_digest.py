@@ -37,6 +37,8 @@ def _main(monkeypatch, held, pending=(0, 0), key="re-test", approved=()):
     def fetch(conn, sql):
         if "FROM survey_ratings" in sql:
             return list(approved) if "agent_decision = 'approve'" in sql else held
+        if "resolved_code" in sql or "resolved_slug" in sql or "professor_aliases" in sql:
+            return []
         return [{"n": pending[0] if "professors" in sql else pending[1]}]
 
     monkeypatch.setattr(review_digest, "connect", lambda: SimpleNamespace(close=lambda: None))
@@ -155,3 +157,39 @@ def test_attack_times_are_printed_in_utc_whatever_the_session_timezone():
     rows = [{**r, "created_at": r["created_at"].astimezone(eastern)} for r in _bomb_rows()]
     _, text = review_digest.build_digest(rows, [], 0, 0, NOW)
     assert "  leena-razzaq: 23 ratings, 2025-04-11 01:00-02:01 UTC" in text
+
+
+def test_agent_course_merges_are_listed():
+    merges = [{"code": "BIO2299", "resolved_code": "BIOL2299", "n": 2},
+              {"code": "ACC1201", "resolved_code": "ACCT1201", "n": 1}]
+    subject, text = review_digest.build_digest([], [], 0, 0, NOW, merges)
+    assert "Agent course merges in the last 24 hours: 2" in text
+    assert "  BIO2299 -> BIOL2299 (2 ratings)" in text
+    assert "  ACC1201 -> ACCT1201 (1 rating)" in text
+    assert review_digest.build_digest([], [], 0, 0, NOW) is None
+
+
+def test_agent_professor_merges_are_listed_without_comment_text():
+    merges = [{"id": "0a1b2c3d-4e5f-6789-abcd-ef0123456789", "resolved_slug": "iraklis-tsekourakis", "n": 1}]
+    subject, text = review_digest.build_digest([], [], 0, 0, NOW, professor_merges=merges)
+    assert "Agent professor merges in the last 24 hours: 1" in text
+    assert "  0a1b2c3d -> iraklis-tsekourakis (1 rating)" in text
+    assert "4e5f" not in text
+    assert subject.endswith("1 agent merge")
+    assert "professor merges" not in review_digest.build_digest([], [], 1, 0, NOW)[1]
+
+
+def test_a_professor_merge_lists_the_ratings_it_held():
+    merges = [{"id": "0a1b2c3d-4e5f-6789-abcd-ef0123456789", "resolved_slug": "christopher-smith", "n": 2, "held": 2}]
+    _, text = review_digest.build_digest([], [], 0, 0, NOW, professor_merges=merges)
+    assert "  0a1b2c3d -> christopher-smith (2 ratings, 2 held)" in text
+
+
+def test_pending_nickname_suggestions_are_listed_and_alone_enough():
+    aliases = [{"id": 12, "alias_key": "herc", "slug": "iraklis-tsekourakis", "source": "comment"}]
+    subject, text = review_digest.build_digest([], [], 0, 0, NOW, aliases=aliases)
+    assert "Nickname suggestions: 1" in text
+    assert subject == "[RateMyHusky] To review: 0 held ratings, 0 new professors, 0 new courses, 1 nickname suggestion"
+    assert "  #12 herc -> iraklis-tsekourakis (comment)" in text
+    assert "Approve with: python review_ratings.py approve-alias ID" in text
+    assert "Nickname suggestions" not in review_digest.build_digest([], [], 1, 0, NOW)[1]

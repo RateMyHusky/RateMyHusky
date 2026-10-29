@@ -1,6 +1,6 @@
 """Review held survey ratings and new professors and courses (rating form, plan 3).
 
-    python review_ratings.py list                       # held ratings, pending professors, pending courses
+    python review_ratings.py list                       # held ratings, pending professors, courses and aliases
     python review_ratings.py approve-rating ID [ID...]  # held -> accepted
     python review_ratings.py reject-rating [--abuse] ID [ID...]  # delete the rating; --abuse also silences its device and IP
     python review_ratings.py remove-comment PUBLIC_ID   # take down a shown comment by the id a report carries
@@ -10,6 +10,8 @@
     python review_ratings.py approve-course ID
     python review_ratings.py merge-course ID CODE
     python review_ratings.py reject-course ID
+    python review_ratings.py approve-alias ID           # pending nickname -> searchable
+    python review_ratings.py reject-alias ID            # keep the row as rejected so the word isn't suggested again
     python review_ratings.py purge-ip                   # clear IP hashes older than 30 days and expired IP flags
 
 Rating ids may be the short id `list` prints. Each run is one transaction: it
@@ -240,6 +242,27 @@ def reject_course(cur, entry_id):
     return reject(cur, COURSE, entry_id)
 
 
+def set_alias_status(cur, alias_id, status):
+    try:
+        alias_id = int(alias_id)
+    except ValueError:
+        raise ReviewError(f"Bad alias id {alias_id!r}") from None
+    cur.execute("UPDATE professor_aliases SET status = %s WHERE id = %s AND status <> %s "
+                "RETURNING alias_key, slug", (status, alias_id, status))
+    row = cur.fetchone()
+    if row is None:
+        raise ReviewError(f"Alias {alias_id} is missing or already {status}")
+    return f"Set alias {clean(row['alias_key'])} for {row['slug']} to {status}"
+
+
+def approve_alias(cur, alias_id):
+    return set_alias_status(cur, alias_id, "approved")
+
+
+def reject_alias(cur, alias_id):
+    return set_alias_status(cur, alias_id, "rejected")
+
+
 def purge_ip(cur):
     def write(sql, params):
         cur.execute(sql, params)
@@ -293,7 +316,7 @@ def list_pending(cur):
               f"same last name: {similar}")
 
     cur.execute(
-        "SELECT c.id, c.code, c.name, count(r.id) AS n, "
+        "SELECT c.id, c.code, c.name, c.agent_decision, c.agent_reason, count(r.id) AS n, "
         "EXISTS (SELECT 1 FROM course_catalog k WHERE k.code = c.code) AS in_catalog "
         "FROM survey_pending_courses c LEFT JOIN survey_ratings r ON r.pending_course_id = c.id "
         "WHERE c.status = 'pending' GROUP BY c.id ORDER BY c.created_at")
@@ -301,8 +324,18 @@ def list_pending(cur):
     print(f"Pending courses ({len(courses)}):")
     for c in courses:
         print(f"  {c['id']}  {clean(c['code'])}  {clean(c['name'])}  {c['n']} rating(s)  "
-              f"{'in' if c['in_catalog'] else 'not in'} course_catalog")
-    return f"{len(held)} held, {len(profs)} pending professors, {len(courses)} pending courses"
+              f"{'in' if c['in_catalog'] else 'not in'} course_catalog  "
+              f"agent: {clean(c['agent_decision'] or '-')}"
+              f"{' (' + clean(c['agent_reason']) + ')' if c['agent_reason'] else ''}")
+
+    cur.execute("SELECT id, alias_key, slug, source FROM professor_aliases "
+                "WHERE status = 'pending' ORDER BY created_at, id")
+    aliases = cur.fetchall()
+    print(f"Pending aliases ({len(aliases)}):")
+    for a in aliases:
+        print(f"  {a['id']}  {clean(a['alias_key'])} -> {clean(a['slug'])}  {clean(a['source'])}")
+    return (f"{len(held)} held, {len(profs)} pending professors, {len(courses)} pending courses, "
+            f"{len(aliases)} pending aliases")
 
 
 def parse_args(argv):
@@ -322,7 +355,8 @@ def parse_args(argv):
         merge = sub.add_parser(name)
         merge.add_argument("id")
         merge.add_argument("target")
-    for name in ("reject-professor", "approve-course", "reject-course", "remove-comment"):
+    for name in ("reject-professor", "approve-course", "reject-course", "remove-comment",
+                 "approve-alias", "reject-alias"):
         sub.add_parser(name).add_argument("id")
     return parser.parse_args(argv)
 
@@ -349,6 +383,7 @@ COMMANDS = {
     "reject-professor": reject_professor, "merge-professor": merge_professor,
     "approve-course": approve_course, "merge-course": merge_course,
     "reject-course": reject_course, "remove-comment": remove_comment,
+    "approve-alias": approve_alias, "reject-alias": reject_alias,
 }
 # Commands that can't change what a page shows; every other one bumps data_version
 # so the site's caches drop pages that show (or no longer show) student reviews.

@@ -52,7 +52,7 @@ ROW = {
 TEST_SECRET = "test-secret-0123456789abcdefghijklmnop"  # gitleaks:allow
 SAMPLE = {"slug": "olin-guha", "code": "CS3500"}
 SKIP = {"/api/auth/google", "/api/auth/google/callback",  # redirect to Google
-        "/api/rate/start", "/api/rate/professors/<slug>"}  # 503 without RATING_SECRET, and they read survey tables
+        "/api/rate/start", "/api/rate/professors/<slug>", "/api/rate/course-suggestions"}  # 503 without RATING_SECRET, and most read survey tables
         # that only exist after the README's survey SQL runs
 EXTRA = ["/api/search?q=olin&type=Professor", "/api/search?q=cs&type=Course",
          "/api/professors-catalog?q=olin", "/api/courses-catalog?sort=rating",

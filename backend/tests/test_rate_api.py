@@ -305,6 +305,26 @@ def test_shared_network_is_exempt_from_the_ip_limit(rate):
             assert server._shared_network() is shared
 
 
+def test_course_suggestions_limit_skips_shared_networks(rate, monkeypatch):
+    server, client, state, ri = rate
+    suggestion_rows(server, monkeypatch)
+    url = "/api/rate/course-suggestions?code=BIO2299"
+    for network, limited in (("campus", False), ("relay", False), ("other", True)):
+        state["network"] = network
+        server.limiter.reset()
+        codes = {client.get(url).status_code for _ in range(31)}
+        assert (429 in codes) is limited
+
+
+def test_course_suggestions_shared_network_keeps_a_600_per_minute_cap(rate, monkeypatch):
+    server, client, state, ri = rate
+    monkeypatch.setattr(server.course_typos, "banner_candidates", lambda *a: [])
+    state["network"] = "campus"
+    server.limiter.reset()
+    codes = [client.get("/api/rate/course-suggestions?code=BIO2299").status_code for _ in range(601)]
+    assert codes[:600] == [200] * 600 and codes[600] == 429
+
+
 def test_network_type_is_looked_up_once_per_submit(rate, monkeypatch):
     server, client, state, ri = rate
     lookups = []
@@ -529,3 +549,61 @@ def test_a_flagged_device_gets_the_accepted_response_byte_for_byte(rate, monkeyp
     (sql, params), = rating_writes(state)
     assert "silent_hold" in params and "held" in params
     assert "silent_hold" not in first_writes[0][1]
+
+
+def suggestion_rows(server, monkeypatch):
+    """alice-smith taught BIOL2299; the Banner catalog also has BIOL2299 and BIOL2300."""
+    banner = {"BIOL2299": "Cell Biology", "BIOL2300": "Genetics"}
+
+    def fake_query(sql, params=None):
+        slug, codes, code, limit = params
+        return sorted(({"code": c, "name": banner[c], "taught": slug == "alice-smith" and c == "BIOL2299"}
+                       for c in codes if c in banner),
+                      key=lambda r: (r["code"] != code, not r["taught"], r["code"]))[:limit]
+
+    monkeypatch.setattr(server, "query", fake_query)
+
+
+def test_course_suggestions_lists_the_professors_near_codes(rate, monkeypatch):
+    server, client, state, ri = rate
+    suggestion_rows(server, monkeypatch)
+    resp = client.get("/api/rate/course-suggestions?code=BIO2299&slug=alice-smith")
+    assert resp.status_code == 200 and resp.headers["Cache-Control"] == "no-store"
+    assert resp.get_json() == {"suggestions": [{"code": "BIOL2299", "name": "Cell Biology"}]}
+
+
+def test_course_suggestions_normalizes_spaces_and_case(rate, monkeypatch):
+    server, client, state, ri = rate
+    suggestion_rows(server, monkeypatch)
+    resp = client.get("/api/rate/course-suggestions?code=bio 2299&slug=alice-smith")
+    assert resp.get_json() == {"suggestions": [{"code": "BIOL2299", "name": "Cell Biology"}]}
+
+
+def test_course_suggestions_without_a_slug_uses_all_banner(rate, monkeypatch):
+    server, client, state, ri = rate
+    suggestion_rows(server, monkeypatch)
+    resp = client.get("/api/rate/course-suggestions?code=BIO2299")
+    assert resp.status_code == 200
+    assert [s["code"] for s in resp.get_json()["suggestions"]] == ["BIOL2299"]
+
+
+def test_course_suggestions_lead_with_a_banner_only_exact_code(rate, monkeypatch):
+    server, client, state, ri = rate
+    suggestion_rows(server, monkeypatch)
+    resp = client.get("/api/rate/course-suggestions?code=BIOL2300")
+    assert [s["code"] for s in resp.get_json()["suggestions"]] == ["BIOL2300"]
+
+
+def test_course_suggestions_for_a_bad_code_is_empty(rate, monkeypatch):
+    server, client, state, ri = rate
+    monkeypatch.setattr(server, "query", lambda sql, params=None: (_ for _ in ()).throw(AssertionError("no query")))
+    for code in ("", "!!", "A" * 40):
+        resp = client.get("/api/rate/course-suggestions", query_string={"code": code})
+        assert resp.status_code == 200 and resp.get_json() == {"suggestions": []}
+
+
+def test_course_suggestions_is_off_with_the_form(rate, monkeypatch):
+    server, client, state, ri = rate
+    monkeypatch.setattr(server, "RATING_SECRET", None)
+    resp = client.get("/api/rate/course-suggestions?code=BIO2299")
+    assert resp.status_code == 503 and resp.get_json() == {"error": server.RATINGS_UNAVAILABLE}

@@ -545,11 +545,13 @@ export type RateSubmitResult = { ok: true; counter: number | null } | { ok: fals
 
 /* The form waits on start, the context and the professor before it shows courses, so a hung request fails like any other. */
 const RATE_WAIT_MS = 10000;
+/* The course name field waits on suggestions, so they get a short wait and no retry. */
+const SUGGEST_WAIT_MS = 3000;
 
 /* AbortSignal.timeout needs Safari 16, so the timer is set by hand. */
-function rateSignal(): AbortSignal {
+function rateSignal(ms = RATE_WAIT_MS): AbortSignal {
   const abort = new AbortController();
-  setTimeout(() => abort.abort(), RATE_WAIT_MS);
+  setTimeout(() => abort.abort(), ms);
   return abort.signal;
 }
 
@@ -579,6 +581,19 @@ export async function fetchRateContext(slug: string, deviceToken: string): Promi
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
+}
+
+/* Near matches for a typed code that isn't a known course. Never blocks the form, so any error is no suggestions. */
+export async function fetchCourseSuggestions(code: string, slug: string | null): Promise<{ code: string; name: string | null }[]> {
+  try {
+    const params = new URLSearchParams({ code });
+    if (slug) params.set("slug", slug);
+    const res = await fetch(`${API_BASE}/api/rate/course-suggestions?${params}`, { signal: rateSignal(SUGGEST_WAIT_MS) });
+    if (!res.ok) return [];
+    return (await res.json()).suggestions;
+  } catch {
+    return [];
+  }
 }
 
 /* status 0 = network failure or the maintenance redirect. */

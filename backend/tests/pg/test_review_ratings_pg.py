@@ -2,6 +2,7 @@
 
 import uuid
 
+import psycopg2.errors
 import psycopg2.extras
 import pytest
 
@@ -12,7 +13,7 @@ from tests.pg.pgutil import rows, truncate
 @pytest.fixture(autouse=True)
 def clean(pg):
     truncate(pg, "survey_ratings", "survey_pending_professors", "professors", "banner_course_instructors",
-             "rating_flags")
+             "rating_flags", "professor_aliases")
 
 
 def insert(pg, slug, pending, updated_at, rating):
@@ -170,3 +171,28 @@ def test_reject_still_deletes_rows_held_by_the_new_reasons(pg):
         review_ratings.reject_rating(cur, near, skew)
     pg.commit()
     assert rows(pg, "SELECT id FROM survey_ratings") == []
+
+
+def test_alias_unique_per_key_and_slug_and_approve_reject_against_the_real_table(pg):
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professor_aliases (alias_key, slug, source) VALUES ('bob', 'robert-smith', 'merge')")
+    pg.commit()
+    with pytest.raises(psycopg2.errors.UniqueViolation):
+        with pg.cursor() as cur:
+            cur.execute("INSERT INTO professor_aliases (alias_key, slug, source) "
+                        "VALUES ('bob', 'robert-smith', 'comment')")
+    pg.rollback()
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professor_aliases (alias_key, slug, source) "
+                    "VALUES ('bob', 'robert-smith', 'comment') ON CONFLICT (alias_key, slug) DO NOTHING")
+    pg.commit()
+    alias_id = rows(pg, "SELECT id FROM professor_aliases")[0]["id"]
+    assert rows(pg, "SELECT status FROM professor_aliases") == [{"status": "pending"}]
+
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        review_ratings.approve_alias(cur, str(alias_id))
+        with pytest.raises(review_ratings.ReviewError):
+            review_ratings.approve_alias(cur, str(alias_id))
+        review_ratings.reject_alias(cur, str(alias_id))
+    pg.commit()
+    assert rows(pg, "SELECT status FROM professor_aliases") == [{"status": "rejected"}]

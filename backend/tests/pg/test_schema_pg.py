@@ -10,8 +10,8 @@ def test_schema_files_apply_to_an_empty_database(pg):
             "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'")}
     assert {"professors_catalog", "course_catalog", "source_summary", "stats_cache",
             "rmp_reviews", "evidence", "evidence_embeddings", "bookmarks",
-            "usage_alerts", "rating_flags"} <= tables
-    assert len(tables) == 36
+            "usage_alerts", "rating_flags", "professor_aliases"} <= tables
+    assert len(tables) == 37
 
 
 def test_identity_columns_match_the_migration(pg):
@@ -20,7 +20,7 @@ def test_identity_columns_match_the_migration(pg):
             "WHERE table_schema = 'public' AND is_identity = 'YES'")}
     assert identity == {
         ("bookmarks", "id"), ("professor_photos", "id"), ("rmp_professors", "id"),
-        ("rmp_reviews", "id"),
+        ("rmp_reviews", "id"), ("professor_aliases", "id"),
     }
 
 

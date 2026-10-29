@@ -46,14 +46,19 @@ def _attack_lines(group):
             f"    python review_ratings.py reject-rating --abuse {' '.join(_short(r) for r in group)}"]
 
 
-def build_digest(held, approved, pending_professors, pending_courses, now):
+def build_digest(held, approved, pending_professors, pending_courses, now, course_merges=(), professor_merges=(), aliases=()):
     """(subject, text), or None when nothing is waiting. Pure."""
-    if not held and not approved and not pending_professors and not pending_courses:
+    if not held and not approved and not pending_professors and not pending_courses and not course_merges \
+            and not professor_merges and not aliases:
         return None
     recent = [r for r in held if r["created_at"] >= now - timedelta(days=1)]
     reasons = Counter(x for r in held for x in (r["hold_reasons"] or "").split(",") if x)
     subject = (f"[RateMyHusky] To review: {_plural(len(held), 'held rating')}, "
                f"{_plural(pending_professors, 'new professor')}, {_plural(pending_courses, 'new course')}")
+    if aliases:
+        subject += f", {_plural(len(aliases), 'nickname suggestion')}"
+    if course_merges or professor_merges:
+        subject += f", {_plural(len(course_merges) + len(professor_merges), 'agent merge')}"
     lines = [f"Held ratings: {len(held)} ({len(recent)} in the last 24 hours)",
              *_counts(reasons)]
     if recent:
@@ -73,6 +78,17 @@ def build_digest(held, approved, pending_professors, pending_courses, now):
         lines += ["", f"Agent approved in the last 24 hours: {len(approved)}",
                   *(f"  {_short(r)} {r['professor_slug'] or 'pending-professor'} {r['course_code'] or '-'} "
                     f"[{', '.join(x for x in (r['hold_reasons'] or '').split(',') if x)}]" for r in approved)]
+    if course_merges:
+        lines += ["", f"Agent course merges in the last 24 hours: {len(course_merges)}",
+                  *(f"  {m['code']} -> {m['resolved_code']} ({_plural(m['n'], 'rating')})" for m in course_merges)]
+    if professor_merges:
+        lines += ["", f"Agent professor merges in the last 24 hours: {len(professor_merges)}",
+                  *(f"  {m['id'][:8]} -> {m['resolved_slug']} ({_plural(m['n'], 'rating')}"
+                    + (f", {m['held']} held" if m.get("held") else "") + ")" for m in professor_merges)]
+    if aliases:
+        lines += ["", f"Nickname suggestions: {len(aliases)}",
+                  *(f"  #{a['id']} {a['alias_key']} -> {a['slug']} ({a['source']})" for a in aliases),
+                  "Approve with: python review_ratings.py approve-alias ID"]
     lines += ["", f"New professors to review: {pending_professors}",
               f"New courses to review: {pending_courses}",
               "", "Review with: python review_ratings.py list"]
@@ -93,9 +109,21 @@ def main(argv=None, now=None):
                                    "ORDER BY agent_reviewed_at")
         professors = fetch_all(conn, "SELECT count(*) AS n FROM survey_pending_professors WHERE status = 'pending'")
         courses = fetch_all(conn, "SELECT count(*) AS n FROM survey_pending_courses WHERE status = 'pending'")
+        # The merge's reason ends "; N rating(s)": moving the ratings cleared their link to the course.
+        merges = fetch_all(conn, "SELECT code, resolved_code, COALESCE(substring(agent_reason from '([0-9]+) rating')::int, 0) "
+                                 "AS n FROM survey_pending_courses WHERE status = 'merged' AND agent_decision = 'merge' "
+                                 "AND agent_reviewed_at >= now() - interval '1 day' ORDER BY agent_reviewed_at")
+        # A professor merge's reason ends "; N rating(s), M held": M are held as unverified_pair.
+        prof_merges = fetch_all(conn, "SELECT id::text AS id, resolved_slug, COALESCE(substring(agent_reason from '([0-9]+) rating')::int, 0) "
+                                      "AS n, COALESCE(substring(agent_reason from '([0-9]+) held')::int, 0) AS held "
+                                      "FROM survey_pending_professors WHERE status = 'merged' AND agent_decision = 'merge' "
+                                      "AND agent_reviewed_at >= now() - interval '1 day' ORDER BY agent_reviewed_at")
+        aliases = fetch_all(conn, "SELECT id, alias_key, slug, source FROM professor_aliases "
+                                  "WHERE status = 'pending' ORDER BY id")
     finally:
         conn.close()
-    digest = build_digest(held, approved, professors[0]["n"], courses[0]["n"], now or datetime.now(timezone.utc))
+    digest = build_digest(held, approved, professors[0]["n"], courses[0]["n"], now or datetime.now(timezone.utc),
+                          merges, prof_merges, aliases)
     if digest is None:
         print("nothing to review")
         return 0
