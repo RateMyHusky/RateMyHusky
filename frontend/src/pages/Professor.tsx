@@ -1177,7 +1177,20 @@ const Professor = () => {
             </div>
             <div className="prof-reddit-list">
               {filteredRedditMentions.length === 0 ? (
-                <p className="prof-no-reviews">No Reddit mentions found for this professor.</p>
+                redditMentions.length === 0 ? (
+                  <p className="prof-no-reviews">No Reddit mentions found for this professor.</p>
+                ) : (
+                  // The search or sentiment filter hid every mention: say so, and offer the way back.
+                  <p className="prof-no-reviews">
+                    No mentions match these filters.{' '}
+                    <button
+                      className="prof-action-link"
+                      onClick={() => { setRedditSearch(''); setRedditSentiment('all'); setVisibleRedditMentions(10); }}
+                    >
+                      Clear filters
+                    </button>
+                  </p>
+                )
               ) : (
                 filteredRedditMentions.slice(0, visibleRedditMentions).map((m, i) => {
                   const redditUrl = safeRedditUrl(m.permalink);
