@@ -20,6 +20,24 @@ import './Course.css';
 const INITIAL_PROFESSORS_VISIBLE = 5;
 const PROFESSORS_VISIBLE_STEP = 5;
 const TOP_PROFESSORS = 10;
+// "Compare top professors": the most-rated who taught the course this recently.
+const COMPARE_PROFESSORS = 3;
+const COMPARE_RECENT_YEARS = 3;
+
+/* Slugs for the course page's Compare button: the most-rated professors (professors[] arrives
+   sorted by rating count) whose last term is within COMPARE_RECENT_YEARS, topped up from the
+   rest when fewer qualify. Only professors with ratings count, since Compare ranks by them. */
+function compareSlugs(professors: { slug: string; numRatings: number; lastTerm: string | null }[], now = new Date()): string[] {
+	const rated = professors.filter((p) => p.slug && p.numRatings > 0);
+	const year = (term: string | null) => Number(term?.match(/\d{4}/)?.[0] ?? 0);
+	const recent = rated.filter((p) => year(p.lastTerm) >= now.getFullYear() - COMPARE_RECENT_YEARS + 1);
+	const picked = recent.slice(0, COMPARE_PROFESSORS);
+	for (const p of rated) {
+		if (picked.length >= COMPARE_PROFESSORS) break;
+		if (!picked.includes(p)) picked.push(p);
+	}
+	return picked.map((p) => p.slug);
+}
 
 /* Display names for summary.bySource keys; an unlisted source shows its key. */
 const SOURCE_LABELS: Record<string, string> = { rmp: 'RMP' };
@@ -98,6 +116,8 @@ const Course = () => {
 	const history = course.history;
 	const recentInstructors = history?.recentInstructors ?? [];
 	const fromPage = { label: `${course.code} – ${course.name}`, url: `/courses/${code}` };
+	const toCompare = compareSlugs(professors);
+	const compareHref = '/compare?' + toCompare.map((slug, i) => `${'abcd'[i]}=${encodeURIComponent(slug)}`).join('&');
 
 	/* Mirrors render.course_html's description exactly (crawler copy and page must agree). */
 	const courseSeoDescription =
@@ -279,8 +299,13 @@ const Course = () => {
 				)}
 
 				<section className="course-panel" ref={professorsRef}>
-					<div className="course-panel-header">
+					<div className="course-panel-header course-panel-header--action">
 						<h2>Professors</h2>
+						{toCompare.length >= 2 && (
+							<Link to={compareHref} className="course-compare-btn">
+								Compare top {toCompare.length}
+							</Link>
+						)}
 					</div>
 					{professors.length === 0 ? (
 						<p className="course-empty">No professor ratings for this course yet.</p>

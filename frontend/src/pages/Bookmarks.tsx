@@ -41,7 +41,16 @@ const BOOKMARK_ICON = (
 
 // Exact copy of the catalog grid card (ProfessorCatalog.tsx:756-824), including
 // the footer stats row the old bookmarks page dropped.
-function ProfCard({ prof, onOpen, onRemove }: { prof: BookmarkedProfessor; onOpen: () => void; onRemove: () => void }) {
+// Compare takes up to four professors (Compare.tsx SLOT_KEYS a–d).
+const COMPARE_MAX = 4;
+
+interface CompareSelect {
+  selected: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}
+
+function ProfCard({ prof, onOpen, onRemove, compare }: { prof: BookmarkedProfessor; onOpen: () => void; onRemove: () => void; compare: CompareSelect }) {
   return (
     <div
       className="prof-card"
@@ -51,6 +60,15 @@ function ProfCard({ prof, onOpen, onRemove }: { prof: BookmarkedProfessor; onOpe
       onKeyDown={e => e.key === 'Enter' && e.target === e.currentTarget && onOpen()}
     >
       <BookmarkButton itemType="professor" itemKey={prof.slug} size="sm" className="prof-card-bookmark" onToggle={onRemove} />
+      <label
+        className={`bm-compare-check${compare.selected ? ' checked' : ''}${compare.disabled ? ' disabled' : ''}`}
+        title={compare.disabled ? `Compare holds ${COMPARE_MAX}` : undefined}
+        onClick={e => e.stopPropagation()}
+        onKeyDown={e => e.stopPropagation()}
+      >
+        <input type="checkbox" checked={compare.selected} disabled={compare.disabled} onChange={compare.onToggle} />
+        Compare
+      </label>
       <div className="prof-card-photo">
         <div className="prof-avatar">
           {prof.imageUrl ? (
@@ -139,6 +157,13 @@ export default function Bookmarks() {
   const { user, loading: authLoading } = useAuth();
   const { bookmarkedProfessors, bookmarkedCourses, loading, toggleBookmark } = useBookmarks();
   const [showSignIn, setShowSignIn] = useState(false);
+  // Professors ticked for Compare, in the order ticked (that order fills slots a–d).
+  const [compareSel, setCompareSel] = useState<string[]>([]);
+  const compareFor = (slug: string): CompareSelect => ({
+    selected: compareSel.includes(slug),
+    disabled: !compareSel.includes(slug) && compareSel.length >= COMPARE_MAX,
+    onToggle: () => setCompareSel(sel => sel.includes(slug) ? sel.filter(s => s !== slug) : [...sel, slug].slice(0, COMPARE_MAX)),
+  });
 
   const [pending, setPending] = useState<{ type: 'professor' | 'course'; key: string; label: string } | null>(null);
   const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -177,6 +202,9 @@ export default function Bookmarks() {
     () => bookmarkedProfessors.filter(p => !(pending?.type === 'professor' && pending.key === p.slug)),
     [bookmarkedProfessors, pending]
   );
+  // A professor removed from bookmarks leaves the Compare selection too.
+  const selectedStillSaved = compareSel.filter(slug => visibleProfessors.some(p => p.slug === slug));
+  if (selectedStillSaved.length !== compareSel.length) setCompareSel(selectedStillSaved);
   const visibleCourses = useMemo(
     () => bookmarkedCourses.filter(c => !(pending?.type === 'course' && pending.key === c.code)),
     [bookmarkedCourses, pending]
@@ -402,7 +430,7 @@ export default function Bookmarks() {
                       ) : (
                         <div className="catalog-grid" ref={gridRef}>
                           {(q ? profs : profs.slice(0, preview)).map(prof => (
-                            <ProfCard key={prof.slug} prof={prof} onOpen={() => navigate(`/professors/${prof.slug}`)} onRemove={() => requestRemove('professor', prof.slug, stripPrefix(prof.name))} />
+                            <ProfCard key={prof.slug} prof={prof} onOpen={() => navigate(`/professors/${prof.slug}`)} onRemove={() => requestRemove('professor', prof.slug, stripPrefix(prof.name))} compare={compareFor(prof.slug)} />
                           ))}
                         </div>
                       )}
@@ -455,7 +483,7 @@ export default function Bookmarks() {
                 <>
                   <div className="catalog-grid" ref={gridRef}>
                     {(q ? profs : profs.slice(0, shownBatches.professors * batch)).map(prof => (
-                      <ProfCard key={prof.slug} prof={prof} onOpen={() => navigate(`/professors/${prof.slug}`)} onRemove={() => requestRemove('professor', prof.slug, stripPrefix(prof.name))} />
+                      <ProfCard key={prof.slug} prof={prof} onOpen={() => navigate(`/professors/${prof.slug}`)} onRemove={() => requestRemove('professor', prof.slug, stripPrefix(prof.name))} compare={compareFor(prof.slug)} />
                     ))}
                   </div>
                   {!q && (
@@ -528,8 +556,24 @@ export default function Bookmarks() {
           </div>
         </>
       )}
+      {compareSel.length > 0 && (
+        <div className="bm-compare-bar" role="region" aria-label="Compare selected professors">
+          <span className="bm-compare-text">
+            {compareSel.length === 1 ? 'Pick at least one more to compare' : `${compareSel.length} professors selected`}
+          </span>
+          <button className="bm-compare-clear" onClick={() => setCompareSel([])}>Clear</button>
+          {compareSel.length >= 2 && (
+            <Link
+              className="bm-compare-go"
+              to={'/compare?' + compareSel.map((slug, i) => `${'abcd'[i]}=${encodeURIComponent(slug)}`).join('&')}
+            >
+              Compare {compareSel.length}
+            </Link>
+          )}
+        </div>
+      )}
       {pending && (
-        <div className="bm-snackbar" role="status">
+        <div className={`bm-snackbar${compareSel.length > 0 ? ' raised' : ''}`} role="status">
           <span className="bm-snackbar-text">Removed {pending.label}</span>
           <button className="bm-undo" onClick={undoRemove}>Undo</button>
         </div>
