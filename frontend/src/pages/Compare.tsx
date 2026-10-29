@@ -5,6 +5,7 @@ import { fetchProfessorFull, fetchSearchSuggestions } from '../api/api';
 import type { ProfessorPage, ProfessorSuggestion } from '../api/api';
 import StarRating from '../components/StarRating';
 import Footer from '../components/Footer';
+import Seo from '../components/Seo';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
 import { useBookmarks } from '../context/BookmarksContext';
 import { stripPrefix } from '../utils/nameUtils';
@@ -226,7 +227,7 @@ function SlotSearch({
 			<input
 				ref={inputRef}
 				className="compare-search"
-				placeholder="Search professor name or department"
+				placeholder="Name or department"
 				value={query}
 				onChange={(e) => setQuery(e.target.value)}
 				onFocus={() => {
@@ -645,6 +646,11 @@ function Compare() {
 
 	return (
 		<>
+			<Seo
+				title="Compare Northeastern Professors | RateMyHusky"
+				description="Compare up to four Northeastern professors side by side: rating, difficulty, and how many students would take them again."
+				canonical="https://ratemyhusky.com/compare"
+			/>
 			<main className="compare-page">
 				<section className="compare-hero">
 					<div className="compare-hero-inner">
@@ -760,7 +766,7 @@ function Compare() {
 					)}
 				</section>
 
-				<section className="compare-metrics">
+				{selectedCount > 0 && <section className="compare-metrics">
 					<div className="compare-table-card">
 						<header className="compare-metrics-header">
 							<h2>Key Comparison Metrics</h2>
@@ -827,7 +833,7 @@ function Compare() {
 							</p>
 						)}
 					</div>
-				</section>
+				</section>}
 
 				{recommendation && (
 					<section className="compare-verdict">
