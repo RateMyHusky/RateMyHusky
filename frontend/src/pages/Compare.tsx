@@ -9,11 +9,12 @@ import { photoThumb, thumbOnError } from '../utils/photoThumb';
 import { useBookmarks } from '../context/BookmarksContext';
 import { stripPrefix } from '../utils/nameUtils';
 
+import { COMPARE_SLOT_KEYS } from '../utils/compareLink';
 import './Compare.css';
 
 /* ---- Slot config ----
    Each slot maps to a URL param: /compare?a=slug&b=slug&c=slug&d=slug */
-const SLOT_KEYS = ['a', 'b', 'c', 'd'] as const;
+const SLOT_KEYS = COMPARE_SLOT_KEYS;
 const SLOT_LABELS = ['A', 'B', 'C', 'D'] as const;
 const MAX_SLOTS = SLOT_KEYS.length;
 const MIN_OPEN_SLOTS = 2; // A and B always show a search box

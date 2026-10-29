@@ -11,6 +11,7 @@ import Footer from '../components/Footer';
 import { getInitials, splitProfName, stripPrefix } from '../utils/nameUtils';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
 import { clearPendingBookmark } from '../utils/pendingBookmark';
+import { COMPARE_MAX, compareHref } from '../utils/compareLink';
 import './ProfessorCatalog.css';
 import './Courses.css';
 import './Bookmarks.css';
@@ -34,17 +35,14 @@ const BOOKMARK_ICON = (
   </svg>
 );
 
-// Exact copy of the catalog grid card (ProfessorCatalog.tsx:756-824), including
-// the footer stats row the old bookmarks page dropped.
-// Compare takes up to four professors (Compare.tsx SLOT_KEYS a–d).
-const COMPARE_MAX = 4;
-
 interface CompareSelect {
   selected: boolean;
   disabled: boolean;
   onToggle: () => void;
 }
 
+// Exact copy of the catalog grid card (ProfessorCatalog.tsx:756-824), including
+// the footer stats row the old bookmarks page dropped.
 function ProfCard({ prof, onOpen, onRemove, compare }: { prof: BookmarkedProfessor; onOpen: () => void; onRemove: () => void; compare: CompareSelect }) {
   return (
     <div
@@ -555,7 +553,7 @@ export default function Bookmarks() {
           {compareSel.length >= 2 && (
             <Link
               className="bm-compare-go"
-              to={'/compare?' + compareSel.map((slug, i) => `${'abcd'[i]}=${encodeURIComponent(slug)}`).join('&')}
+              to={compareHref(compareSel)}
             >
               Compare {compareSel.length}
             </Link>
