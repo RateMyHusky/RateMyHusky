@@ -293,6 +293,8 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // The Enter that commits a Chinese, Japanese or Korean IME composition isn't a submit.
+    if (e.nativeEvent.isComposing) return;
     if (isAsk) {
       if (e.key === 'Enter') {
         e.preventDefault();
