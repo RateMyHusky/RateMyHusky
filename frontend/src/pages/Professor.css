@@ -281,7 +281,7 @@
 .prof-course-row:last-child { border-bottom: none; }
 .prof-course-row:hover { background: #fef8f8; }
 .prof-course-row.selected { background: #fff5f5; border-left: 4px solid #d6394c; padding-left: 24px; }
-.prof-course-row-unrated { cursor: default; }
+.prof-course-row-static { cursor: default; }
 .prof-course-row-main { display: flex; align-items: center; gap: 12px; }
 .prof-course-code { font-weight: 800; font-size: 0.95rem; color: #d6394c; min-width: 100px; flex-shrink: 0; }
 .prof-course-title { flex: 1; font-size: 0.95rem; font-weight: 600; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -291,7 +291,7 @@
 .prof-course-term-more { color: #999; background: #f0f0f0; font-style: italic; cursor: pointer; transition: background 0.15s, color 0.15s; }
 .prof-course-term-more:hover { background: #e4e4e4; color: #d6394c; }
 .prof-course-lower { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 6px; gap: 8px; }
-.prof-course-view { display: flex; flex-shrink: 0; }
+.prof-course-view { display: flex; flex-shrink: 0; margin-left: auto; }
 .prof-course-view-btn { font-size: 0.78rem; font-weight: 700; color: #d6394c; text-decoration: none; padding: 4px 10px; border-radius: 6px; border: 1.5px solid #d6394c; transition: background 0.15s, color 0.15s; }
 .prof-course-view-btn:hover { background: #d6394c; color: #fff; }
 
@@ -460,7 +460,8 @@
   background: #f0f0f0;
   border: 1px solid #e0e0e0;
 }
-.prof-review-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.prof-review-pills { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.prof-review-report { margin-left: auto; font-size: 0.78rem; }
 .prof-review-pill { font-size: 0.78rem; font-weight: 600; color: #888; background: #f5f5f5; padding: 5px 12px; border-radius: 8px; }
 
 /* ═══════════ REDDIT TAB ═══════════ */

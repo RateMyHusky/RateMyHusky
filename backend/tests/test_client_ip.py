@@ -40,7 +40,7 @@ def test_blank_header_treated_as_absent(server_mod, monkeypatch):
         assert server_mod.get_real_ip() == "198.51.100.7"
 
 
-@pytest.mark.parametrize("key", [None, "wrong"])
+@pytest.mark.parametrize("key", [None, "wrong", "ÿ"])
 def test_header_ignored_without_valid_key(server_mod, monkeypatch, key):
     monkeypatch.setattr(server_mod, "PROXY_SECRET", "s3cret")
     headers = {k: v for k, v in HEADERS.items() if k != "X-Proxy-Key"}
@@ -48,3 +48,10 @@ def test_header_ignored_without_valid_key(server_mod, monkeypatch, key):
         headers["X-Proxy-Key"] = key
     with server_mod.app.test_request_context(headers=headers):
         assert server_mod.get_real_ip() == "198.51.100.7"
+
+
+def test_non_ascii_proxy_key_is_a_403_not_a_500(server_mod, monkeypatch):
+    # WSGI decodes headers as latin-1, and compare_digest raises on non-ASCII str.
+    monkeypatch.setattr(server_mod, "PROXY_SECRET", "s3cret")
+    resp = server_mod.app.test_client().get("/api/stats", headers={"X-Proxy-Key": "ÿ"})
+    assert resp.status_code == 403

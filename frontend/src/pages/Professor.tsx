@@ -16,6 +16,7 @@ import { isPinned, pinnedFirst } from '../utils/askPinMatch';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
 import BookmarkButton from '../components/BookmarkButton';
 import FitText from '../components/FitText';
+import { defaultTab, filterByCourses, reportDescription, type ReviewTab } from './professor/studentReviews';
 import neuIcon from '../assets/neu-circle-icon.png';
 import './Professor.css';
 
@@ -154,9 +155,9 @@ const formatReviewDate = (dateStr: string) => {
   });
 };
 
-const GRADE_ORDER = ['A+','A','A-','B+','B','B-','C+','C','C-','D+','D','D-','F','W','WF','P','NP','I'];
+const GRADE_ORDER = ['A','A-','B+','B','B-','C+','C','C-','D+','D','D-','F','W','WF','P','NP','I'];
 const GRADE_COLORS: Record<string, string> = {
-  'A+':'#1a9850','A':'#27ae60','A-':'#66bd63',
+  'A':'#27ae60','A-':'#66bd63',
   'B+':'#a6d96a','B':'#d4e858','B-':'#fee08b',
   'C+':'#fdae61','C':'#f39c12','C-':'#e67e22',
   'D+':'#e74c3c','D':'#d73027','D-':'#c0392b',
@@ -202,6 +203,15 @@ const SOURCE_LABELS: Record<string, string> = { rmp: 'RMP' };
 /* A review's course as the backend groups it (whitespace stripped, uppercased); codes the backend rejects never appear in courses[]. */
 const courseCode = (raw: string) => raw.replace(/\s+/g, '').toUpperCase();
 
+// Links built from scraped data: absolute http(s) only, so a javascript:/data: URL
+// in the data can never become a clickable href.
+const safeHttpUrl = (url: string | null | undefined): string | undefined => {
+  if (!url) return undefined;
+  try {
+    return ['http:', 'https:'].includes(new URL(url).protocol) ? url : undefined;
+  } catch { return undefined; }
+};
+
 const STARS = ['5', '4', '3', '2', '1'] as const;
 const emptyDistribution = (): RatingDistribution => ({ '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 });
 
@@ -243,9 +253,10 @@ const Professor = () => {
   const [redditSentiment, setRedditSentiment] = useState('all');
   const [redditSearch, setRedditSearch] = useState('');
   const [visibleRedditMentions, setVisibleRedditMentions] = useState(10);
-  const [reviewTab, setReviewTab] = useState<'rmp' | 'reddit'>('rmp');
+  const [reviewTab, setReviewTab] = useState<ReviewTab>('rmp');
   const [sortBy, setSortBy] = useState('newest');
   const [visibleReviews, setVisibleReviews] = useState(10);
+  const [visibleStudentReviews, setVisibleStudentReviews] = useState(10);
   const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set());
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [gradesAnimated, setGradesAnimated] = useState(false);
@@ -320,18 +331,31 @@ const Professor = () => {
     setLoadError(null);
     fetchProfessorFull(slug).then((res) => {
       if (cancelled) return;
-      if (res.ok) { setProfile(res.data); setSelectedCourses(new Set()); }
+      if (res.ok) {
+        setProfile(res.data);
+        setSelectedCourses(new Set());
+        // An Ask citation picks its own tab (the pins effect); otherwise open on the first with entries.
+        if (!(location.state as { askPins?: unknown } | null)?.askPins) {
+          setReviewTab(defaultTab({
+            students: RATE_ENABLED ? (res.data.sources.survey.reviews ?? []).length : 0,
+            rmp: res.data.sources.rmp.reviews.filter(r => r.comment?.trim()).length,
+            reddit: res.data.redditMentions.length,
+          }));
+        }
+      }
       else setLoadError(res.status === 404 ? 'not_found' : 'failed');
       setLoading(false);
     });
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- location.state is read once per load, like the pins effect
   }, [slug]);
 
   const reviews = useMemo(() => profile?.sources.rmp.reviews ?? [], [profile]);
   const redditMentions = useMemo(() => profile?.redditMentions ?? [], [profile]);
+  const studentReviews = useMemo(() => profile?.sources.survey.reviews ?? [], [profile]);
   const courses = useMemo(() => profile?.courses ?? [], [profile]);
-  /* Banner-only rows (taught, never rated) have no reviews to filter to. */
-  const ratedCourses = useMemo(() => courses.filter(c => c.numRatings > 0), [courses]);
+  /* With no reviews, every course filter ends at "No reviews yet", so courses aren't clickable. */
+  const canFilter = reviews.length > 0 || studentReviews.length > 0;
 
   /* ── Ask citation pins: switch to the cited source's tab and scroll to reviews ── */
   useEffect(() => {
@@ -358,7 +382,7 @@ const Professor = () => {
     if (pins.askedAt !== pinnedAskedAt.current) {
       pinnedAskedAt.current = pins.askedAt;
       setPinnedSources(pins.sources);
-      const tab: 'rmp' | 'reddit' = pins.clicked.source === 'rmp' ? 'rmp' : 'reddit';
+      const tab: ReviewTab = pins.clicked.source === 'rmp' ? 'rmp' : 'reddit';
       setReviewTab(tab);
     }
 
@@ -392,6 +416,9 @@ const Professor = () => {
   const filteredRmpReviews = useMemo(
     () => deduplicateByText(rmpRatingsInSelection.filter(r => r.comment?.trim()), r => r.comment),
     [rmpRatingsInSelection]);
+
+  const filteredStudentReviews = useMemo(
+    () => filterByCourses(studentReviews, selectedCourses), [studentReviews, selectedCourses]);
 
   /* The cards. Unfiltered: the backend's summary. Filtered: the selected courses[] rows
      combined, weighted by rating count, distributions summed. The per-source hover only
@@ -444,6 +471,11 @@ const Professor = () => {
           counts[g] = (counts[g] || 0) + 1;
         }
       });
+    }
+    // Northeastern has no A+, so fold any into A
+    if (counts['A+']) {
+      counts['A'] = (counts['A'] || 0) + counts['A+'];
+      delete counts['A+'];
     }
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     if (total === 0) return [];
@@ -513,27 +545,31 @@ const Professor = () => {
   const safeRedditUrl = (url: string | null): string | null => {
     if (!url) return null;
     if (url.startsWith('/')) return `https://www.reddit.com${url}`;
-    try {
-      return ['http:', 'https:'].includes(new URL(url).protocol) ? url : null;
-    } catch { return null; }
+    return safeHttpUrl(url) ?? null;
   };
 
   const courseOptions = useMemo(
-    () => [{ value: 'all', label: 'All courses' }, ...ratedCourses.map(c => ({ value: c.code, label: c.code }))],
-    [ratedCourses]);
+    () => [{ value: 'all', label: 'All courses' }, ...courses.map(c => ({ value: c.code, label: c.code }))],
+    [courses]);
 
   const toggleCourse = (code: string) => {
     setSelectedCourses(prev => {
       const next = new Set(prev);
       if (next.has(code)) next.delete(code);
       else next.add(code);
-      /* Picking the last unpicked course is the same as no filter: snap back to it so the
-         stats match "All courses" and the next click filters instead of removing. */
-      return next.size === ratedCourses.length ? new Set() : next;
+      /* Picking every rated course is the same as no filter when no review lacks a course code:
+         snap back to it so the stats match "All courses" and the next click filters instead
+         of removing. Uncoded reviews make it a real filter, so it stays. Banner-only rows
+         (taught, never rated) add nothing, so they don't count. */
+      const rated = courses.filter(c => c.numRatings > 0);
+      const coversAll = rated.length > 0 && rated.every(c => next.has(c.code))
+        && reviews.every(r => r.courseCode !== null && next.has(r.courseCode));
+      return coversAll ? new Set() : next;
     });
   };
 
   useEffect(() => { setVisibleReviews(10); }, [sortBy, reviewTab]);
+  useEffect(() => { setVisibleStudentReviews(10); }, [reviewTab, selectedCourses]);
   // Reset visible reviews when course filter changes, but only if the filtered list got smaller
   useEffect(() => { setVisibleReviews(v => Math.min(v, Math.max(10, filteredRmpReviews.length))); }, [selectedCourses.size, filteredRmpReviews.length]);
 
@@ -566,7 +602,9 @@ const Professor = () => {
   const identity = profile.identity;
   const summary = profile.summary;
   const rmp = profile.sources.rmp;
-  const noRatings = summary.numRatings === 0;
+  // A selection of courses no one has rated has nothing to chart either.
+  const noRatings = stats.numRatings === 0;
+  const rmpUrl = safeHttpUrl(rmp.professorUrl);
   // `?? []`: a payload cached before awards shipped has no key.
   const awards = profile.awards ?? [];
 
@@ -595,7 +633,7 @@ const Professor = () => {
       ...(identity.department ? { knowsAbout: identity.department } : {}),
       url: profCanonical,
       ...(identity.imageUrl ? { image: identity.imageUrl } : {}),
-      ...(rmp.professorUrl ? { sameAs: [rmp.professorUrl] } : {}),
+      ...(rmpUrl ? { sameAs: [rmpUrl] } : {}),
       ...(awards.length ? { award: awards.map(a => `${a.award}, ${a.awardingBody} (${a.yearLabel})`) } : {}),
       // schema.org Person does not support aggregateRating (Google rejects it
       // as an invalid object type in Rich Results), so it is intentionally omitted.
@@ -621,8 +659,8 @@ const Professor = () => {
     return (
     <div
       key={c.code}
-      className={`prof-course-row ${unrated ? 'prof-course-row-unrated' : selectedCourses.has(c.code) ? 'selected' : ''}`}
-      onClick={unrated ? undefined : () => toggleCourse(c.code)}
+      className={`prof-course-row ${!canFilter ? 'prof-course-row-static' : selectedCourses.has(c.code) ? 'selected' : ''}`}
+      onClick={canFilter ? () => toggleCourse(c.code) : undefined}
     >
       <div className="prof-course-row-main">
         <span className="prof-course-code">{c.code}</span>
@@ -751,7 +789,7 @@ const Professor = () => {
                   <li key={a.award}>
                     <a
                       className="prof-award"
-                      href={a.sourceUrl}
+                      href={safeHttpUrl(a.sourceUrl)}
                       target="_blank"
                       rel="noopener noreferrer"
                       title={`${a.award}, ${a.awardingBody}, ${years.join(', ')}. Opens the latest announcement.`}
@@ -863,8 +901,8 @@ const Professor = () => {
         >
           Compare
         </Link>
-        {rmp.professorUrl && (
-          <a href={rmp.professorUrl} target="_blank" rel="noreferrer" className="prof-rmp-btn">
+        {rmpUrl && (
+          <a href={rmpUrl} target="_blank" rel="noreferrer" className="prof-rmp-btn">
             View on RMP →
           </a>
         )}
@@ -922,7 +960,7 @@ const Professor = () => {
             <h2 className="prof-section-title">Courses Taught</h2>
             <div className="prof-section-actions">
               {unfiltered
-                ? (ratedCourses.length > 1 && <span className="prof-section-hint">Click a course to filter reviews</span>)
+                ? (canFilter && courses.length > 1 && <span className="prof-section-hint">Click a course to filter reviews</span>)
                 : <button className="prof-action-link" onClick={() => setSelectedCourses(new Set())}>Show all courses</button>}
             </div>
           </div>
@@ -959,6 +997,12 @@ const Professor = () => {
                 visibility: reviewPillStyle.opacity === 0 ? 'hidden' : 'visible' 
               }} 
             />
+            {RATE_ENABLED && (
+              <button className={`prof-review-tab ${reviewTab === 'students' ? 'active' : ''}`} onClick={() => setReviewTab('students')}>
+                <span className="prof-review-tab-full">RateMyHusky ({filteredStudentReviews.length})</span>
+                <span className="prof-review-tab-short">RateMyHusky ({filteredStudentReviews.length})</span>
+              </button>
+            )}
             <button className={`prof-review-tab ${reviewTab === 'rmp' ? 'active' : ''}`} onClick={() => setReviewTab('rmp')}>
               <span className="prof-review-tab-full">RMP reviews ({filteredRmpReviews.length})</span>
               <span className="prof-review-tab-short">RMP ({filteredRmpReviews.length})</span>
@@ -970,10 +1014,74 @@ const Professor = () => {
           </div>
         </div>
 
+        {reviewTab === 'students' && (
+          <>
+            {canFilter && courses.length > 1 && (
+              <div className="prof-reviews-filters">
+                <Dropdown
+                  className="feedback-dropdown"
+                  options={courseOptions}
+                  value={unfiltered ? 'all' : selectedCourses.size === 1 ? [...selectedCourses][0] : ''}
+                  onChange={v => setSelectedCourses(v === 'all' ? new Set() : new Set([v]))}
+                  placeholder={`${selectedCourses.size} courses`}
+                />
+              </div>
+            )}
+            {!unfiltered && (
+              <div className="prof-active-filter">
+                Showing {filteredStudentReviews.length} review{filteredStudentReviews.length === 1 ? '' : 's'} for <strong>{selectedLabel}</strong>
+                <button className="prof-action-link" onClick={() => setSelectedCourses(new Set())}>Show all</button>
+              </div>
+            )}
+            <div className="prof-reviews-list">
+              {filteredStudentReviews.length === 0 ? (
+                <p className="prof-no-reviews">
+                  {studentReviews.length === 0 ? 'No RateMyHusky reviews yet.' : 'No reviews match current filters.'}
+                </p>
+              ) : (
+                filteredStudentReviews.slice(0, visibleStudentReviews).map(r => (
+                  <div key={r.id} id={`review-${r.id}`} className="prof-review-card" style={{ borderLeftColor: r.rating >= 4 ? '#27ae60' : r.rating >= 3 ? '#f39c12' : '#e74c3c' }}>
+                    <div className="prof-review-top">
+                      <div className="prof-review-ratings">
+                        <div className="prof-review-rating-item">
+                          <span className="prof-review-rating-label">Quality</span>
+                          <span className="prof-review-rating-value" data-score={String(r.rating)}>{r.rating}</span>
+                        </div>
+                      </div>
+                      <div className="prof-review-meta">
+                        {r.course && <span className="prof-review-course">{courseCode(r.course)}</span>}
+                        {r.when && <span className="prof-review-date">{r.when}</span>}
+                      </div>
+                    </div>
+                    <p className="prof-review-comment">{r.comment}</p>
+                    <div className="prof-review-bottom">
+                      <div className="prof-review-pills">
+                        <button
+                          className="prof-action-link prof-review-report"
+                          onClick={() => window.dispatchEvent(new CustomEvent('open-feedback', {
+                            detail: { type: 'reviewreport', description: reportDescription(identity.slug, r.id) },
+                          }))}
+                        >
+                          Report
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            {visibleStudentReviews < filteredStudentReviews.length && (
+              <button className="prof-load-more" onClick={() => setVisibleStudentReviews(v => v + 10)}>
+                Load More
+              </button>
+            )}
+          </>
+        )}
+
         {reviewTab === 'rmp' && (
           <>
             <div className="prof-reviews-filters">
-              {ratedCourses.length > 1 && (
+              {canFilter && courses.length > 1 && (
                 <Dropdown
                   className="feedback-dropdown"
                   options={courseOptions}
@@ -992,7 +1100,7 @@ const Professor = () => {
             )}
             <div className="prof-reviews-list">
               {sortedReviews.length === 0 ? (
-                <p className="prof-no-reviews">{reviews.length === 0 ? 'No reviews yet.' : 'No reviews match current filters.'}</p>
+                <p className="prof-no-reviews">{reviews.length === 0 ? 'No reviews yet.' : unfiltered ? 'No reviews match current filters.' : `No written reviews for ${selectedLabel} yet.`}</p>
               ) : (
                 sortedReviews.slice(0, visibleReviews).map((r, i) => (
                   <div key={i} className={`prof-review-card ${isPinned(r.comment || '', pinSnippets.rmp) ? 'is-ask-pinned' : ''}`} style={{ borderLeftColor: r.quality >= 4 ? '#27ae60' : r.quality >= 3 ? '#f39c12' : '#e74c3c' }}>
@@ -1023,7 +1131,7 @@ const Professor = () => {
                         </div>
                       )}
                       <div className="prof-review-pills">
-                        {r.grade && r.grade !== 'N/A' && <span className="prof-review-pill">Grade: {r.grade}</span>}
+                        {r.grade && r.grade !== 'N/A' && <span className="prof-review-pill">Grade: {r.grade === 'A+' ? 'A' : r.grade}</span>}
                         {r.attendance && r.attendance !== 'N/A' && <span className="prof-review-pill">Attendance: {r.attendance === 'true' || r.attendance === 'Mandatory' ? 'Mandatory' : 'Not Mandatory'}</span>}
                         {r.textbook && r.textbook !== 'N/A' && <span className="prof-review-pill">Textbook: {r.textbook === 'true' || r.textbook === 'Yes' ? 'Yes' : 'No'}</span>}
                         {r.online_class && r.online_class !== 'N/A' && <span className="prof-review-pill">{r.online_class === 'true' || r.online_class === 'Yes' ? 'Online' : 'In-Person'}</span>}

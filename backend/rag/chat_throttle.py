@@ -6,6 +6,9 @@ from datetime import datetime, timezone, timedelta
 PER_KEY_DAILY = 80
 SAFE_THRESHOLD = 0.85
 CONSTRAINED_SESSION_CAP = 3
+# Applies at all times, so a handful of accounts can't spend the shared daily
+# budget before the 85% threshold switches the tighter cap on.
+SESSION_DAILY_CAP = 20
 
 # Per-minute (TPM) limits — the real concurrency bottleneck. gpt-oss-120b free tier = 8K tokens/min
 # per key (confirmed from the Groq dashboard). Each answered question costs ~2500 tokens end-to-end
@@ -123,8 +126,8 @@ def global_budget_hit(query_one_fn, num_keys, today_count_memo=None):
         return False
 
 def session_allowed(session_token, query_one_fn, num_keys, now=None, today_count_memo=None):
-    if not is_constrained(query_one_fn, num_keys, now, today_count_memo):
-        return True, None
+    cap = (CONSTRAINED_SESSION_CAP if is_constrained(query_one_fn, num_keys, now, today_count_memo)
+           else SESSION_DAILY_CAP)
     # Issue 19: this is a per-DAY cap (matches the "today's question limit" banner),
     # not the 60s window it used to check — and it must count cache hits too (Issue 7's
     # 'ok_cached' status), since those are still successful answers from the user's POV.
@@ -133,7 +136,7 @@ def session_allowed(session_token, query_one_fn, num_keys, now=None, today_count
         "WHERE session_token = %s AND created_at >= date_trunc('day', now()) "
         "AND result_status = ANY(%s)",
         (session_token, ["ok", "ok_cached"]))
-    if ((row or {}).get("c", 0) or 0) >= CONSTRAINED_SESSION_CAP:
+    if ((row or {}).get("c", 0) or 0) >= cap:
         return False, "rate_limited"
     return True, None
 

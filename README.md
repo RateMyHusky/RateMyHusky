@@ -170,6 +170,9 @@ GROQ_API_KEYS=<key1>,<key2>
 # Optional — student rating form. The rating routes return 503 until
 # RATING_SECRET (at least 32 characters) is set.
 RATING_SECRET=<generate-with-openssl-rand-hex-32>
+# Professor pages show /rate comments only when true. Turn on with the
+# frontend's RATE_ENABLED at launch.
+SHOW_STUDENT_REVIEWS=false
 IPINFO_TOKEN=<ipinfo-token-for-the-ip-data-fetch-script>
 IP_DATA_DIR=/tmp/ipdata
 

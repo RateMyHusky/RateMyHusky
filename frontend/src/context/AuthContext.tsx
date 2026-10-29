@@ -4,6 +4,7 @@ import { maintenanceGuard } from '../api/api';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const TOKEN_KEY = 'auth_token';
+const ME_RETRY_MS = 5000;
 
 interface User {
   email: string;
@@ -37,38 +38,73 @@ function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+// The redirect sign-in returns its token in the URL fragment. Only accept one this
+// tab asked for: otherwise a link carrying someone else's token would silently sign
+// the visitor into that account (and their bookmarks and Ask questions would land in it).
+const PENDING_KEY = 'auth_redirect_started';
+const PENDING_MAX_AGE_MS = 15 * 60 * 1000;
+
+function startRedirectSignIn(returnTo: string) {
+  try {
+    sessionStorage.setItem(PENDING_KEY, String(Date.now()));
+  } catch {
+    // storage blocked: the returning token will be ignored and the user stays signed out
+  }
+  window.location.href = `${API_BASE}/api/auth/google?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+function takeRedirectSignIn(): boolean {
+  try {
+    const started = Number(sessionStorage.getItem(PENDING_KEY));
+    sessionStorage.removeItem(PENDING_KEY);
+    return Number.isFinite(started) && started > 0 && Date.now() - started < PENDING_MAX_AGE_MS;
+  } catch {
+    return false;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const popupRef = useRef<Window | null>(null);
 
-  const fetchUser = useCallback(() => {
+  const fetchUser = useCallback(function check(retry = true): Promise<void> {
     const token = getStoredToken();
     if (!token) {
       setUser(null);
       return Promise.resolve();
     }
+    // A 429 (campus NAT shares one IP's limit), a 5xx or a dropped request says
+    // nothing about the token: keep it and the current user, and try once more.
+    const transient = () => {
+      if (retry) setTimeout(() => check(false), ME_RETRY_MS);
+    };
     return fetch(`${API_BASE}/api/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(res => {
         // Maintenance redirect: tab is navigating away, keep the token.
         if (maintenanceGuard(res)) return undefined;
-        return res.ok ? res.json() : null;
+        if (res.status === 401) return null;
+        if (!res.ok) {
+          transient();
+          return undefined;
+        }
+        return res.json();
       })
       .then(data => {
-        if (data === undefined) return;
+        // Another tab changed the token while this was in flight; the check that
+        // change started will answer for the new one.
+        if (data === undefined || getStoredToken() !== token) return;
         if (data) {
           setUser(data);
         } else {
+          // Clearing fires a storage event that signs out every tab: only for a rejected token.
           clearToken();
           setUser(null);
         }
       })
-      .catch(() => {
-        clearToken();
-        setUser(null);
-      });
+      .catch(transient);
   }, []);
 
   // Check for token in URL fragment (mobile redirect flow)
@@ -76,10 +112,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const hash = window.location.hash;
     if (hash.includes('auth_token=')) {
       const token = hash.split('auth_token=')[1]?.split('&')[0];
-      if (token) {
-        storeToken(token);
-        window.history.replaceState(null, '', window.location.pathname + window.location.search);
-      }
+      if (token && takeRedirectSignIn()) storeToken(token);
+      // Strip the token from the URL either way so it isn't left in history.
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
     }
     // Handle auth errors from backend redirect
     const params = new URLSearchParams(window.location.search);
@@ -115,12 +150,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('message', handler);
   }, [fetchUser]);
 
+  // The token is shared by every tab, so a sign-in or sign-out in one tab updates
+  // the others instead of leaving them showing the old account.
+  useEffect(() => {
+    const handler = (e: StorageEvent) => {
+      if (e.key === TOKEN_KEY || e.key === null) fetchUser();
+    };
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
+  }, [fetchUser]);
+
   const login = useCallback(() => {
     const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
     const returnTo = window.location.pathname + window.location.search;
 
     if (isMobile) {
-      window.location.href = `${API_BASE}/api/auth/google?returnTo=${encodeURIComponent(returnTo)}`;
+      startRedirectSignIn(returnTo);
       return;
     }
 
@@ -146,7 +191,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }, 500);
     } else {
-      window.location.href = `${API_BASE}/api/auth/google?returnTo=${encodeURIComponent(returnTo)}`;
+      startRedirectSignIn(returnTo);
     }
   }, [fetchUser]);
 

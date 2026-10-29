@@ -8,6 +8,7 @@ Usage:
   python maintenance.py -on -10        # enable, ~10 minutes
   python maintenance.py -on -45m       # enable, ~45 minutes
   python maintenance.py -on -2h        # enable, ~2 hours
+  python maintenance.py -closed        # enable with the farewell letter
   python maintenance.py -off           # disable
   python maintenance.py -invite ben    # mint a 7-day bypass link for "ben"
   python maintenance.py -invite ben 30 # ... valid 30 days
@@ -37,6 +38,7 @@ MAINT_CONFIG = os.path.join(ROOT, "frontend", "maintenance.config.json")
 MAINTENANCE_HTML = os.path.join(ROOT, "frontend", "public", "maintenance.html")
 
 ENDS_AT_PATTERN = r"(var MAINTENANCE_ENDS_AT\s*=\s*)(?:null|\d+)(;)"
+MODE_PATTERN = r'(var MAINTENANCE_MODE\s*=\s*)"(?:maintenance|closed)"(;)'
 
 
 def load_env_key(name: str) -> str:
@@ -60,20 +62,28 @@ def render_config(on: bool) -> str:
     return json.dumps({"on": on}, indent=2) + "\n"
 
 
-def render_maintenance_html(ends_at_ms) -> str:
+def render_maintenance_html(ends_at_ms, mode) -> str:
     with open(MAINTENANCE_HTML) as f:
         content = f.read()
 
-    if len(re.findall(ENDS_AT_PATTERN, content)) != 1:
-        raise RuntimeError(
-            "Invalid frontend/public/maintenance.html: expected exactly one "
-            "MAINTENANCE_ENDS_AT assignment. No files were changed."
-        )
+    for name, pattern in (("MAINTENANCE_ENDS_AT", ENDS_AT_PATTERN),
+                          ("MAINTENANCE_MODE", MODE_PATTERN)):
+        if len(re.findall(pattern, content)) != 1:
+            raise RuntimeError(
+                "Invalid frontend/public/maintenance.html: expected exactly one "
+                f"{name} assignment. No files were changed."
+            )
 
     value = "null" if ends_at_ms is None else str(ends_at_ms)
-    return re.sub(
+    content = re.sub(
         ENDS_AT_PATTERN,
         lambda m: f"{m.group(1)}{value}{m.group(2)}",
+        content,
+        count=1,
+    )
+    return re.sub(
+        MODE_PATTERN,
+        lambda m: f'{m.group(1)}"{mode}"{m.group(2)}',
         content,
         count=1,
     )
@@ -129,17 +139,19 @@ def genkey():
           "the service. Set Vercel first, deploy, then Railway.")
 
 
-def toggle(on: bool, ends_at):
+def toggle(on: bool, ends_at, mode="maintenance"):
     # Render both files before writing either, so a validation error in one
     # never leaves the other half-updated.
     new_config = render_config(on)
-    new_html = render_maintenance_html(ends_at)
+    new_html = render_maintenance_html(ends_at, mode)
     with open(MAINT_CONFIG, "w") as f:
         f.write(new_config)
     with open(MAINTENANCE_HTML, "w") as f:
         f.write(new_html)
 
-    if on:
+    if mode == "closed":
+        print("[maintenance] ON  (closed: farewell letter)")
+    elif on:
         if ends_at is not None:
             eta = datetime.fromtimestamp(ends_at / 1000).strftime("%I:%M %p")
             print(f"[maintenance] ON  (countdown until ~{eta.lstrip('0')})")
@@ -172,6 +184,11 @@ def main():
             minutes = parse_minutes(args[1])
             ends_at = int(time.time() * 1000) + minutes * 60_000
         toggle(True, ends_at)
+
+    elif args[0] == "-closed":
+        if len(args) > 1:
+            raise SystemExit("-closed doesn't take a time; it never counts down.")
+        toggle(True, None, "closed")
 
     elif args[0] == "-off":
         toggle(False, None)

@@ -25,6 +25,8 @@ LIVE_TABLES = {
     "professors", "rmp_links", "source_summary", "catalog_courses", "catalog_nupath",
     "professor_tags",
 }
+# survey_ratings stays out on purpose: the professor page reads it live, and a
+# database without it yet must still serve the page (professor_full._survey).
 _TABLE_REF = re.compile(r"\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)", re.IGNORECASE)
 
 ROW = {
@@ -50,7 +52,7 @@ ROW = {
 TEST_SECRET = "test-secret-0123456789abcdefghijklmnop"  # gitleaks:allow
 SAMPLE = {"slug": "olin-guha", "code": "CS3500"}
 SKIP = {"/api/auth/google", "/api/auth/google/callback",  # redirect to Google
-        "/api/rate/start", "/api/rate/professors/<slug>"}  # 503 without RATING_SECRET, and they read survey tables
+        "/api/rate/start", "/api/rate/professors/<slug>", "/api/rate/course-suggestions"}  # 503 without RATING_SECRET, and most read survey tables
         # that only exist after the README's survey SQL runs
 EXTRA = ["/api/search?q=olin&type=Professor", "/api/search?q=cs&type=Course",
          "/api/professors-catalog?q=olin", "/api/courses-catalog?sort=rating",
@@ -93,6 +95,7 @@ def _get_paths():
 
 def test_no_route_errors_on_the_live_tables(client):
     token = jwt.encode({"sub": "u1", "email": "t@husky.neu.edu", "name": "T",
+                        "iss": "ratemyhusky", "aud": "ratemyhusky-web",
                         "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)},
                        TEST_SECRET, algorithm="HS256")
     failures = []

@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { fetchProfessorFull, fetchRateContext, startRating, submitRating } from '../api/api';
-import type { ProfessorPage, RatePairSummary, RateProfessorContext, RateStart, RateSubmission } from '../api/api';
+import { fetchRateContext, fetchRateProfessor, startRating, submitRating } from '../api/api';
+import type { ProfessorPage, RatedCourse, RateStart, RateSubmission } from '../api/api';
 import { useTurnstile } from './rate/useTurnstile';
 import { WhoStep, NewProfessorStep } from './rate/WhoStep';
 import { CourseStep, OtherCourseStep } from './rate/CourseStep';
@@ -9,16 +9,18 @@ import { TermStep, OtherTermStep } from './rate/TermStep';
 import { CommentStep } from './rate/CommentStep';
 import { ThanksStep } from './rate/ThanksStep';
 import { Celebration } from './rate/Celebration';
-import { useMediaQuery } from './rate/useMediaQuery';
 import { ChoiceGroup, StepFoot } from './rate/ChoiceGroup';
-import { SidePanel } from './rate/SidePanel';
+import { ProgressBar } from './rate/ProgressBar';
+import { useMediaQuery } from './rate/useMediaQuery';
 import type { ChoiceOption } from './rate/ChoiceGroup';
 import {
-  GRADES, HOURS, OVERALL, QUESTION_COUNT, answer, buildSubmission, contextChip, editScreen, firstStep, lastName, nextStep,
-  prefillCourse, prevStep, progressIndex, withMyRating,
+  DIFFICULTY, GRADES, HOURS, OVERALL, answer, buildSubmission, contextTags, courseGroups, firstStep, formatCode,
+  lastName, nextStep, pickCourse, prefillCourse, prevStep, progressIndex, toRateCourse,
 } from './rate/rateFlow';
 import type { Answers, RateCourse, RateProfessor, StepId } from './rate/rateFlow';
 import './Rate.css';
+
+const PICK_DELAY_MS = 200;
 
 const DEVICE_KEY = 'rmh_device';
 
@@ -48,15 +50,10 @@ const FAILURE_MESSAGES: Record<number, string> = {
 const TOKEN_WAIT_MS = 15000;
 const NETWORK_MESSAGE = "Couldn't send. Check your connection and try again.";
 
-// What a pair with no ratings from any source looks like.
-const NO_DATA: RatePairSummary = {
-  rating: null, numRatings: 0, hoursPerWeek: null, hoursCount: 0, gradeDistribution: {}, gradeCount: 0,
-};
-
 const gradeAria = (g: string) => `Grade ${g.replace('+', ' plus').replace('-', ' minus')}`;
 
 const toRateCourses = (page: ProfessorPage): RateCourse[] =>
-  page.courses.map((c) => ({ code: c.code, name: c.name, isNew: false, terms: c.terms }));
+  page.courses.map((c) => toRateCourse(c, new Date()));
 
 export default function Rate() {
   const [params] = useSearchParams();
@@ -65,8 +62,9 @@ export default function Rate() {
   const [step, setStep] = useState<StepId>('who');
   const [start, setStart] = useState<RateStart | null>(null);
   const [startFailed, setStartFailed] = useState(false);
-  const [loaded, setLoaded] = useState<{ slug: string; list: RateCourse[] } | null>(null);
-  const [context, setContext] = useState<RateProfessorContext | null>(null);
+  // recent: the list is Banner's newest-first order; without Banner history it is most-rated first.
+  const [loaded, setLoaded] = useState<{ slug: string; list: RateCourse[]; recent: boolean } | null>(null);
+  const [context, setContext] = useState<{ slug: string; rated: RatedCourse[] } | null>(null);
   const [typedName, setTypedName] = useState('');
   const [counter, setCounter] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState('');
@@ -74,52 +72,74 @@ export default function Rate() {
   const [pending, setPending] = useState<{ skip: boolean; honeypot: string; until: number } | null>(null);
   const [sending, setSending] = useState(false);
   const [contextReload, setContextReload] = useState(0);
-  // The pair's numbers as they were before this rating, which the thanks screen adds it to.
-  const [thanksBase, setThanksBase] = useState<RatePairSummary | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const visitRef = useRef(0);
+  const pickTimer = useRef<number | undefined>(undefined);
+  // The start the prefill already fetched the context with, so the context effect doesn't fetch it again.
+  const prefetchedFor = useRef<RateStart | null>(null);
+  const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
   const { containerRef, token, failed, interactive, reset } = useTurnstile();
   // The checkpoint holds the form back until the first token; later re-checks happen under the form.
   // Starts cleared when the token is already there (no site key), so the checkpoint never flashes.
   const [cleared, setCleared] = useState(() => !!token);
-  const isDesktop = useMediaQuery('(min-width: 1024px)');
 
   const slug = answers.professor?.slug ?? null;
   // null while the professor's courses load; a new professor has none to load.
   const courses = slug === null ? [] : loaded?.slug === slug ? loaded.list : null;
-  const coursesLoading = courses === null;
+  // null until the context call settles; a failed call or a new professor leaves every course not rated.
+  const rated: RatedCourse[] | null = slug === null || startFailed ? [] : context?.slug === slug ? context.rated : null;
+  const coursesLoading = courses === null || rated === null;
 
   // Only the latest visit's start lands, so a slow earlier one can't overwrite it.
-  const beginVisit = () => {
+  const beginVisit = (): Promise<RateStart | null> => {
     const visit = ++visitRef.current;
     setStartFailed(false);
-    startRating(readMirror())
+    return startRating(readMirror())
       .then((s) => {
-        if (visitRef.current !== visit) return;
+        if (visitRef.current !== visit) return null;
         writeMirror(s.deviceToken);
         setStart(s);
+        return s;
       })
-      .catch(() => { if (visitRef.current === visit) setStartFailed(true); });
+      .catch(() => {
+        if (visitRef.current === visit) setStartFailed(true);
+        return null;
+      });
   };
 
   // Start the visit, then resolve any ?professor / ?course prefill.
   useEffect(() => {
     let cancelled = false;
-    beginVisit();
+    const visit = beginVisit();
 
     (async () => {
       const profSlug = params.get('professor');
       let initial: Answers = { comment: '' };
+      let prefetched: RatedCourse[] | null = null;
+      let s: RateStart | null = null;
       if (profSlug) {
-        const res = await fetchProfessorFull(profSlug);
+        const res = await fetchRateProfessor(profSlug);
         if (res.ok) {
           const { identity } = res.data;
           const professor: RateProfessor = { slug: identity.slug, name: identity.name, department: identity.department };
-          const course = prefillCourse(res.data.courses, (params.get('course') ?? '').replace(/\s+/g, '').toUpperCase() || null);
-          initial = answer(initial, { professor, ...(course && { course }) });
+          const code = (params.get('course') ?? '').replace(/\s+/g, '').toUpperCase() || null;
+          initial = answer(initial, { professor });
+          if (code) {
+            // A prefilled rated course opens in update mode, so wait for the context before the first screen.
+            s = await visit;
+            // A failed call stays null, so the context effect fetches it again rather than keep an empty list.
+            if (s) prefetched = await fetchRateContext(identity.slug, s.deviceToken).then((c) => c?.ratedCourses ?? [], () => null);
+            const course = prefillCourse(res.data.courses, prefetched ?? [], code, new Date());
+            if (course) initial = pickCourse(initial, course, prefetched ?? [], new Date());
+          }
         }
       }
       if (cancelled) return;
+      // Kept, and not fetched again, so the course step can't disagree with the update mode the first screen chose.
+      if (prefetched && initial.professor?.slug) {
+        prefetchedFor.current = s;
+        setContext({ slug: initial.professor.slug, rated: prefetched });
+      }
       setAnswers(initial);
       setStep(firstStep(initial));
       setReady(true);
@@ -131,26 +151,26 @@ export default function Rate() {
   useEffect(() => {
     if (!slug) return;
     let cancelled = false;
-    fetchProfessorFull(slug)
-      .then((res) => { if (!cancelled) setLoaded({ slug, list: res.ok ? toRateCourses(res.data) : [] }); })
-      .catch(() => { if (!cancelled) setLoaded({ slug, list: [] }); });
+    fetchRateProfessor(slug)
+      .then((res) => { if (!cancelled) setLoaded({ slug, list: res.ok ? toRateCourses(res.data) : [], recent: res.ok && res.data.lastTaught !== null }); })
+      .catch(() => { if (!cancelled) setLoaded({ slug, list: [], recent: false }); });
     return () => { cancelled = true; };
   }, [slug]);
 
   // The context call needs the device token from startRating, so it waits for start.
   useEffect(() => {
     if (!start || !slug) return;
+    if (prefetchedFor.current === start) {
+      prefetchedFor.current = null;
+      return;
+    }
     let cancelled = false;
     fetchRateContext(slug, start.deviceToken)
-      .then((c) => { if (!cancelled) setContext(c); })
-      .catch(() => { /* no "You rated this" tags */ });
+      .then((c) => { if (!cancelled) setContext({ slug, rated: c?.ratedCourses ?? [] }); })
+      // No "Already rated" group, so every course shows as not rated.
+      .catch(() => { if (!cancelled) setContext({ slug, rated: [] }); });
     return () => { cancelled = true; };
   }, [start, slug, contextReload]);
-
-  // Undefined until the numbers are known, so the panel never claims "no data" while loading or after a failed load.
-  const knownPair: RatePairSummary | undefined = !answers.course ? undefined
-    : answers.professor?.slug === null ? NO_DATA
-    : context ? context.summaries[answers.course.code] ?? NO_DATA : undefined;
 
   const send = (skip: boolean, honeypot: string, turnstileToken: string) => {
     if (!start) return;
@@ -167,7 +187,6 @@ export default function Rate() {
       if (res.ok) {
         if (skip) setAnswers((a) => ({ ...a, comment: '' }));
         setCounter(res.counter);
-        setThanksBase(knownPair ?? null);
         reset();
         setStep('thanks');
         setContextReload((n) => n + 1);
@@ -215,6 +234,7 @@ export default function Rate() {
   }, [pending, failed, startFailed, reset, start]);
 
   const rateAnother = () => {
+    window.clearTimeout(pickTimer.current);
     setAnswers({ comment: '' });
     setStep('who');
     setStart(null);
@@ -226,6 +246,8 @@ export default function Rate() {
     beginVisit();
   };
 
+  useEffect(() => () => window.clearTimeout(pickTimer.current), []);
+
   useEffect(() => { if (token) setCleared(true); }, [token]);
 
   // The checkpoint stands alone, like Cloudflare's own page, so the navbar waits with the form.
@@ -234,24 +256,48 @@ export default function Rate() {
     return () => document.body.classList.remove('rate-checking');
   }, [cleared]);
 
+  // /rate's URL never changes, so ScrollToTop never fires; every step opens at the top, as an instant jump.
+  useLayoutEffect(() => { window.scrollTo(0, 0); }, [step]);
+
   useEffect(() => {
     if (ready) panelRef.current?.querySelector<HTMLElement>('h1')?.focus({ preventScroll: true });
   }, [step, ready, coursesLoading, cleared]);
 
   const go = (next: Answers, from: StepId) => {
+    window.clearTimeout(pickTimer.current);
     setAnswers(next);
     setStep(nextStep(from, next));
   };
 
+  // Shows the pick for a beat before the next step opens; a later tap replaces a pending one.
+  const choose = (next: Answers, from: StepId) => {
+    setAnswers(next);
+    window.clearTimeout(pickTimer.current);
+    if (reduced) setStep(nextStep(from, next));
+    else pickTimer.current = window.setTimeout(() => setStep(nextStep(from, next)), PICK_DELAY_MS);
+  };
+
+  // A direct move to a sub-screen also cancels a pick still waiting to advance.
+  const open = (next: StepId) => {
+    window.clearTimeout(pickTimer.current);
+    setStep(next);
+  };
+
   const pickProfessor = (p: RateProfessor, from: StepId) => {
-    if (p.slug !== slug) setContext(null);
     go(answer(answers, { professor: p }), from);
   };
 
   const back = () => {
+    window.clearTimeout(pickTimer.current);
     const prev = prevStep(step, answers);
     if (prev) setStep(prev);
   };
+
+  // In update mode a step with an earlier answer can be passed over without tapping a tile.
+  const continueButton = (answered: boolean) =>
+    answers.updating && answered ? (
+      <button type="button" className="rate-btn" onClick={() => open(nextStep(step, answers))}>Continue</button>
+    ) : undefined;
 
   const renderStep = () => {
     switch (step) {
@@ -260,50 +306,67 @@ export default function Rate() {
           <>
             <WhoStep
               onPick={(p) => pickProfessor(p, 'who')}
-              onAddNew={(name) => { setTypedName(name); setStep('newProfessor'); }}
+              onAddNew={(name) => { setTypedName(name); open('newProfessor'); }}
             />
             <StepFoot />
           </>
         );
       case 'newProfessor':
         return <NewProfessorStep initialName={typedName} onContinue={(p) => pickProfessor(p, 'newProfessor')} onBack={back} />;
-      case 'course':
-        return answers.professor && courses === null ? (
-          <>
-            <h1 className="rate-q" tabIndex={-1}>Which course?</h1>
-            <p className="rate-hint" role="status">Loading courses…</p>
-            <StepFoot onBack={back} />
-          </>
-        ) : answers.professor && courses && (
+      case 'course': {
+        if (!answers.professor) return null;
+        if (courses === null || rated === null) {
+          return (
+            <>
+              <h1 className="rate-q" tabIndex={-1}>Which course?</h1>
+              <p className="rate-hint" role="status">Loading courses…</p>
+              <StepFoot onBack={back} />
+            </>
+          );
+        }
+        const groups = courseGroups(courses, rated, answers.course?.code);
+        return (
           <>
             <CourseStep
               professor={answers.professor}
-              courses={courses}
-              ratedCourses={context?.ratedCourses ?? []}
+              fresh={groups.fresh}
+              rated={groups.rated}
+              more={groups.more}
+              recent={loaded?.recent ?? false}
               selected={answers.course?.code}
-              onPick={(c) => go(answer(answers, { course: c }), 'course')}
-              onOther={() => setStep('otherCourse')}
+              onPick={(c) => choose(pickCourse(answers, c, rated, new Date()), 'course')}
+              onOther={() => open('otherCourse')}
             />
             <StepFoot onBack={back} />
           </>
         );
+      }
       case 'otherCourse':
-        return <OtherCourseStep onPick={(c) => go(answer(answers, { course: c }), 'otherCourse')} onBack={back} />;
+        return (
+          <OtherCourseStep
+            own={courses ?? []}
+            rated={(rated ?? []).map((r) => r.code)}
+            slug={answers.professor?.slug ?? null}
+            // A hit on the professor's list takes the listed course, so its terms show.
+            onPick={(c) => go(pickCourse(answers, courses?.find((x) => x.code === c.code) ?? c, rated ?? [], new Date()), 'otherCourse')}
+            onBack={back}
+          />
+        );
       case 'term':
         return answers.course && (
           <>
             <TermStep
               professor={answers.professor!}
               course={answers.course}
-              selected={answers.term ?? undefined}
-              onPick={(t) => go(answer(answers, { term: t }), 'term')}
-              onOther={() => setStep('otherTerm')}
+              selected={answers.term}
+              onPick={(t) => choose(answer(answers, { term: t }), 'term')}
+              onOther={() => open('otherTerm')}
             />
-            <StepFoot onBack={back} />
+            <StepFoot onBack={back}>{continueButton(answers.term !== undefined)}</StepFoot>
           </>
         );
       case 'otherTerm':
-        return <OtherTermStep now={new Date()} onPick={(t) => go(answer(answers, { term: t }), 'otherTerm')} onBack={back} />;
+        return <OtherTermStep now={new Date()} selected={answers.term} onPick={(t) => go(answer(answers, { term: t }), 'otherTerm')} onBack={back} />;
       case 'overall': {
         const options: ChoiceOption<number>[] = OVERALL.map((o) => ({
           value: o.value,
@@ -321,12 +384,39 @@ export default function Rate() {
             <ChoiceGroup
               legend={`How was Prof. ${lastName(answers.professor?.name ?? '')} overall?`}
               subtitle="Would you recommend them to a friend?"
-              options={isDesktop ? [...options].reverse() : options}
+              options={options}
               value={answers.rating}
-              layout={isDesktop ? 'row' : 'stack'}
-              onPick={(v) => go(answer(answers, { rating: v }), 'overall')}
+              layout="stack"
+              onPick={(v) => choose(answer(answers, { rating: v }), 'overall')}
             />
-            <StepFoot onBack={back} />
+            <StepFoot onBack={back}>{continueButton(answers.rating !== undefined)}</StepFoot>
+          </>
+        );
+      }
+      case 'difficulty': {
+        // Scored like the review pills, so Very hard shows red.
+        const options: ChoiceOption<number>[] = DIFFICULTY.map((d) => ({
+          value: d.value,
+          aria: `${d.value} out of 5, ${d.label}`,
+          digit: d.value,
+          label: (
+            <>
+              <span className="rate-n" data-score={6 - d.value}>{d.value}</span>
+              <span className="rate-n-label">{d.label}</span>
+            </>
+          ),
+        }));
+        return (
+          <>
+            <ChoiceGroup
+              legend={`How hard was ${formatCode(answers.course?.code ?? '')}?`}
+              subtitle="Exams, assignments, and how hard it was to do well."
+              options={options}
+              value={answers.difficulty}
+              layout="stack"
+              onPick={(v) => choose(answer(answers, { difficulty: v }), 'difficulty')}
+            />
+            <StepFoot onBack={back}>{continueButton(answers.difficulty !== undefined)}</StepFoot>
           </>
         );
       }
@@ -338,10 +428,10 @@ export default function Rate() {
               subtitle="Homework, studying, projects. Your best guess is fine."
               options={HOURS.map((h, i) => ({ value: h.value, label: h.label, aria: h.aria, digit: i + 1 }))}
               value={answers.hours}
-              layout={isDesktop ? 'row' : 'stack'}
-              onPick={(v) => go(answer(answers, { hours: v }), 'workload')}
+              layout="stack"
+              onPick={(v) => choose(answer(answers, { hours: v }), 'workload')}
             />
-            <StepFoot onBack={back} />
+            <StepFoot onBack={back}>{continueButton(answers.hours !== undefined)}</StepFoot>
           </>
         );
       case 'grade':
@@ -353,12 +443,17 @@ export default function Rate() {
               options={GRADES.map((g) => ({ value: g, label: g, aria: gradeAria(g) }))}
               value={answers.grade ?? undefined}
               layout="grid"
-              onPick={(v) => go(answer(answers, { grade: v }), 'grade')}
+              onPick={(v) => choose(answer(answers, { grade: v }), 'grade')}
             />
-            <button type="button" className="rate-ghost" onClick={() => go(answer(answers, { grade: null }), 'grade')}>
+            <button
+              type="button"
+              className={`rate-ghost${answers.grade === null ? ' on' : ''}`}
+              aria-pressed={answers.grade === null}
+              onClick={() => go(answer(answers, { grade: null }), 'grade')}
+            >
               Prefer not to say
             </button>
-            <StepFoot onBack={back} />
+            <StepFoot onBack={back}>{continueButton(answers.grade !== undefined)}</StepFoot>
           </>
         );
       case 'comment':
@@ -368,7 +463,8 @@ export default function Rate() {
             onChange={(comment) => setAnswers((a) => ({ ...a, comment }))}
             onSubmit={submit}
             onBack={back}
-            submitting={sending || pending !== null}
+            submitting={locked}
+            updating={!!answers.updating}
             error={submitError}
           />
         );
@@ -379,34 +475,32 @@ export default function Rate() {
     }
   };
 
-  const chip = contextChip(answers);
-  const edit = (to: StepId) => setStep(to === 'course' || to === 'term' ? editScreen(to, answers) : to);
+  const tags = contextTags(answers);
+  const locked = sending || pending !== null;
+  const canBack = prevStep(step, answers) !== null;
   const host = window.location.hostname;
 
   return (
     <div className={`rate-page${cleared ? '' : ' rate-page-check'}`}>
       <div className="rate-shell">
-        {isDesktop && ready && cleared && (
-          <SidePanel
-            answers={answers}
-            step={step}
-            counter={start?.counter ?? null}
-            summary={step === 'thanks' ? (thanksBase ? withMyRating(thanksBase, answers) : undefined) : knownPair}
-            locked={step === 'thanks' || sending || pending !== null}
-            onEdit={edit}
-          />
-        )}
         <div className="rate-panel" ref={panelRef}>
-          {cleared && step !== 'thanks' && (
-            <div className="rate-prog" aria-hidden="true">
-              {Array.from({ length: QUESTION_COUNT }, (_, i) => (
-                <i key={i} className={i <= progressIndex(step) ? 'on' : undefined} />
-              ))}
+          {cleared && <ProgressBar index={progressIndex(step)} done={step === 'thanks'} />}
+          {startFailed && <p className="rate-hint" role="alert">We couldn't start the form. Please reload and try again.</p>}
+          {cleared && ready && step !== 'thanks' && (
+            <div className="rate-top">
+              <button type="button" className={`rate-back-top${canBack ? '' : ' is-hidden'}`} disabled={locked} onClick={back}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></svg>
+                Back
+              </button>
+              {(tags.length > 0 || answers.updating) && (
+                <div className="rate-tags">
+                  {answers.updating && <span className="rate-tag is-updating">Updating</span>}
+                  {tags.map((t) => <span key={t} className="rate-tag">{t}</span>)}
+                </div>
+              )}
             </div>
           )}
-          {startFailed && <p className="rate-hint" role="alert">We couldn't start the form. Please reload and try again.</p>}
-          {cleared && ready && chip && step !== 'thanks' && <div className="rate-chip">{chip}</div>}
-          {cleared && ready && renderStep()}
+          {cleared && ready && <Fragment key={step}>{renderStep()}</Fragment>}
           {!cleared && (
             <div className="rate-check">
               <h1 className="rate-check-host" tabIndex={-1}>{host}</h1>

@@ -8,13 +8,15 @@ SOURCE_WEIGHTS = {"rmp": 1.0, "survey": 1.0}
 
 _AVERAGED = ("rating", "difficulty", "would_take_again_pct", "hours_per_week")
 _DISTRIBUTIONS = ("rating_distribution", "grade_distribution")
+# A value only some of a source's ratings answered is weighted by that count (survey difficulty).
+_COUNTS = {"difficulty": "num_difficulty"}
 
 
 def _wmean(rows, key):
     present = [r for r in rows if r[key] is not None]
     if not present:
         return None
-    weights = [r["num_ratings"] * SOURCE_WEIGHTS.get(r["source"], 1.0) for r in present]
+    weights = [r.get(_COUNTS.get(key), r["num_ratings"]) * SOURCE_WEIGHTS.get(r["source"], 1.0) for r in present]
     total = sum(weights)
     if not total:  # a value with no rating count behind it (e.g. RMP page rating, no stored reviews)
         return round(sum(r[key] for r in present) / len(present), 2)

@@ -12,12 +12,26 @@ from teaching_history import label_code
 HOURS = ("0-2", "3-4", "5-7", "8-10", "10+")
 GRADES = ("A", "A-", "B+", "B", "B-", "C+", "C", "C- or below")
 MIN_FILL_SECONDS = 8
+# An edit opens on the earlier answers, so it gets a lower floor, not none.
+EDIT_MIN_FILL_SECONDS = 3
 MAX_FILL_SECONDS = 7200
 MAX_COMMENT = 2000
 MIN_DUPLICATE_CHARS = 20
+NEAR_DUPLICATE = 0.5
+SHINGLE_WORDS = 3
 COURSE_CODE_RE = re.compile(r"^[A-Z]{2,5}\d{4}[A-Z]?$", re.ASCII)
 # label_code alone would also accept "Summer Full", which is never a valid label.
 TERM_RE = re.compile(r"^(Fall|Spring|Summer 1|Summer 2|Summer|Winter) (\d{4})$", re.ASCII)
+# The form offers the last TERM_YEARS years by the browser's clock (TERM_YEARS in
+# frontend/src/pages/rate/rateFlow.ts). this_year is UTC's, so one more year on
+# each side covers a browser whose year has already or not yet turned over.
+TERM_YEARS = 4
+# Soft flags the review agent may approve on their own.
+APPROVABLE = frozenset({"no_timer", "too_fast", "stale", "datacenter"})
+# Volume flags: approvable only when the group's comments are varied and specific.
+APPROVABLE_IF_VARIED = frozenset({"burst_pair", "burst_ip", "burst_prefix", "burst_prof", "burst_course",
+                                  "burst_prof_day", "burst_pause", "weekly_surge", "skew_week"})
+# Every other reason, including any added later, is escalate-only.
 
 
 def _text(value):
@@ -98,12 +112,18 @@ def validate_submission(body, this_year):
     term = body.get("term")
     if term is not None:
         m = TERM_RE.fullmatch(term) if isinstance(term, str) else None
-        if not m or label_code(term) is None or not this_year - 6 <= int(m.group(2)) <= this_year + 1:
+        if not m or label_code(term) is None or not this_year - TERM_YEARS <= int(m.group(2)) <= this_year + 1:
             return None, "Invalid term"
 
     rating = body.get("rating")
     if type(rating) is not int or not 1 <= rating <= 5:
         return None, "Rating must be a whole number from 1 to 5"
+    # Temporary: None from a page still on the form from before the question, which any client
+    # can also send, and ratings._UPSERT_SQL keeps the stored difficulty on it. Once no such page
+    # can still be open, require the field here and drop that COALESCE.
+    difficulty = body.get("difficulty")
+    if difficulty is not None and (type(difficulty) is not int or not 1 <= difficulty <= 5):
+        return None, "Difficulty must be a whole number from 1 to 5"
     hours = body.get("hours")
     if not isinstance(hours, str) or hours not in HOURS:
         return None, "Invalid hours"
@@ -123,7 +143,8 @@ def validate_submission(body, this_year):
     return {
         "professor_slug": slug, "new_professor": new_prof,
         "course_code": code, "new_course_name": course_name,
-        "term_label": term, "rating": rating, "hours": hours, "grade": grade, "comment": comment,
+        "term_label": term, "rating": rating, "difficulty": difficulty, "hours": hours, "grade": grade,
+        "comment": comment,
     }, None
 
 
@@ -139,6 +160,29 @@ def comment_hash(text):
     return hashlib.sha256(norm.encode()).hexdigest()
 
 
+def shingles(text):
+    words = normalize_comment(text).split()
+    if len(words) < SHINGLE_WORDS:
+        return {tuple(words)} if words else set()
+    return {tuple(words[i:i + SHINGLE_WORDS]) for i in range(len(words) - SHINGLE_WORDS + 1)}
+
+
+def shingle_similarity(sa, sb):
+    """Jaccard overlap, 0.0 to 1.0, of two shingle sets."""
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
+def similarity(a, b):
+    """Jaccard overlap, 0.0 to 1.0, of the SHINGLE_WORDS-word shingles of two comments. A copy with a
+    word prepended or a character tacked on still scores high where an exact hash
+    doesn't. NEAR_DUPLICATE was set on the Razzaq bomb (21 copies, each at least
+    0.86 to another) against per-professor RMP pairs (67 of 840K at 0.5, mostly
+    verbatim reposts)."""
+    return shingle_similarity(shingles(a), shingles(b))
+
+
 def moderate(comment, score=moderation.score_texts):
     """None for an empty comment, else "allow" | "review" | "block", or
     "unavailable" when the scorer fails for any reason."""
@@ -150,24 +194,46 @@ def moderate(comment, score=moderation.score_texts):
         return "unavailable"
 
 
-def assess(fill_seconds, network_type, bursts, duplicate_comment, moderation_action):
-    """("rejected", [...]) | ("held", reasons) | ("accepted", [])."""
+def assess(fill_seconds, network_type, bursts, duplicate_comment, moderation_action, edit=False,
+           unverified_pair=False, comment_removed=False, near_duplicate=False, skew_week=False,
+           silent_hold=False):
+    """("rejected", [...]) | ("held", reasons) | ("accepted", []).
+
+    edit: this replaces an accepted rating. The form prefills the earlier answers,
+    so a quick update is normal and only has to clear EDIT_MIN_FILL_SECONDS.
+    unverified_pair: neither Banner nor RMP has this professor teaching this course.
+    comment_removed: this brings a comment back to a rating whose comment a
+    reviewer took down, so it waits for review.
+    near_duplicate: the comment closely matches another rating's (see similarity).
+    skew_week: a run of same-direction ratings has landed on this professor this week.
+    silent_hold: a reviewer's reject-rating --abuse flagged this device or IP.
+    """
     if moderation_action == "block":
         return "rejected", ["moderation_block"]
     reasons = []
     if fill_seconds is None:
         reasons.append("no_timer")
-    elif fill_seconds < MIN_FILL_SECONDS:
+    elif fill_seconds < (EDIT_MIN_FILL_SECONDS if edit else MIN_FILL_SECONDS):
         reasons.append("too_fast")
     elif fill_seconds > MAX_FILL_SECONDS:
         reasons.append("stale")
     if network_type == "datacenter":
         reasons.append("datacenter")
     reasons.extend(bursts)
+    if skew_week:
+        reasons.append("skew_week")
+    if unverified_pair:
+        reasons.append("unverified_pair")
     if duplicate_comment:
         reasons.append("duplicate_comment")
+    if near_duplicate:
+        reasons.append("near_duplicate")
+    if comment_removed:
+        reasons.append("comment_removed")
     if moderation_action == "review":
         reasons.append("moderation_review")
     elif moderation_action == "unavailable":
         reasons.append("moderation_unavailable")
+    if silent_hold:
+        reasons.append("silent_hold")
     return ("held", reasons) if reasons else ("accepted", [])

@@ -12,7 +12,7 @@ const Terms = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Terms &amp; Conditions</h1>
-            <p className="terms-meta">Effective October 19, 2026 &middot; RateMyHusky</p>
+            <p className="terms-meta">Effective October 28, 2026 &middot; RateMyHusky</p>
           </header>
 
           <div className="terms-body">
@@ -65,7 +65,7 @@ const Terms = () => {
               </p>
               <p>
                 This information is encoded in a JWT (JSON Web Token) that is stored in your
-                browser's <code>localStorage</code>. The token expires after 30 days.
+                browser's <code>localStorage</code>. The token expires after 7 days.
                 RateMyHusky does not maintain user accounts or profiles. The only per-user data
                 we store server-side is your bookmarks{RATE_ENABLED ? ' and your pseudonymous ratings' : ''}, described
                 below and in our <a href="/privacy">Privacy Policy</a>. Signing out deletes the
@@ -134,7 +134,7 @@ const Terms = () => {
                 the RateMyHusky team via email and are not stored in our database. Submitted
                 information is used solely to improve the service and will not be shared with
                 third parties. The email address is optional for most message types but is
-                required for a "Data Deletion Request," which also requires you to be signed in
+                required for an "Account Deletion" request, which also requires you to be signed in
                 so your account identifier can be included and we can act on the correct account. It is
                 also required for a professor's request to correct or remove their page, so we
                 can confirm the request with them.
@@ -160,6 +160,11 @@ const Terms = () => {
                 <li>
                   <strong>OpenAI Moderation</strong>: checks the text of rating comments for
                   abuse before they are stored.
+                </li>
+                )}
+                {RATE_ENABLED && (
+                <li>
+                  <strong>Groq</strong>: an automated reviewer checks ratings held for review.
                 </li>
                 )}
                 <li>
@@ -277,7 +282,7 @@ const Terms = () => {
                 If you are a professor or instructor and you want your information removed from
                 RateMyHusky, email{' '}
                 <a href="mailto:legal@ratemyhusky.com">legal@ratemyhusky.com</a> or use the
-                feedback form (&ldquo;Professor: Correct or Remove My Page&rdquo;), and include
+                feedback form (&ldquo;Data Deletion&rdquo;), and include
                 your Northeastern email address. We confirm each
                 request at that address before acting on it, so that no one can remove or change
                 a professor's information by using their name; a request without a Northeastern

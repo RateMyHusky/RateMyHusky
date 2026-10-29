@@ -170,7 +170,7 @@ const Faq = () => {
               <p>
                 By your email. Whenever you contact us as a professor, include your
                 Northeastern email address. On the feedback form (the Feedback tab on the left
-                edge of any page), choose &ldquo;Professor: Correct or Remove My Page&rdquo;; it requires an email. Without one we have no way to tell your request apart from someone else using
+                edge of any page), choose &ldquo;Data Deletion&rdquo;; it requires an email. Without one we have no way to tell your request apart from someone else using
                 your name, and no way to reply to you. We confirm the request with you at that
                 address before we change or remove anything.
               </p>
@@ -180,7 +180,7 @@ const Faq = () => {
                 Yes, including if you no longer teach at Northeastern. Email{' '}
                 <a href="mailto:legal@ratemyhusky.com">legal@ratemyhusky.com</a> from your
                 Northeastern address, or use the feedback form, choose
-                &ldquo;Professor: Correct or Remove My Page&rdquo;, and enter your Northeastern email. We honor these requests once
+                &ldquo;Data Deletion&rdquo;, and enter your Northeastern email. We honor these requests once
                 we've confirmed them with you. Your name goes on a removal list that every
                 weekly refresh checks, so your page won't come back. We can't remove your data
                 from RateMyProfessors or Reddit themselves.
@@ -189,7 +189,7 @@ const Faq = () => {
               <h3>Something on my page is wrong. Will you fix it?</h3>
               <p>
                 Yes. If your photo, department, college, course list, or awards are wrong or
-                missing, use the feedback form, choose &ldquo;Professor: Correct or Remove My Page&rdquo;,
+                missing, use the feedback form, choose &ldquo;Data Deletion&rdquo;,
                 and enter your Northeastern email; or email{' '}
                 <a href="mailto:support@ratemyhusky.com">support@ratemyhusky.com</a> from that
                 address. For a missing teaching award, include a link to Northeastern's
@@ -213,7 +213,7 @@ const Faq = () => {
 
               <h3>A Reddit comment on my page is about someone else, or its sentiment label is wrong.</h3>
               <p>
-                Tell us through the feedback form (&ldquo;Professor: Correct or Remove My Page&rdquo;) with your
+                Tell us through the feedback form (&ldquo;Data Deletion&rdquo;) with your
                 Northeastern email, a link to your page, and the comment. Reddit comments are
                 matched to professors by name, and a comment about someone else is removed from your page. A sentiment label
                 that clearly misreads the comment is corrected.

@@ -9,7 +9,7 @@ const Privacy = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Privacy Policy</h1>
-            <p className="terms-meta">Effective October 21, 2026 &middot; RateMyHusky</p>
+            <p className="terms-meta">Effective October 28, 2026 &middot; RateMyHusky</p>
           </header>
 
           <div className="terms-body">
@@ -71,8 +71,8 @@ const Privacy = () => {
                   description, and an optional email address. Submissions are transmitted to
                   the RateMyHusky team via email and are not stored in a database. Submitted
                   information is used solely to improve the service. The form is protected by
-                  a CAPTCHA challenge (see Third-Party Services). If you submit a
-                  "Data Deletion Request," you must be signed in and an email address is
+                  a CAPTCHA challenge (see Third-Party Services). If you submit an
+                  "Account Deletion" request, you must be signed in and an email address is
                   required so we can respond; your account identifier is included so we can
                   locate the data held for your account and delete it. That account identifier is
                   derived from your sign-in token at the time you submit and is not retained
@@ -89,7 +89,7 @@ const Privacy = () => {
                 {RATE_ENABLED && (
                 <li>
                   <strong>Ratings:</strong> you do not need to sign in to submit a rating. We
-                  store your answers (professor, course, term, overall rating, weekly hours,
+                  store your answers (professor, course, term, overall rating, difficulty, weekly hours,
                   grade, and an optional comment), a keyed hash of a random device ID that your
                   browser keeps, keyed hashes of your IP address and of its /24 (IPv4) or /64
                   (IPv6) network, the network type (campus, mobile carrier, Private Relay,
@@ -98,7 +98,11 @@ const Privacy = () => {
                   or device without it. This data is <strong>pseudonymous, not anonymous</strong>:
                   it is not tied to your name or email, but the device ID hash links ratings
                   from the same device to each other. Comment text is also sent to OpenAI's
-                  moderation service, which checks it for abuse before it is stored. See{' '}
+                  moderation service, which checks it for abuse before it is stored. If a rating is
+                  held for review, its answers and comment, and why it was held, are also sent to
+                  Groq, where an automated reviewer checks it. Recent ratings and comments for the same
+                  professor go with it as context. The reviewer can approve a held rating, but
+                  it never removes one: only our team does. See{' '}
                   <em>Retention of Ratings</em> in Section 4 for how long each item is kept.
                 </li>
                 )}
@@ -143,7 +147,7 @@ const Privacy = () => {
                 Google OAuth handshake, short-lived <code>httpOnly</code> cookies are used
                 to carry the flow; once complete, the resulting JWT is stored in your
                 browser's <code>localStorage</code> and the handshake cookies are cleared.
-                The token expires automatically after 30 days. RateMyHusky does not maintain
+                The token expires automatically after 7 days. RateMyHusky does not maintain
                 user accounts or profiles; the only per-user data we store server-side is your
                 bookmarks{RATE_ENABLED ? ' and your ratings (which are pseudonymous)' : ''}, described below.
               </p>
@@ -167,7 +171,10 @@ const Privacy = () => {
                 kept for 30 days and then deleted in routine cleanup; the rating itself stays,
                 and so do the network type and the form fill time. The device
                 ID hash and a hash of the comment text (used to spot copied comments) live with
-                the rating and are deleted with it. Comments are stored but are not shown
+                the rating and are deleted with it, with one exception: when we remove a rating for
+                abuse, we keep its device ID hash to block further abuse from that device, and
+                its IP hash for 30 days after removal. IP hashes from campus networks, mobile
+                networks and Private Relay are never kept this way. Comments are stored but are not shown
                 publicly. A rating is kept until we remove it or you ask us to delete it (see{' '}
                 <em>Your Rights &amp; Choices</em>).
               </p>
@@ -294,6 +301,20 @@ const Privacy = () => {
                   </a>.
                 </li>
                 <li>
+                  <strong>Groq</strong>: the answers and comments of ratings held for review, why
+                  they were held, and recent ratings and comments for the same professor, are sent to Groq for an
+                  automated check. Comments, including public RateMyProfessors comments, are also used to
+                  suggest nicknames that help search find a professor. Nicknames are used only in search and are
+                  never shown. Subject to{' '}
+                  <a
+                    href="https://groq.com/privacy-policy/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Groq's Privacy Policy
+                  </a>.
+                </li>
+                <li>
                   <strong>ipinfo</strong>: we use ipinfo's IP address database to tell what
                   type of network a rating came from. The database is used locally on our
                   server, and no data about you is sent to ipinfo.
@@ -363,7 +384,7 @@ const Privacy = () => {
                   <strong>clear localStorage</strong> in your browser settings to remove your
                   session token and stored preferences. You can remove an individual bookmark at
                   any time by un-bookmarking it. To delete everything we hold for your account,
-                  sign in and submit a <strong>Data Deletion Request</strong> through the
+                  sign in and submit a <strong>Account Deletion</strong> request through the
                   feedback form: an email address is required, and your signed-in account
                   identifier is included so we can verify your identity and delete the records
                   tied to your account.
@@ -448,7 +469,7 @@ const Privacy = () => {
                 <strong>Removal requests.</strong> If you are a professor or instructor and want
                 your information taken down, email{' '}
                 <a href="mailto:legal@ratemyhusky.com">legal@ratemyhusky.com</a> or use the
-                feedback form (&ldquo;Professor: Correct or Remove My Page&rdquo;), and include
+                feedback form (&ldquo;Data Deletion&rdquo;), and include
                 your Northeastern email address. We confirm each
                 request at that address before acting on it, so that no one can remove or
                 change a professor's information by using their name; a request without a

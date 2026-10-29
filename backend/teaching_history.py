@@ -122,7 +122,7 @@ def course_history(code, query, query_one):
     offering = query_one("""
         SELECT subject_course, course_title, last_term_label, pattern,
                offering_years, first_term_code, first_term_label,
-               median_section_size, credit_hours, instructor_count, offered_now
+               median_section_size, credit_hours, offered_now
         FROM banner_course_offerings WHERE subject_course = %s
     """, (code,))
     successor = COURSE_SUCCESSORS.get(code)
@@ -150,7 +150,6 @@ def course_history(code, query, query_one):
         "offeredNow": _terms(o.get("offered_now")),
         "creditHours": o.get("credit_hours"),
         "typicalClassSize": _whole(o.get("median_section_size")),
-        "instructorCount": o.get("instructor_count"),
         "instructors": [{
             "name": r["catalog_name"] or display_name(r["instructor_name"]),
             "slug": r["professor_slug"],

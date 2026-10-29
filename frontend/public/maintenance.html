@@ -4,13 +4,24 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex, nofollow" />
-  <title>Closed for now — RateMyHusky</title>
+  <title>Maintenance — RateMyHusky</title>
   <script>
     // ── Maintenance Config ────────────────────────────────────
-    // Epoch-ms deadline for the countdown, stamped by maintenance.py.
-    // null = no countdown (badge keeps its static reopening text).
+    // Both stamped by maintenance.py.
+    // "maintenance" = "We'll be right back" copy; "closed" = the farewell letter.
+    var MAINTENANCE_MODE = "maintenance";
+    // Epoch-ms deadline for the countdown (maintenance mode only).
+    // null = no countdown (badge keeps its static text).
     var MAINTENANCE_ENDS_AT = null;
     // ─────────────────────────────────────────────────────────
+
+    // Picks which copy block the CSS shows, before first paint. Preview
+    // deploys are always gated by middleware.ts, which sends them here with
+    // ?mode=preview so they get the dev-preview copy instead.
+    var PAGE_MODE = /[?&]mode=preview(&|$)/.test(location.search) ? 'preview' : MAINTENANCE_MODE;
+    document.documentElement.setAttribute('data-mode', PAGE_MODE);
+    if (PAGE_MODE === 'closed') document.title = 'Closed for now — RateMyHusky';
+    if (PAGE_MODE === 'preview') document.title = 'Dev preview — RateMyHusky';
 
     // Dev bypass: /maintenance.html?bypass=<signed-token> sets the cookie
     // that middleware.ts verifies, then drops you into the real site. An
@@ -24,6 +35,29 @@
         location.replace('/');
       }
     })();
+
+    // Preview deploys can't see the rmh_dev cookie people already set on
+    // ratemyhusky.com, so bounce through its /bypass-handoff (middleware.ts)
+    // to copy it here. It comes back via /bypass-redeem (which sets the
+    // cookie and lands on ?next=), or with ?handoff=none when ratemyhusky.com
+    // has no valid bypass either. A redeemed cookie the preview then rejects
+    // would loop, so that path tries once per tab session; handoff=none
+    // never loops, so it clears the flag and drops itself from the URL, and
+    // reloading after opening the bypass link tries again.
+    // Without sessionStorage the loop guard can't work, so skip the handoff.
+    try {
+      // next (already encoded by middleware.ts) is the page that was gated.
+      var next = location.search.match(/[?&]next=([^&]*)/);
+      if (/[?&]handoff=none/.test(location.search)) {
+        sessionStorage.removeItem('rmh_handoff');
+        history.replaceState(null, '', '?mode=preview' + (next ? '&next=' + next[1] : ''));
+      } else if (PAGE_MODE === 'preview' && !/[?&]bypass=/.test(location.search) &&
+          !sessionStorage.getItem('rmh_handoff')) {
+        sessionStorage.setItem('rmh_handoff', '1');
+        location.replace('https://ratemyhusky.com/bypass-handoff?to=' +
+          encodeURIComponent(location.origin) + (next ? '&next=' + next[1] : ''));
+      }
+    } catch (e) { /* storage blocked: stay on the gate page */ }
 
     // Same theme mechanism as the main site (.dark class + localStorage),
     // applied before first paint.
@@ -179,6 +213,15 @@
     /* min-width: 0 lets grid shrink the columns below their content's
        natural width on small screens instead of overflowing the page. */
     .copy { max-width: 580px; min-width: 0; }
+
+    [data-mode="maintenance"] .mode-closed,
+    [data-mode="maintenance"] .mode-preview,
+    [data-mode="closed"] .mode-maintenance,
+    [data-mode="closed"] .mode-preview,
+    [data-mode="preview"] .mode-maintenance,
+    [data-mode="preview"] .mode-closed,
+    [data-mode="preview"] .eta,
+    [data-mode="preview"] .feedback-tab { display: none; }
 
     .kicker {
       display: inline-flex;
@@ -607,26 +650,50 @@
         <div class="hero">
 
           <div class="copy">
-            <h1 id="headline">A New Chapter</h1>
+            <div class="mode-maintenance">
+              <span class="kicker" id="kicker">Scheduled Maintenance</span>
+              <h1 id="headline">We'll be right back.</h1>
               <p id="message">
-              To everyone who used and supported RateMyHusky, thank you. What started as
-              a simple idea became something we were incredibly proud to build, and that
-              was only possible because of you.
-            </p>
+                RateMyHusky is temporarily offline while we perform scheduled
+                maintenance. We're working quickly to get things back up, thanks
+                for your patience.
+              </p>
+            </div>
 
-            <p>
-              At the request of those overseeing the university, we’ve had to step away
-              for now. As we close this chapter, we hope you'll join us in looking
-              forward to what comes next. Thank you for being part of the journey.
-            </p>
+            <div class="mode-closed">
+              <h1>A New Chapter</h1>
+              <p>
+                To everyone who used and supported RateMyHusky, thank you. What started as
+                a simple idea became something we were incredibly proud to build, and that
+                was only possible because of you.
+              </p>
 
-            <p>— RateMyHusky Team</p>
+              <p>
+                At the request of those overseeing the university, we’ve had to step away
+                for now. As we close this chapter, we hope you'll join us in looking
+                forward to what comes next. Thank you for being part of the journey.
+              </p>
+
+              <p>— RateMyHusky Team</p>
+            </div>
+
+            <div class="mode-preview">
+              <span class="kicker">Dev Preview</span>
+              <h1>Sorry, this is a dev-only preview.</h1>
+              <p>
+                This link is a work-in-progress build of RateMyHusky for the team.
+                To get in, open your bypass link on ratemyhusky.com first, then
+                come back to this link.
+              </p>
+            </div>
+
             <div class="eta" id="eta-badge">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="10"/>
                 <polyline points="12 6 12 12 16 14"/>
               </svg>
-              <span id="eta-text">See you in the upcoming months</span>
+              <span class="mode-maintenance" id="eta-text">We&rsquo;ll be back shortly</span>
+              <span class="mode-closed">See you in the upcoming months</span>
             </div>
           </div>
 
@@ -783,8 +850,9 @@
 
       // Auto-recovery: while maintenance is on, '/' 307-redirects back to
       // this page, so res.redirected is true. The moment maintenance is
-      // turned off, '/' serves the real site and we reload into it.
-      setInterval(function () {
+      // turned off, '/' serves the real site and we reload into it. A
+      // preview stays gated until /bypass-redeem, so there's nothing to poll.
+      if (PAGE_MODE !== 'preview') setInterval(function () {
         fetch('/', { cache: 'no-store' }).then(function (res) {
           if (res.ok && !res.redirected) location.replace('/');
         }).catch(function () { /* offline / backend down: keep waiting */ });

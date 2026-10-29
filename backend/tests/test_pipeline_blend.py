@@ -32,6 +32,12 @@ def test_survey_and_rmp_with_equal_counts_blend_to_the_plain_mean():
     assert b["rating"] == 3.0                  # survey weight 1.0, same as RMP
 
 
+def test_survey_difficulty_is_weighted_by_the_ratings_that_answered_it():
+    # 41 survey ratings but only 1 answered difficulty: it shouldn't outweigh 20 RMP reviews.
+    [b] = blend([row("rmp", 4.0, 20, difficulty=2.0), row("survey", 4.0, 41, difficulty=5.0, num_difficulty=1)])
+    assert b["difficulty"] == 2.14             # (5*1 + 2*20) / 21
+
+
 def test_value_with_zero_weight_still_blends():
     # An RMP page rating with no stored reviews: num_ratings 0 but a real rating.
     [b] = blend([row("rmp", 4.0, 0)])

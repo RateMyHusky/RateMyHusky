@@ -1,5 +1,10 @@
 """use moderation APi on existing comments.
 
+Not in use: only new ratings are moderated. Don't run this against the
+production OpenAI account. It shares a free allowance with live ratings (see
+moderation.py), and a backfill drains it. --dry-run isn't read-only either: it
+still adds the mod_* columns, and it rescores the same first batch on every loop.
+
 
 
 Run:

@@ -1011,21 +1011,32 @@
 .course-offering-bar {
 	display: flex;
 	gap: 3px;
-	height: 10px;
+	height: 18px;
 }
 
 .course-offering-seg {
 	flex: 1;
-	border-radius: 3px;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+	border-radius: 4px;
 	background: #e2e2e2;
+	color: #6b6b6b;
+	font-size: 0.62rem;
+	font-weight: 700;
+	white-space: nowrap;
 }
 
 .course-offering-seg--ran {
 	background: #1b6d5e;
+	color: #fff;
 }
 
+/* Faint stripes so the year on top stays readable. */
 .course-offering-seg--before {
-	background: repeating-linear-gradient(135deg, #d0d0d0 0 2px, transparent 2px 5px);
+	background: repeating-linear-gradient(135deg, #e2e2e2 0 2px, #f6f6f6 2px 5px);
 }
 
 .course-offering-count,
@@ -1039,15 +1050,17 @@
 	margin: 10px 0 0;
 }
 
-.course-offering-note,
-.course-offering-taught {
+.course-offering-note {
 	margin: 0 0 6px;
 	color: #3a3a3a;
 	font-size: 0.9rem;
 }
 
-.course-offering-taught {
-	margin-top: 10px;
+/* Five tiles across leave the segments a few px short of a full year label. */
+@media (min-width: 541px) and (max-width: 640px) {
+	.course-offering-seg {
+		font-size: 0.55rem;
+	}
 }
 
 @media (max-width: 540px) {
@@ -1101,13 +1114,12 @@
 .dark .course-offering-pattern,
 .dark .course-offering-tile-label { color: #e0e0e0; }
 .dark .course-offering-successor,
-.dark .course-offering-note,
-.dark .course-offering-taught { color: #c8c8c8; }
+.dark .course-offering-note { color: #c8c8c8; }
 .dark .course-offering-count,
 .dark .course-offering-caption { color: #8a8a8a; }
 .dark .course-offering-tile { background: #1e1e1e; }
-.dark .course-offering-seg { background: #333; }
-.dark .course-offering-seg--ran { background: #7fd1bd; }
+.dark .course-offering-seg { background: #333; color: #9a9a9a; }
+.dark .course-offering-seg--ran { background: #7fd1bd; color: #10302a; }
 .dark .course-offering-seg--before {
-	background: repeating-linear-gradient(135deg, #4a4a4a 0 2px, transparent 2px 5px);
+	background: repeating-linear-gradient(135deg, #333 0 2px, #1e1e1e 2px 5px);
 }

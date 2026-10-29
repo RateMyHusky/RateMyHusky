@@ -3,6 +3,7 @@
 import pytest
 
 import rating_checks as rc
+from tests.razzaq_bomb import BOMB
 
 
 def test_assess_accepts_a_clean_rating():
@@ -18,6 +19,17 @@ def test_hold_reasons_in_order():
         "held", ["too_fast", "datacenter", "burst_pair", "duplicate_comment", "moderation_unavailable"])
     assert rc.assess(None, "other", [], False, "review") == ("held", ["no_timer", "moderation_review"])
     assert rc.assess(7201, "relay", [], False, "allow") == ("held", ["stale"])
+
+
+def test_quick_edit_of_an_accepted_rating_is_not_too_fast():
+    assert rc.assess(3, "campus", [], False, None, edit=True) == ("accepted", [])
+    assert rc.assess(2, "campus", [], False, None, edit=True) == ("held", ["too_fast"])
+
+
+def test_a_comment_brought_back_after_removal_is_held():
+    assert rc.assess(30, "campus", [], False, None, edit=True, comment_removed=True) == (
+        "held", ["comment_removed"])
+    assert rc.assess(None, "campus", [], False, None, edit=True) == ("held", ["no_timer"])
 
 
 def test_campus_relay_mobile_unknown_never_hold_on_their_own():
@@ -44,7 +56,7 @@ def test_comment_hash_ignores_case_and_punctuation_and_skips_short():
 
 def _body(**over):
     body = {"professor": {"slug": "jane-doe"}, "course": {"code": "CS2500"}, "term": "Fall 2025",
-            "rating": 4, "hours": "3-4", "grade": "A", "comment": "ok"}
+            "rating": 4, "difficulty": 3, "hours": "3-4", "grade": "A", "comment": "ok"}
     body.update(over)
     return body
 
@@ -58,8 +70,13 @@ def _body(**over):
     _body(rating=4.5),
     _body(rating=6),
     _body(hours="15+"),
+    _body(difficulty=0),
+    _body(difficulty=6),
+    _body(difficulty=2.5),
+    _body(difficulty=True),
     _body(grade="D"),
     _body(term="Fall 2015"),
+    _body(term="Fall 2021"),
     _body(term="Autumn 2025"),
     _body(term="Summer Full 2025"),
     _body(term="Fall 2025\n"),
@@ -103,13 +120,22 @@ def test_validate_never_raises(body):
 def test_validate_cleans():
     clean, err = rc.validate_submission(
         {"professor": {"slug": "jane-doe"}, "course": {"code": "cs 2500"}, "term": "Summer 2025",
-         "rating": 4, "hours": "3-4", "grade": None, "comment": "  ok  "}, 2026)
+         "rating": 4, "difficulty": 2, "hours": "3-4", "grade": None, "comment": "  ok  "}, 2026)
     assert err is None
     assert clean["professor_slug"] == "jane-doe" and clean["new_professor"] is None
     assert clean["course_code"] == "CS2500" and clean["new_course_name"] is None
     assert clean["term_label"] == "Summer 2025"
     assert clean["rating"] == 4 and clean["hours"] == "3-4" and clean["grade"] is None
+    assert clean["difficulty"] == 2
     assert clean["comment"] == "ok"
+
+
+def test_validate_accepts_a_missing_difficulty():
+    # A page still running the form from before the question sends none.
+    body = _body()
+    del body["difficulty"]
+    clean, err = rc.validate_submission(body, 2026)
+    assert err is None and clean["difficulty"] is None
 
 
 def test_new_professor_name_needs_two_latin_words():
@@ -142,3 +168,50 @@ def test_validate_accepts_banner_labels():
     for term in ("Winter 2026", "Summer 1 2025", "Fall 2025"):
         clean, err = rc.validate_submission(_body(term=term), 2026)
         assert err is None and clean["term_label"] == term
+
+
+def test_validate_term_window_is_four_years_plus_a_year_each_side():
+    # The form's four years, plus one each side for a browser whose year differs from UTC's.
+    for term in ("Fall 2022", "Fall 2023", "Spring 2026", "Fall 2027"):
+        assert rc.validate_submission(_body(term=term), 2026)[1] is None
+    for term in ("Summer 2 2021", "Spring 2028"):
+        assert rc.validate_submission(_body(term=term), 2026)[1] == "Invalid term"
+
+
+def test_a_pair_banner_and_rmp_never_saw_is_held_for_review():
+    assert rc.assess(30, "campus", [], False, None, unverified_pair=True) == ("held", ["unverified_pair"])
+    assert rc.assess(30, "other", ["burst_prof"], True, None, unverified_pair=True) == (
+        "held", ["burst_prof", "unverified_pair", "duplicate_comment"])
+
+
+ONE_OFFS = {0, 1}  # the 01:00 and 01:01 comments were never copied
+
+
+def test_every_razzaq_copy_matches_another_bomb_comment():
+    comments = [r["comment"] for r in BOMB]
+    for i, c in enumerate(comments):
+        if i in ONE_OFFS:
+            continue
+        best = max(rc.similarity(c, o) for j, o in enumerate(comments) if j != i)
+        assert best >= rc.NEAR_DUPLICATE, c
+
+
+def test_prefix_word_and_trailing_character_edits_still_match():
+    base = "Lecutres weren't real, she would just read from the slides. The material was very difficult."
+    assert rc.similarity(base, "Honestly, " + base) >= rc.NEAR_DUPLICATE
+    assert rc.similarity(base, base + ".e") >= rc.NEAR_DUPLICATE
+
+
+def test_ordinary_different_comments_do_not_match():
+    pairs = [("Great professor, would definitely take again", "Great professor would take again if I could"),
+             ("Clear lectures and fair exams, would take again.", "Exams were fair but the lectures dragged on."),
+             ("Super helpful in office hours and the homework was fair.", "Homework was long and office hours were packed.")]
+    for a, b in pairs:
+        assert rc.similarity(a, b) < rc.NEAR_DUPLICATE
+
+
+def test_new_reasons_hold_in_a_fixed_order():
+    status, reasons = rc.assess(30, "other", ["burst_prof"], True, "allow",
+                                near_duplicate=True, skew_week=True, silent_hold=True)
+    assert status == "held"
+    assert reasons == ["burst_prof", "skew_week", "duplicate_comment", "near_duplicate", "silent_hold"]
