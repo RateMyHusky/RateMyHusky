@@ -1457,6 +1457,17 @@ def department_slug(name):
     return s
 
 
+# RMP labels that name no department: a placeholder, or a dean's office. Their professors
+# stay in the catalog (and its department filter); only the hub drops them, and a professor
+# page links a department name with no hub entry to the filtered catalog instead.
+NOT_DEPARTMENTS = {"not specified", "advisor"}
+
+
+def is_hub_department(name):
+    folded = " ".join(name.split()).lower()
+    return folded not in NOT_DEPARTMENTS and not folded.startswith("dean of ")
+
+
 def _department_hub_map():
     """slug -> {name, professorCount, avgRating} for every department with
     >=1 rated professor (avg_rating set, so unrated Banner-only professors
@@ -1477,7 +1488,7 @@ def _department_hub_map():
     by_slug = {}
     for r in rows:
         name = r["department"]
-        if not name or name in BAD_DEPTS:
+        if not name or name in BAD_DEPTS or not is_hub_department(name):
             continue
         slug = department_slug(name)
         if slug in by_slug:
