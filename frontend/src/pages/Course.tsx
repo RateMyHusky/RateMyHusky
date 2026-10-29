@@ -14,12 +14,40 @@ import Seo from '../components/Seo';
 import BookmarkButton from '../components/BookmarkButton';
 import { SHOW_SURVEY_STATS } from '../config';
 import FitText from '../components/FitText';
-import { relativeTerm, seasonYear } from '../utils/termUtils';
+import { relativeTerm, seasonYear, termSortKey } from '../utils/termUtils';
 import './Course.css';
 
 const INITIAL_PROFESSORS_VISIBLE = 5;
 const PROFESSORS_VISIBLE_STEP = 5;
 const TOP_PROFESSORS = 10;
+
+type TableSortKey = 'name' | 'rating' | 'difficulty' | 'numRatings' | 'lastTerm' | 'avgClassSize';
+const TABLE_COLUMNS: { key: TableSortKey; label: string }[] = [
+	{ key: 'name', label: 'Professor Name' },
+	{ key: 'rating', label: 'Rating' },
+	{ key: 'difficulty', label: 'Difficulty' },
+	{ key: 'numRatings', label: 'Ratings' },
+	{ key: 'lastTerm', label: 'Last Taught' },
+	{ key: 'avgClassSize', label: 'Avg Class' },
+];
+
+/* The table's rows in the chosen order. Missing values sort last either way, and ties keep
+   professors[]'s order (most ratings first), so the sort is stable across clicks. */
+function sortProfessors<T extends { name: string; rating: number | null; difficulty: number | null; numRatings: number; lastTerm: string | null; avgClassSize: number | null }>(
+	rows: T[], key: TableSortKey, dir: 'asc' | 'desc',
+): T[] {
+	const value = (p: T): number | string | null =>
+		key === 'name' ? p.name : key === 'lastTerm' ? (p.lastTerm ? termSortKey(p.lastTerm) : null) : p[key];
+	const sign = dir === 'asc' ? 1 : -1;
+	return rows
+		.map((p, i) => ({ p, i, v: value(p) }))
+		.sort((a, b) => {
+			if (a.v === null || b.v === null) return a.v === b.v ? a.i - b.i : a.v === null ? 1 : -1;
+			const c = typeof a.v === 'string' ? a.v.localeCompare(b.v as string) : (a.v as number) - (b.v as number);
+			return c !== 0 ? sign * c : a.i - b.i;
+		})
+		.map(({ p }) => p);
+}
 // "Compare top professors": the most-rated who taught the course this recently.
 const COMPARE_PROFESSORS = 3;
 const COMPARE_RECENT_YEARS = 3;
@@ -49,6 +77,8 @@ const Course = () => {
 	const [loading, setLoading] = useState(true);
 	const [loadError, setLoadError] = useState<'not_found' | 'failed' | null>(null);
 	const [visibleCount, setVisibleCount] = useState(INITIAL_PROFESSORS_VISIBLE);
+	// The Professors table's order; newest Last Taught first answers "who teaches it now".
+	const [tableSort, setTableSort] = useState<{ key: TableSortKey; dir: 'asc' | 'desc' }>({ key: 'lastTerm', dir: 'desc' });
 	const [showBackToTop, setShowBackToTop] = useState(false);
 	const tableWrapRef = useRef<HTMLDivElement>(null);
 	const professorsRef = useRef<HTMLElement>(null);
@@ -106,7 +136,10 @@ const Course = () => {
 
 	const summary = course.summary;
 	const professors = course.professors;
-	const visibleProfessors = professors.slice(0, visibleCount);
+	const sortedProfessors = sortProfessors(professors, tableSort.key, tableSort.dir);
+	const visibleProfessors = sortedProfessors.slice(0, visibleCount);
+	const toggleTableSort = (key: TableSortKey) =>
+		setTableSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'name' ? 'asc' : 'desc' }));
 	const hasMore = visibleCount < professors.length;
 	const canCollapse = visibleCount > INITIAL_PROFESSORS_VISIBLE;
 	const hasExpandable = professors.length > INITIAL_PROFESSORS_VISIBLE;
@@ -317,12 +350,16 @@ const Course = () => {
 						<div className={`instructor-scroll-wrap${!tableAtStart ? ' fade-left' : ''}${!tableAtEnd ? ' fade-right' : ''}`}>
 							<div className="instructor-scroll-inner" ref={tableWrapRef}>
 								<div className="instructor-header-row">
-									<span>Professor Name</span>
-									<span>Rating</span>
-									<span>Difficulty</span>
-									<span>Ratings</span>
-									<span>Last Taught</span>
-									<span>Avg Class</span>
+									{TABLE_COLUMNS.map(({ key, label }) => {
+										const active = tableSort.key === key;
+										return (
+											<span key={key} aria-sort={active ? (tableSort.dir === 'asc' ? 'ascending' : 'descending') : undefined}>
+												<button type="button" className={`course-sort-btn${active ? ' active' : ''}`} onClick={() => toggleTableSort(key)}>
+													{label}{active ? (tableSort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
+												</button>
+											</span>
+										);
+									})}
 								</div>
 								{visibleProfessors.map((p) => (
 									<div key={p.slug} className="instructor-row">

@@ -333,6 +333,8 @@ export interface CatalogCourse {
   name: string;
   department: string;
   avgRating: number | null;
+  /** Ratings behind avgRating. Optional: the bookmarks payload doesn't carry it. */
+  numRatings?: number;
 }
 
 export interface CourseCatalogResponse {
@@ -478,7 +480,7 @@ export const fetchDepartments = (college?: string) => {
 
 export const fetchCourseDepartments = () => get<string[]>('/api/course-departments');
 
-export type CourseSort = 'alpha' | 'alpha_desc' | 'rating' | 'rating_asc' | 'recent';
+export type CourseSort = 'alpha' | 'alpha_desc' | 'rating' | 'rating_asc' | 'ratings' | 'recent';
 
 export function fetchCoursesCatalog(params: {
   q?: string;

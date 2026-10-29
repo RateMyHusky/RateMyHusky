@@ -143,3 +143,14 @@
 		padding: 12px;
 	}
 }
+
+/* Under the rating row, like the professor cards' "N ratings". */
+.course-card-ratings {
+	display: block;
+	margin-top: 6px;
+	font-size: 0.72rem;
+	font-weight: 600;
+	color: #999;
+}
+
+.dark .course-card-ratings { color: #777; }

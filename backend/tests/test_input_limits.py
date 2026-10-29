@@ -132,3 +132,26 @@ def test_spaced_course_code_reaches_the_like_unspaced(monkeypatch, path):
 def test_professor_search_keeps_its_spaces(monkeypatch):
     # Only course searches join: a professor query like "li 2" isn't a course code.
     assert server.search_text("cs 3100") == "cs 3100"
+
+
+def _course_catalog(monkeypatch, qs, rows):
+    seen = []
+    monkeypatch.setattr(server, "query", lambda sql, params=(): seen.append(" ".join(sql.split())) or rows)
+    monkeypatch.setattr(server, "query_one", lambda sql, params=(): {"cnt": len(rows)})
+    monkeypatch.setattr(server, "data_version", lambda: 0)
+    server._cache.clear()
+    server.limiter.reset()
+    resp = server.app.test_client().get("/api/courses-catalog?" + qs, headers={"User-Agent": "Mozilla/5.0"})
+    assert resp.status_code == 200
+    return resp.get_json(), seen
+
+
+def test_course_catalog_rows_carry_the_rating_count(monkeypatch):
+    row = {"code": "CS3100", "name": "PDI 2", "department": "Computer Science", "avg_rating": 3.456, "num_ratings": 41}
+    out, _ = _course_catalog(monkeypatch, "", [row])
+    assert out["courses"][0]["numRatings"] == 41
+
+
+def test_course_catalog_has_a_most_rated_sort(monkeypatch):
+    _, seen = _course_catalog(monkeypatch, "sort=ratings", [])
+    assert any("ORDER BY num_ratings DESC NULLS LAST" in s for s in seen)

@@ -122,7 +122,7 @@ CATALOG_FULL_LIMIT = 10000
 # Sorts each catalog knows; anything else is alpha, so made-up sort values all
 # share alpha's cache entry instead of each minting one.
 PROFESSOR_SORTS = {"alpha", "alpha_desc", "rating", "rating_asc", "comments"}
-COURSE_SORTS = {"alpha", "alpha_desc", "rating", "rating_asc", "recent"}
+COURSE_SORTS = {"alpha", "alpha_desc", "rating", "rating_asc", "ratings", "recent"}
 
 
 def sort_arg(known):
@@ -1762,6 +1762,8 @@ def courses_catalog():
         order = "avg_rating ASC NULLS LAST, lower(code) ASC"
     elif sort == "alpha_desc":
         order = "lower(code) DESC"
+    elif sort == "ratings":
+        order = "num_ratings DESC NULLS LAST, lower(code) ASC"
     elif sort == "recent":
         # Last term Banner has the course on, best rated first within a term;
         # courses Banner never saw go last. From 2026 Summer 1 and Summer 2
@@ -1784,7 +1786,7 @@ def courses_catalog():
 
     def page_rows(join, order):
         return query(f"""
-            SELECT code, name, department, avg_rating FROM course_catalog {join}
+            SELECT code, name, department, avg_rating, num_ratings FROM course_catalog {join}
             {where_str}
             ORDER BY {order}
             LIMIT %s OFFSET %s
@@ -1803,6 +1805,7 @@ def courses_catalog():
             "name": r["name"],
             "department": r["department"],
             "avgRating": round(r["avg_rating"], 2) if r["avg_rating"] is not None else None,
+            "numRatings": int(r.get("num_ratings") or 0),
         }
         for r in rows
     ]
