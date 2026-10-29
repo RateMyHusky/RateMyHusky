@@ -209,9 +209,12 @@ const Course = () => {
 							<BookmarkButton itemType="course" itemKey={course.code} size="md" className="course-hero-bookmark" label={course.code} />
 						</h1>
 						{/* Course departments mostly have no /departments page (those are built from
-						    professors' departments), so this opens the course list for the department. */}
+						    professors' departments), so this opens the course list for the department.
+						    That list shows rated courses only, so only a rated course links to it. */}
 						<p className="course-dept">
-							<Link className="course-dept-link" to={`/courses?dept=${encodeURIComponent(course.department)}`}>{course.department}</Link>
+							{course.summary.rating !== null
+								? <Link className="course-dept-link" to={`/courses?dept=${encodeURIComponent(course.department)}`}>{course.department}</Link>
+								: course.department}
 						</p>
 					</div>
 					{/* Up top, not in "When it's offered": next term is what a student registering looks for first. */}

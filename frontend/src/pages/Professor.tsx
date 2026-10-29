@@ -786,16 +786,20 @@ const Professor = () => {
               {identity.name}
               <BookmarkButton itemType="professor" itemKey={slug!} size="md" className="prof-hero-bookmark" label={identity.name} />
             </h1>
+            {/* Without a hub page the department opens the catalog filtered to it, which lists
+                rated professors only: so only from a rated professor, who is sure to be on it. */}
             {identity.department && (
               <p className="prof-dept">
-                <Link
-                  className="prof-dept-link"
-                  to={identity.departmentSlug
-                    ? `/departments/${identity.departmentSlug}`
-                    : `/professors?dept=${encodeURIComponent(identity.department)}`}
-                >
-                  {identity.department}
-                </Link>
+                {identity.departmentSlug || summary.rating !== null ? (
+                  <Link
+                    className="prof-dept-link"
+                    to={identity.departmentSlug
+                      ? `/departments/${identity.departmentSlug}`
+                      : `/professors?dept=${encodeURIComponent(identity.department)}`}
+                  >
+                    {identity.department}
+                  </Link>
+                ) : identity.department}
               </p>
             )}
             {awards.length > 0 && (
