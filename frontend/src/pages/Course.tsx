@@ -19,7 +19,9 @@ import './Course.css';
 
 const INITIAL_PROFESSORS_VISIBLE = 5;
 const PROFESSORS_VISIBLE_STEP = 5;
-const TOP_PROFESSORS = 10;
+// The card rows above the table are a short preview: every professor is in the table below,
+// so more cards would only repeat it.
+const TOP_PROFESSORS = 3;
 
 type TableSortKey = 'name' | 'rating' | 'difficulty' | 'numRatings' | 'lastTerm' | 'avgClassSize';
 const TABLE_COLUMNS: { key: TableSortKey; label: string }[] = [
@@ -147,7 +149,7 @@ const Course = () => {
 	const topProfessors = professors.slice(0, TOP_PROFESSORS);
 	const breakdown = Object.entries(summary.bySource).filter(([, v]) => v.rating !== null);
 	const history = course.history;
-	const recentInstructors = history?.recentInstructors ?? [];
+	const recentInstructors = (history?.recentInstructors ?? []).slice(0, TOP_PROFESSORS);
 	const fromPage = { label: `${course.code} – ${course.name}`, url: `/courses/${code}` };
 	const toCompare = compareSlugs(professors);
 	const compareHref = '/compare?' + toCompare.map((slug, i) => `${'abcd'[i]}=${encodeURIComponent(slug)}`).join('&');
@@ -338,7 +340,7 @@ const Course = () => {
 
 				<section className="course-panel" ref={professorsRef}>
 					<div className="course-panel-header course-panel-header--action">
-						<h2>Professors</h2>
+						<h2>All professors</h2>
 						{toCompare.length >= 2 && (
 							<Link to={compareHref} className="course-compare-btn">
 								Compare top {toCompare.length}
@@ -365,8 +367,9 @@ const Course = () => {
 								{visibleProfessors.map((p) => (
 									<div key={p.slug} className="instructor-row">
 										<span>
+											{/* ?course= opens their page with this course's reviews already filtered. */}
 											<Link
-												to={`/professors/${p.slug}`}
+												to={`/professors/${p.slug}?course=${encodeURIComponent(course.code)}`}
 												state={{ fromPage: { label: `${course.code} – ${course.name}`, url: `/courses/${code}` } }}
 											>
 												{p.name}

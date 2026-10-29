@@ -333,7 +333,11 @@ const Professor = () => {
       if (cancelled) return;
       if (res.ok) {
         setProfile(res.data);
-        setSelectedCourses(new Set());
+        // ?course=CS3100 (the course page's professor table) opens on that course's reviews,
+        // when they have rated reviews for it; anything else starts unfiltered.
+        const wanted = new URLSearchParams(location.search).get('course')?.toUpperCase();
+        const rated = wanted && res.data.courses.some(c => c.code === wanted && c.rating !== null);
+        setSelectedCourses(rated ? new Set([wanted]) : new Set());
         // An Ask citation picks its own tab (the pins effect); otherwise open on the first with entries.
         if (!(location.state as { askPins?: unknown } | null)?.askPins) {
           setReviewTab(defaultTab({
@@ -347,7 +351,7 @@ const Professor = () => {
       setLoading(false);
     });
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- location.state is read once per load, like the pins effect
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- location.state and ?course= are read once per load, like the pins effect
   }, [slug]);
 
   const reviews = useMemo(() => profile?.sources.rmp.reviews ?? [], [profile]);
