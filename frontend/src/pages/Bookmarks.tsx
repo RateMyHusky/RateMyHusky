@@ -10,6 +10,7 @@ import SignInModal from '../components/SignInModal';
 import Footer from '../components/Footer';
 import { getInitials, splitProfName, stripPrefix } from '../utils/nameUtils';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
+import { clearPendingBookmark } from '../utils/pendingBookmark';
 import './ProfessorCatalog.css';
 import './Courses.css';
 import './Bookmarks.css';
@@ -285,7 +286,7 @@ export default function Bookmarks() {
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
             <p>Sign in with your <span className="husky-email">husky.neu.edu</span> account to view your bookmarks.</p>
-            <button className="bm-signin-btn" onClick={() => setShowSignIn(true)}>Sign In</button>
+            <button className="bm-signin-btn" onClick={() => { clearPendingBookmark(); setShowSignIn(true); }}>Sign In</button>
           </div>
         </div>
         <SignInModal open={showSignIn} onClose={() => setShowSignIn(false)} />
