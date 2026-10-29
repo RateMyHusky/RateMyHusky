@@ -1,12 +1,11 @@
+/* In the navbar, beside Sign In. */
 .theme-toggle {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 200;
-  width: 42px;
-  height: 42px;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  margin-right: 10px;
   border-radius: 50%;
-  border: 1.5px solid #ddd;
+  border: 1.5px solid #e2e2e2;
   background: #fff;
   display: flex;
   align-items: center;
@@ -15,12 +14,11 @@
   padding: 0;
   color: #f5a623;
   transition: background 0.3s, border-color 0.3s, color 0.3s;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 
 .theme-toggle svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
 .theme-toggle:hover {
