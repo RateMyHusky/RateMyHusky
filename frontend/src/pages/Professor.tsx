@@ -761,7 +761,9 @@ const Professor = () => {
           >
             {identity.imageUrl ? (
               <img
-                key={identity.imageUrl}
+                // Keyed per photo so both remount on a new one, resetting onError's display:none;
+                // prefixed so the two siblings' keys differ.
+                key={`img:${identity.imageUrl}`}
                 src={photoThumb(identity.imageUrl)}
                 alt={identity.name}
                 className="prof-avatar-img"
@@ -774,7 +776,7 @@ const Professor = () => {
               />
             ) : null}
             <span
-              key={identity.imageUrl ?? ''}
+              key={`initials:${identity.imageUrl ?? ''}`}
               className="prof-avatar-initials"
               style={identity.imageUrl ? { display: 'none' } : undefined}
             >
