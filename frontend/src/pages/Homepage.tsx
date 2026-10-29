@@ -275,12 +275,6 @@ const Homepage = () => {
   const [pillStyle, setPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
   const [isPillReady, setIsPillReady] = useState(false);
 
-  // Navigate to professor page
-  const handleProfClick = (slug: string) => {
-    navigate(`/professors/${slug}`, {
-      state: { fromPage: { label: 'GOATED Professors', url: '/#goated' }, goatedCollege: selectedCollege },
-    });
-  };
 
   const updatePill = useCallback(() => {
     if (!tabsRef.current) return;
@@ -674,22 +668,21 @@ const Homepage = () => {
             </div>
           ) : (
             profs.map((p, i) => (
-              <div
-                key={p.slug}
-                className={`goat-row ${i < 3 ? 'goat-top3' : ''}`}
-                // Not a <Link>: the rating cell's click opens its tooltip instead of navigating.
-                // Keyboard handling matches the catalog cards.
-                role="link"
-                tabIndex={0}
-                aria-label={`${i + 1}. ${p.name}, ${p.dept}, rated ${p.avgRating.toFixed(2)} from ${(p.totalReviews ?? 0).toLocaleString()} ratings`}
-                onClick={() => handleProfClick(p.slug)}
-                onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && handleProfClick(p.slug)}
-              >
+              // The name is the row's link, stretched over the row (.card-link); the rating
+              // cell sits above it, so its click opens the tooltip instead of navigating.
+              <div key={p.slug} className={`goat-row ${i < 3 ? 'goat-top3' : ''}`}>
                 <span className="goat-col-rank">
                   {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                 </span>
                 <div className="goat-col-name">
-                  <span className="goat-name-text">{p.name}</span>
+                  <Link
+                    className="goat-name-text card-link"
+                    to={`/professors/${p.slug}`}
+                    state={{ fromPage: { label: 'GOATED Professors', url: '/#goated' }, goatedCollege: selectedCollege }}
+                    aria-label={`${i + 1}. ${p.name}, ${p.dept}, rated ${p.avgRating.toFixed(2)} from ${(p.totalReviews ?? 0).toLocaleString()} ratings`}
+                  >
+                    {p.name}
+                  </Link>
                 </div>
                 <span className="goat-col-dept">{p.dept}</span>
                 <RatingCell

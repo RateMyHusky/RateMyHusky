@@ -981,24 +981,6 @@
   outline-offset: 2px;
 }
 
-/* A card's one link is its name; ::after stretches it over the card, so the whole card
-   clicks through and still opens in a new tab. The bookmark and Compare controls (z-index 1)
-   sit above it. */
-.card-link {
-  color: inherit;
-  text-decoration: none;
-}
-
-.card-link::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-}
-
-.card-link:focus-visible {
-  outline: none;
-}
-
 /* Professor.css's page-title slide-up reaches card names through the shared .prof-name class;
    the transform it leaves behind would shrink the overlay to the name. */
 .prof-card .prof-name {

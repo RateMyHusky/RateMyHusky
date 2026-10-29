@@ -387,14 +387,20 @@ const Course = () => {
 					)}
 					{hasExpandable && (
 						<div className="course-expand-controls">
-							<button type="button" className="course-expand-btn" disabled={!canCollapse}
-								onClick={() => setVisibleCount(INITIAL_PROFESSORS_VISIBLE)}>
-								<span className="course-expand-chevron up" />
-							</button>
-							<button type="button" className="course-expand-btn" disabled={!hasMore}
-								onClick={() => setVisibleCount((prev) => Math.min(prev + PROFESSORS_VISIBLE_STEP, professors.length))}>
-								<span className="course-expand-chevron down" />
-							</button>
+							{canCollapse && (
+								<button type="button" className="course-expand-btn"
+									onClick={() => setVisibleCount(INITIAL_PROFESSORS_VISIBLE)}>
+									<span className="course-expand-chevron up" />
+									Show fewer
+								</button>
+							)}
+							{hasMore && (
+								<button type="button" className="course-expand-btn"
+									onClick={() => setVisibleCount((prev) => Math.min(prev + PROFESSORS_VISIBLE_STEP, professors.length))}>
+									<span className="course-expand-chevron down" />
+									Show {Math.min(PROFESSORS_VISIBLE_STEP, professors.length - visibleProfessors.length)} more
+								</button>
+							)}
 						</div>
 					)}
 				</section>
