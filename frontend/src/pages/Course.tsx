@@ -85,6 +85,9 @@ const Course = () => {
 	const [showBackToTop, setShowBackToTop] = useState(false);
 	const tableWrapRef = useRef<HTMLDivElement>(null);
 	const professorsRef = useRef<HTMLElement>(null);
+	// Set when "Show N more" reveals the last rows and unmounts itself, so focus moves to
+	// "Show fewer" instead of dropping to <body>.
+	const focusShowFewer = useRef(false);
 	const [tableAtStart, setTableAtStart] = useState(true);
 	const [tableAtEnd, setTableAtEnd] = useState(false);
 
@@ -394,6 +397,7 @@ const Course = () => {
 						<div className="course-expand-controls">
 							{canCollapse && (
 								<button type="button" className="course-expand-btn"
+									ref={(el) => { if (el && focusShowFewer.current) { focusShowFewer.current = false; el.focus(); } }}
 									onClick={() => setVisibleCount(INITIAL_PROFESSORS_VISIBLE)}>
 									<span className="course-expand-chevron up" />
 									Show fewer
@@ -401,7 +405,11 @@ const Course = () => {
 							)}
 							{hasMore && (
 								<button type="button" className="course-expand-btn"
-									onClick={() => setVisibleCount((prev) => Math.min(prev + PROFESSORS_VISIBLE_STEP, professors.length))}>
+									onClick={() => {
+										const next = Math.min(visibleCount + PROFESSORS_VISIBLE_STEP, professors.length);
+										focusShowFewer.current = next >= professors.length;
+										setVisibleCount(next);
+									}}>
 									<span className="course-expand-chevron down" />
 									Show {Math.min(PROFESSORS_VISIBLE_STEP, professors.length - visibleProfessors.length)} more
 								</button>
