@@ -121,7 +121,7 @@ CACHEABLE_PAGE_LIMIT = 100
 CATALOG_FULL_LIMIT = 10000
 # Sorts each catalog knows; anything else is alpha, so made-up sort values all
 # share alpha's cache entry instead of each minting one.
-PROFESSOR_SORTS = {"alpha", "alpha_desc", "rating", "rating_asc", "comments"}
+PROFESSOR_SORTS = {"alpha", "alpha_desc", "rating", "rating_asc", "comments", "ratings"}
 COURSE_SORTS = {"alpha", "alpha_desc", "rating", "rating_asc", "ratings", "recent"}
 
 
@@ -1654,6 +1654,8 @@ def professors_catalog():
             order = "lower(name) DESC, slug DESC"
         elif sort == "comments":
             order = "total_comments DESC"
+        elif sort == "ratings":
+            order = "total_reviews DESC NULLS LAST, slug ASC"
         else:
             order = "lower(name) ASC"
 

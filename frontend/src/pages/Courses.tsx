@@ -18,12 +18,13 @@ import { useDebouncedValue } from '../utils/useDebouncedValue';
 import './ProfessorCatalog.css';
 import './Courses.css';
 
+// Most Rated first and by default, as in the professor catalog.
 const SORT_OPTIONS = [
+	{ value: 'ratings', label: 'Most Rated' },
 	{ value: 'alpha', label: 'A - Z' },
 	{ value: 'alpha_desc', label: 'Z - A' },
 	{ value: 'rating', label: 'Highest Rating' },
 	{ value: 'rating_asc', label: 'Lowest Rating' },
-	{ value: 'ratings', label: 'Most Rated' },
 	{ value: 'recent', label: 'Most Recent' },
 ];
 
@@ -41,7 +42,7 @@ const DEFAULT_FILTERS: Filters = {
 	dept: '',
 	minRating: 0,
 	maxRating: 5,
-	sort: 'alpha',
+	sort: 'ratings',
 	page: 1,
 };
 
@@ -50,7 +51,7 @@ function getFiltersFromSearchParams(sp: URLSearchParams): Filters {
 	const sort =
 		sortValue && SORT_OPTIONS.some((o) => o.value === sortValue)
 			? (sortValue as CourseSort)
-			: 'alpha';
+			: 'ratings';
 
 	const minRating = Number(sp.get('minRating') || '0');
 	const maxRating = Number(sp.get('maxRating') || '5');
@@ -72,7 +73,7 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
 	if (filters.dept) next.set('dept', filters.dept);
 	if (filters.minRating > 0) next.set('minRating', String(filters.minRating));
 	if (filters.maxRating < 5) next.set('maxRating', String(filters.maxRating));
-	if (filters.sort !== 'alpha') next.set('sort', filters.sort);
+	if (filters.sort !== 'ratings') next.set('sort', filters.sort);
 	if (filters.page > 1) next.set('page', String(filters.page));
 	return next;
 }
@@ -309,7 +310,8 @@ export default function Courses() {
 				currentText = fullText.substring(0, currentText.length + 1);
 				typingSpeed = 100;
 			}
-			setSearchPlaceholder(`Search for "${currentText}"`);
+			// Between examples the text is empty: show the plain prompt, not `Search for ""`.
+			setSearchPlaceholder(currentText ? `Search for "${currentText}"` : 'Search course code or title...');
 			if (!isDeleting && currentText === fullText) {
 				isDeleting = true;
 				typingSpeed = 2000;

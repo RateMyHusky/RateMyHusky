@@ -478,3 +478,9 @@ def test_catalogs_sort_in_reverse(monkeypatch, path, order):
     resp = server.app.test_client().get(path)
     assert resp.status_code == 200
     assert any(order in s for s in seen)
+
+
+def test_professor_catalog_sorts_by_rating_count(monkeypatch):
+    # "Most Rated", the catalog's default: the "N ratings" count on the card, not comments.
+    test_catalogs_sort_in_reverse(monkeypatch, "/api/professors-catalog?sort=ratings",
+                                  "ORDER BY total_reviews DESC NULLS LAST, slug ASC")

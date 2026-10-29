@@ -177,7 +177,10 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
         typingSpeed = 100;
       }
 
-      setPlaceholder(isAsk ? currentText : `Search for "${currentText}"`);
+      // Between examples the text is empty: show the plain prompt, not `Search for ""`.
+      setPlaceholder(isAsk ? currentText
+        : currentText ? `Search for "${currentText}"`
+        : searchType === 'Professor' ? 'Search by professor name...' : 'Search by course name or code...');
 
       if (!isDeleting && currentText === fullText) {
         isDeleting = true;

@@ -20,7 +20,9 @@ import { photoThumb, thumbOnError } from '../utils/photoThumb';
 
 import './ProfessorCatalog.css';
 
+// Most Rated first and by default: A–Z opened on a 5.0 from a single rating.
 const SORT_OPTIONS = [
+  { value: 'ratings', label: 'Most Rated' },
   { value: 'alpha',   label: 'A – Z' },
   { value: 'alpha_desc', label: 'Z – A' },
   { value: 'rating',  label: 'Highest Rating' },
@@ -51,7 +53,7 @@ const DEFAULT_FILTERS: Filters = {
   maxRating:  5,
   minReviews: 0,
   maxReviews: null,
-  sort:       'alpha',
+  sort:       'ratings',
   page:       1,
 };
 
@@ -59,7 +61,7 @@ function getFiltersFromSearchParams(sp: URLSearchParams): Filters {
   const sortValue = sp.get('sort');
   const sort = sortValue && SORT_OPTIONS.some(o => o.value === sortValue)
     ? sortValue
-    : 'alpha';
+    : 'ratings';
 
   const minRating = Number(sp.get('minRating') || '0');
   const maxRating = Number(sp.get('maxRating') || '5');
@@ -90,7 +92,7 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
   if (filters.maxRating < 5) next.set('maxRating', String(filters.maxRating));
   if (filters.minReviews > 0) next.set('minReviews', String(filters.minReviews));
   if (filters.maxReviews !== null) next.set('maxReviews', String(filters.maxReviews));
-  if (filters.sort !== 'alpha') next.set('sort', filters.sort);
+  if (filters.sort !== 'ratings') next.set('sort', filters.sort);
   if (filters.page > 1) next.set('page', String(filters.page));
   return next;
 }
@@ -390,7 +392,8 @@ export default function ProfessorCatalog() {
         currentText = fullText.substring(0, currentText.length + 1);
         typingSpeed = 100;
       }
-      setSearchPlaceholder(`Search for "${currentText}"`);
+      // Between examples the text is empty: show the plain prompt, not `Search for ""`.
+      setSearchPlaceholder(currentText ? `Search for "${currentText}"` : 'Search professor name…');
       if (!isDeleting && currentText === fullText) {
         isDeleting = true;
         typingSpeed = 2000;

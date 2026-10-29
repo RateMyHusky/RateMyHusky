@@ -439,7 +439,7 @@ export interface CourseDetail {
   history: CourseHistory | null;
 }
 
-export type ProfessorSort = 'alpha' | 'alpha_desc' | 'rating' | 'rating_asc' | 'comments';
+export type ProfessorSort = 'alpha' | 'alpha_desc' | 'rating' | 'rating_asc' | 'comments' | 'ratings';
 
 export function fetchProfessorsCatalog(params: {
   q?: string;
