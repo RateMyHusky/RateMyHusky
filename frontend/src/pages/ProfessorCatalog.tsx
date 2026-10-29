@@ -95,12 +95,6 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
   return next;
 }
 
-function ratingColor(v: number | null): 'high' | 'mid' | 'low' | 'neutral' {
-  if (v === null) return 'neutral';
-  if (v >= 4) return 'high';
-  if (v >= 3) return 'mid';
-  return 'low';
-}
 
 export default function ProfessorCatalog() {
   const navigate = useNavigate();
@@ -557,10 +551,10 @@ export default function ProfessorCatalog() {
               </div>
             </div>
 
-            {/* Reviews Range */}
+            {/* Ratings count range (star ratings, not written reviews) */}
             <div className="filter-section">
               <p className="filter-label">
-                Reviews
+                Number of ratings
                 <span className="slider-value">
                   {minReviewsDraft <= 0 && maxReviewsDraft === null
                     ? 'Any'
@@ -813,12 +807,8 @@ export default function ProfessorCatalog() {
                     </div>
                     <span className="prof-college">{prof.college}</span>
                     <span className="prof-dept-label">{prof.department}</span>
-                    <div className="prof-sub-ratings">
-                      <div className="sub-rating-item" data-color={ratingColor(prof.rmpRating)}>
-                        <span className="sub-rating-val">{prof.rmpRating != null ? prof.rmpRating.toFixed(1) : '—'}</span>
-                        <span className="sub-rating-lbl">RMP</span>
-                      </div>
-                    </div>
+                    {/* No per-source sub-score: RMP is the only source in the catalog, so it would
+                        repeat the overall rating. Bring it back when a second source joins the row. */}
                     <div className="prof-card-footer">
                       <span className="prof-rating-count">{prof.totalReviews.toLocaleString()} ratings</span>
                       <span className="prof-rating-count prof-rating-count--center">{prof.totalComments.toLocaleString()} comments</span>

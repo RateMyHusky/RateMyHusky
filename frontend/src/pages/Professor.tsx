@@ -823,16 +823,17 @@ const Professor = () => {
             <span className="prof-stat-value prof-stat-value-text">No ratings yet</span>
           </div>
         ) : (<>
-        <div className="prof-stat-card prof-stat-clickable">
+        <div className={`prof-stat-card${stats.breakdown.length > 1 ? ' prof-stat-clickable' : ''}`}>
           <span className="prof-stat-value">{stats.rating !== null ? <AnimatedNumber value={stats.rating} /> : '—'}</span>
           <span className="prof-stat-label" style={{ display: 'block', textAlign: 'center', position: 'relative' }}>
             Overall Rating
-            {stats.breakdown.length > 0 && (
+            {stats.breakdown.length > 1 && (
               <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', marginLeft: '4px', opacity: 0.6 }}><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
             )}
           </span>
           <div className="prof-stat-extra"><StarRating rating={stats.rating ?? 0} size="lg" /></div>
-          {stats.breakdown.length > 0 && (
+          {/* One source's score is the overall score, so the breakdown only shows for two or more. */}
+          {stats.breakdown.length > 1 && (
             <div className="prof-stat-breakdown">
               {stats.breakdown.map(([source, rating]) => (
                 <span key={source}>{SOURCE_LABELS[source] ?? source.toUpperCase()}: {rating.toFixed(2)}</span>

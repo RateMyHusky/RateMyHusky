@@ -26,12 +26,6 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 const PREVIEW_ROWS = 2; // per-section preview rows on the All tab
 const BATCH_ROWS = 4;   // "Show more" rows per batch on the type tabs (matches catalog pages)
 
-function ratingColor(v: number | null): 'high' | 'mid' | 'low' | 'neutral' {
-  if (v === null) return 'neutral';
-  if (v >= 4) return 'high';
-  if (v >= 3) return 'mid';
-  return 'low';
-}
 
 const BOOKMARK_ICON = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -104,12 +98,7 @@ function ProfCard({ prof, onOpen, onRemove, compare }: { prof: BookmarkedProfess
         </div>
         <span className="prof-college">{prof.college}</span>
         <span className="prof-dept-label">{prof.department}</span>
-        <div className="prof-sub-ratings">
-          <div className="sub-rating-item" data-color={ratingColor(prof.rmpRating)}>
-            <span className="sub-rating-val">{prof.rmpRating != null ? prof.rmpRating.toFixed(1) : '—'}</span>
-            <span className="sub-rating-lbl">RMP</span>
-          </div>
-        </div>
+        {/* No per-source sub-score: one source would repeat the overall rating (as in the catalog). */}
         <div className="prof-card-footer">
           <span className="prof-rating-count">{prof.totalReviews.toLocaleString()} ratings</span>
           <span className="prof-rating-count prof-rating-count--center">{prof.totalComments.toLocaleString()} comments</span>
