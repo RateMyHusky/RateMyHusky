@@ -74,6 +74,44 @@
   margin-top: 28px;
 }
 
+.not-found-search {
+  display: flex;
+  gap: 10px;
+  margin-top: 24px;
+  max-width: 460px;
+}
+
+.not-found-search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 50px;
+  padding: 0 16px;
+  border: 1px solid #e2e2e2;
+  border-radius: 14px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.95rem;
+  color: #222;
+}
+
+.not-found-search input:focus {
+  outline: 2px solid #d6394c;
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+.not-found-search .not-found-primary-btn {
+  width: auto;   /* not the phone rule's full-width button: the input takes the row */
+  flex: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.not-found-search + .not-found-actions {
+  margin-top: 16px;
+}
+
 .not-found-primary-btn,
 .not-found-secondary-btn {
   display: inline-flex;
@@ -230,6 +268,12 @@
 
 .dark .not-found-copy p {
   color: #b0b0b0;
+}
+
+.dark .not-found-search input {
+  background: #1e1e1e;
+  border-color: #3a3a3a;
+  color: #e0e0e0;
 }
 
 .dark .not-found-secondary-btn {

@@ -133,7 +133,7 @@ const Course = () => {
 		);
 	}
 
-	if (loadError === 'not_found') return <NotFound />;
+	if (loadError === 'not_found') return <NotFound kind="course" query={code.toUpperCase()} />;
 	if (loadError || !course) return <div className="course-page"><LoadError /></div>;
 
 	const summary = course.summary;
