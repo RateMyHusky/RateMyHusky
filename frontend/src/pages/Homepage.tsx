@@ -10,7 +10,7 @@ import Seo from '../components/Seo';
 import { fetchGoatProfessors, fetchProfessorsCatalog } from '../api/api';
 import type { CatalogProfessor, Professor } from '../api/api';
 import neuIcon from '../assets/neu-circle-icon.png';
-import { ASK_ENABLED } from '../config';
+import { ASK_ENABLED, RATE_ENABLED } from '../config';
 import { useMediaQuery } from './rate/useMediaQuery';
 import './Homepage.css';
 
@@ -547,6 +547,9 @@ const Homepage = () => {
         </p>
 
         <SearchBar forceAsk={askTrigger} restoreAsk={(location.state as { restoreAsk?: boolean } | null)?.restoreAsk} />
+        {RATE_ENABLED && (
+          <Link to="/rate" className="hero-rate-link">Took a class this term? Rate your professor →</Link>
+        )}
       </main>
 
       {/* ======== Stats Banner ======== */}

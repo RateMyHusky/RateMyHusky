@@ -782,7 +782,18 @@ const Professor = () => {
               {identity.name}
               <BookmarkButton itemType="professor" itemKey={slug!} size="md" className="prof-hero-bookmark" />
             </h1>
-            {identity.department && <p className="prof-dept">{identity.department}</p>}
+            {identity.department && (
+              <p className="prof-dept">
+                <Link
+                  className="prof-dept-link"
+                  to={identity.departmentSlug
+                    ? `/departments/${identity.departmentSlug}`
+                    : `/professors?dept=${encodeURIComponent(identity.department)}`}
+                >
+                  {identity.department}
+                </Link>
+              </p>
+            )}
             {awards.length > 0 && (
               <ul className="prof-awards" aria-label="Teaching awards">
                 {groupAwards(awards).map(({ label, award: a, years }) => (

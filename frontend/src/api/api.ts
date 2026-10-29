@@ -32,6 +32,8 @@ export interface ProfessorIdentity {
   slug: string;
   name: string;
   department: string;
+  /** The department's /departments page, or null when it has none (the hub drops small departments). */
+  departmentSlug?: string | null;
   college: string | null;
   imageUrl: string | null;
   focusX: number;

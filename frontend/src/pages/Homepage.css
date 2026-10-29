@@ -202,6 +202,21 @@
   z-index: 1;
 }
 
+/* Below the search bar; z-index under .search-wrapper (2) so suggestions cover it. */
+.hero-rate-link {
+  position: relative;
+  z-index: 1;
+  margin-top: 18px;
+  padding: 6px 4px;
+  color: #d6394c;
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.hero-rate-link:hover { text-decoration: underline; }
+.hero-rate-link:focus-visible { outline: 2px solid #d6394c; outline-offset: 2px; border-radius: 4px; }
+.dark .hero-rate-link { color: #e06070; }
+
 .hero-tagline {
   font-size: 3.25rem;
   font-weight: 900;

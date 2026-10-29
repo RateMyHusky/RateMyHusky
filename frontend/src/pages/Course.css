@@ -78,6 +78,9 @@
 	animation: courseSlideUp 0.5s 0.2s ease both;
 }
 
+.course-dept-link { color: inherit; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: color 0.15s, text-decoration-color 0.15s; }
+.course-dept-link:hover, .course-dept-link:focus-visible { color: #d6394c; text-decoration-color: currentColor; }
+
 
 .course-stats-grid {
 	display: grid;

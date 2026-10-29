@@ -1353,6 +1353,11 @@ def professor_full(slug):
     data = professor_payload(slug)
     if data is None:
         return jsonify({"error": "Professor not found"}), 404
+    # The department links to its hub page only when there is one: the hub drops small
+    # departments. Copied, because professor_payload hands back the cached dict.
+    identity = data["identity"]
+    dept_slug = department_slug(identity.get("department") or "")
+    data = {**data, "identity": {**identity, "departmentSlug": dept_slug if dept_slug in _department_hub_map() else None}}
     resp = jsonify(data)
     resp.headers["Cache-Control"] = "private, max-age=3600" if _is_authed() else "public, max-age=3600"
     resp.headers["Vary"] = "Authorization"
