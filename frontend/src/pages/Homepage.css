@@ -766,8 +766,9 @@
    RATING TOOLTIP
    ============================== */
 .goat-rating-wrapper {
+  /* Comes after the name link, so position alone paints it above the link's ::after; a z-index
+     would make each wrapper a stacking context and the next row's would cover an open tooltip. */
   position: relative;
-  z-index: 1;
   cursor: pointer;
   user-select: none;
 }
