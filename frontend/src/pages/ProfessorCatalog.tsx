@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   FILTER_SEPARATOR,
   fetchProfessorsCatalog,
@@ -97,7 +97,6 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
 
 
 export default function ProfessorCatalog() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters]       = useState<Filters>(() => getFiltersFromSearchParams(searchParams));
   const [colleges]     = useState<string[]>([
@@ -706,16 +705,7 @@ export default function ProfessorCatalog() {
           ) : viewMode === 'list' ? (
             <div className="catalog-list">
               {professors.map(prof => (
-                <div
-                  key={prof.slug}
-                  className="prof-list-item"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => navigate(`/professors/${prof.slug}`, { state: { fromCatalog: `/professors?${searchParams.toString()}` } })}
-                  onKeyDown={e =>
-                    e.key === 'Enter' && e.target === e.currentTarget && navigate(`/professors/${prof.slug}`, { state: { fromCatalog: `/professors?${searchParams.toString()}` } })
-                  }
-                >
+                <div key={prof.slug} className="prof-list-item">
                   <BookmarkButton itemType="professor" itemKey={prof.slug} size="sm" className="prof-list-bookmark" label={prof.name} />
                   <div className="prof-list-avatar">
                     {prof.imageUrl ? (
@@ -739,7 +729,7 @@ export default function ProfessorCatalog() {
                     </span>
                   </div>
                   <div className="prof-list-info">
-                    <span className="prof-list-name">{prof.name}</span>
+                    <Link className="prof-list-name card-link" to={`/professors/${prof.slug}`} state={{ fromCatalog: `/professors?${searchParams.toString()}` }}>{prof.name}</Link>
                     <span className="prof-list-college">{prof.college}</span>
                     <span className="prof-list-dept">{prof.department}</span>
                   </div>
@@ -758,16 +748,7 @@ export default function ProfessorCatalog() {
           ) : (
             <div className="catalog-grid" ref={gridRef}>
               {professors.map(prof => (
-                <div
-                  key={prof.slug}
-                  className="prof-card"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => navigate(`/professors/${prof.slug}`, { state: { fromCatalog: `/professors?${searchParams.toString()}` } })}
-                  onKeyDown={e =>
-                    e.key === 'Enter' && e.target === e.currentTarget && navigate(`/professors/${prof.slug}`, { state: { fromCatalog: `/professors?${searchParams.toString()}` } })
-                  }
-                >
+                <div key={prof.slug} className="prof-card">
                   <BookmarkButton itemType="professor" itemKey={prof.slug} size="sm" className="prof-card-bookmark" label={prof.name} />
                   <div className="prof-card-photo">
                     <div className="prof-avatar">
@@ -795,10 +776,12 @@ export default function ProfessorCatalog() {
                   <div className="prof-card-info">
                     <div className="prof-card-info-top">
                       <h3 className="prof-name">
-                        {(() => {
-                          const [first, rest] = splitProfName(stripPrefix(prof.name));
-                          return rest ? <>{first}<br />{rest}</> : first;
-                        })()}
+                        <Link className="card-link" to={`/professors/${prof.slug}`} state={{ fromCatalog: `/professors?${searchParams.toString()}` }}>
+                          {(() => {
+                            const [first, rest] = splitProfName(stripPrefix(prof.name));
+                            return rest ? <>{first}<br />{rest}</> : first;
+                          })()}
+                        </Link>
                       </h3>
                       <div className="prof-card-rating-row">
                         <span className="prof-avg-num">{prof.avgRating != null ? prof.avgRating.toFixed(1) : 'N/A'}</span>

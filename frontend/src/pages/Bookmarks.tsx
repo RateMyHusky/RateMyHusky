@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useBookmarks } from '../context/BookmarksContext';
 import type { BookmarkedProfessor, BookmarkedCourse } from '../context/BookmarksContext';
@@ -44,15 +44,9 @@ interface CompareSelect {
   onToggle: () => void;
 }
 
-function ProfCard({ prof, onOpen, onRemove, compare }: { prof: BookmarkedProfessor; onOpen: () => void; onRemove: () => void; compare: CompareSelect }) {
+function ProfCard({ prof, onRemove, compare }: { prof: BookmarkedProfessor; onRemove: () => void; compare: CompareSelect }) {
   return (
-    <div
-      className="prof-card"
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={e => e.key === 'Enter' && e.target === e.currentTarget && onOpen()}
-    >
+    <div className="prof-card">
       <BookmarkButton itemType="professor" itemKey={prof.slug} size="sm" className="prof-card-bookmark" onToggle={onRemove} />
       <label
         className={`bm-compare-check${compare.selected ? ' checked' : ''}${compare.disabled ? ' disabled' : ''}`}
@@ -86,10 +80,12 @@ function ProfCard({ prof, onOpen, onRemove, compare }: { prof: BookmarkedProfess
       <div className="prof-card-info">
         <div className="prof-card-info-top">
           <h3 className="prof-name">
-            {(() => {
-              const [first, rest] = splitProfName(stripPrefix(prof.name));
-              return rest ? <>{first}<br />{rest}</> : first;
-            })()}
+            <Link className="card-link" to={`/professors/${prof.slug}`}>
+              {(() => {
+                const [first, rest] = splitProfName(stripPrefix(prof.name));
+                return rest ? <>{first}<br />{rest}</> : first;
+              })()}
+            </Link>
           </h3>
           <div className="prof-card-rating-row">
             <span className="prof-avg-num">{prof.avgRating != null ? prof.avgRating.toFixed(1) : 'N/A'}</span>
@@ -110,21 +106,17 @@ function ProfCard({ prof, onOpen, onRemove, compare }: { prof: BookmarkedProfess
 }
 
 // Exact copy of the course catalog card (Courses.tsx:478-505).
-function CourseCard({ course, onOpen, onRemove }: { course: BookmarkedCourse; onOpen: () => void; onRemove: () => void }) {
+function CourseCard({ course, onRemove }: { course: BookmarkedCourse; onRemove: () => void }) {
   return (
-    <div
-      className="prof-card course-card"
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={e => e.key === 'Enter' && e.target === e.currentTarget && onOpen()}
-    >
+    <div className="prof-card course-card">
       <BookmarkButton itemType="course" itemKey={course.code} size="sm" className="prof-card-bookmark" onToggle={onRemove} />
       <div className="course-card-header">
         <span className="course-card-code">{course.code}</span>
       </div>
       <div className="prof-body">
-        <h3 className="prof-name">{course.name}</h3>
+        <h3 className="prof-name">
+          <Link className="card-link" to={`/courses/${course.code.toLowerCase()}`}>{course.name}</Link>
+        </h3>
         <p className="prof-dept">{course.department}</p>
         <div className="prof-rating-row">
           {course.avgRating != null ? (
@@ -142,7 +134,6 @@ function CourseCard({ course, onOpen, onRemove }: { course: BookmarkedCourse; on
 }
 
 export default function Bookmarks() {
-  const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
   const { bookmarkedProfessors, bookmarkedCourses, loading, toggleBookmark } = useBookmarks();
   const [showSignIn, setShowSignIn] = useState(false);
@@ -419,7 +410,7 @@ export default function Bookmarks() {
                       ) : (
                         <div className="catalog-grid" ref={gridRef}>
                           {(q ? profs : profs.slice(0, preview)).map(prof => (
-                            <ProfCard key={prof.slug} prof={prof} onOpen={() => navigate(`/professors/${prof.slug}`)} onRemove={() => requestRemove('professor', prof.slug, stripPrefix(prof.name))} compare={compareFor(prof.slug)} />
+                            <ProfCard key={prof.slug} prof={prof} onRemove={() => requestRemove('professor', prof.slug, stripPrefix(prof.name))} compare={compareFor(prof.slug)} />
                           ))}
                         </div>
                       )}
@@ -439,7 +430,7 @@ export default function Bookmarks() {
                       ) : (
                         <div className="catalog-grid" ref={gridRef}>
                           {(q ? courses : courses.slice(0, preview)).map(course => (
-                            <CourseCard key={course.code} course={course} onOpen={() => navigate(`/courses/${course.code.toLowerCase()}`)} onRemove={() => requestRemove('course', course.code, course.code)} />
+                            <CourseCard key={course.code} course={course} onRemove={() => requestRemove('course', course.code, course.code)} />
                           ))}
                         </div>
                       )}
@@ -472,7 +463,7 @@ export default function Bookmarks() {
                 <>
                   <div className="catalog-grid" ref={gridRef}>
                     {(q ? profs : profs.slice(0, shownBatches.professors * batch)).map(prof => (
-                      <ProfCard key={prof.slug} prof={prof} onOpen={() => navigate(`/professors/${prof.slug}`)} onRemove={() => requestRemove('professor', prof.slug, stripPrefix(prof.name))} compare={compareFor(prof.slug)} />
+                      <ProfCard key={prof.slug} prof={prof} onRemove={() => requestRemove('professor', prof.slug, stripPrefix(prof.name))} compare={compareFor(prof.slug)} />
                     ))}
                   </div>
                   {!q && (
@@ -519,7 +510,7 @@ export default function Bookmarks() {
                 <>
                   <div className="catalog-grid" ref={gridRef}>
                     {(q ? courses : courses.slice(0, shownBatches.courses * batch)).map(course => (
-                      <CourseCard key={course.code} course={course} onOpen={() => navigate(`/courses/${course.code.toLowerCase()}`)} onRemove={() => requestRemove('course', course.code, course.code)} />
+                      <CourseCard key={course.code} course={course} onRemove={() => requestRemove('course', course.code, course.code)} />
                     ))}
                   </div>
                   {!q && (

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
 	FILTER_SEPARATOR,
 	fetchCourseDepartments,
@@ -80,9 +80,6 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
 export default function Courses() {
 	const navigate = useNavigate();
 	const [searchParams, setSearchParams] = useSearchParams();
-	// The course's "Courses" breadcrumb returns here with these filters (Breadcrumbs fromCatalog).
-	const openCourse = (code: string) =>
-		navigate(`/courses/${code.toLowerCase()}`, { state: { fromCatalog: `/courses?${searchParams.toString()}` } });
 
 	const [filters, setFilters] = useState<Filters>(() => getFiltersFromSearchParams(searchParams));
 	const [departments, setDepartments] = useState<string[]>([]);
@@ -499,20 +496,18 @@ export default function Courses() {
 					) : (
 						<div className="catalog-grid" ref={gridRef}>
 							{courses.map((course) => (
-								<div
-									key={course.code}
-									className="prof-card course-card"
-									role="button"
-									tabIndex={0}
-									onClick={() => openCourse(course.code)}
-									onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && openCourse(course.code)}
-								>
+								<div key={course.code} className="prof-card course-card">
 									<BookmarkButton itemType="course" itemKey={course.code} size="sm" className="prof-card-bookmark" label={course.code} />
 									<div className="course-card-header">
 										<span className="course-card-code">{course.code}</span>
 									</div>
 									<div className="prof-body">
-										<h3 className="prof-name">{course.name}</h3>
+										<h3 className="prof-name">
+											{/* The course's "Courses" breadcrumb returns here with these filters (Breadcrumbs fromCatalog). */}
+											<Link className="card-link" to={`/courses/${course.code.toLowerCase()}`} state={{ fromCatalog: `/courses?${searchParams.toString()}` }}>
+												{course.name}
+											</Link>
+										</h3>
 										<p className="prof-dept">{course.department}</p>
 
 										<div className="prof-rating-row">
