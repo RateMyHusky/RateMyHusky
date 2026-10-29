@@ -1189,14 +1189,21 @@ def search():
     else:
         # Course search
         q = course_search_text(request.args.get("q", ""))
+        # search_text holds the description too, so "calculus" matched every course that
+        # mentions it and code order put AAI5015 first. A code or title match ranks above a
+        # description-only one, and the most-rated course leads within each.
         rows = query("""
             SELECT code, name, department FROM course_catalog
             WHERE search_text LIKE %s
             ORDER BY
-                CASE WHEN lower(code) LIKE %s THEN 0 ELSE 1 END,
+                CASE WHEN lower(code) LIKE %s THEN 0
+                     WHEN lower(name) LIKE %s THEN 1
+                     WHEN lower(name) LIKE %s THEN 2
+                     ELSE 3 END,
+                num_ratings DESC NULLS LAST,
                 code
             LIMIT %s
-        """, (f"%{q}%", f"{q}%", limit))
+        """, (f"%{q}%", f"{q}%", f"{q}%", f"%{q}%", limit))
 
         results = []
         for r in rows:
