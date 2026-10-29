@@ -78,7 +78,8 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
   // (Issue 21). Both are checked on the same line right after the await.
   const askReqSeq = useRef(0);
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
+  // Set true on mount too: StrictMode's dev remount runs the cleanup once and would leave it false.
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   // "Try Now" (home ask bubble) switches the bar into Ask mode and focuses it.
   useEffect(() => {
@@ -221,21 +222,27 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
       return;
     }
 
+    // Set when the query or type changes, so a response that lands after the box was cleared
+    // or retyped can't reopen the dropdown.
+    let stale = false;
     debounceRef.current = setTimeout(async () => {
       try {
         const results = await fetchSearchSuggestions(trimmedQuery, searchType);
+        if (stale) return;
         const limitedResults = searchType === 'Professor' ? results.slice(0, 3) : results;
         setSuggestions(limitedResults);
         // Open even with no matches: the "See all results" row is always there.
         setShowSuggestions(true);
         setActiveIndex(-1);
       } catch {
+        if (stale) return;
         setSuggestions([]);
         setShowSuggestions(false);
       }
     }, 200);
 
     return () => {
+      stale = true;
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [query, searchType, isAsk]);
