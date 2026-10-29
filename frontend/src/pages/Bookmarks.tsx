@@ -147,11 +147,6 @@ export default function Bookmarks() {
   const [showSignIn, setShowSignIn] = useState(false);
   // Professors ticked for Compare, in the order ticked (that order fills slots a–d).
   const [compareSel, setCompareSel] = useState<string[]>([]);
-  const compareFor = (slug: string): CompareSelect => ({
-    selected: compareSel.includes(slug),
-    disabled: !compareSel.includes(slug) && compareSel.length >= COMPARE_MAX,
-    onToggle: () => setCompareSel(sel => sel.includes(slug) ? sel.filter(s => s !== slug) : [...sel, slug].slice(0, COMPARE_MAX)),
-  });
 
   const [pending, setPending] = useState<{ type: 'professor' | 'course'; key: string; label: string } | null>(null);
   const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -190,9 +185,20 @@ export default function Bookmarks() {
     () => bookmarkedProfessors.filter(p => !(pending?.type === 'professor' && pending.key === p.slug)),
     [bookmarkedProfessors, pending]
   );
-  // A professor removed from bookmarks leaves the Compare selection too.
-  const selectedStillSaved = compareSel.filter(slug => visibleProfessors.some(p => p.slug === slug));
+  // A professor removed from bookmarks leaves the Compare selection too. While the removal can
+  // still be undone the tick is only hidden, so Undo brings it back along with the card.
+  const selectedStillSaved = compareSel.filter(slug => bookmarkedProfessors.some(p => p.slug === slug));
   if (selectedStillSaved.length !== compareSel.length) setCompareSel(selectedStillSaved);
+  const hiddenSlug = pending?.type === 'professor' ? pending.key : null;
+  const shownSel = compareSel.filter(slug => slug !== hiddenSlug);
+  const compareFor = (slug: string): CompareSelect => ({
+    selected: shownSel.includes(slug),
+    disabled: !shownSel.includes(slug) && shownSel.length >= COMPARE_MAX,
+    // A new tick takes the hidden one's place, so a full selection still has room for it.
+    onToggle: () => setCompareSel(sel => sel.includes(slug)
+      ? sel.filter(s => s !== slug)
+      : [...sel.filter(s => s !== hiddenSlug), slug].slice(0, COMPARE_MAX)),
+  });
   const visibleCourses = useMemo(
     () => bookmarkedCourses.filter(c => !(pending?.type === 'course' && pending.key === c.code)),
     [bookmarkedCourses, pending]
@@ -544,24 +550,24 @@ export default function Bookmarks() {
           </div>
         </>
       )}
-      {compareSel.length > 0 && (
+      {shownSel.length > 0 && (
         <div className="bm-compare-bar" role="region" aria-label="Compare selected professors">
           <span className="bm-compare-text">
-            {compareSel.length === 1 ? 'Pick at least one more to compare' : `${compareSel.length} professors selected`}
+            {shownSel.length === 1 ? 'Pick at least one more to compare' : `${shownSel.length} professors selected`}
           </span>
           <button className="bm-compare-clear" onClick={() => setCompareSel([])}>Clear</button>
-          {compareSel.length >= 2 && (
+          {shownSel.length >= 2 && (
             <Link
               className="bm-compare-go"
-              to={compareHref(compareSel)}
+              to={compareHref(shownSel)}
             >
-              Compare {compareSel.length}
+              Compare {shownSel.length}
             </Link>
           )}
         </div>
       )}
       {pending && (
-        <div className={`bm-snackbar${compareSel.length > 0 ? ' raised' : ''}`} role="status">
+        <div className={`bm-snackbar${shownSel.length > 0 ? ' raised' : ''}`} role="status">
           <span className="bm-snackbar-text">Removed {pending.label}</span>
           <button className="bm-undo" onClick={undoRemove}>Undo</button>
         </div>
