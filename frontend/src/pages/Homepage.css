@@ -665,6 +665,11 @@
   background: #fef8f8;
 }
 
+.goat-row:focus-visible {
+  outline: 2px solid #d6394c;
+  outline-offset: -2px;
+}
+
 .goat-top3 {
   background: #fffaf5;
 }

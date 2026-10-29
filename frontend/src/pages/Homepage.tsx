@@ -677,7 +677,13 @@ const Homepage = () => {
               <div
                 key={p.slug}
                 className={`goat-row ${i < 3 ? 'goat-top3' : ''}`}
+                // Not a <Link>: the rating cell's click opens its tooltip instead of navigating.
+                // Keyboard handling matches the catalog cards.
+                role="link"
+                tabIndex={0}
+                aria-label={`${i + 1}. ${p.name}, ${p.dept}, rated ${p.avgRating.toFixed(2)} from ${(p.totalReviews ?? 0).toLocaleString()} ratings`}
                 onClick={() => handleProfClick(p.slug)}
+                onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && handleProfClick(p.slug)}
               >
                 <span className="goat-col-rank">
                   {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
