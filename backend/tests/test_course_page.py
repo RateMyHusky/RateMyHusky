@@ -233,7 +233,7 @@ def test_recent_card_fields_and_this_courses_rating():
     assert olin == {"slug": "olin-guha", "name": "Olin Guha", "imageUrl": "https://img/olin-guha.jpg",
                     "focusX": 50.0, "focusY": 30.0, "rating": 4.5,
                     "terms": ["Fall 2026", "Summer 1 2026", "Spring 2026", "Fall 2025"],
-                    "numRatings": 30, "totalComments": 80, "wouldTakeAgainPct": 91.2}
+                    "numRatings": 30, "wouldTakeAgainPct": 91.2}
 
 
 def test_unmatched_instructor_has_no_slug_photo_or_rating():

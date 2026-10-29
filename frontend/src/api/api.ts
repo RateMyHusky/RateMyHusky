@@ -397,8 +397,7 @@ export interface RecentInstructor {
   terms: string[];
   /** Their ratings of this course: 0 with none, null when unmatched. */
   numRatings: number | null;
-  /** Their catalog-wide numbers; null with no profile. 0% would-take-again is real. */
-  totalComments: number | null;
+  /** Their catalog-wide would-take-again; null with no profile. 0% is real. */
   wouldTakeAgainPct: number | null;
 }
 
