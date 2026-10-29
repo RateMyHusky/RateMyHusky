@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { RATE_ENABLED } from '../config';
 import SignInModal from './SignInModal';
 import ThemeToggle from './ThemeToggle';
+import { clearPendingBookmark } from '../utils/pendingBookmark';
 import './Navbar.css';
 
 const Navbar = () => {
@@ -32,10 +33,14 @@ const Navbar = () => {
     return () => window.removeEventListener('themechange', handler);
   }, []);
 
-  // Open the sign-in modal on request from elsewhere (e.g. Ask-mode 401 in SearchBar)
+  // Open the sign-in modal on request from elsewhere (e.g. Ask-mode 401 in SearchBar). Only a
+  // bookmark tap keeps its pending bookmark: one left by an abandoned sign-in (a Google redirect
+  // the student backed out of) mustn't be saved by an unrelated sign-in later.
   useEffect(() => {
     const handler = (e: Event) => {
-      setSignInReason((e as CustomEvent<{ reason?: string } | undefined>).detail?.reason);
+      const detail = (e as CustomEvent<{ reason?: string; bookmark?: boolean } | undefined>).detail;
+      if (!detail?.bookmark) clearPendingBookmark();
+      setSignInReason(detail?.reason);
       setShowSignIn(true);
     };
     window.addEventListener('open-signin', handler);
@@ -205,7 +210,7 @@ const Navbar = () => {
             )}
           </div>
         ) : (
-          <button className="signin-btn" onClick={() => { setSignInReason(undefined); setShowSignIn(true); setMenuOpen(false); }}>Sign In</button>
+          <button className="signin-btn" onClick={() => { clearPendingBookmark(); setSignInReason(undefined); setShowSignIn(true); setMenuOpen(false); }}>Sign In</button>
         )}
 
         <div className="navbar-util-spacer" />

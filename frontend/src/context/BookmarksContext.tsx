@@ -58,6 +58,9 @@ export function BookmarksProvider({ children }: { children: ReactNode }) {
       return;
     }
     setLoading(true);
+    // Set when this account's session ends (sign-out or a switch): the fetch, add, fetch chain
+    // below can outlast it, and must not repopulate the next state with this account's list.
+    let cancelled = false;
     const apply = (data: { professors: BookmarkedProfessor[]; courses: BookmarkedCourse[] }) => {
       setProfessorSlugs(new Set(data.professors.map(p => p.slug)));
       setCourseCodes(new Set(data.courses.map(c => c.code)));
@@ -75,17 +78,19 @@ export function BookmarksProvider({ children }: { children: ReactNode }) {
           try {
             await addBookmark(pending.itemType, pending.itemKey);
             data = await fetchBookmarks();
+            if (cancelled) return;
             setSavedToast(`Saved ${pending.label} to your bookmarks`);
           } catch {
             // Not saved: the flag stays empty and the student can tap it again.
           }
         }
-        apply(data);
+        if (!cancelled) apply(data);
       })
       .catch(() => {
         // Signed in but couldn't load bookmarks — leave state empty rather than stale.
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.email]);
 

@@ -275,6 +275,10 @@ const Homepage = () => {
   const [pillStyle, setPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
   const [isPillReady, setIsPillReady] = useState(false);
 
+  // A GOATED row from a backend older than its slug field falls back to the name slug, which is
+  // wrong only for namesakes, so the board works whichever side deploys first.
+  const goatSlug = (p: Professor) =>
+    p.slug ?? p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
   const updatePill = useCallback(() => {
     if (!tabsRef.current) return;
@@ -670,14 +674,14 @@ const Homepage = () => {
             profs.map((p, i) => (
               // The name is the row's link, stretched over the row (.card-link); the rating
               // cell sits above it, so its click opens the tooltip instead of navigating.
-              <div key={p.slug} className={`goat-row ${i < 3 ? 'goat-top3' : ''}`}>
+              <div key={goatSlug(p)} className={`goat-row ${i < 3 ? 'goat-top3' : ''}`}>
                 <span className="goat-col-rank">
                   {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                 </span>
                 <div className="goat-col-name">
                   <Link
                     className="goat-name-text card-link"
-                    to={`/professors/${p.slug}`}
+                    to={`/professors/${goatSlug(p)}`}
                     state={{ fromPage: { label: 'GOATED Professors', url: '/#goated' }, goatedCollege: selectedCollege }}
                     aria-label={`${i + 1}. ${p.name}, ${p.dept}, rated ${p.avgRating.toFixed(2)} from ${(p.totalReviews ?? 0).toLocaleString()} ratings`}
                   >

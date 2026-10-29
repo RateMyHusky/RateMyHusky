@@ -19,8 +19,16 @@ def test_a_department_with_a_page_carries_its_slug(monkeypatch):
 
 
 def test_a_department_without_a_page_carries_none(monkeypatch):
-    # Small departments are dropped from the hub; linking them would 404.
+    # The hub has no page for a department without rated professors; linking it would 404.
     out, _ = _identity(monkeypatch, "Africana Studies")
+    assert out["departmentSlug"] is None
+
+
+def test_a_second_spelling_of_a_hub_slug_carries_none(monkeypatch):
+    # "Computer & Science" slugs like "Computer Science", but the hub page lists only the
+    # first-seen spelling, so this professor wouldn't be on it.
+    monkeypatch.setattr(server, "department_slug", lambda name: "computer-science" if name else "")
+    out, _ = _identity(monkeypatch, "Computer & Science")
     assert out["departmentSlug"] is None
 
 

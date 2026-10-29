@@ -144,8 +144,9 @@ def search_text(raw):
 
 def course_search_text(raw):
     """search_text for a course search, with a spaced code joined: "cs 3100" -> "cs3100".
-    course_catalog.search_text stores the code unspaced, so the spaced form a student
-    types only matched courses whose title happened to mention it."""
+    course_catalog.search_text holds the code unspaced, plus the spaced form from the read
+    model (pipeline/read_models.course_search_text) once a pipeline run has rebuilt it; that
+    covers partial codes ("cs 31"), this keeps a complete one matching until then."""
     return re.sub(r"\b([a-z]{2,5}) (\d{4})\b", r"\1\2", search_text(raw))
 
 
@@ -1360,11 +1361,15 @@ def professor_full(slug):
     data = professor_payload(slug)
     if data is None:
         return jsonify({"error": "Professor not found"}), 404
-    # The department links to its hub page only when there is one: the hub drops small
-    # departments. Copied, because professor_payload hands back the cached dict.
+    # The department links to its hub page only when that page lists this department: the hub
+    # has no page for a department without rated professors, a BAD_DEPTS alias or a
+    # NOT_DEPARTMENTS label, and keeps just the first of two names that slug alike. Copied,
+    # because professor_payload hands back the cached dict.
     identity = data["identity"]
     dept_slug = department_slug(identity.get("department") or "")
-    data = {**data, "identity": {**identity, "departmentSlug": dept_slug if dept_slug in _department_hub_map() else None}}
+    hub = _department_hub_map().get(dept_slug)
+    has_hub = hub is not None and hub["name"] == identity.get("department")
+    data = {**data, "identity": {**identity, "departmentSlug": dept_slug if has_hub else None}}
     resp = jsonify(data)
     resp.headers["Cache-Control"] = "private, max-age=3600" if _is_authed() else "public, max-age=3600"
     resp.headers["Vary"] = "Authorization"

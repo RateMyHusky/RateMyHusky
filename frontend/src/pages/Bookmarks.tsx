@@ -10,6 +10,8 @@ import SignInModal from '../components/SignInModal';
 import Footer from '../components/Footer';
 import { getInitials, splitProfName, stripPrefix } from '../utils/nameUtils';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
+import { clearPendingBookmark } from '../utils/pendingBookmark';
+import { COMPARE_MAX, compareHref } from '../utils/compareLink';
 import './ProfessorCatalog.css';
 import './Courses.css';
 import './Bookmarks.css';
@@ -32,11 +34,6 @@ const BOOKMARK_ICON = (
     <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
   </svg>
 );
-
-// Exact copy of the catalog grid card (ProfessorCatalog.tsx:756-824), including
-// the footer stats row the old bookmarks page dropped.
-// Compare takes up to four professors (Compare.tsx SLOT_KEYS a–d).
-const COMPARE_MAX = 4;
 
 interface CompareSelect {
   selected: boolean;
@@ -139,11 +136,6 @@ export default function Bookmarks() {
   const [showSignIn, setShowSignIn] = useState(false);
   // Professors ticked for Compare, in the order ticked (that order fills slots a–d).
   const [compareSel, setCompareSel] = useState<string[]>([]);
-  const compareFor = (slug: string): CompareSelect => ({
-    selected: compareSel.includes(slug),
-    disabled: !compareSel.includes(slug) && compareSel.length >= COMPARE_MAX,
-    onToggle: () => setCompareSel(sel => sel.includes(slug) ? sel.filter(s => s !== slug) : [...sel, slug].slice(0, COMPARE_MAX)),
-  });
 
   const [pending, setPending] = useState<{ type: 'professor' | 'course'; key: string; label: string } | null>(null);
   const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -182,9 +174,20 @@ export default function Bookmarks() {
     () => bookmarkedProfessors.filter(p => !(pending?.type === 'professor' && pending.key === p.slug)),
     [bookmarkedProfessors, pending]
   );
-  // A professor removed from bookmarks leaves the Compare selection too.
-  const selectedStillSaved = compareSel.filter(slug => visibleProfessors.some(p => p.slug === slug));
+  // A professor removed from bookmarks leaves the Compare selection too. While the removal can
+  // still be undone the tick is only hidden, so Undo brings it back along with the card.
+  const selectedStillSaved = compareSel.filter(slug => bookmarkedProfessors.some(p => p.slug === slug));
   if (selectedStillSaved.length !== compareSel.length) setCompareSel(selectedStillSaved);
+  const hiddenSlug = pending?.type === 'professor' ? pending.key : null;
+  const shownSel = compareSel.filter(slug => slug !== hiddenSlug);
+  const compareFor = (slug: string): CompareSelect => ({
+    selected: shownSel.includes(slug),
+    disabled: !shownSel.includes(slug) && shownSel.length >= COMPARE_MAX,
+    // A new tick takes the hidden one's place, so a full selection still has room for it.
+    onToggle: () => setCompareSel(sel => sel.includes(slug)
+      ? sel.filter(s => s !== slug)
+      : [...sel.filter(s => s !== hiddenSlug), slug].slice(0, COMPARE_MAX)),
+  });
   const visibleCourses = useMemo(
     () => bookmarkedCourses.filter(c => !(pending?.type === 'course' && pending.key === c.code)),
     [bookmarkedCourses, pending]
@@ -276,7 +279,7 @@ export default function Bookmarks() {
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
             <p>Sign in with your <span className="husky-email">husky.neu.edu</span> account to view your bookmarks.</p>
-            <button className="bm-signin-btn" onClick={() => setShowSignIn(true)}>Sign In</button>
+            <button className="bm-signin-btn" onClick={() => { clearPendingBookmark(); setShowSignIn(true); }}>Sign In</button>
           </div>
         </div>
         <SignInModal open={showSignIn} onClose={() => setShowSignIn(false)} />
@@ -536,24 +539,24 @@ export default function Bookmarks() {
           </div>
         </>
       )}
-      {compareSel.length > 0 && (
+      {shownSel.length > 0 && (
         <div className="bm-compare-bar" role="region" aria-label="Compare selected professors">
           <span className="bm-compare-text">
-            {compareSel.length === 1 ? 'Pick at least one more to compare' : `${compareSel.length} professors selected`}
+            {shownSel.length === 1 ? 'Pick at least one more to compare' : `${shownSel.length} professors selected`}
           </span>
           <button className="bm-compare-clear" onClick={() => setCompareSel([])}>Clear</button>
-          {compareSel.length >= 2 && (
+          {shownSel.length >= 2 && (
             <Link
               className="bm-compare-go"
-              to={'/compare?' + compareSel.map((slug, i) => `${'abcd'[i]}=${encodeURIComponent(slug)}`).join('&')}
+              to={compareHref(shownSel)}
             >
-              Compare {compareSel.length}
+              Compare {shownSel.length}
             </Link>
           )}
         </div>
       )}
       {pending && (
-        <div className={`bm-snackbar${compareSel.length > 0 ? ' raised' : ''}`} role="status">
+        <div className={`bm-snackbar${shownSel.length > 0 ? ' raised' : ''}`} role="status">
           <span className="bm-snackbar-text">Removed {pending.label}</span>
           <button className="bm-undo" onClick={undoRemove}>Undo</button>
         </div>

@@ -15,6 +15,7 @@ import BookmarkButton from '../components/BookmarkButton';
 import { SHOW_SURVEY_STATS } from '../config';
 import FitText from '../components/FitText';
 import { relativeTerm, seasonYear, termSortKey } from '../utils/termUtils';
+import { compareHref } from '../utils/compareLink';
 import './Course.css';
 
 const INITIAL_PROFESSORS_VISIBLE = 5;
@@ -152,7 +153,6 @@ const Course = () => {
 	const recentInstructors = (history?.recentInstructors ?? []).slice(0, TOP_PROFESSORS);
 	const fromPage = { label: `${course.code} – ${course.name}`, url: `/courses/${code}` };
 	const toCompare = compareSlugs(professors);
-	const compareHref = '/compare?' + toCompare.map((slug, i) => `${'abcd'[i]}=${encodeURIComponent(slug)}`).join('&');
 
 	/* Mirrors render.course_html's description exactly (crawler copy and page must agree). */
 	const courseSeoDescription =
@@ -209,9 +209,12 @@ const Course = () => {
 							<BookmarkButton itemType="course" itemKey={course.code} size="md" className="course-hero-bookmark" label={course.code} />
 						</h1>
 						{/* Course departments mostly have no /departments page (those are built from
-						    professors' departments), so this opens the course list for the department. */}
+						    professors' departments), so this opens the course list for the department.
+						    That list shows rated courses only, so only a rated course links to it. */}
 						<p className="course-dept">
-							<Link className="course-dept-link" to={`/courses?dept=${encodeURIComponent(course.department)}`}>{course.department}</Link>
+							{course.summary.rating !== null
+								? <Link className="course-dept-link" to={`/courses?dept=${encodeURIComponent(course.department)}`}>{course.department}</Link>
+								: course.department}
 						</p>
 					</div>
 					{/* Up top, not in "When it's offered": next term is what a student registering looks for first. */}
@@ -344,7 +347,7 @@ const Course = () => {
 					<div className="course-panel-header course-panel-header--action">
 						<h2>All professors</h2>
 						{toCompare.length >= 2 && (
-							<Link to={compareHref} className="course-compare-btn">
+							<Link to={compareHref(toCompare)} className="course-compare-btn">
 								Compare top {toCompare.length}
 							</Link>
 						)}

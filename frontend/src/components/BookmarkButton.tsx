@@ -25,7 +25,7 @@ export default function BookmarkButton({ itemType, itemKey, size = 'sm', classNa
       // Saved once sign-in finishes (BookmarksContext), so the tap isn't lost to the detour.
       const name = label || `this ${itemType}`;
       savePendingBookmark({ itemType, itemKey, label: name });
-      window.dispatchEvent(new CustomEvent('open-signin', { detail: { reason: `Sign in to save ${name} to your bookmarks.` } }));
+      window.dispatchEvent(new CustomEvent('open-signin', { detail: { reason: `Sign in to save ${name} to your bookmarks.`, bookmark: true } }));
       return;
     }
     if (onToggle) {
