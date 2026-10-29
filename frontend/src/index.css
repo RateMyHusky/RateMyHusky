@@ -81,8 +81,8 @@ html {
 }
 /* A card or row whose one link is its name: ::after stretches the link over the nearest
    positioned ancestor (the card), so the whole card clicks through and still opens in a new
-   tab. Controls inside the card (bookmark, Compare, the GOATED rating tooltip) sit above it at
-   z-index 1; the card draws the focus outline with :has(.card-link:focus-visible). */
+   tab. Controls inside the card (bookmark, Compare, the GOATED rating tooltip) sit above it;
+   positioned display-only pieces need pointer-events: none so they don't swallow the click. The card draws the focus outline with :has(.card-link:focus-visible). */
 .card-link {
   color: inherit;
   text-decoration: none;

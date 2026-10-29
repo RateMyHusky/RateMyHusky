@@ -981,10 +981,19 @@
   outline-offset: 2px;
 }
 
-/* Professor.css's page-title slide-up reaches card names through the shared .prof-name class;
-   the transform it leaves behind would shrink the overlay to the name. */
-.prof-card .prof-name {
+/* Professor.css's page-title slide-up reaches card names and course departments through the
+   shared .prof-name and .prof-dept classes; the transform it leaves behind would shrink the
+   overlay to the name, and lift the department line above it. */
+.prof-card .prof-name,
+.prof-card .prof-dept {
   animation: none;
+}
+
+/* Positioned display-only pieces paint above the .card-link overlay; let clicks fall through. */
+.prof-card .star-rating,
+.prof-list-item .star-rating,
+.prof-list-rating-center {
+  pointer-events: none;
 }
 
 /* Photo section */
