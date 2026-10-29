@@ -1,4 +1,4 @@
-from pipeline.read_models import catalog_rows, course_rows, drop_denied, keep_summaries, stats, verify
+from pipeline.read_models import catalog_rows, course_rows, drop_denied, keep_summaries, retired_courses, stats, verify
 from pipeline.summaries import build_summaries
 
 PROF = {"slug": "olin-guha", "name": "Olin Guha", "name_key": "olin guha", "department": "CS",
@@ -135,3 +135,20 @@ def test_college_override_replaces_the_stored_college():
     [row] = catalog_rows([PROF], LINKS, PAGES, SUMMARIES, is_denied=lambda k: False,
                          colleges={"someone-else": "Law"})
     assert row["college"] == "Khoury"
+
+
+def test_retired_courses_take_the_successors_department_and_banners_title():
+    cat = [{"code": "CS2000", "name": "Intro to Program Design", "department": "Computer Science",
+            "subject": "CS", "search_text": "cs2000", "is_placeholder": False}]
+    [row] = retired_courses(cat, {"CS2500": "Fundamentals of  Computer Science 1"})
+    assert row == {"code": "CS2500", "name": "Fundamentals of  Computer Science 1",
+                   "department": "Computer Science", "subject": "CS",
+                   "search_text": "cs2500 fundamentals of computer science 1", "is_placeholder": False}
+
+
+def test_retired_courses_skip_codes_the_catalog_still_lists_or_banner_never_titled():
+    succ = {"code": "CS2000", "name": "x", "department": "CS", "subject": "CS", "search_text": "", "is_placeholder": False}
+    still = {**succ, "code": "CS2500"}
+    assert retired_courses([succ, still], {"CS2500": "Fundies 1"}) == []
+    assert retired_courses([succ], {}) == []
+    assert retired_courses([], {"CS2500": "Fundies 1"}) == []      # no successor row to copy from

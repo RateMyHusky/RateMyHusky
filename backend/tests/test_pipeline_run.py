@@ -44,6 +44,7 @@ TABLES = {
                         "difficulty": 2, "hours": "3-4", "grade": None, "comment": "", "hold_reasons": None,
                         "updated_at": datetime.now(timezone.utc) - timedelta(days=1)}],
     "survey_pending_courses": [],
+    "banner_course_offerings": [],
     "stats_cache": [],
 }
 
@@ -217,3 +218,16 @@ def test_the_surge_scan_reaches_back_to_the_last_run_that_published(captured, mo
     monkeypatch.setitem(TABLES, "stats_cache", [{"value": checked}])
     assert run.main([]) == 0 and held[-1] == {r["id"] for r in surge}
     assert written["checked"] > datetime.now(timezone.utc) - timedelta(minutes=1)
+
+
+def test_a_retired_course_keeps_its_reviews_and_gets_a_row(captured, monkeypatch):
+    # The catalog edition lists only the successor; Banner still titles the old code.
+    monkeypatch.setitem(TABLES, "catalog_courses", [{"code": "CS2000", "name": "Program Design", "department": "CS",
+                                                     "subject": "CS", "search_text": "cs2000", "is_placeholder": False}])
+    monkeypatch.setitem(TABLES, "banner_course_offerings", [{"subject_course": "CS2500",
+                                                             "course_title": "Fundamentals of Computer Science 1"}])
+    out = {}
+    monkeypatch.setattr(run.read_models, "write", lambda conn, catalog, courses, summary_rows, counts: out.update(
+        codes=[c["code"] for c in courses], summaries={r["course_code"] for r in summary_rows}))
+    assert run.main([]) == 0
+    assert "CS2500" in out["codes"] and "CS2500" in out["summaries"]
