@@ -1460,6 +1460,16 @@
     min-width: 0;
   }
 
+  /* Two columns leave the name ~70px beside the rating ("Aaron Hoffma"): stack them. */
+  .prof-card-info-top {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .catalog-page .prof-card .prof-name {
+    min-height: 0;
+  }
+
   .prof-card-photo {
     height: 120px;
   }
