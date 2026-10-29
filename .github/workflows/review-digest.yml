@@ -37,7 +37,7 @@ jobs:
         working-directory: backend
         run: pip install -r requirements-data.txt
 
-      - name: Review held ratings and pending courses
+      - name: Review held ratings, pending professors and courses, and nickname suggestions
         timeout-minutes: 30  # a step timeout fails only this step, so the digest still runs
         working-directory: backend
         env:

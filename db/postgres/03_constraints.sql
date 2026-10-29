@@ -133,6 +133,14 @@ ALTER TABLE public.survey_pending_courses ADD CONSTRAINT check_survey_pending_co
 ALTER TABLE public.rating_flags ADD CONSTRAINT check_rating_flag_kind
     CHECK (kind IN ('device', 'ip'));
 
+-- professor_aliases
+ALTER TABLE public.professor_aliases ADD CONSTRAINT professor_aliases_key_slug
+    UNIQUE (alias_key, slug);
+ALTER TABLE public.professor_aliases ADD CONSTRAINT check_professor_alias_source
+    CHECK (source IN ('comment', 'merge', 'manual'));
+ALTER TABLE public.professor_aliases ADD CONSTRAINT check_professor_alias_status
+    CHECK (status IN ('pending', 'approved', 'rejected'));
+
 -- Foreign keys
 ALTER TABLE public.evidence_embeddings
     ADD CONSTRAINT evidence_embeddings_evidence_id_fkey
