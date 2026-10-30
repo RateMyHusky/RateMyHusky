@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
 	FILTER_SEPARATOR,
 	fetchCourseDepartments,
@@ -18,12 +18,13 @@ import { useDebouncedValue } from '../utils/useDebouncedValue';
 import './ProfessorCatalog.css';
 import './Courses.css';
 
+// Most Rated first and by default, as in the professor catalog.
 const SORT_OPTIONS = [
+	{ value: 'ratings', label: 'Most Rated' },
 	{ value: 'alpha', label: 'A - Z' },
 	{ value: 'alpha_desc', label: 'Z - A' },
 	{ value: 'rating', label: 'Highest Rating' },
 	{ value: 'rating_asc', label: 'Lowest Rating' },
-	{ value: 'ratings', label: 'Most Rated' },
 	{ value: 'recent', label: 'Most Recent' },
 ];
 
@@ -41,7 +42,7 @@ const DEFAULT_FILTERS: Filters = {
 	dept: '',
 	minRating: 0,
 	maxRating: 5,
-	sort: 'alpha',
+	sort: 'ratings',
 	page: 1,
 };
 
@@ -50,7 +51,7 @@ function getFiltersFromSearchParams(sp: URLSearchParams): Filters {
 	const sort =
 		sortValue && SORT_OPTIONS.some((o) => o.value === sortValue)
 			? (sortValue as CourseSort)
-			: 'alpha';
+			: 'ratings';
 
 	const minRating = Number(sp.get('minRating') || '0');
 	const maxRating = Number(sp.get('maxRating') || '5');
@@ -72,7 +73,7 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
 	if (filters.dept) next.set('dept', filters.dept);
 	if (filters.minRating > 0) next.set('minRating', String(filters.minRating));
 	if (filters.maxRating < 5) next.set('maxRating', String(filters.maxRating));
-	if (filters.sort !== 'alpha') next.set('sort', filters.sort);
+	if (filters.sort !== 'ratings') next.set('sort', filters.sort);
 	if (filters.page > 1) next.set('page', String(filters.page));
 	return next;
 }
@@ -80,9 +81,6 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
 export default function Courses() {
 	const navigate = useNavigate();
 	const [searchParams, setSearchParams] = useSearchParams();
-	// The course's "Courses" breadcrumb returns here with these filters (Breadcrumbs fromCatalog).
-	const openCourse = (code: string) =>
-		navigate(`/courses/${code.toLowerCase()}`, { state: { fromCatalog: `/courses?${searchParams.toString()}` } });
 
 	const [filters, setFilters] = useState<Filters>(() => getFiltersFromSearchParams(searchParams));
 	const [departments, setDepartments] = useState<string[]>([]);
@@ -312,7 +310,8 @@ export default function Courses() {
 				currentText = fullText.substring(0, currentText.length + 1);
 				typingSpeed = 100;
 			}
-			setSearchPlaceholder(`Search for "${currentText}"`);
+			// Between examples the text is empty: show the plain prompt, not `Search for ""`.
+			setSearchPlaceholder(currentText ? `Search for "${currentText}"` : 'Search course code or title...');
 			if (!isDeleting && currentText === fullText) {
 				isDeleting = true;
 				typingSpeed = 2000;
@@ -499,20 +498,18 @@ export default function Courses() {
 					) : (
 						<div className="catalog-grid" ref={gridRef}>
 							{courses.map((course) => (
-								<div
-									key={course.code}
-									className="prof-card course-card"
-									role="button"
-									tabIndex={0}
-									onClick={() => openCourse(course.code)}
-									onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && openCourse(course.code)}
-								>
+								<div key={course.code} className="prof-card course-card">
 									<BookmarkButton itemType="course" itemKey={course.code} size="sm" className="prof-card-bookmark" label={course.code} />
 									<div className="course-card-header">
 										<span className="course-card-code">{course.code}</span>
 									</div>
 									<div className="prof-body">
-										<h3 className="prof-name">{course.name}</h3>
+										<h3 className="prof-name">
+											{/* The course's "Courses" breadcrumb returns here with these filters (Breadcrumbs fromCatalog). */}
+											<Link className="card-link" to={`/courses/${course.code.toLowerCase()}`} state={{ fromCatalog: `/courses?${searchParams.toString()}` }}>
+												{course.name}
+											</Link>
+										</h3>
 										<p className="prof-dept">{course.department}</p>
 
 										<div className="prof-rating-row">

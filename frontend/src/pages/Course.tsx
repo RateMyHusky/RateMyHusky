@@ -85,6 +85,10 @@ const Course = () => {
 	const [showBackToTop, setShowBackToTop] = useState(false);
 	const tableWrapRef = useRef<HTMLDivElement>(null);
 	const professorsRef = useRef<HTMLElement>(null);
+	// Set when "Show N more" reveals the last rows and unmounts itself, so focus moves to
+	// "Show fewer" instead of dropping to <body>; focusShowMore covers the reverse.
+	const focusShowFewer = useRef(false);
+	const focusShowMore = useRef(false);
 	const [tableAtStart, setTableAtStart] = useState(true);
 	const [tableAtEnd, setTableAtEnd] = useState(false);
 
@@ -134,7 +138,7 @@ const Course = () => {
 		);
 	}
 
-	if (loadError === 'not_found') return <NotFound />;
+	if (loadError === 'not_found') return <NotFound kind="course" query={code.toUpperCase()} />;
 	if (loadError || !course) return <div className="course-page"><LoadError /></div>;
 
 	const summary = course.summary;
@@ -312,7 +316,9 @@ const Course = () => {
 									focusY={r.focusY}
 									rating={r.rating}
 									footerLeft={r.numRatings != null ? `${r.numRatings.toLocaleString()} rating${r.numRatings === 1 ? '' : 's'}` : '—'}
-									footerCenter={r.totalComments != null ? `${r.totalComments.toLocaleString()} comment${r.totalComments === 1 ? '' : 's'}` : '—'}
+									// This course's latest term, not the catalog-wide comment count, which beside
+									// this course's rating count read as "28 ratings, 55 comments".
+									footerCenter={r.terms[0] ?? '—'}
 									footerRight={r.wouldTakeAgainPct != null ? `${Math.round(r.wouldTakeAgainPct)}% again` : '—'}
 									to={r.slug ? `/professors/${r.slug}` : undefined}
 									fromPage={fromPage}
@@ -394,14 +400,30 @@ const Course = () => {
 					)}
 					{hasExpandable && (
 						<div className="course-expand-controls">
-							<button type="button" className="course-expand-btn" disabled={!canCollapse}
-								onClick={() => setVisibleCount(INITIAL_PROFESSORS_VISIBLE)}>
-								<span className="course-expand-chevron up" />
-							</button>
-							<button type="button" className="course-expand-btn" disabled={!hasMore}
-								onClick={() => setVisibleCount((prev) => Math.min(prev + PROFESSORS_VISIBLE_STEP, professors.length))}>
-								<span className="course-expand-chevron down" />
-							</button>
+							{canCollapse && (
+								<button type="button" className="course-expand-btn"
+									ref={(el) => { if (el && focusShowFewer.current) { focusShowFewer.current = false; el.focus(); } }}
+									onClick={() => {
+										// Collapsing always removes this button, so hand focus to "Show N more".
+										focusShowMore.current = true;
+										setVisibleCount(INITIAL_PROFESSORS_VISIBLE);
+									}}>
+									<span className="course-expand-chevron up" />
+									Show fewer
+								</button>
+							)}
+							{hasMore && (
+								<button type="button" className="course-expand-btn"
+									ref={(el) => { if (el && focusShowMore.current) { focusShowMore.current = false; el.focus(); } }}
+									onClick={() => {
+										const next = Math.min(visibleCount + PROFESSORS_VISIBLE_STEP, professors.length);
+										focusShowFewer.current = next >= professors.length;
+										setVisibleCount(next);
+									}}>
+									<span className="course-expand-chevron down" />
+									Show {Math.min(PROFESSORS_VISIBLE_STEP, professors.length - visibleProfessors.length)} more
+								</button>
+							)}
 						</div>
 					)}
 				</section>

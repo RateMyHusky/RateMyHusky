@@ -109,6 +109,17 @@
   background: #fef0f0;
 }
 
+.suggestion-see-all {
+  justify-content: flex-start;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #b8384a;
+}
+
+.suggestion-item + .suggestion-see-all {
+  border-top: 1px solid #f0f0f0;
+}
+
 .suggestion-main {
   display: flex;
   flex-direction: column;
@@ -189,6 +200,11 @@
   background: #2a2a2a;
   border-color: #444;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.dark .suggestion-see-all {
+  border-top-color: #333;
+  color: #e8697a;
 }
 
 .dark .suggestion-item:hover,

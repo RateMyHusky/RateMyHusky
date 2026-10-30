@@ -233,7 +233,7 @@ def test_recent_card_fields_and_this_courses_rating():
     assert olin == {"slug": "olin-guha", "name": "Olin Guha", "imageUrl": "https://img/olin-guha.jpg",
                     "focusX": 50.0, "focusY": 30.0, "rating": 4.5,
                     "terms": ["Fall 2026", "Summer 1 2026", "Spring 2026", "Fall 2025"],
-                    "numRatings": 30, "totalComments": 80, "wouldTakeAgainPct": 91.2}
+                    "numRatings": 30, "wouldTakeAgainPct": 91.2}
 
 
 def test_unmatched_instructor_has_no_slug_photo_or_rating():
@@ -478,3 +478,9 @@ def test_catalogs_sort_in_reverse(monkeypatch, path, order):
     resp = server.app.test_client().get(path)
     assert resp.status_code == 200
     assert any(order in s for s in seen)
+
+
+def test_professor_catalog_sorts_by_rating_count(monkeypatch):
+    # "Most Rated", the catalog's default: the "N ratings" count on the card, not comments.
+    test_catalogs_sort_in_reverse(monkeypatch, "/api/professors-catalog?sort=ratings",
+                                  "ORDER BY total_reviews DESC NULLS LAST, slug ASC")

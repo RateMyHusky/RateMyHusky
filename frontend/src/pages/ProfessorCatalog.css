@@ -735,6 +735,7 @@
    the bigger transparent hit area; ::before draws the ribbon, which drops down on hover. */
 .prof-list-bookmark.bookmark-btn {
   position: absolute;
+  z-index: 1;
   top: 0;
   left: 9px;
   width: 28px;
@@ -792,7 +793,7 @@
   background: #fef8f8;
 }
 
-.prof-list-item:focus-visible {
+.prof-list-item:has(.card-link:focus-visible) {
   outline: 2px solid #d6394c;
   outline-offset: -2px;
 }
@@ -975,9 +976,24 @@
   border-color: rgba(214, 57, 76, 0.25);
 }
 
-.prof-card:focus-visible {
+.prof-card:has(.card-link:focus-visible) {
   outline: 2px solid #d6394c;
   outline-offset: 2px;
+}
+
+/* Professor.css's page-title slide-up reaches card names and course departments through the
+   shared .prof-name and .prof-dept classes; the transform it leaves behind would shrink the
+   overlay to the name, and lift the department line above it. */
+.prof-card .prof-name,
+.prof-card .prof-dept {
+  animation: none;
+}
+
+/* Positioned display-only pieces paint above the .card-link overlay; let clicks fall through. */
+.prof-card .star-rating,
+.prof-list-item .star-rating,
+.prof-list-rating-center {
+  pointer-events: none;
 }
 
 /* Photo section */
@@ -1193,6 +1209,21 @@
   font-size: 1rem;
 }
 
+.catalog-empty-alt {
+  color: #b8384a;
+  font-weight: 700;
+  font-size: 0.95rem;
+  text-decoration: none;
+}
+
+.catalog-empty-alt:hover {
+  text-decoration: underline;
+}
+
+.dark .catalog-empty-alt {
+  color: #e8697a;
+}
+
 .clear-btn.prominent {
   padding: 10px 24px;
   background: #d6394c;
@@ -1394,6 +1425,16 @@
 
   .prof-card {
     min-width: 0;
+  }
+
+  /* Two columns leave the name ~70px beside the rating ("Aaron Hoffma"): stack them. */
+  .prof-card-info-top {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .catalog-page .prof-card .prof-name {
+    min-height: 0;
   }
 
   .prof-card-photo {

@@ -545,15 +545,19 @@
 }
 
 .course-expand-btn {
-	width: 28px;
-	height: 28px;
-	padding: 0;
+	height: 32px;
+	padding: 0 14px;
 	border: 1px solid #dfdfdf;
 	background: #fff;
 	border-radius: 999px;
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	gap: 8px;
+	font: inherit;
+	font-size: 0.8rem;
+	font-weight: 700;
+	color: #555;
 	cursor: pointer;
 	transition: border-color 0.2s, background 0.2s;
 }
@@ -746,9 +750,26 @@
 		display: block;
 	}
 
+	/* The four columns a student decides on fit without sideways scroll; Last Taught and
+	   Avg Class (in the stat cards above) step aside, as in the sections table. */
 	.instructor-header-row,
 	.instructor-row {
-		min-width: 640px;
+		gap: 10px;
+	}
+
+	.instructor-header-row span:nth-child(n+5),
+	.instructor-row span:nth-child(n+5) {
+		display: none;
+	}
+
+	.instructor-header-row span:first-child,
+	.instructor-row span:first-child {
+		flex: 2;
+	}
+
+	.instructor-header-row {
+		font-size: 0.66rem;
+		letter-spacing: 0;
 	}
 
 	/* Two-word labels ("Last Taught") wrap instead of running into the next column. */
@@ -824,6 +845,7 @@
 .dark .course-expand-btn {
 	background: #252525;
 	border-color: #3a3a3a;
+	color: #bbb;
 }
 
 .dark .course-expand-btn:hover {
