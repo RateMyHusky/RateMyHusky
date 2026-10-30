@@ -1400,8 +1400,14 @@ def professor_full(slug):
 
 
 from professor_full import _resolve_professor  # same lookup as /full, skips denied profs
+from tags import TAG_TAXONOMY
+import rmp
 
 MIN_TAG_REVIEWS = 3  # need at least this many reviews before showing a tag
+MIN_TAG_SHARE = 0.05  # and at least 5% of the professor's reviews, so 3 of 250 doesn't count
+MAX_PROF_TAGS = 5  # most tags shown on one professor page
+# same visibility rule for the professor page, popular tags and the catalog filter
+TAG_VISIBLE_SQL = "pt.review_count >= %s AND pt.review_count >= pc.total_reviews * %s"
 
 
 @app.route("/api/professors/<slug>/tags")
@@ -1413,11 +1419,17 @@ def professor_tags(slug):
         if not prof:
             return jsonify({"error": "Professor not found"}), 404
         rows = query(
-            "SELECT tag, review_count FROM professor_tags "
-            "WHERE name_key = %s AND review_count >= %s ORDER BY review_count DESC",
-            (prof["name_key"], MIN_TAG_REVIEWS),
+            "SELECT pt.tag, pt.review_count FROM professor_tags pt "
+            "JOIN professors_catalog pc ON pc.name_key = pt.name_key "
+            "WHERE pt.name_key = %s AND " + TAG_VISIBLE_SQL + " "
+            "ORDER BY pt.review_count DESC LIMIT %s",
+            (prof["name_key"], MIN_TAG_REVIEWS, MIN_TAG_SHARE, MAX_PROF_TAGS),
         )
         data = [{"tag": r["tag"], "count": r["review_count"]} for r in rows]
+        # which reviews produced each tag, so clicking a pill can show them
+        ids = rmp.tagged_review_ids(prof["name_key"], [d["tag"] for d in data], query) if data else {}
+        for d in data:
+            d["reviewIds"] = ids.get(d["tag"], [])
         cache_set(cache_key, data)
     resp = jsonify(data)
     resp.headers["Cache-Control"] = "public, max-age=3600"
@@ -1432,8 +1444,8 @@ def popular_tags():
         rows = query(
             "SELECT pt.tag, COUNT(*) AS profs FROM professor_tags pt "
             "JOIN professors_catalog pc ON pc.name_key = pt.name_key "
-            "WHERE pt.review_count >= %s GROUP BY pt.tag ORDER BY profs DESC LIMIT 20",
-            (MIN_TAG_REVIEWS,),
+            "WHERE " + TAG_VISIBLE_SQL + " GROUP BY pt.tag ORDER BY profs DESC LIMIT 20",
+            (MIN_TAG_REVIEWS, MIN_TAG_SHARE),
         )
         # count is number of profs with the tag
         data = [{"tag": r["tag"], "count": int(r["profs"])} for r in rows]
@@ -1585,9 +1597,14 @@ def professors_catalog():
     max_reviews = int_arg("maxReviews", -1, -1, 100000)
     max_reviews = None if max_reviews < 0 else max_reviews
 
+    # teaching-style tags, only real tag names count
+    tag_list = sorted({t for t in split_filter(request.args.get("tags", "")) if t in TAG_TAXONOMY})
+
     def key(pg, rows):
+        # tags only go in the key when picked, so the sitemap's exact key below still matches
         return (f"profcat:{q}:{college}:{dept}:{sort}:{pg}:{rows}:"
-                f"{min_rating}:{max_rating}:{min_reviews}:{max_reviews}")
+                f"{min_rating}:{max_rating}:{min_reviews}:{max_reviews}"
+                + (f":{'|'.join(tag_list)}" if tag_list else ""))
 
     # Only the sitemap's exact request gets the whole catalog; any other big page gets
     # CACHEABLE_PAGE_LIMIT rows. So every page served is small or that one, and cached.
@@ -1645,6 +1662,12 @@ def professors_catalog():
     if max_reviews is not None:
         conditions.append("total_reviews <= %s")
         params.append(max_reviews)
+    # professor has to have every tag picked
+    for t in tag_list:
+        conditions.append("name_key IN (SELECT pt.name_key FROM professor_tags pt "
+                          "JOIN professors_catalog pc ON pc.name_key = pt.name_key "
+                          "WHERE pt.tag = %s AND " + TAG_VISIBLE_SQL + ")")
+        params.extend([t, MIN_TAG_REVIEWS, MIN_TAG_SHARE])
 
     where = " AND ".join(conditions)
 
