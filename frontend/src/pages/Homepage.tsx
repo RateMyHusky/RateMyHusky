@@ -10,7 +10,7 @@ import Seo from '../components/Seo';
 import { fetchGoatProfessors, fetchProfessorsCatalog } from '../api/api';
 import type { CatalogProfessor, Professor } from '../api/api';
 import neuIcon from '../assets/neu-circle-icon.png';
-import { ASK_ENABLED } from '../config';
+import { ASK_ENABLED, RATE_ENABLED } from '../config';
 import { useMediaQuery } from './rate/useMediaQuery';
 import './Homepage.css';
 
@@ -275,9 +275,13 @@ const Homepage = () => {
   const [pillStyle, setPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
   const [isPillReady, setIsPillReady] = useState(false);
 
+  // A GOATED row from a backend older than its slug field falls back to the name slug, which is
+  // wrong only for namesakes, so the board works whichever side deploys first.
+  const goatSlug = (p: Professor) =>
+    p.slug ?? p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
   // Navigate to professor page
-  const handleProfClick = (name: string) => {
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const handleProfClick = (slug: string) => {
     navigate(`/professors/${slug}`, {
       state: { fromPage: { label: 'GOATED Professors', url: '/#goated' }, goatedCollege: selectedCollege },
     });
@@ -457,7 +461,7 @@ const Homepage = () => {
       const winnerIndex = 0; // winner is first after shuffle
       setWheelNames(names);
 
-      const slug = winner.slug || winner.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const slug = winner.slug;
 
       const currentNormalized = ((wheelRotation % 360) + 360) % 360;
       const winnerCenterAngle = (winnerIndex + 0.5) * SLICE_DEG;
@@ -548,6 +552,9 @@ const Homepage = () => {
         </p>
 
         <SearchBar forceAsk={askTrigger} restoreAsk={(location.state as { restoreAsk?: boolean } | null)?.restoreAsk} />
+        {RATE_ENABLED && (
+          <Link to="/rate" className="hero-rate-link">Took a class this term? Rate your professor →</Link>
+        )}
       </main>
 
       {/* ======== Stats Banner ======== */}
@@ -673,9 +680,15 @@ const Homepage = () => {
           ) : (
             profs.map((p, i) => (
               <div
-                key={p.name}
+                key={goatSlug(p)}
                 className={`goat-row ${i < 3 ? 'goat-top3' : ''}`}
-                onClick={() => handleProfClick(p.name)}
+                // Not a <Link>: the rating cell's click opens its tooltip instead of navigating.
+                // Keyboard handling matches the catalog cards.
+                role="link"
+                tabIndex={0}
+                aria-label={`${i + 1}. ${p.name}, ${p.dept}, rated ${p.avgRating.toFixed(2)} from ${(p.totalReviews ?? 0).toLocaleString()} ratings`}
+                onClick={() => handleProfClick(goatSlug(p))}
+                onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && handleProfClick(goatSlug(p))}
               >
                 <span className="goat-col-rank">
                   {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}

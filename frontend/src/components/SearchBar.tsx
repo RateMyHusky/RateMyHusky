@@ -293,6 +293,8 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // The Enter that commits a Chinese, Japanese or Korean IME composition isn't a submit.
+    if (e.nativeEvent.isComposing) return;
     if (isAsk) {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -300,6 +302,17 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
       } else if (e.key === 'Escape') {
         setShowSuggestions(false);
       }
+      return;
+    }
+    // Enter with nothing highlighted opens the catalog for the current mode, filtered by the query,
+    // so a search with no suggestions (or one the student didn't arrow into) still goes somewhere.
+    const highlighted = showSuggestions && activeIndex >= 0 ? suggestions[activeIndex] : undefined;
+    if (e.key === 'Enter' && !highlighted) {
+      const trimmed = query.trim();
+      if (!trimmed) return;
+      e.preventDefault();
+      setShowSuggestions(false);
+      navigate(`${searchType === 'Course' ? '/courses' : '/professors'}?q=${encodeURIComponent(trimmed)}`);
       return;
     }
     if (!showSuggestions || suggestions.length === 0) return;

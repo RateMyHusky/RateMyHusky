@@ -23,6 +23,7 @@ const SORT_OPTIONS = [
 	{ value: 'alpha_desc', label: 'Z - A' },
 	{ value: 'rating', label: 'Highest Rating' },
 	{ value: 'rating_asc', label: 'Lowest Rating' },
+	{ value: 'ratings', label: 'Most Rated' },
 	{ value: 'recent', label: 'Most Recent' },
 ];
 
@@ -79,6 +80,9 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
 export default function Courses() {
 	const navigate = useNavigate();
 	const [searchParams, setSearchParams] = useSearchParams();
+	// The course's "Courses" breadcrumb returns here with these filters (Breadcrumbs fromCatalog).
+	const openCourse = (code: string) =>
+		navigate(`/courses/${code.toLowerCase()}`, { state: { fromCatalog: `/courses?${searchParams.toString()}` } });
 
 	const [filters, setFilters] = useState<Filters>(() => getFiltersFromSearchParams(searchParams));
 	const [departments, setDepartments] = useState<string[]>([]);
@@ -325,6 +329,11 @@ export default function Courses() {
 	}, [isSearchFocused, filters.q, courseExamples]);
 
 	const hasActiveFilters = !!filters.q || !!filters.dept || filters.minRating > 0 || filters.maxRating < 5;
+	// Same count as the professor catalog's Filters badge: search, each department, the rating range.
+	const activeFilterCount =
+		(filters.q ? 1 : 0) +
+		(filters.dept ? filters.dept.split(FILTER_SEPARATOR).filter(Boolean).length : 0) +
+		(filters.minRating > 0 || filters.maxRating < 5 ? 1 : 0);
 
 	return (
 		<div className="catalog-page">
@@ -465,7 +474,7 @@ export default function Courses() {
 							<span className="filter-toggle-bar" />
 						</span>
 						Filters
-						{hasActiveFilters && <span className="filter-active-dot" />}
+						{activeFilterCount > 0 && <span className="filter-active-badge">{activeFilterCount}</span>}
 					</button>
 					</div>
 
@@ -495,10 +504,10 @@ export default function Courses() {
 									className="prof-card course-card"
 									role="button"
 									tabIndex={0}
-									onClick={() => navigate(`/courses/${course.code.toLowerCase()}`)}
-									onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && navigate(`/courses/${course.code.toLowerCase()}`)}
+									onClick={() => openCourse(course.code)}
+									onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && openCourse(course.code)}
 								>
-									<BookmarkButton itemType="course" itemKey={course.code} size="sm" className="prof-card-bookmark" />
+									<BookmarkButton itemType="course" itemKey={course.code} size="sm" className="prof-card-bookmark" label={course.code} />
 									<div className="course-card-header">
 										<span className="course-card-code">{course.code}</span>
 									</div>
@@ -509,13 +518,18 @@ export default function Courses() {
 										<div className="prof-rating-row">
 											{course.avgRating != null ? (
 												<>
-													<span className="prof-avg-num">{course.avgRating.toFixed(2)}</span>
+													<span className="prof-avg-num">{course.avgRating.toFixed(1)}</span>
 													<StarRating rating={course.avgRating} size="sm" />
 												</>
 											) : (
 												<span className="prof-avg na">N/A</span>
 											)}
 										</div>
+										{course.numRatings != null && (
+											<span className="course-card-ratings">
+												{course.numRatings.toLocaleString()} rating{course.numRatings === 1 ? '' : 's'}
+											</span>
+										)}
 									</div>
 								</div>
 							))}

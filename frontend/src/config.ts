@@ -21,3 +21,7 @@ export const BANNER_SINCE = 'Fall 2021';
 // the route, the professor page's "Rate this professor" button, and the FAQ mentions.
 // VITE_VERCEL_ENV is a Vercel system env var: "production", "preview", or unset locally.
 export const RATE_ENABLED = import.meta.env.VITE_VERCEL_ENV !== 'production';
+
+// The day the weekly data refresh runs (.github/workflows/data-refresh.yml cron, 10:00 UTC
+// Sunday). The /rate thank-you step names it; change both together.
+export const REFRESH_DAY = 'Sunday';

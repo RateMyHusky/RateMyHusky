@@ -554,7 +554,7 @@ def department_html(detail: dict, canonical: str) -> str:
     if top:
         summary_sentences.append(
             f"The highest-rated is {top.get('name')} ({top.get('avgRating')}/5 "
-            f"from {top.get('totalRatings')} reviews)."
+            f"from {top.get('totalRatings')} ratings)."
         )
     wta_values = [p["wouldTakeAgainPct"] for p in professors if p.get("wouldTakeAgainPct") is not None]
     if wta_values:

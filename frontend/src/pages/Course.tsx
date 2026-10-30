@@ -14,12 +14,61 @@ import Seo from '../components/Seo';
 import BookmarkButton from '../components/BookmarkButton';
 import { SHOW_SURVEY_STATS } from '../config';
 import FitText from '../components/FitText';
-import { relativeTerm, seasonYear } from '../utils/termUtils';
+import { relativeTerm, seasonYear, termSortKey } from '../utils/termUtils';
+import { compareHref } from '../utils/compareLink';
 import './Course.css';
 
 const INITIAL_PROFESSORS_VISIBLE = 5;
 const PROFESSORS_VISIBLE_STEP = 5;
-const TOP_PROFESSORS = 10;
+// The card rows above the table are a short preview of professors the table below lists,
+// so more cards would only repeat it.
+const TOP_PROFESSORS = 3;
+
+type TableSortKey = 'name' | 'rating' | 'difficulty' | 'numRatings' | 'lastTerm' | 'avgClassSize';
+const TABLE_COLUMNS: { key: TableSortKey; label: string }[] = [
+	{ key: 'name', label: 'Professor Name' },
+	{ key: 'rating', label: 'Rating' },
+	{ key: 'difficulty', label: 'Difficulty' },
+	{ key: 'numRatings', label: 'Ratings' },
+	{ key: 'lastTerm', label: 'Last Taught' },
+	{ key: 'avgClassSize', label: 'Avg Class' },
+];
+
+/* The table's rows in the chosen order. Missing values sort last either way, and ties keep
+   professors[]'s order (most ratings first), so the sort is stable across clicks. */
+function sortProfessors<T extends { name: string; rating: number | null; difficulty: number | null; numRatings: number; lastTerm: string | null; avgClassSize: number | null }>(
+	rows: T[], key: TableSortKey, dir: 'asc' | 'desc',
+): T[] {
+	const value = (p: T): number | string | null =>
+		key === 'name' ? p.name : key === 'lastTerm' ? (p.lastTerm ? termSortKey(p.lastTerm) : null) : p[key];
+	const sign = dir === 'asc' ? 1 : -1;
+	return rows
+		.map((p, i) => ({ p, i, v: value(p) }))
+		.sort((a, b) => {
+			if (a.v === null || b.v === null) return a.v === b.v ? a.i - b.i : a.v === null ? 1 : -1;
+			const c = typeof a.v === 'string' ? a.v.localeCompare(b.v as string) : (a.v as number) - (b.v as number);
+			return c !== 0 ? sign * c : a.i - b.i;
+		})
+		.map(({ p }) => p);
+}
+// "Compare top professors": the most-rated who taught the course this recently.
+const COMPARE_PROFESSORS = 3;
+const COMPARE_RECENT_YEARS = 3;
+
+/* Slugs for the course page's Compare button: the most-rated professors (professors[] arrives
+   sorted by rating count) whose last term is within COMPARE_RECENT_YEARS, topped up from the
+   rest when fewer qualify. Only professors with ratings count, since Compare ranks by them. */
+function compareSlugs(professors: { slug: string; numRatings: number; lastTerm: string | null }[], now = new Date()): string[] {
+	const rated = professors.filter((p) => p.slug && p.numRatings > 0);
+	const year = (term: string | null) => Number(term?.match(/\d{4}/)?.[0] ?? 0);
+	const recent = rated.filter((p) => year(p.lastTerm) >= now.getFullYear() - COMPARE_RECENT_YEARS + 1);
+	const picked = recent.slice(0, COMPARE_PROFESSORS);
+	for (const p of rated) {
+		if (picked.length >= COMPARE_PROFESSORS) break;
+		if (!picked.includes(p)) picked.push(p);
+	}
+	return picked.map((p) => p.slug);
+}
 
 /* Display names for summary.bySource keys; an unlisted source shows its key. */
 const SOURCE_LABELS: Record<string, string> = { rmp: 'RMP' };
@@ -31,6 +80,8 @@ const Course = () => {
 	const [loading, setLoading] = useState(true);
 	const [loadError, setLoadError] = useState<'not_found' | 'failed' | null>(null);
 	const [visibleCount, setVisibleCount] = useState(INITIAL_PROFESSORS_VISIBLE);
+	// The Professors table's order; newest Last Taught first answers "who teaches it now".
+	const [tableSort, setTableSort] = useState<{ key: TableSortKey; dir: 'asc' | 'desc' }>({ key: 'lastTerm', dir: 'desc' });
 	const [showBackToTop, setShowBackToTop] = useState(false);
 	const tableWrapRef = useRef<HTMLDivElement>(null);
 	const professorsRef = useRef<HTMLElement>(null);
@@ -88,7 +139,10 @@ const Course = () => {
 
 	const summary = course.summary;
 	const professors = course.professors;
-	const visibleProfessors = professors.slice(0, visibleCount);
+	const sortedProfessors = sortProfessors(professors, tableSort.key, tableSort.dir);
+	const visibleProfessors = sortedProfessors.slice(0, visibleCount);
+	const toggleTableSort = (key: TableSortKey) =>
+		setTableSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'name' ? 'asc' : 'desc' }));
 	const hasMore = visibleCount < professors.length;
 	const canCollapse = visibleCount > INITIAL_PROFESSORS_VISIBLE;
 	const hasExpandable = professors.length > INITIAL_PROFESSORS_VISIBLE;
@@ -96,8 +150,13 @@ const Course = () => {
 	const topProfessors = professors.slice(0, TOP_PROFESSORS);
 	const breakdown = Object.entries(summary.bySource).filter(([, v]) => v.rating !== null);
 	const history = course.history;
-	const recentInstructors = history?.recentInstructors ?? [];
+	/* The table only lists professors rated for this course, so recent instructors past the
+	   preview still get a card when it would be their only mention (unrated or unmatched). */
+	const tableSlugs = new Set(professors.map((p) => p.slug));
+	const recentInstructors = (history?.recentInstructors ?? [])
+		.filter((r, i) => i < TOP_PROFESSORS || !r.slug || !tableSlugs.has(r.slug));
 	const fromPage = { label: `${course.code} – ${course.name}`, url: `/courses/${code}` };
+	const toCompare = compareSlugs(professors);
 
 	/* Mirrors render.course_html's description exactly (crawler copy and page must agree). */
 	const courseSeoDescription =
@@ -151,9 +210,16 @@ const Course = () => {
 						<p className="course-code">{course.code}</p>
 						<h1>
 							{course.name}
-							<BookmarkButton itemType="course" itemKey={course.code} size="md" className="course-hero-bookmark" />
+							<BookmarkButton itemType="course" itemKey={course.code} size="md" className="course-hero-bookmark" label={course.code} />
 						</h1>
-						<p className="course-dept">{course.department}</p>
+						{/* Course departments mostly have no /departments page (those are built from
+						    professors' departments), so this opens the course list for the department.
+						    That list shows rated courses only, so only a rated course links to it. */}
+						<p className="course-dept">
+							{course.summary.rating !== null
+								? <Link className="course-dept-link" to={`/courses?dept=${encodeURIComponent(course.department)}`}>{course.department}</Link>
+								: course.department}
+						</p>
 					</div>
 					{/* Up top, not in "When it's offered": next term is what a student registering looks for first. */}
 					{history && history.offeredNow.length > 0 && (
@@ -191,12 +257,13 @@ const Course = () => {
 						<strong className="course-stat-value">{summary.rating != null ? summary.rating.toFixed(2) : '—'}</strong>
 						<span className="course-stat-label" style={{ display: 'block', textAlign: 'center', position: 'relative' }}>
 							Overall Rating
-							{breakdown.length > 0 && (
+							{breakdown.length > 1 && (
 								<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', marginLeft: '4px', opacity: 0.6 }}><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
 							)}
 						</span>
 						<div className="course-stat-extra"><StarRating rating={summary.rating ?? 0} size="lg" /></div>
-						{breakdown.length > 0 && (
+						{/* One source's score is the overall score, so the breakdown only shows for two or more. */}
+						{breakdown.length > 1 && (
 							<div className="course-stat-breakdown">
 								{breakdown.map(([source, v]) => (
 									<span key={source}>{sourceLabel(source)}: {v.rating!.toFixed(2)}</span>
@@ -279,8 +346,13 @@ const Course = () => {
 				)}
 
 				<section className="course-panel" ref={professorsRef}>
-					<div className="course-panel-header">
-						<h2>Professors</h2>
+					<div className="course-panel-header course-panel-header--action">
+						<h2>All professors</h2>
+						{toCompare.length >= 2 && (
+							<Link to={compareHref(toCompare)} className="course-compare-btn">
+								Compare top {toCompare.length}
+							</Link>
+						)}
 					</div>
 					{professors.length === 0 ? (
 						<p className="course-empty">No professor ratings for this course yet.</p>
@@ -288,18 +360,23 @@ const Course = () => {
 						<div className={`instructor-scroll-wrap${!tableAtStart ? ' fade-left' : ''}${!tableAtEnd ? ' fade-right' : ''}`}>
 							<div className="instructor-scroll-inner" ref={tableWrapRef}>
 								<div className="instructor-header-row">
-									<span>Professor Name</span>
-									<span>Rating</span>
-									<span>Difficulty</span>
-									<span>Ratings</span>
-									<span>Last Taught</span>
-									<span>Avg Class</span>
+									{TABLE_COLUMNS.map(({ key, label }) => {
+										const active = tableSort.key === key;
+										return (
+											<span key={key} aria-sort={active ? (tableSort.dir === 'asc' ? 'ascending' : 'descending') : undefined}>
+												<button type="button" className={`course-sort-btn${active ? ' active' : ''}`} onClick={() => toggleTableSort(key)}>
+													{label}{active ? (tableSort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
+												</button>
+											</span>
+										);
+									})}
 								</div>
 								{visibleProfessors.map((p) => (
 									<div key={p.slug} className="instructor-row">
 										<span>
+											{/* ?course= opens their page with this course's reviews already filtered. */}
 											<Link
-												to={`/professors/${p.slug}`}
+												to={`/professors/${p.slug}?course=${encodeURIComponent(course.code)}`}
 												state={{ fromPage: { label: `${course.code} – ${course.name}`, url: `/courses/${code}` } }}
 											>
 												{p.name}

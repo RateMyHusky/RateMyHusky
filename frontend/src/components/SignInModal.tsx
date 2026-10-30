@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { clearPendingBookmark } from '../utils/pendingBookmark';
 import neuIcon from '../assets/neu-circle-icon.png';
 import './SignInModal.css';
 
@@ -9,14 +10,20 @@ const CLOSE_DURATION = 200; // ms — must match CSS animation duration
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** Leads the description when the opener gave one, e.g. "Sign in to save Prof. Bell to your bookmarks." */
+  reason?: string;
 }
 
-export default function SignInModal({ open, onClose }: Props) {
+export default function SignInModal({ open, onClose, reason }: Props) {
   const { login, user } = useAuth();
   const navigate = useNavigate();
   const [closing, setClosing] = useState(false);
 
+  // Every path here is the student dismissing the modal (close, backdrop, a policy link),
+  // so a bookmark tapped before it opened is dropped. A finished sign-in closes through
+  // the effect below instead and keeps it for BookmarksContext to save.
   const animatedClose = (callback?: () => void) => {
+    clearPendingBookmark();
     setClosing(true);
     setTimeout(() => {
       setClosing(false);
@@ -61,7 +68,9 @@ export default function SignInModal({ open, onClose }: Props) {
         <h2 className="signin-modal-title">Sign In</h2>
 
         <p className="signin-modal-desc">
-          Sign in to bookmark professors and courses and use other sign-in only features. We currently only support valid <strong>husky.neu.edu</strong> accounts.
+          {reason
+            ? <>{reason} We currently only support valid <strong>husky.neu.edu</strong> accounts.</>
+            : <>Sign in to bookmark professors and courses and use other sign-in only features. We currently only support valid <strong>husky.neu.edu</strong> accounts.</>}
         </p>
 
         <img src={neuIcon} alt="Northeastern University" className="signin-modal-logo" />

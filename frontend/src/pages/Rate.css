@@ -477,4 +477,7 @@
   .rate-opt:hover, .rate-opt:active, .rate-btn:active { transform: none; }
   .rate-opt.pop,
   .rate-opt.pop:hover { animation: none; }
+  /* Celebration.tsx already skips aiming the popper here; this also stills the kick and the overshoot. */
+  .rate-popper-aim { transition: none; }
+  .rate-popper-aim svg.kick { animation: none; }
 }

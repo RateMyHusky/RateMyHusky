@@ -24,8 +24,10 @@ const Breadcrumbs = ({ items }: BreadcrumbsProps) => {
   // logo-click then Back). Only show the "← Ask" crumb when a session actually still exists;
   // otherwise fall back to the normal breadcrumb items.
   const showAskCrumb = fromPage && (!restoreAsk || loadAskSession() !== null);
-  // Preserve catalog filters when the first link points to /professors
-  const catalogLink = location.state?.fromCatalog || '/professors';
+  // A catalog crumb returns to the filtered list the visitor came from: fromCatalog is
+  // that list's full URL (/professors?… or /courses?…), set by the catalog's cards.
+  const fromCatalog = location.state?.fromCatalog as string | undefined;
+  const catalogHref = (to?: string) => (to && fromCatalog?.split('?')[0] === to ? fromCatalog : to);
 
   const resolvedItems = showAskCrumb
     ? [{ label: fromPage.label, to: fromPage.url }, ...items.filter(item => item.to !== '/professors' && item.to !== '/courses')]
@@ -36,7 +38,7 @@ const Breadcrumbs = ({ items }: BreadcrumbsProps) => {
       <ol className="breadcrumbs-list">
         {resolvedItems.map((item, i) => {
           const isLast = i === resolvedItems.length - 1;
-          const href = item.to === '/professors' ? catalogLink : item.to;
+          const href = catalogHref(item.to);
           // The "← Ask" crumb (the prepended fromPage link, i===0) carries restoreAsk so the
           // homepage rebuilds the Ask answer; other crumbs only carry goatedCollege.
           const linkState = showAskCrumb && i === 0 && restoreAsk

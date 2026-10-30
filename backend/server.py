@@ -124,7 +124,7 @@ CATALOG_FULL_LIMIT = 10000
 # Sorts each catalog knows; anything else is alpha, so made-up sort values all
 # share alpha's cache entry instead of each minting one.
 PROFESSOR_SORTS = {"alpha", "alpha_desc", "rating", "rating_asc", "comments"}
-COURSE_SORTS = {"alpha", "alpha_desc", "rating", "rating_asc", "recent"}
+COURSE_SORTS = {"alpha", "alpha_desc", "rating", "rating_asc", "ratings", "recent"}
 
 
 def sort_arg(known):
@@ -142,6 +142,14 @@ def search_text(raw):
     """A user search string normalized for LIKE: lowercased, wildcard-free, capped."""
     q = like_safe(normalize_name(raw or ""))[:SEARCH_MAX_CHARS]
     return " ".join(q.split()[:SEARCH_MAX_WORDS])
+
+
+def course_search_text(raw):
+    """search_text for a course search, with a spaced code joined: "cs 3100" -> "cs3100".
+    course_catalog.search_text holds the code unspaced, plus the spaced form from the read
+    model (pipeline/read_models.course_search_text) once a pipeline run has rebuilt it; that
+    covers partial codes ("cs 31"), this keeps a complete one matching until then."""
+    return re.sub(r"\b([a-z]{2,5}) (\d{4})\b", r"\1\2", search_text(raw))
 
 
 # Build a word-level mapping so partial/typeahead queries also resolve.
@@ -1130,13 +1138,13 @@ def goat_professors():
     # BOARD_FILL_MIN_REVIEWS, Law and Professional Studies lost their boards,
     # and ratings below the prior left. An unbumped key serves the previous
     # version from the cache after deploy, which looks exactly like the fix not
-    # working.
+    # working. v7: rows carry the slug; a cached v6 row has none to link with.
     # Unknown colleges are answered before the cache: every value would
     # otherwise store its own [] and push real boards out of the LRU. With
     # limit clamped, a college holds at most 50 entries.
     if college not in BOARD_COLLEGES:
         return jsonify([])
-    cache_key = f"goat:v6:{college}:{limit}"
+    cache_key = f"goat:v7:{college}:{limit}"
     cached = cache_get(cache_key)
     # `is not None`: an empty board is a real answer and must cache too.
     if cached is not None:
@@ -1166,6 +1174,8 @@ def goat_professors():
     result = []
     for row in rows:
         result.append({
+            # Link by this, never by the name: namesakes get a -2 suffix.
+            "slug": row["slug"],
             "name": row["name"],
             "dept": row["department"],
             "rmpRating": round(row["rmp_rating"], 2) if row["rmp_rating"] else None,
@@ -1230,6 +1240,7 @@ def search():
 
     else:
         # Course search
+        q = course_search_text(request.args.get("q", ""))
         rows = query("""
             SELECT code, name, department FROM course_catalog
             WHERE search_text LIKE %s
@@ -1394,6 +1405,15 @@ def professor_full(slug):
     data = professor_payload(slug)
     if data is None:
         return jsonify({"error": "Professor not found"}), 404
+    # The department links to its hub page only when that page lists this department: the hub
+    # has no page for a department without rated professors (or a BAD_DEPTS alias), and keeps
+    # just the first of two names that slug alike. Copied, because professor_payload hands back
+    # the cached dict.
+    identity = data["identity"]
+    dept_slug = department_slug(identity.get("department") or "")
+    hub = _department_hub_map().get(dept_slug)
+    has_hub = hub is not None and hub["name"] == identity.get("department")
+    data = {**data, "identity": {**identity, "departmentSlug": dept_slug if has_hub else None}}
     resp = jsonify(data)
     resp.headers["Cache-Control"] = "private, max-age=3600" if _is_authed() else "public, max-age=3600"
     resp.headers["Vary"] = "Authorization"
@@ -1767,7 +1787,7 @@ def course_departments():
 
 @app.route("/api/courses-catalog")
 def courses_catalog():
-    q = search_text(request.args.get("q", ""))
+    q = course_search_text(request.args.get("q", ""))
     dept = request.args.get("dept", "")
     sort = sort_arg(COURSE_SORTS)
     page = int_arg("page", 1, 1, 100000)
@@ -1821,6 +1841,8 @@ def courses_catalog():
         order = "avg_rating ASC NULLS LAST, lower(code) ASC"
     elif sort == "alpha_desc":
         order = "lower(code) DESC"
+    elif sort == "ratings":
+        order = "num_ratings DESC NULLS LAST, lower(code) ASC"
     elif sort == "recent":
         # Last term Banner has the course on, best rated first within a term;
         # courses Banner never saw go last. From 2026 Summer 1 and Summer 2
@@ -1843,7 +1865,7 @@ def courses_catalog():
 
     def page_rows(join, order):
         return query(f"""
-            SELECT code, name, department, avg_rating FROM course_catalog {join}
+            SELECT code, name, department, avg_rating, num_ratings FROM course_catalog {join}
             {where_str}
             ORDER BY {order}
             LIMIT %s OFFSET %s
@@ -1862,6 +1884,7 @@ def courses_catalog():
             "name": r["name"],
             "department": r["department"],
             "avgRating": round(r["avg_rating"], 2) if r["avg_rating"] is not None else None,
+            "numRatings": int(r.get("num_ratings") or 0),
         }
         for r in rows
     ]

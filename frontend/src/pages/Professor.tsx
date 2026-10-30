@@ -336,7 +336,11 @@ const Professor = () => {
       if (cancelled) return;
       if (res.ok) {
         setProfile(res.data);
-        setSelectedCourses(new Set());
+        // ?course=CS3100 (the course page's professor table) opens on that course's reviews,
+        // when they have rated reviews for it; anything else starts unfiltered.
+        const wanted = new URLSearchParams(location.search).get('course')?.toUpperCase();
+        const rated = wanted && res.data.courses.some(c => c.code === wanted && c.rating !== null);
+        setSelectedCourses(rated ? new Set([wanted]) : new Set());
         setActiveTag(null);
         // An Ask citation picks its own tab (the pins effect); otherwise open on the first with entries.
         if (!(location.state as { askPins?: unknown } | null)?.askPins) {
@@ -351,7 +355,7 @@ const Professor = () => {
       setLoading(false);
     });
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- location.state is read once per load, like the pins effect
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- location.state and ?course= are read once per load, like the pins effect
   }, [slug]);
 
   /* ── tags: separate request so a slow or missing tags table never holds up the page ── */
@@ -813,9 +817,24 @@ const Professor = () => {
           <div className="prof-hero-info">
             <h1 className="prof-name">
               {identity.name}
-              <BookmarkButton itemType="professor" itemKey={slug!} size="md" className="prof-hero-bookmark" />
+              <BookmarkButton itemType="professor" itemKey={slug!} size="md" className="prof-hero-bookmark" label={identity.name} />
             </h1>
-            {identity.department && <p className="prof-dept">{identity.department}</p>}
+            {/* Without a hub page the department opens the catalog filtered to it, which lists
+                rated professors only: so only from a rated professor, who is sure to be on it. */}
+            {identity.department && (
+              <p className="prof-dept">
+                {identity.departmentSlug || summary.rating !== null ? (
+                  <Link
+                    className="prof-dept-link"
+                    to={identity.departmentSlug
+                      ? `/departments/${identity.departmentSlug}`
+                      : `/professors?dept=${encodeURIComponent(identity.department)}`}
+                  >
+                    {identity.department}
+                  </Link>
+                ) : identity.department}
+              </p>
+            )}
             {awards.length > 0 && (
               <ul className="prof-awards" aria-label="Teaching awards">
                 {groupAwards(awards).map(({ label, award: a, years }) => (
@@ -862,16 +881,17 @@ const Professor = () => {
             <span className="prof-stat-value prof-stat-value-text">No ratings yet</span>
           </div>
         ) : (<>
-        <div className="prof-stat-card prof-stat-clickable">
+        <div className={`prof-stat-card${stats.breakdown.length > 1 ? ' prof-stat-clickable' : ''}`}>
           <span className="prof-stat-value">{stats.rating !== null ? <AnimatedNumber value={stats.rating} /> : '—'}</span>
           <span className="prof-stat-label" style={{ display: 'block', textAlign: 'center', position: 'relative' }}>
             Overall Rating
-            {stats.breakdown.length > 0 && (
+            {stats.breakdown.length > 1 && (
               <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', marginLeft: '4px', opacity: 0.6 }}><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
             )}
           </span>
           <div className="prof-stat-extra"><StarRating rating={stats.rating ?? 0} size="lg" /></div>
-          {stats.breakdown.length > 0 && (
+          {/* One source's score is the overall score, so the breakdown only shows for two or more. */}
+          {stats.breakdown.length > 1 && (
             <div className="prof-stat-breakdown">
               {stats.breakdown.map(([source, rating]) => (
                 <span key={source}>{SOURCE_LABELS[source] ?? source.toUpperCase()}: {rating.toFixed(2)}</span>
@@ -946,7 +966,7 @@ const Professor = () => {
         </Link>
         )}
         <Link
-          to={`/compare?a=${identity.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`}
+          to={`/compare?a=${encodeURIComponent(identity.slug)}`}
           className="prof-compare-btn"
         >
           Compare
@@ -1217,7 +1237,20 @@ const Professor = () => {
             </div>
             <div className="prof-reddit-list">
               {filteredRedditMentions.length === 0 ? (
-                <p className="prof-no-reviews">No Reddit mentions found for this professor.</p>
+                redditMentions.length === 0 ? (
+                  <p className="prof-no-reviews">No Reddit mentions found for this professor.</p>
+                ) : (
+                  // The search or sentiment filter hid every mention: say so, and offer the way back.
+                  <p className="prof-no-reviews">
+                    No mentions match these filters.{' '}
+                    <button
+                      className="prof-action-link"
+                      onClick={() => { setRedditSearch(''); setRedditSentiment('all'); setVisibleRedditMentions(10); }}
+                    >
+                      Clear filters
+                    </button>
+                  </p>
+                )
               ) : (
                 filteredRedditMentions.slice(0, visibleRedditMentions).map((m, i) => {
                   const redditUrl = safeRedditUrl(m.permalink);

@@ -477,6 +477,84 @@
 
 .dark .bm-undo { color: #d6394c; }
 
+/* ── Compare selection ── */
+.bm-compare-check {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #e4e4e4;
+  color: #555;
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.bm-compare-check input { accent-color: #d6394c; width: 15px; height: 15px; margin: 0; cursor: inherit; }
+.bm-compare-check.checked { border-color: #d6394c; color: #d6394c; }
+.bm-compare-check.disabled { opacity: 0.5; cursor: not-allowed; }
+.bm-compare-check:focus-within { outline: 2px solid #d6394c; outline-offset: 2px; }
+
+.bm-compare-bar {
+  position: fixed;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 10px 10px 10px 18px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid #ececec;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #333;
+}
+.bm-compare-text { white-space: nowrap; }
+.bm-compare-clear {
+  background: none;
+  border: none;
+  color: #888;
+  font: inherit;
+  cursor: pointer;
+  padding: 8px 4px;
+}
+.bm-compare-go {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 18px;
+  border-radius: 10px;
+  background: #d6394c;
+  color: #fff;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.bm-compare-go:hover { background: #b82e3f; }
+.bm-snackbar.raised { bottom: calc(88px + env(safe-area-inset-bottom, 0px)); }
+
+.dark .bm-compare-check { background: rgba(30, 30, 30, 0.92); border-color: #3a3a3a; color: #bbb; }
+.dark .bm-compare-check.checked { border-color: #e06070; color: #e06070; }
+.dark .bm-compare-bar { background: #1e1e1e; border-color: #333; color: #e0e0e0; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4); }
+.dark .bm-compare-clear { color: #999; }
+
+@media (max-width: 420px) {
+  .bm-compare-bar { gap: 8px; padding-left: 14px; font-size: 0.82rem; }
+}
+
 /* ── Windowing: Show all / Show more ── */
 .bm-showall {
   margin-left: auto;
