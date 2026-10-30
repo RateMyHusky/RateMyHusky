@@ -228,27 +228,13 @@
 .rate-back { text-align: left; }
 .rate-back:disabled { opacity: 0.45; cursor: default; }
 
-.rate-turnstile { margin-top: 16px; }
-.rate-turnstile.is-done { display: none; }
-
-/* The checkpoint before the form, laid out like Cloudflare's "Just a moment" page. */
-body.rate-checking .navbar { display: none; }
-.rate-page.rate-page-check { padding-top: 12vh; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
-.rate-check-host { margin: 0 0 16px; font-size: 1.75rem; font-weight: 500; outline: none; overflow-wrap: anywhere; }
-.rate-check-lead { margin: 0; font-size: 1.15rem; line-height: 1.4; }
-.rate-check .rate-error { margin: 0; font-size: 1.05rem; line-height: 1.4; }
-.rate-check-retry {
-  margin-top: 14px;
-  padding: 8px 16px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background: #fff;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.rate-check-note { margin: 20px 0 0; color: #555; font-size: 0.9rem; line-height: 1.45; }
-.rate-check-foot { margin: 48px 0 0; padding-top: 12px; border-top: 1px solid #e5e5e5; color: #777; font-size: 0.8rem; text-align: center; }
+/* The box is centered at Cloudflare's fixed size, framed like the inputs, with its own square edge clipped off. */
+.rate-verify.is-on { display: grid; justify-items: center; gap: 8px; margin-top: 14px; text-align: center; animation: rate-verify-in 0.25s ease-out; }
+.rate-verify-lead { margin: 0; color: #555; font-size: 0.9rem; font-weight: 700; }
+.rate-verify.is-on .rate-turnstile { width: fit-content; max-width: 100%; border: 2px solid #e0e0e0; border-radius: 12px; overflow: hidden; background: #fafafa; }
+.rate-verify.is-on .rate-turnstile > div { display: block; margin: -1px; }
+@keyframes rate-verify-in { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .rate-verify.is-on { animation: none; } }
 
 .rate-n {
   display: flex;
@@ -405,6 +391,9 @@ body.rate-checking .navbar { display: none; }
   .rate-panel > .rate-ghost { margin-top: 1em; }
 
   .rate-btn { min-height: 3.2em; margin-top: 0; border-radius: 0.9em; }
+  .rate-verify.is-on { gap: 0.55em; margin: 0 0 0.9em; }
+  .rate-verify-lead { font-size: 0.9em; }
+  .rate-verify.is-on .rate-turnstile { border-radius: 0.9em; }
 
   .rate-choices { gap: 0.55em; }
   .rate-choices-grid { grid-template-columns: repeat(4, 1fr); }
@@ -428,13 +417,6 @@ body.rate-checking .navbar { display: none; }
   .rate-row .rate-opt { font-size: 0.92em; }
   .rate-seasons { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .rate-seasons .rate-opt, .rate-seasons .rate-opt:nth-child(-n+2) { grid-column: span 1; }
-
-  /* The checkpoint is a plain page, as Cloudflare's is. */
-  .rate-page.rate-page-check { padding: 18dvh 0 0; }
-  .rate-page-check .rate-shell { font-size: 16px; }
-  .rate-page-check .rate-panel { width: min(640px, 100%); min-height: 0; margin: 0 auto; }
-  .rate-check-host { font-size: 2.5rem; }
-  .rate-check-lead { font-size: 1.4rem; }
 }
 
 @media (min-width: 1024px) and (hover: hover) {
@@ -476,9 +458,8 @@ body.rate-checking .navbar { display: none; }
 .dark .rate-sugg small { color: #888; }
 .dark .rate-sugg.add { color: #f06a7a; }
 .dark .rate-error { color: #f06a7a; }
-.dark .rate-check-note { color: #aaa; }
-.dark .rate-check-foot { border-top-color: #333; color: #999; }
-.dark .rate-check-retry { border-color: #444; background: #2a2a2a; }
+.dark .rate-verify-lead { color: #aaa; }
+.dark .rate-verify.is-on .rate-turnstile { border-color: #444; background: #232323; }
 
 @media (min-width: 1024px) {
   .dark .rate-foot { background: linear-gradient(to bottom, transparent, #1a1a1a 1.4em); }
