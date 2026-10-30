@@ -17,10 +17,6 @@ import re
 import sys
 from datetime import timedelta
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))), "scraper"))
-from load_catalog import normalize_text  # noqa: E402
-
 HOURS_MIDPOINTS = {"0-2": 1.0, "3-4": 3.5, "5-7": 6.0, "8-10": 9.0, "10+": 12.0}
 # Unreviewed ratings in the last 7 days above which a professor's or course's week is
 # held instead of published. A drip under the route's hourly and daily caps still
@@ -49,7 +45,7 @@ def _row(slug, code, ratings):
         "would_take_again_pct": None,
         "num_ratings": len(ratings),
         "num_difficulty": len(difficulties),
-        "num_comments": sum(1 for r in ratings if (r["comment"] or "").strip()),
+        "num_comments": sum(1 for r in ratings if (r["comment"] or "").strip()),  # run.py and survey_reviews pass approved comments only
         "hours_per_week": _mean([HOURS_MIDPOINTS[r["hours"]] for r in ratings if r["hours"] in HOURS_MIDPOINTS]),
         "rating_distribution": {str(s): sum(1 for r in ratings if r["rating"] == s) for s in range(1, 6)},
         "grade_distribution": grades,
@@ -122,6 +118,11 @@ def apply_surge_holds(conn, ids):
 
 def approved_courses(approved, catalog_courses):
     """catalog_courses-shaped rows for approved codes the catalog doesn't have yet. Pure."""
+    # Imported here: the web server builds live survey rows from this module and
+    # doesn't ship scraper/.
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "scraper"))
+    from load_catalog import normalize_text
     known = {c["code"] for c in catalog_courses}
     out = []
     for a in approved:

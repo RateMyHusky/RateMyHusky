@@ -20,7 +20,7 @@ import './Course.css';
 
 const INITIAL_PROFESSORS_VISIBLE = 5;
 const PROFESSORS_VISIBLE_STEP = 5;
-// The card rows above the table are a short preview: every professor is in the table below,
+// The card rows above the table are a short preview of professors the table below lists,
 // so more cards would only repeat it.
 const TOP_PROFESSORS = 3;
 
@@ -154,7 +154,11 @@ const Course = () => {
 	const topProfessors = professors.slice(0, TOP_PROFESSORS);
 	const breakdown = Object.entries(summary.bySource).filter(([, v]) => v.rating !== null);
 	const history = course.history;
-	const recentInstructors = (history?.recentInstructors ?? []).slice(0, TOP_PROFESSORS);
+	/* The table only lists professors rated for this course, so recent instructors past the
+	   preview still get a card when it would be their only mention (unrated or unmatched). */
+	const tableSlugs = new Set(professors.map((p) => p.slug));
+	const recentInstructors = (history?.recentInstructors ?? [])
+		.filter((r, i) => i < TOP_PROFESSORS || !r.slug || !tableSlugs.has(r.slug));
 	const fromPage = { label: `${course.code} – ${course.name}`, url: `/courses/${code}` };
 	const toCompare = compareSlugs(professors);
 

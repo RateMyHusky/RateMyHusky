@@ -153,6 +153,23 @@ def test_save_is_one_upsert_that_keeps_holds():
     assert ratings.save_rating(row, None, f.write) == f.writes[0][1][0]
 
 
+def test_a_new_comment_waits_for_review_and_an_unchanged_one_keeps_its_approval():
+    col = 1 + ratings._INSERT_COLUMNS.index("comment_status")
+    row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
+
+    def saved(**kw):
+        f = Fake()
+        ratings.save_rating({**row, **kw}, None, f.write)
+        return f.writes[0]
+    assert saved(comment="Hard but fair", comment_status="approved")[1][col] == "pending"
+    assert saved(comment=None)[1][col] is None
+    sql = saved()[0]
+    assert "comment_status = EXCLUDED" not in sql
+    assert ("comment_status = CASE WHEN EXCLUDED.comment IS NULL THEN NULL "
+            "WHEN EXCLUDED.comment = survey_ratings.comment THEN survey_ratings.comment_status "
+            "ELSE 'pending' END") in sql
+
+
 def test_resubmitting_a_held_row_keeps_its_old_hold_reasons():
     col = 1 + ratings._INSERT_COLUMNS.index("hold_reasons")
     row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
@@ -365,6 +382,39 @@ def test_purge_clears_hashes_older_than_30_days():
     f = Fake()
     ratings.purge_ip_hashes(f.write, NOW)
     assert f.writes[0][1] == (NOW - timedelta(days=30),)
+
+
+def test_moderation_budget_per_device_per_ip_and_on_shared_networks():
+    seen = []
+
+    def counts(device=0, ip=0, shared=0):
+        return lambda sql, params: seen.append((sql, params)) or {"device": device, "ip": ip, "shared": shared}
+
+    assert ratings.moderation_budget_left("d", "i", False, counts(device=2, ip=9), NOW) is True
+    assert ratings.moderation_budget_left("d", "i", False, counts(device=3), NOW) is False
+    assert ratings.moderation_budget_left("d", "i", False, counts(ip=10), NOW) is False
+    # Shared networks: the per-IP count doesn't apply, the total for all of them does.
+    assert ratings.moderation_budget_left("d", "i", True, counts(ip=50, shared=99), NOW) is True
+    assert ratings.moderation_budget_left("d", "i", True, counts(shared=100), NOW) is False
+    assert ratings.moderation_budget_left("d", "i", True, counts(device=3), NOW) is False
+    sql, params = seen[0]
+    # Only submit calls count, over a rolling day.
+    assert "source = 'submit'" in sql and params == ("d", "i", NOW - timedelta(days=1))
+
+
+def test_record_moderation_call_keeps_no_text_or_rating_id():
+    writes = []
+    ratings.record_moderation_call("queue", "allow", None, None, False,
+                                   lambda sql, params: writes.append((sql, params)), NOW)
+    ((sql, params),) = writes
+    assert sql.startswith("INSERT INTO moderation_calls") and params[1:] == (NOW, "queue", "allow", None, None, False)
+    assert "comment" not in sql and "rating" not in sql
+
+
+def test_the_upsert_keeps_the_check_while_the_text_is_unchanged():
+    for column in ratings.CHECK_COLUMNS:
+        assert (f"{column} = CASE WHEN EXCLUDED.comment IS NOT DISTINCT FROM survey_ratings.comment "
+                f"THEN survey_ratings.{column} ELSE EXCLUDED.{column} END") in ratings._UPSERT_SQL
 
 
 def test_near_duplicate_ids_returns_close_comments_on_the_professor():

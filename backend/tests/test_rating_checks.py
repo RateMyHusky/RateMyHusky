@@ -7,34 +7,28 @@ from tests.razzaq_bomb import BOMB
 
 
 def test_assess_accepts_a_clean_rating():
-    assert rc.assess(30, "campus", [], False, None) == ("accepted", [])
-
-
-def test_block_rejects_before_anything_else():
-    assert rc.assess(None, "datacenter", ["burst_ip"], True, "block") == ("rejected", ["moderation_block"])
+    assert rc.assess(30, "campus", [], False) == ("accepted", [])
 
 
 def test_hold_reasons_in_order():
-    assert rc.assess(3, "datacenter", ["burst_pair"], True, "unavailable") == (
-        "held", ["too_fast", "datacenter", "burst_pair", "duplicate_comment", "moderation_unavailable"])
-    assert rc.assess(None, "other", [], False, "review") == ("held", ["no_timer", "moderation_review"])
-    assert rc.assess(7201, "relay", [], False, "allow") == ("held", ["stale"])
+    assert rc.assess(3, "datacenter", ["burst_pair"], True) == (
+        "held", ["too_fast", "datacenter", "burst_pair", "duplicate_comment"])
+    assert rc.assess(None, "other", [], False) == ("held", ["no_timer"])
+    assert rc.assess(7201, "relay", [], False) == ("held", ["stale"])
 
 
 def test_quick_edit_of_an_accepted_rating_is_not_too_fast():
-    assert rc.assess(3, "campus", [], False, None, edit=True) == ("accepted", [])
-    assert rc.assess(2, "campus", [], False, None, edit=True) == ("held", ["too_fast"])
+    assert rc.assess(3, "campus", [], False, edit=True) == ("accepted", [])
+    assert rc.assess(2, "campus", [], False, edit=True) == ("held", ["too_fast"])
 
 
-def test_a_comment_brought_back_after_removal_is_held():
-    assert rc.assess(30, "campus", [], False, None, edit=True, comment_removed=True) == (
-        "held", ["comment_removed"])
-    assert rc.assess(None, "campus", [], False, None, edit=True) == ("held", ["no_timer"])
+def test_an_edit_still_needs_a_timer():
+    assert rc.assess(None, "campus", [], False, edit=True) == ("held", ["no_timer"])
 
 
 def test_campus_relay_mobile_unknown_never_hold_on_their_own():
     for n in ("campus", "relay", "mobile", "other", "unknown"):
-        assert rc.assess(30, n, [], False, None)[0] == "accepted"
+        assert rc.assess(30, n, [], False)[0] == "accepted"
 
 
 def test_moderation_failure_is_unavailable():
@@ -179,9 +173,72 @@ def test_validate_term_window_is_four_years_plus_a_year_each_side():
 
 
 def test_a_pair_banner_and_rmp_never_saw_is_held_for_review():
-    assert rc.assess(30, "campus", [], False, None, unverified_pair=True) == ("held", ["unverified_pair"])
-    assert rc.assess(30, "other", ["burst_prof"], True, None, unverified_pair=True) == (
+    assert rc.assess(30, "campus", [], False, unverified_pair=True) == ("held", ["unverified_pair"])
+    assert rc.assess(30, "other", ["burst_prof"], True, unverified_pair=True) == (
         "held", ["burst_prof", "unverified_pair", "duplicate_comment"])
+
+
+@pytest.mark.parametrize("comment,reason", [
+    ("great class, notes at https://example.org/notes", "link"),
+    ("check www.studyhelp.net for answers", "link"),
+    ("answers on cheapessays.com lol", "link"),
+    ("dm me on cheapessays dot com", "link"),
+    ("cheapessays(dot)com", "link"),
+    ("join t.me/answers for the keys", "link"),
+    ("use code SAVE20 at checkout", "promo"),
+    ("promo code: HUSKY for 20% off tutoring", "promo"),
+    ("text me 617-555-0123 for notes", "phone"),
+    ("call (617) 555 0123", "phone"),
+    ("+1 617.555.0123", "phone"),
+    ("email me at jane.doe@gmail.com", "email"),
+    ("reach me: jane.doe [at] gmail", "email"),
+    ("use my code HUSKY10 for a free month", "promo"),
+    ("asdfasdf", "mash"),
+    ("jfkdlsjfkdlsjfk", "mash"),
+    ("hhhhhhhhhhhhhhhhhhhh bad prof qwrtpsdfg", "mash"),
+])
+def test_rules_block_links_contact_details_and_mashing(comment, reason):
+    assert rc.rule_block(comment) == reason
+
+
+@pytest.mark.parametrize("comment", [
+    "ok", "n/a", ".", "none", "idk", "lol", "tbh mid", "10/10",
+    "She takes 10% off for every absence.",
+    "Tests are 40% of the grade, the final is 2-3 hours.",
+    "Class meets 9:50-11:30 in Snell 108, room changed twice.",
+    "Professor Wertheim is great.", "Uses ASP.NET and Node.js.",
+    "soooooo boringgggggg, RUNNNNNNNN", "read the pwrpnts and asgnmts before tests",
+    "the e.g. examples in the textbook (ch. 3.2) helped",
+    "Office hours in 177 Huntington were useful",
+    "the TA's email is on Canvas",
+    "CS2500 then CS2510, take it with him",
+    "Took CHEM 2311 Organic Chemistry Dr Smith is the best",
+    "Took CS 3500 Object Oriented Design Dr Lee", "Best prof in 4 Years Dr Smith",
+    "Office hours at 360 Huntington Avenue were helpful", "Labs are at 177 Huntington Ave",
+    "You can use code from lecture on the homework",
+    "Dont use code from Stack Overflow, he checks with MOSS", "I use my code from fundies",
+])
+def test_ordinary_reviews_pass_the_rules(comment):
+    assert rc.rule_block(comment) is None
+
+
+def test_check_fields_for_each_outcome():
+    now = "NOW"
+    assert rc.comment_check_fields("allow", None, now) == {
+        "comment_check": "allow", "comment_check_reason": None, "comment_check_attempts": 1,
+        "comment_next_check_at": None, "comment_checked_at": now}
+    assert rc.comment_check_fields("review", "review", now)["comment_check"] == "review"
+    failed = rc.comment_check_fields("unavailable", "groq_rate_limited", now)
+    assert failed == {"comment_check": "unchecked", "comment_check_reason": "groq_rate_limited",
+                      "comment_check_attempts": 1, "comment_next_check_at": now, "comment_checked_at": None}
+    over = rc.comment_check_fields("over_budget", None, now)
+    assert (over["comment_check_reason"], over["comment_check_attempts"], over["comment_next_check_at"]) == (
+        "over_budget", 0, now)
+    # A flood's comments are never queued, or it would spend the queue's calls instead.
+    for skipped in ("duplicate", "burst"):
+        fields = rc.comment_check_fields(skipped, None, now)
+        assert fields["comment_check"] == "unchecked" and fields["comment_check_reason"] == skipped
+        assert fields["comment_next_check_at"] is None and fields["comment_check_attempts"] == 0
 
 
 ONE_OFFS = {0, 1}  # the 01:00 and 01:01 comments were never copied

@@ -10,8 +10,8 @@ from tag_extractor import might_have_tags, parse_tag_response, structured_tags, 
 
 
 def test_structured_tags():
-    assert structured_tags({"attendance": "Mandatory", "textbook": "Yes"}) == {
-        "mandatory_attendance", "requires_textbook"}
+    # attendance and textbook were dropped as tags, so those fields no longer make tags
+    assert structured_tags({"attendance": "Mandatory", "textbook": "Yes"}) == set()
     assert structured_tags({"attendance": "Not Mandatory", "textbook": "No", "tags": ""}) == set()
     assert structured_tags({"attendance": None, "textbook": None, "tags": None}) == set()
     assert structured_tags({}) == set()
@@ -23,8 +23,8 @@ def test_structured_tags_from_rmp_tags():
 
 
 def test_parse_drops_bad_tags_and_ids():
-    raw = {"1": ["mandatory_attendance", "made_up_tag"], "2": ["curved_grading"], "999": ["easy_a"]}
-    assert parse_tag_response(raw, ["1", "2"]) == {"1": ["mandatory_attendance"], "2": ["curved_grading"]}
+    raw = {"1": ["extra_credit", "made_up_tag"], "2": ["curved_grading"], "999": ["easy_a"]}
+    assert parse_tag_response(raw, ["1", "2"]) == {"1": ["extra_credit"], "2": ["curved_grading"]}
 
 
 def test_parse_junk():
@@ -37,7 +37,7 @@ def test_parse_junk():
 
 def test_prefilter():
     assert might_have_tags("Attendance is mandatory and he curves the final")
-    assert might_have_tags("Need the TEXTBOOK for hw")
+    assert not might_have_tags("Need the TEXTBOOK for hw")  # textbook isn't a tag anymore
     assert not might_have_tags("Great prof, would take again")
     assert not might_have_tags("the final was online and the lecture was easy")
     assert not might_have_tags("")
@@ -105,14 +105,20 @@ def test_professor_tags(srv, monkeypatch):
     seen = {}
 
     def fake_query(sql, params=None):
+        if "review_tags" in sql:
+            return [{"tag": "curved_grading", "source_id": "1100512345678901234"},
+                    {"tag": "curved_grading", "source_id": "11"}, {"tag": "easy_a", "source_id": "12"}]
         seen["params"] = params
         return [{"tag": "curved_grading", "review_count": 7}, {"tag": "easy_a", "review_count": 3}]
 
     monkeypatch.setattr(srv, "query", fake_query)
     r = srv.app.test_client().get("/api/professors/olin-guha/tags")
     assert r.status_code == 200
-    assert r.get_json() == [{"tag": "curved_grading", "count": 7}, {"tag": "easy_a", "count": 3}]
-    assert seen["params"] == ("olin guha", srv.MIN_TAG_REVIEWS)
+    assert r.get_json() == [
+        {"tag": "curved_grading", "count": 7, "reviewIds": ["1100512345678901234", "11"]},
+        {"tag": "easy_a", "count": 3, "reviewIds": ["12"]},
+    ]
+    assert seen["params"] == ("olin guha", srv.MIN_TAG_REVIEWS, srv.MIN_TAG_SHARE, srv.MAX_PROF_TAGS)
 
 
 def test_professor_tags_404(srv, monkeypatch):
@@ -133,3 +139,19 @@ def test_popular_tags(srv, monkeypatch):
     assert r.status_code == 200
     assert r.get_json() == [{"tag": "mandatory_attendance", "count": 41}]
     assert "professors_catalog" in seen["sql"]  # only counts professors that aren't denied
+
+
+def test_catalog_tag_filter(srv, monkeypatch):
+    seen = []
+
+    def fake_query_one(sql, params=None):
+        seen.append((sql, params))
+        return {"cnt": 0}
+
+    monkeypatch.setattr(srv, "query_one", fake_query_one)
+    monkeypatch.setattr(srv, "query", lambda sql, params=None: [])
+    r = srv.app.test_client().get("/api/professors-catalog?tags=easy_a|not_a_tag|curved_grading")
+    assert r.status_code == 200
+    sql, params = seen[0]
+    assert sql.count("professor_tags") == 2  # not_a_tag gets dropped
+    assert "easy_a" in params and "curved_grading" in params and "not_a_tag" not in params

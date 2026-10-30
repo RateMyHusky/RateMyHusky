@@ -202,6 +202,8 @@ def test_only_accepted_ratings_with_a_professor_are_read(captured):
     run.main(["--dry-run"])
     [sql] = [s for s in sqls if "FROM survey_ratings" in s]
     assert "status = 'accepted' AND professor_slug IS NOT NULL" in sql
+    # Only approved comments count toward num_comments.
+    assert "CASE WHEN comment_status = 'approved' THEN comment END" in sql
 
 
 def test_the_surge_scan_reaches_back_to_the_last_run_that_published(captured, monkeypatch):
