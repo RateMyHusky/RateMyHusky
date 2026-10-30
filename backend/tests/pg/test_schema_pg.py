@@ -11,7 +11,7 @@ def test_schema_files_apply_to_an_empty_database(pg):
     assert {"professors_catalog", "course_catalog", "source_summary", "stats_cache",
             "rmp_reviews", "evidence", "evidence_embeddings", "bookmarks",
             "usage_alerts", "rating_flags", "professor_aliases"} <= tables
-    assert len(tables) == 37
+    assert len(tables) == 38
 
 
 def test_identity_columns_match_the_migration(pg):

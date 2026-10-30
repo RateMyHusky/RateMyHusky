@@ -1,4 +1,4 @@
-"""Daily email to the team when held ratings or new professors and courses wait for review.
+"""Daily email to the team when held ratings, comments, or new professors and courses wait for review.
 
     python review_digest.py            # send, if anything is waiting
     python review_digest.py --dry-run  # print the email, send nothing
@@ -46,14 +46,16 @@ def _attack_lines(group):
             f"    python review_ratings.py reject-rating --abuse {' '.join(_short(r) for r in group)}"]
 
 
-def build_digest(held, approved, pending_professors, pending_courses, now, course_merges=(), professor_merges=(), aliases=()):
+def build_digest(held, approved, pending_professors, pending_courses, now, course_merges=(), professor_merges=(), aliases=(),
+                 pending_comments=0, flagged_comments=0, unchecked_comments=0):
     """(subject, text), or None when nothing is waiting. Pure."""
     if not held and not approved and not pending_professors and not pending_courses and not course_merges \
-            and not professor_merges and not aliases:
+            and not professor_merges and not aliases and not pending_comments:
         return None
     recent = [r for r in held if r["created_at"] >= now - timedelta(days=1)]
     reasons = Counter(x for r in held for x in (r["hold_reasons"] or "").split(",") if x)
     subject = (f"[RateMyHusky] To review: {_plural(len(held), 'held rating')}, "
+               f"{_plural(pending_comments, 'comment')}, "
                f"{_plural(pending_professors, 'new professor')}, {_plural(pending_courses, 'new course')}")
     if aliases:
         subject += f", {_plural(len(aliases), 'nickname suggestion')}"
@@ -89,7 +91,9 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
         lines += ["", f"Nickname suggestions: {len(aliases)}",
                   *(f"  #{a['id']} {a['alias_key']} -> {a['slug']} ({a['source']})" for a in aliases),
                   "Approve with: python review_ratings.py approve-alias ID"]
-    lines += ["", f"New professors to review: {pending_professors}",
+    lines += ["", f"Comments to review: {pending_comments} ({flagged_comments} flagged, "
+                  f"{unchecked_comments} not yet checked)",
+              f"New professors to review: {pending_professors}",
               f"New courses to review: {pending_courses}",
               "", "Review with: python review_ratings.py list"]
     return subject, "\n".join(lines)
@@ -107,6 +111,11 @@ def main(argv=None, now=None):
         approved = fetch_all(conn, f"SELECT {cols} FROM survey_ratings WHERE status = 'accepted' "
                                    "AND agent_decision = 'approve' AND agent_reviewed_at >= now() - interval '1 day' "
                                    "ORDER BY agent_reviewed_at")
+        comments = fetch_all(conn, "SELECT count(*) AS n, "
+                                   "count(*) FILTER (WHERE comment_check = 'review') AS flagged, "
+                                   "count(*) FILTER (WHERE comment_check IS DISTINCT FROM 'review' "
+                                   "AND comment_check IS DISTINCT FROM 'allow') AS unchecked "
+                                   "FROM survey_ratings WHERE comment_status = 'pending'")
         professors = fetch_all(conn, "SELECT count(*) AS n FROM survey_pending_professors WHERE status = 'pending'")
         courses = fetch_all(conn, "SELECT count(*) AS n FROM survey_pending_courses WHERE status = 'pending'")
         # The merge's reason ends "; N rating(s)": moving the ratings cleared their link to the course.
@@ -123,7 +132,8 @@ def main(argv=None, now=None):
     finally:
         conn.close()
     digest = build_digest(held, approved, professors[0]["n"], courses[0]["n"], now or datetime.now(timezone.utc),
-                          merges, prof_merges, aliases)
+                          merges, prof_merges, aliases, pending_comments=comments[0]["n"],
+                          flagged_comments=comments[0]["flagged"], unchecked_comments=comments[0]["unchecked"])
     if digest is None:
         print("nothing to review")
         return 0

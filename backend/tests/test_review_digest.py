@@ -15,6 +15,14 @@ def H(slug, code, reasons, hours_ago=1, id="00000000-0000", pending_professor_id
 
 def test_nothing_waiting_sends_nothing():
     assert review_digest.build_digest([], [], 0, 0, NOW) is None
+    assert review_digest.build_digest([], [], 0, 0, NOW, pending_comments=0) is None
+
+
+def test_waiting_comments_alone_send_a_digest():
+    # An accepted rating's comment isn't a held rating, but it still waits for a reviewer.
+    subject, text = review_digest.build_digest([], [], 0, 0, NOW, pending_comments=3)
+    assert subject == "[RateMyHusky] To review: 0 held ratings, 3 comments, 0 new professors, 0 new courses"
+    assert "Comments to review: 3" in text
 
 
 def test_the_digest_counts_reasons_new_holds_and_pending_names():
@@ -22,8 +30,8 @@ def test_the_digest_counts_reasons_new_holds_and_pending_names():
             H("jane-doe", "CS3500", "burst_prof_day,unverified_pair"),
             H(None, None, "no_timer"),  # a pending professor's rating
             H("bob-lee", "CS2500", "weekly_surge", hours_ago=48)]
-    subject, text = review_digest.build_digest(held, [], 1, 2, NOW)
-    assert subject == "[RateMyHusky] To review: 4 held ratings, 1 new professor, 2 new courses"
+    subject, text = review_digest.build_digest(held, [], 1, 2, NOW, pending_comments=1)
+    assert subject == "[RateMyHusky] To review: 4 held ratings, 1 comment, 1 new professor, 2 new courses"
     assert "Held ratings: 4 (3 in the last 24 hours)" in text
     assert "  burst_prof_day: 2\n  no_timer: 1\n  unverified_pair: 1\n  weekly_surge: 1" in text
     assert "  jane-doe: 2" in text and "bob-lee" not in text.split("Most held")[1]
@@ -31,10 +39,19 @@ def test_the_digest_counts_reasons_new_holds_and_pending_names():
     assert "python review_ratings.py list" in text
 
 
-def _main(monkeypatch, held, pending=(0, 0), key="re-test", approved=()):
+def test_the_digest_splits_comments_by_their_check():
+    subject, text = review_digest.build_digest([], [], 0, 0, NOW, pending_comments=6,
+                                               flagged_comments=1, unchecked_comments=2)
+    assert "Comments to review: 6 (1 flagged, 2 not yet checked)" in text
+    assert subject.endswith("6 comments, 0 new professors, 0 new courses")
+
+
+def _main(monkeypatch, held, pending=(0, 0), key="re-test", comments=0, approved=()):
     posts = []
 
     def fetch(conn, sql):
+        if "comment_status" in sql:
+            return [{"n": comments, "flagged": 0, "unchecked": comments}]
         if "FROM survey_ratings" in sql:
             return list(approved) if "agent_decision = 'approve'" in sql else held
         if "resolved_code" in sql or "resolved_slug" in sql or "professor_aliases" in sql:
@@ -66,6 +83,14 @@ def test_main_dry_run_and_an_empty_queue_send_nothing(monkeypatch, capsys):
     assert posts == [] and "Held ratings: 1" in capsys.readouterr().out
     posts = _main(monkeypatch, [])
     assert review_digest.main([], now=NOW) == 0 and posts == []
+
+
+def test_main_sends_for_waiting_comments_alone(monkeypatch):
+    posts = _main(monkeypatch, [], comments=2)
+    assert review_digest.main([], now=NOW) == 0
+    (payload,) = posts
+    assert ", 2 comments, " in payload["subject"]
+    assert "Comments to review: 2 (0 flagged, 2 not yet checked)" in payload["text"]
 
 
 def test_main_fails_without_a_resend_key(monkeypatch):
@@ -189,7 +214,7 @@ def test_pending_nickname_suggestions_are_listed_and_alone_enough():
     aliases = [{"id": 12, "alias_key": "herc", "slug": "iraklis-tsekourakis", "source": "comment"}]
     subject, text = review_digest.build_digest([], [], 0, 0, NOW, aliases=aliases)
     assert "Nickname suggestions: 1" in text
-    assert subject == "[RateMyHusky] To review: 0 held ratings, 0 new professors, 0 new courses, 1 nickname suggestion"
+    assert subject == "[RateMyHusky] To review: 0 held ratings, 0 comments, 0 new professors, 0 new courses, 1 nickname suggestion"
     assert "  #12 herc -> iraklis-tsekourakis (comment)" in text
     assert "Approve with: python review_ratings.py approve-alias ID" in text
     assert "Nickname suggestions" not in review_digest.build_digest([], [], 1, 0, NOW)[1]

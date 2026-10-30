@@ -40,6 +40,7 @@ from course_page import build_course
 from professor_full import build_payload
 import bookmarks
 import moderation
+import moderation_groq
 import notify
 import ip_networks
 import rating_identity
@@ -2332,6 +2333,7 @@ SHOW_STUDENT_REVIEWS = os.getenv("SHOW_STUDENT_REVIEWS", "false").lower() == "tr
 # Loaded at import so gunicorn --preload reads the data files once.
 _networks = ip_networks.load_index(os.getenv("IP_DATA_DIR", "/tmp/ipdata"))
 _rating_moderation_client = None
+_groq_moderation_client = None
 _last_ip_purge = 0.0
 _IP_PURGE_INTERVAL = 3600
 _MIN_RATING_SECRET = 32
@@ -2346,7 +2348,7 @@ def _rating_enabled():
 
 
 def _rating_moderation_score(texts):
-    """moderation.score_texts through a client that gives up after 5 s, so a slow API holds the rating."""
+    """moderation.score_texts through a client that gives up after 5 s, so a slow API leaves the comment unchecked."""
     global _rating_moderation_client
     if _rating_moderation_client is None:
         api_key = os.getenv("OPENAI_API_KEY")
@@ -2355,6 +2357,21 @@ def _rating_moderation_score(texts):
         from openai import OpenAI
         _rating_moderation_client = OpenAI(api_key=api_key, timeout=5, max_retries=0)
     return moderation.score_texts(texts, client=_rating_moderation_client)
+
+
+def _moderate_comment(comment):
+    """(action, reason) from Groq when GROQ_MODERATION_KEY is set, else from OpenAI.
+    action is "allow" | "review" | "block" | "unavailable"; never raises."""
+    global _groq_moderation_client
+    if moderation_groq.enabled():
+        try:
+            if _groq_moderation_client is None:
+                _groq_moderation_client = moderation_groq.client()
+        except Exception:
+            return "unavailable", "groq_unavailable"
+        return moderation_groq.check(comment, _groq_moderation_client)
+    action = rating_checks.moderate(comment, score=_rating_moderation_score)
+    return action, {"allow": None, "review": "review", "block": "blocked"}.get(action, "openai_unavailable")
 
 
 def _rating_limit_key():
@@ -2493,22 +2510,11 @@ def rate_submit():
     # A well-formed token the client picked is no returning device unless it already has a rating.
     new_device = minted_now or opened_minted or not ratings.device_seen(device_hash, query_one)
 
-    # 7. Moderation: a blocked comment stops here, before anything is written
-    moderation_action = rating_checks.moderate(clean["comment"], score=_rating_moderation_score)
-    if moderation_action == "block":
-        return _rating_response({"error": "comment_blocked"}, 422, device)
-
-    # 8. Pending professor / course. No team email: invented names cost nothing to
-    # submit, so one email each could flood the inbox and the Resend quota the
-    # feedback form shares. Reviewers find them with `review_ratings.py list`.
-    pending_professor_id = pending_course_id = None
-    if clean["new_professor"]:
-        name, dept = clean["new_professor"]["name"], clean["new_professor"]["department"]
-        pending_professor_id, _ = ratings.pending_professor(name, dept, query_one, _write)
-    if new_course:
-        pending_course_id, _ = ratings.pending_course(clean["course_code"], new_course, query_one, _write)
-
-    # 9. Replace-or-insert, holds and bursts
+    # 7. Duplicates and bursts, read-only so a blocked comment writes nothing. A new
+    # professor or course without a pending row yet has no earlier ratings to count.
+    pending_professor_id = (ratings.find_pending_professor(clean["new_professor"]["name"], query_one)
+                            if clean["new_professor"] else None)
+    pending_course_id = ratings.find_pending_course(clean["course_code"], query_one) if new_course else None
     key = ratings.rating_key(clean, pending_professor_id, pending_course_id)
     existing = ratings.existing_rating(device_hash, key, query_one)
     chash = rating_checks.comment_hash(clean["comment"])
@@ -2517,22 +2523,57 @@ def rate_submit():
     skew = ratings.skew_week(key, clean["rating"], new_device, existing["id"] if existing else None,
                              query_one, now)
     bursts = ratings.burst_reasons(key, ip_hash, prefix_hash, network_type, query_one, now)
+
+    # 8. Free rules on new or edited text: a link, contact details or keyboard mashing
+    # stops here, before any model call. Text the edit leaves alone passed the rules
+    # when it was saved, so a later rule doesn't lock the student out of changing the stars.
+    changed = bool(clean["comment"]) and (not existing or existing["comment"] != clean["comment"])
+    if changed and rating_checks.rule_block(clean["comment"]):
+        return _rating_response({"error": "comment_blocked"}, 422, device)
+
+    # 9. Moderation of new or edited text. A blocked comment stops here; anything else
+    # only marks the comment for the reviewer, so a busy or failed check never holds the
+    # rating. Duplicates (near copies too) and bursts get no call and no queue, or a flood
+    # would just move its model calls there. Text the edit leaves alone keeps its earlier check
+    # (ratings._UPSERT_SQL), so these fields stay unset.
+    check = {}
+    if changed:
+        shared = _shared_network()
+        reason = None
+        if duplicate or near:
+            action = "duplicate"
+        elif bursts:
+            action = "burst"
+        elif not ratings.moderation_budget_left(device_hash, ip_hash, shared, query_one, now):
+            action = "over_budget"
+        else:
+            action, reason = _moderate_comment(clean["comment"])
+            ratings.record_moderation_call("submit", action, device_hash, ip_hash, shared, _write, now)
+            if action == "block":
+                return _rating_response({"error": "comment_blocked"}, 422, device)
+        check = rating_checks.comment_check_fields(action, reason, now)
+
+    # 10. Pending professor / course. No team email: invented names cost nothing to
+    # submit, so one email each could flood the inbox and the Resend quota the
+    # feedback form shares. Reviewers find them with `review_ratings.py list`.
+    # A row created here is new, so no rating of this device's sits on it yet.
+    if clean["new_professor"]:
+        name, dept = clean["new_professor"]["name"], clean["new_professor"]["department"]
+        pending_professor_id, _ = ratings.pending_professor(name, dept, query_one, _write)
+    if new_course:
+        pending_course_id, _ = ratings.pending_course(clean["course_code"], new_course, query_one, _write)
+
+    # 11. Replace-or-insert and holds
+    key = ratings.rating_key(clean, pending_professor_id, pending_course_id)
     # A pending professor or course counts nowhere until a reviewer approves it, so only
     # a known pair is checked against who Banner and RMP have teaching the course.
     unverified = (bool(key["professor_slug"]) and bool(key["course_code"])
                   and not ratings.pair_taught(key["professor_slug"], key["course_code"], query_one))
-    # A reviewer took this rating's comment down (review_ratings.py remove-comment): the mark
-    # stays on the row, and any comment it carries again waits for review.
-    removed = bool(existing) and "comment_removed" in (existing["hold_reasons"] or "").split(",")
     silent = ratings.flagged(device_hash, ip_hash, network_type, query_one, now)
-    status, reasons = rating_checks.assess(fill_seconds, network_type, bursts, duplicate, moderation_action,
+    status, reasons = rating_checks.assess(fill_seconds, network_type, bursts, duplicate,
                                            edit=bool(existing) and existing["status"] == "accepted",
-                                           unverified_pair=unverified,
-                                           comment_removed=removed and bool(clean["comment"]),
-                                           near_duplicate=bool(near), skew_week=skew,
-                                           silent_hold=silent)
-    if removed and "comment_removed" not in reasons:
-        reasons.append("comment_removed")
+                                           unverified_pair=unverified, near_duplicate=bool(near),
+                                           skew_week=skew, silent_hold=silent)
     row = {
         **key,
         "term_label": clean["term_label"], "rating": clean["rating"], "difficulty": clean["difficulty"],
@@ -2542,6 +2583,7 @@ def rate_submit():
         "device_hash": device_hash, "new_device": new_device,
         "ip_hash": ip_hash, "ip_prefix_hash": prefix_hash, "network_type": network_type,
         "fill_seconds": fill_seconds, "collection": "turnstile+device",
+        **{c: check.get(c) for c in ratings.CHECK_COLUMNS},
     }
     ratings.save_rating(row, existing, _write)
     held = ratings.hold_burst(bursts, key, ip_hash, prefix_hash, _write, now) if bursts else set()
@@ -2549,20 +2591,21 @@ def rate_submit():
         ratings.hold_matches(near, "near_duplicate", device_hash, ip_hash, prefix_hash, network_type, _write)
     if skew:
         ratings.hold_skew_week(key, _write, now)
-    # The page shows student reviews live. Any save can change it: a new review, an edit,
-    # or an accepted review edited into a held one, whose old comment must come down. A burst
-    # also holds reviews on other professors. Dropped after the hold, so no request between
-    # the two writes re-caches rows that are about to be held.
+    # The page's student numbers are live (its comments wait for review_ratings.py
+    # approve-comment). Any save can change them: a new rating, an edit, an accepted
+    # rating edited into a held one, or an edited comment that must come down until it's
+    # read again. A burst also holds ratings on other professors. Dropped after the hold,
+    # so no request between the two writes re-caches rows that are about to be held.
     pages = held | {key["professor_slug"]} if key.get("professor_slug") else held
     if pages:
         drop_professor_pages(pages)
 
-    # 10. Clear old IP hashes, at most hourly per process
+    # 12. Clear old IP hashes, at most hourly per process
     if time.time() - _last_ip_purge >= _IP_PURGE_INTERVAL:
         _last_ip_purge = time.time()
         ratings.purge_ip_hashes(_write, now)
 
-    # 11. Same body whether accepted or held
+    # 13. Same body whether accepted or held
     return _rating_response({"ok": True, "counter": ratings.huskies_this_term(query_one, now)}, 200, device)
 
 

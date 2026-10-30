@@ -1,6 +1,6 @@
 """Pure decision functions for the no-login rating form: validate the body,
-hash the comment for duplicate detection, moderate it, and decide whether the
-rating is accepted, held or rejected."""
+hash the comment for duplicate detection, check it against the free rules,
+moderate it, and decide whether the rating is accepted or held."""
 
 import hashlib
 import re
@@ -160,6 +160,45 @@ def comment_hash(text):
     return hashlib.sha256(norm.encode()).hexdigest()
 
 
+# Free checks that run before any model call (server.rate_submit): each matches
+# something a course review never needs. A match is the same 422 as a model block.
+_TLD = r"(?:com|net|org|io|ly|gg|me|co|xyz|info|biz|app|link|site|shop|store|online|tv|us|ai)"
+_RULES = (
+    # Before the domain rule, which an address's domain also matches.
+    ("email", re.compile(r"\b[\w.+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b", re.I)),
+    ("email", re.compile(r"\b[\w.+-]+\s*(?:\(\s*at\s*\)|\[\s*at\s*\])\s*[a-z0-9-]+", re.I)),
+    ("link", re.compile(r"https?://|\bwww\s*\.\s*\w", re.I)),
+    # Lowercase top-level domain only, so "ASP.NET" passes.
+    ("link", re.compile(rf"\b[A-Za-z0-9][A-Za-z0-9-]*\.{_TLD}\b(?!\.?\w)")),
+    ("link", re.compile(rf"\b\w+\s*(?:\(\s*dot\s*\)|\[\s*dot\s*\]|\s+dot\s+){_TLD}\b", re.I)),
+    ("link", re.compile(r"\bt\.me/|\bdiscord\.gg\b|\bbit\.ly\b", re.I)),
+    # "use code" only with a code after it that has a digit: "use code from lecture" is
+    # a programming course's homework policy.
+    ("promo", re.compile(r"\b(?:promo|coupon|discount|referral|invite)\s+codes?\b"
+                         r"|\buse\s+(?:my\s+)?code\s+(?=[a-z]*\d)\w{4,}\b", re.I)),
+    ("phone", re.compile(r"(?<![\d-])(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]\d{4}(?![\d-])")),
+    # No street-address rule: campus buildings are street addresses ("office hours at
+    # 360 Huntington Ave"), so telling a professor's home address apart is left to the model.
+)
+# Eight consonants in a row (y counts as a vowel), once stretched letters are
+# folded ("boringgggg"), is past English words and texting shorthand ("pwrpnts");
+# home-row and bottom-row runs catch mashing that happens to hit a vowel.
+_MASH = re.compile(r"[bcdfghjklmnpqrstvwxz]{8,}|asdf|sdfg|dfgh|fghj|ghjk|hjkl|zxcv|xcvb", re.I)
+_STRETCHED = re.compile(r"(\w)\1+", re.I)
+
+
+def rule_block(comment):
+    """The first rule the comment breaks ("link", "promo", "phone", "email",
+    "mash"), or None. Pure; tuned on the RMP comments so a real
+    review almost never matches."""
+    for reason, pattern in _RULES:
+        if pattern.search(comment):
+            return reason
+    if _MASH.search(_STRETCHED.sub(r"\1", comment)):
+        return "mash"
+    return None
+
+
 def shingles(text):
     words = normalize_comment(text).split()
     if len(words) < SHINGLE_WORDS:
@@ -194,22 +233,39 @@ def moderate(comment, score=moderation.score_texts):
         return "unavailable"
 
 
-def assess(fill_seconds, network_type, bursts, duplicate_comment, moderation_action, edit=False,
-           unverified_pair=False, comment_removed=False, near_duplicate=False, skew_week=False,
+def comment_check_fields(action, reason, now):
+    """ratings.CHECK_COLUMNS for new comment text.
+
+    action: the model's "allow" or "review", "unavailable" when the call failed, or
+    why no call was made: "over_budget", "duplicate" or "burst". A failed or
+    over-budget check is due for moderate_queue.py now; a duplicate or burst is
+    never queued, and the reviewer reads it as not yet checked.
+    """
+    if action in ("allow", "review"):
+        return {"comment_check": action, "comment_check_reason": reason, "comment_check_attempts": 1,
+                "comment_next_check_at": None, "comment_checked_at": now}
+    return {"comment_check": "unchecked", "comment_check_reason": reason or action,
+            "comment_check_attempts": int(action == "unavailable"),
+            "comment_next_check_at": now if action in ("unavailable", "over_budget") else None,
+            "comment_checked_at": None}
+
+
+def assess(fill_seconds, network_type, bursts, duplicate_comment, edit=False,
+           unverified_pair=False, near_duplicate=False, skew_week=False,
            silent_hold=False):
-    """("rejected", [...]) | ("held", reasons) | ("accepted", []).
+    """("held", reasons) | ("accepted", []).
+
+    Moderation plays no part: a blocked comment never gets here, and a flagged or
+    unchecked one waits for approve-comment without holding the rating's numbers.
+    Ratings held as moderation_review or moderation_unavailable before that stay held.
 
     edit: this replaces an accepted rating. The form prefills the earlier answers,
     so a quick update is normal and only has to clear EDIT_MIN_FILL_SECONDS.
     unverified_pair: neither Banner nor RMP has this professor teaching this course.
-    comment_removed: this brings a comment back to a rating whose comment a
-    reviewer took down, so it waits for review.
     near_duplicate: the comment closely matches another rating's (see similarity).
     skew_week: a run of same-direction ratings has landed on this professor this week.
     silent_hold: a reviewer's reject-rating --abuse flagged this device or IP.
     """
-    if moderation_action == "block":
-        return "rejected", ["moderation_block"]
     reasons = []
     if fill_seconds is None:
         reasons.append("no_timer")
@@ -228,12 +284,6 @@ def assess(fill_seconds, network_type, bursts, duplicate_comment, moderation_act
         reasons.append("duplicate_comment")
     if near_duplicate:
         reasons.append("near_duplicate")
-    if comment_removed:
-        reasons.append("comment_removed")
-    if moderation_action == "review":
-        reasons.append("moderation_review")
-    elif moderation_action == "unavailable":
-        reasons.append("moderation_unavailable")
     if silent_hold:
         reasons.append("silent_hold")
     return ("held", reasons) if reasons else ("accepted", [])

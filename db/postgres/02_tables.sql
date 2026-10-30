@@ -448,10 +448,27 @@ CREATE TABLE public.survey_ratings (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     difficulty BIGINT NULL,
+    comment_status TEXT NULL,
+    comment_check TEXT NULL,
+    comment_check_reason TEXT NULL,
+    comment_check_attempts BIGINT NULL,
+    comment_next_check_at TIMESTAMPTZ NULL,
+    comment_checked_at TIMESTAMPTZ NULL,
     agent_decision TEXT NULL,
     agent_reason TEXT NULL,
     agent_reviewed_at TIMESTAMPTZ NULL,
     CONSTRAINT survey_ratings_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE public.moderation_calls (
+    id UUID NOT NULL,
+    called_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    source TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    device_hash TEXT NULL,
+    ip_hash TEXT NULL,
+    shared_network BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT moderation_calls_pkey PRIMARY KEY (id)
 );
 
 CREATE TABLE public.survey_pending_professors (

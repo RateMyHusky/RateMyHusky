@@ -1,7 +1,8 @@
 """Route-level tests for /api/rate in server.py.
 
 Env before `import server`; the pool and the query/_write helpers are stubbed so
-no live DB is touched, and so are Turnstile, moderation and the team email.
+no live DB is touched, and so are Turnstile, moderation (OpenAI, and Groq through
+the FakeGroq in conftest) and the team email.
 """
 
 import os
@@ -42,11 +43,14 @@ def rate(monkeypatch):
     server.limiter.reset()
 
     state = {"writes": [], "posts": [], "moderation": "allow", "network": "other",
-             "turnstile": True, "turnstile_calls": 0, "seen": False, "existing": None}
+             "turnstile": True, "turnstile_calls": 0, "seen": False, "existing": None,
+             "budget": {"device": 0, "ip": 0, "shared": 0}, "scored": []}
 
     def fake_query_one(sql, params=()):
-        if "SELECT id, status, hold_reasons FROM survey_ratings" in sql:
-            return state["existing"]
+        if "SELECT id, status, hold_reasons, comment FROM survey_ratings" in sql:
+            return state["existing"] and {"comment": None, **state["existing"]}
+        if "FROM moderation_calls" in sql:
+            return state["budget"]
         if "WHERE device_hash = %s LIMIT 1" in sql:
             return {"x": 1} if state["seen"] else None
         if "FROM professors_catalog" in sql:
@@ -67,6 +71,7 @@ def rate(monkeypatch):
         state["writes"].append((sql, params))
 
     def fake_score(texts):
+        state["scored"].extend(texts)
         if state["moderation"] == "timeout":
             raise TimeoutError("slow")
         return [SimpleNamespace(action=state["moderation"]) for _ in texts]
@@ -98,6 +103,15 @@ def post(client, ri, body=None, device=DEVICE, minted=False, **headers):
 
 def rating_writes(state):
     return [w for w in state["writes"] if "INSERT INTO survey_ratings" in w[0]]
+
+
+def call_writes(state):
+    return [w for w in state["writes"] if "INSERT INTO moderation_calls" in w[0]]
+
+
+def saved(server, params, column):
+    """A column of the saved rating: its params start with the new id."""
+    return params[1 + server.ratings._INSERT_COLUMNS.index(column)]
 
 
 def test_start_sets_a_device_cookie_and_signs_opened(rate):
@@ -193,17 +207,137 @@ def test_blocked_comment_is_422_and_creates_no_pending_professor(rate):
     resp = post(client, ri, {"professor": {"name": "New Person", "department": "Math"},
                              "course": {"code": "ZZ9999", "name": "Brand New Course"}})
     assert resp.status_code == 422 and resp.get_json() == {"error": "comment_blocked"}
-    assert state["writes"] == []
+    # Only the call itself is recorded, so a blocked writer can't retry for free.
+    (sql, params), = state["writes"]
+    assert "INSERT INTO moderation_calls" in sql and params[2:4] == ("submit", "block")
 
 
-def test_moderation_timeout_holds(rate):
+def test_moderation_timeout_keeps_the_rating_and_queues_the_comment(rate):
     server, client, state, ri = rate
     state["moderation"] = "timeout"
     resp = post(client, ri)
     assert resp.status_code == 200 and resp.get_json() == {"ok": True, "counter": None}
     (sql, params), = rating_writes(state)
-    assert "held" in params
-    assert "moderation_unavailable" in params
+    assert saved(server, params, "status") == "accepted"
+    assert saved(server, params, "hold_reasons") is None
+    assert saved(server, params, "comment_check") == "unchecked"
+    assert saved(server, params, "comment_check_reason") == "openai_unavailable"
+    assert saved(server, params, "comment_next_check_at") is not None
+
+
+def test_a_rule_match_is_422_before_any_model_call_or_write(rate):
+    server, client, state, ri = rate
+    for comment in ("great notes at studyhelp.com", "text me 617-555-0123", "asdfghjkl"):
+        resp = post(client, ri, {"comment": comment, "professor": {"name": "New Person"}})
+        assert resp.status_code == 422 and resp.get_json() == {"error": "comment_blocked"}
+    assert state["writes"] == [] and state["scored"] == []
+
+
+def test_an_edit_that_keeps_text_a_later_rule_matches_still_saves(rate):
+    # A comment saved before a rule existed is prefilled on the form; changing only the
+    # stars must not 422 on text the student didn't touch.
+    server, client, state, ri = rate
+    old = "We submitted everything on gradescope.com, easy to follow."
+    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": None, "comment": old}
+    assert post(client, ri, {"comment": old, "rating": 2}).status_code == 200
+    assert state["scored"] == [] and call_writes(state) == []
+    state["existing"]["comment"] = "Something else entirely about the course."
+    resp = post(client, ri, {"comment": old})
+    assert resp.status_code == 422 and resp.get_json() == {"error": "comment_blocked"}
+
+
+def test_groq_verdicts_mark_the_comment_and_never_hold_the_rating(rate, monkeypatch, fake_groq):
+    server, client, state, ri = rate
+    monkeypatch.setenv("GROQ_MODERATION_KEY", "gsk-test")
+    cases = (("ALLOW", "allow", None), ("REVIEW", "review", "review"), ("Not sure.", "review", "review"),
+             (TimeoutError("slow"), "unchecked", "groq_unavailable"),
+             (fake_groq.RateLimited("429"), "unchecked", "groq_rate_limited"))
+    for i, (reply, check, reason) in enumerate(cases):
+        groq = fake_groq(reply)
+        monkeypatch.setattr(server, "_groq_moderation_client", groq)
+        assert post(client, ri, device=f"{i}" * 32).status_code == 200
+        params = rating_writes(state)[-1][1]
+        assert saved(server, params, "status") == "accepted", reply
+        assert (saved(server, params, "comment_check"), saved(server, params, "comment_check_reason")) == (
+            check, reason)
+        (call,) = groq.calls
+        assert call["model"] == "openai/gpt-oss-safeguard-20b" and call["temperature"] == 0
+        assert call["messages"][1] == {"role": "user", "content": BODY["comment"]}
+    assert state["scored"] == []  # never OpenAI while the Groq key is set
+    assert [p[3] for s, p in call_writes(state)] == ["allow", "review", "review", "unavailable", "unavailable"]
+
+
+def test_groq_block_is_422(rate, monkeypatch, fake_groq):
+    server, client, state, ri = rate
+    monkeypatch.setenv("GROQ_MODERATION_KEY", "gsk-test")
+    monkeypatch.setattr(server, "_groq_moderation_client", fake_groq("BLOCK"))
+    resp = post(client, ri)
+    assert resp.status_code == 422 and resp.get_json() == {"error": "comment_blocked"}
+    assert rating_writes(state) == []
+
+
+def test_a_call_is_logged_without_the_comment(rate):
+    server, client, state, ri = rate
+    post(client, ri)
+    (sql, params), = call_writes(state)
+    device_hash = ri.keyed_hash(SECRET, "device", DEVICE)
+    assert params[2:5] == ("submit", "allow", device_hash) and params[6] is False
+    assert BODY["comment"] not in repr(params)
+
+
+@pytest.mark.parametrize("setup,reason,due", [
+    ("duplicate", "duplicate", False), ("burst", "burst", False), ("over_budget", "over_budget", True)])
+def test_no_model_call_for_a_duplicate_a_burst_or_a_sender_over_budget(rate, monkeypatch, setup, reason, due):
+    server, client, state, ri = rate
+    if setup == "duplicate":
+        monkeypatch.setattr(server.ratings, "duplicate_comment", lambda *a: True)
+    elif setup == "burst":
+        monkeypatch.setattr(server.ratings, "burst_reasons", lambda *a: ["burst_ip"])
+    else:
+        state["budget"] = {"device": 3, "ip": 0, "shared": 0}
+    assert post(client, ri).status_code == 200
+    assert state["scored"] == [] and call_writes(state) == []
+    params = rating_writes(state)[0][1]
+    assert saved(server, params, "comment_check") == "unchecked"
+    assert saved(server, params, "comment_check_reason") == reason
+    assert (saved(server, params, "comment_next_check_at") is not None) is due
+
+
+def test_budgets_per_ip_and_on_shared_networks(rate):
+    server, client, state, ri = rate
+    state["budget"] = {"device": 0, "ip": 10, "shared": 0}
+    post(client, ri)
+    assert state["scored"] == []
+    # Campus and Relay share addresses: one total replaces the per-IP count there.
+    state["network"] = "campus"
+    post(client, ri)
+    assert len(state["scored"]) == 1
+    state["budget"] = {"device": 0, "ip": 0, "shared": 100}
+    post(client, ri)
+    assert len(state["scored"]) == 1
+    assert [saved(server, p, "comment_check_reason") for s, p in rating_writes(state)] == [
+        "over_budget", None, "over_budget"]
+
+
+def test_an_edit_that_keeps_the_text_keeps_its_check_without_a_call(rate):
+    server, client, state, ri = rate
+    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": None, "comment": BODY["comment"]}
+    post(client, ri, {"rating": 2})
+    assert state["scored"] == [] and call_writes(state) == []
+    params = rating_writes(state)[0][1]
+    # Unset here, so the upsert keeps the row's own check (ratings._UPSERT_SQL).
+    assert all(saved(server, params, c) is None for c in server.ratings.CHECK_COLUMNS)
+    state["existing"]["comment"] = "Something else entirely about the course."
+    post(client, ri)
+    assert len(state["scored"]) == 1
+
+
+def test_a_new_professor_is_looked_up_before_the_verdict_and_inserted_after(rate):
+    server, client, state, ri = rate
+    post(client, ri, {"professor": {"name": "New Person"}})
+    kinds = [("moderation" if "moderation_calls" in sql else "pending" if "survey_pending" in sql else "rating")
+             for sql, params in state["writes"]]
+    assert kinds == ["moderation", "pending", "rating"]
 
 
 def test_quick_update_keeps_an_accepted_rating_accepted(rate):
@@ -475,21 +609,23 @@ def test_an_accepted_review_edited_into_a_held_one_drops_the_page_cache(rate, mo
     assert dropped == [{"alice-smith"}]
 
 
-def test_an_edit_bringing_back_a_removed_comment_is_held(rate):
+def test_an_edit_after_a_rejected_comment_is_not_held(rate):
+    # The new comment waits in pending like any other, so the rating keeps counting.
     server, client, state, ri = rate
+    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": None, "comment": None}
+    post(client, ri)
+    (sql, params), = rating_writes(state)
+    assert saved(server, params, "status") == "accepted" and saved(server, params, "hold_reasons") is None
+    assert saved(server, params, "comment_check") == "allow"
+
+
+def test_an_old_removed_mark_no_longer_holds_an_edit(rate):
+    server, client, state, ri = rate
+    # A row marked by the old reject-comment, before the migration strips the mark.
     state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": "comment_removed"}
     post(client, ri)
     (sql, params), = rating_writes(state)
-    assert "held" in params and "comment_removed" in params
-
-
-def test_an_edit_without_a_comment_keeps_the_removed_mark(rate):
-    server, client, state, ri = rate
-    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": "comment_removed"}
-    post(client, ri, {"comment": ""})
-    (sql, params), = rating_writes(state)
-    # Accepted, but the next edit that adds a comment is still held.
-    assert "accepted" in params and "comment_removed" in params
+    assert saved(server, params, "status") == "accepted" and saved(server, params, "hold_reasons") is None
 
 
 def test_a_near_copy_is_held_and_its_template_held_back(rate, monkeypatch):

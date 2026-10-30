@@ -66,10 +66,8 @@ def test_merge_professor_keeps_the_existing_rating_when_it_is_newer(pg):
     assert left == [{"professor_slug": "jane-doe", "pending_professor_id": None, "rating": 4}]
 
 
-@pytest.mark.parametrize("before, after", [(None, "comment_removed"),
-                                           ("too_fast", "too_fast,comment_removed"),
-                                           ("comment_removed", "comment_removed")])
-def test_remove_comment_marks_the_row_and_keeps_its_hash(pg, monkeypatch, before, after):
+@pytest.mark.parametrize("before", [None, "too_fast"])
+def test_remove_comment_clears_only_the_comment_and_keeps_its_hash(pg, monkeypatch, before):
     import survey_reviews
     secret = "s" * 32
     monkeypatch.setenv("RATING_SECRET", secret)
@@ -77,8 +75,9 @@ def test_remove_comment_marks_the_row_and_keeps_its_hash(pg, monkeypatch, before
     with pg.cursor() as cur:
         cur.execute(
             "INSERT INTO survey_ratings (id, professor_slug, course_code, rating, hours, comment, comment_hash, "
-            "status, hold_reasons, device_hash, new_device, network_type) "
-            "VALUES (%s, 'jane-doe', 'CS2500', 4, '3-4', 'rude', 'h1', 'accepted', %s, 'd1', true, 'unknown')",
+            "status, hold_reasons, device_hash, new_device, network_type, comment_status) "
+            "VALUES (%s, 'jane-doe', 'CS2500', 4, '3-4', 'rude', 'h1', 'accepted', %s, 'd1', true, 'unknown', "
+            "'approved')",
             (rating_id, before))
     pg.commit()
 
@@ -86,8 +85,83 @@ def test_remove_comment_marks_the_row_and_keeps_its_hash(pg, monkeypatch, before
         review_ratings.remove_comment(cur, survey_reviews.public_id(secret, rating_id))
     pg.commit()
 
-    assert rows(pg, "SELECT comment, comment_hash, status, hold_reasons FROM survey_ratings") == [
-        {"comment": None, "comment_hash": "h1", "status": "accepted", "hold_reasons": after}]
+    assert rows(pg, "SELECT comment, comment_hash, comment_status, status, hold_reasons FROM survey_ratings") == [
+        {"comment": None, "comment_hash": "h1", "comment_status": None, "status": "accepted", "hold_reasons": before}]
+
+
+def test_approve_and_reject_comment_leave_the_rating_counting(pg):
+    ids = [str(uuid.uuid4()) for _ in range(3)]
+    with pg.cursor() as cur:
+        for i, (rating_id, comment_status) in enumerate(zip(ids, ("pending", "pending", "approved"))):
+            cur.execute(
+                "INSERT INTO survey_ratings (id, professor_slug, course_code, rating, hours, comment, comment_hash, "
+                "status, device_hash, new_device, network_type, comment_status) "
+                "VALUES (%s, 'jane-doe', 'CS2500', 4, '3-4', 'text', 'h1', 'accepted', %s, true, 'unknown', %s)",
+                (rating_id, f"d{i}", comment_status))
+    pg.commit()
+    listed = {r["id"]: review_ratings.comment_version(r["id"], r["updated_at"])
+              for r in rows(pg, "SELECT id::text AS id, updated_at FROM survey_ratings")}
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        review_ratings.approve_comment(cur, listed[ids[0]])
+        review_ratings.reject_comment(cur, ids[1][:8])
+        with pytest.raises(review_ratings.ReviewError):   # already approved: not waiting
+            review_ratings.approve_comment(cur, listed[ids[2]])
+    pg.commit()
+    got = {r["id"]: r for r in rows(pg, "SELECT id::text AS id, comment, comment_status, status, hold_reasons "
+                                        "FROM survey_ratings")}
+    assert got[ids[0]] == {"id": ids[0], "comment": "text", "comment_status": "approved",
+                           "status": "accepted", "hold_reasons": None}
+    assert got[ids[1]] == {"id": ids[1], "comment": None, "comment_status": None,
+                           "status": "accepted", "hold_reasons": None}
+
+
+def test_an_edit_between_list_and_approve_comment_is_not_approved(pg):
+    # The reviewer read "Hard but fair"; the student edits it before the approval runs.
+    import ratings
+    rating_id = str(uuid.uuid4())
+    with pg.cursor() as cur:
+        cur.execute(
+            "INSERT INTO survey_ratings (id, professor_slug, course_code, rating, hours, comment, status, "
+            "device_hash, new_device, network_type, comment_status) "
+            "VALUES (%s, 'jane-doe', 'CS2500', 4, '3-4', 'Hard but fair', 'accepted', 'd1', true, 'unknown', "
+            "'pending')", (rating_id,))
+    pg.commit()
+    (listed,) = rows(pg, "SELECT updated_at FROM survey_ratings")
+    version = review_ratings.comment_version(rating_id, listed["updated_at"])
+
+    def write(sql, params):
+        with pg.cursor() as cur:
+            cur.execute(sql, params)
+        pg.commit()
+    row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
+    row.update(professor_slug="jane-doe", course_code="CS2500", rating=4, hours="3-4", status="accepted",
+               device_hash="d1", new_device=True, network_type="unknown", collection="turnstile+device",
+               comment="something abusive the reviewer never read")
+    ratings.save_rating(row, {"id": rating_id, "hold_reasons": None}, write)
+
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with pytest.raises(review_ratings.ReviewError):
+            review_ratings.approve_comment(cur, version)
+    pg.rollback()
+    assert rows(pg, "SELECT comment_status FROM survey_ratings") == [{"comment_status": "pending"}]
+
+
+def test_an_edit_after_reject_comment_keeps_counting_and_stays_in_the_surge_scan(pg):
+    import ratings
+    rating_id = str(uuid.uuid4())
+    with pg.cursor() as cur:
+        cur.execute(
+            "INSERT INTO survey_ratings (id, professor_slug, course_code, rating, hours, comment, status, "
+            "device_hash, new_device, network_type, comment_status) "
+            "VALUES (%s, 'jane-doe', 'CS2500', 4, '3-4', 'junk', 'accepted', 'd1', true, 'unknown', 'pending')",
+            (rating_id,))
+    pg.commit()
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        review_ratings.reject_comment(cur, rating_id[:8])
+    pg.commit()
+    (row,) = rows(pg, "SELECT status, hold_reasons FROM survey_ratings")
+    # hold_reasons NULL: pipeline/survey.surge_ids still counts this rating's edits.
+    assert row == {"status": "accepted", "hold_reasons": None}
 
 
 def test_merge_holds_moved_ratings_on_a_pair_banner_never_saw(pg):

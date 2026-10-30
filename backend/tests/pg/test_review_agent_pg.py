@@ -23,8 +23,8 @@ def insert(pg, slug, reasons, device, minute, comment=None):
     with pg.cursor() as cur:
         cur.execute(
             "INSERT INTO survey_ratings (id, professor_slug, course_code, term_label, rating, hours, comment, "
-            "status, hold_reasons, device_hash, new_device, network_type, created_at) "
-            "VALUES (%s, %s, 'CS2500', 'Fall 2025', 4, '3-4', %s, 'held', %s, %s, true, 'unknown', %s)",
+            "comment_status, status, hold_reasons, device_hash, new_device, network_type, created_at) "
+            "VALUES (%s, %s, 'CS2500', 'Fall 2025', 4, '3-4', %s, 'pending', 'held', %s, %s, true, 'unknown', %s)",
             (new_id, slug, comment or f"Lecture {device} covered topic {device} in depth.", reasons, device,
              f"2026-10-27T10:{minute:02d}:00Z"))
     return new_id
@@ -390,8 +390,9 @@ def test_a_pending_professor_copying_a_recent_rating_of_the_target_is_escalated(
         for device, slug, pending_id in (("d1", "christopher-smith", None), ("d2", None, pending)):
             cur.execute(
                 "INSERT INTO survey_ratings (id, professor_slug, pending_professor_id, course_code, term_label, rating, "
-                "hours, status, device_hash, new_device, network_type, comment) "
-                "VALUES (%s, %s, %s, 'CS2500', 'Fall 2025', 1, '3-4', 'accepted', %s, false, 'unknown', %s)",
+                "hours, status, device_hash, new_device, network_type, comment, comment_status) "
+                "VALUES (%s, %s, %s, 'CS2500', 'Fall 2025', 1, '3-4', 'accepted', %s, false, 'unknown', %s, "
+                "'pending')",
                 (str(uuid.uuid4()), slug, pending_id, device, copy))
     pg.commit()
 
@@ -451,8 +452,9 @@ def test_nicknames_are_mined_from_rmp_and_accepted_comments_only(pg):
                                         ("held", "Herc Herc Zork Zork", "d2")):
             cur.execute(
                 "INSERT INTO survey_ratings (id, professor_slug, course_code, term_label, rating, hours, comment, "
-                "status, device_hash, new_device, network_type) "
-                "VALUES (%s, 'iraklis-tsekourakis', 'CS2500', 'Fall 2025', 4, '3-4', %s, %s, %s, false, 'unknown')",
+                "comment_status, status, device_hash, new_device, network_type) "
+                "VALUES (%s, 'iraklis-tsekourakis', 'CS2500', 'Fall 2025', 4, '3-4', %s, 'pending', %s, %s, false, "
+                "'unknown')",
                 (str(uuid.uuid4()), comment, status, device))
     pg.commit()
     asked = []

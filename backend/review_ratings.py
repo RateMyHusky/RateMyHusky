@@ -1,8 +1,10 @@
 """Review held survey ratings and new professors and courses (rating form, plan 3).
 
-    python review_ratings.py list                       # held ratings, pending professors, courses and aliases
+    python review_ratings.py list                       # held ratings, comments to read, pending professors, courses and aliases
     python review_ratings.py approve-rating ID [ID...]  # held -> accepted
     python review_ratings.py reject-rating [--abuse] ID [ID...]  # delete the rating; --abuse also silences its device and IP
+    python review_ratings.py approve-comment ID@TIME [ID@TIME...]  # show a comment, as list printed it
+    python review_ratings.py reject-comment ID [ID...]  # drop a waiting comment, keep its rating
     python review_ratings.py remove-comment PUBLIC_ID   # take down a shown comment by the id a report carries
     python review_ratings.py approve-professor ID [--slug SLUG]
     python review_ratings.py merge-professor ID SLUG
@@ -17,11 +19,23 @@
 Rating ids may be the short id `list` prints. Each run is one transaction: it
 commits at the end, and rolls back and exits 1 on a bad id or a non-pending
 entry. Reads ORACLE_DATABASE_URL. `list` prints no hashes or network data.
-Approved and merged ratings reach the site on the next pipeline run; a
-professor page's student reviews change within minutes, since every command but
-list and purge-ip bumps data_version. Approving a rating held as unverified_pair
-vouches for that professor teaching that course, so later ratings of the pair
-aren't held for it.
+A professor page's student numbers and reviews change within minutes, since
+every command but list and purge-ip bumps data_version; the rest of the site
+(cards, course pages, leaderboards) follows on the next pipeline run. Approving
+a rating held as unverified_pair vouches for that professor teaching that
+course, so later ratings of the pair aren't held for it.
+
+A comment never shows until approve-comment, even on an accepted rating, and
+an edit to its text waits again. approve-comment takes the ID@TIME `list`
+printed next to the comment, and refuses when the row changed since then, so
+an edit between reading and approving can't put unread text on the page. approve-rating counts the rating only: its
+comment stays in the comments list until approved there too.
+
+`list` shows each comment's model check (moderation_groq.py): flagged first,
+then clean or not yet checked. The check only sorts the list; approving and
+rejecting work the same either way, and both take the comment off
+moderate_queue.py's queue. A comment the queue found blocked is flagged as
+`blocked` and its rating held as moderation_block until a reviewer acts.
 """
 
 import argparse
@@ -158,25 +172,65 @@ def reject_rating(cur, *ids, abuse=False):
     return f"Rejected {len(ids)} rating(s)"
 
 
+def comment_version(rating_id, updated_at):
+    """What `list` prints for approve-comment: the short id and the row's updated_at."""
+    stamp = updated_at.isoformat() if hasattr(updated_at, "isoformat") else str(updated_at)
+    return f"{str(rating_id)[:8]}@{stamp}"
+
+
+def approve_comment(cur, *versions):
+    """Approve each comment as `list` printed it (ID@TIME). Any save since moves
+    updated_at, so an edit in between fails here instead of going live unread."""
+    for version in versions:
+        rating_id, sep, stamp = version.partition("@")
+        if not sep or not stamp:
+            raise ReviewError(f"Give {version!r} as the ID@TIME list printed, so the text approved is the text read")
+        try:
+            datetime.fromisoformat(stamp)
+        except ValueError:
+            raise ReviewError(f"Bad time in {version!r}") from None
+        # Off the queue too, so a moderate_queue.py run racing this can't hold the rating.
+        cur.execute("UPDATE survey_ratings SET comment_status = 'approved', comment_next_check_at = NULL "
+                    "WHERE id::text LIKE %s AND comment_status = 'pending' AND updated_at = %s::timestamptz "
+                    "RETURNING id", (short_id_pattern(rating_id), stamp))
+        if len(cur.fetchall()) != 1:
+            raise ReviewError(f"{version} is not exactly one comment waiting for review as list printed it; "
+                              "it may have been edited, so run list again")
+    return f"Approved {len(versions)} comment(s)"
+
+
+# Clears the comment and nothing else. A comment the device writes again waits in
+# pending like any new one, so the rating needs no hold; and hold_reasons stays as
+# it was, since a non-NULL one would take the rating out of the surge counts for
+# good. comment_hash stays, so the same text from another device is held as a
+# duplicate_comment.
+_DROP_COMMENT_SQL = (
+    "UPDATE survey_ratings SET comment = NULL, comment_status = NULL"
+    + "".join(f", {c} = NULL" for c in ratings.CHECK_COLUMNS) + " ")
+
+
+def reject_comment(cur, *ids):
+    """Drop each waiting comment; its rating keeps counting."""
+    for rating_id in ids:
+        cur.execute(_DROP_COMMENT_SQL + "WHERE id::text LIKE %s AND comment_status = 'pending' RETURNING id",
+                    (short_id_pattern(rating_id),))
+        if len(cur.fetchall()) != 1:
+            raise ReviewError(f"{rating_id} is not exactly one comment waiting for review")
+    return f"Rejected {len(ids)} comment(s)"
+
+
 def remove_comment(cur, review_id):
     """Drop the comment of the review whose public id (the one on the page and in
     a report) is review_id; the rating keeps counting. Needs RATING_SECRET.
-
-    The comment_removed hold reason stays on the row, so an edit that brings a
-    comment back is held (server.rate_submit); comment_hash stays too, so the same
-    text from another device is held as a duplicate_comment."""
+    Clears it as reject_comment does."""
     secret = os.getenv("RATING_SECRET")
     if not secret:
         raise ReviewError("RATING_SECRET is needed to match a public review id")
-    cur.execute("SELECT id FROM survey_ratings WHERE comment IS NOT NULL")
+    cur.execute("SELECT id FROM survey_ratings WHERE comment_status = 'approved'")
     matches = [str(r["id"]) for r in cur.fetchall() if survey_reviews.public_id(secret, r["id"]) == review_id]
     if len(matches) != 1:
         raise ReviewError(f"{review_id} is not exactly one shown review")
-    cur.execute("UPDATE survey_ratings SET comment = NULL, hold_reasons = CASE "
-                "WHEN hold_reasons IS NULL THEN 'comment_removed' "
-                "WHEN ',' || hold_reasons || ',' LIKE '%%,comment_removed,%%' THEN hold_reasons "
-                "ELSE hold_reasons || ',comment_removed' END "
-                "WHERE id::text = %s RETURNING id", (matches[0],))
+    cur.execute(_DROP_COMMENT_SQL + "WHERE id::text = %s RETURNING id", (matches[0],))
     return f"Removed the comment of {matches[0]}"
 
 
@@ -275,6 +329,15 @@ def clean(value):
     return "".join(c if c.isprintable() else "?" for c in str(value if value is not None else ""))
 
 
+def check_label(check, reason):
+    """How `list` shows a comment's model check."""
+    if check == "review":
+        return f"flagged: {clean(reason or 'review')}"
+    if check == "allow":
+        return "clean"
+    return "not yet checked" + (f" ({clean(reason)})" if reason else "")
+
+
 def list_pending(cur):
     cur.execute(
         "SELECT r.id, COALESCE(r.professor_slug, pp.name || ' (pending)') AS professor, "
@@ -299,6 +362,24 @@ def list_pending(cur):
               f"agent: {clean(r['agent_decision'] or '-')}"
               f"{' (' + clean(r['agent_reason']) + ')' if r['agent_reason'] else ''}  "
               f"{comment!r}  {str(r['created_at'])[:10]}")
+
+    # The whole text, since approving it puts every word on the page.
+    cur.execute(
+        "SELECT r.id, COALESCE(r.professor_slug, pp.name || ' (pending)') AS professor, "
+        "COALESCE(r.course_code, pc.code || ' (pending)') AS course, r.status, r.rating, r.comment, r.updated_at, "
+        "r.comment_check, r.comment_check_reason "
+        "FROM survey_ratings r "
+        "LEFT JOIN survey_pending_professors pp ON pp.id = r.pending_professor_id "
+        "LEFT JOIN survey_pending_courses pc ON pc.id = r.pending_course_id "
+        "WHERE r.comment_status = 'pending' "
+        "ORDER BY r.comment_check IS DISTINCT FROM 'review', r.updated_at")
+    comments = cur.fetchall()
+    print(f"Comments to review ({len(comments)}):")
+    for r in comments:
+        print(f"  {str(r['id'])[:8]}  {clean(r['professor'])}  {clean(r['course'])}  {r['rating']}/5  "
+              f"rating {r['status']}  {check_label(r['comment_check'], r['comment_check_reason'])}  "
+              f"{str(r['updated_at'])[:10]}\n      {clean(r['comment'])!r}\n"
+              f"      approve-comment {comment_version(r['id'], r['updated_at'])}")
 
     cur.execute(
         "SELECT p.id, p.name, p.name_key, p.department, count(r.id) AS n FROM survey_pending_professors p "
@@ -334,7 +415,8 @@ def list_pending(cur):
     print(f"Pending aliases ({len(aliases)}):")
     for a in aliases:
         print(f"  {a['id']}  {clean(a['alias_key'])} -> {clean(a['slug'])}  {clean(a['source'])}")
-    return (f"{len(held)} held, {len(profs)} pending professors, {len(courses)} pending courses, "
+    return (f"{len(held)} held, {len(comments)} comments to review, {len(profs)} pending professors, "
+            f"{len(courses)} pending courses, "
             f"{len(aliases)} pending aliases")
 
 
@@ -343,7 +425,7 @@ def parse_args(argv):
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("list")
     sub.add_parser("purge-ip")
-    for name in ("approve-rating", "reject-rating"):
+    for name in ("approve-rating", "reject-rating", "approve-comment", "reject-comment"):
         rating = sub.add_parser(name)
         rating.add_argument("ids", nargs="+")
         if name == "reject-rating":
@@ -369,8 +451,8 @@ def run(cur, args):
         return purge_ip(cur)
     if command == "reject-rating":
         return reject_rating(cur, *args.ids, abuse=args.abuse)
-    if command == "approve-rating":
-        return approve_rating(cur, *args.ids)
+    if command in ("approve-rating", "approve-comment", "reject-comment"):
+        return COMMANDS[command](cur, *args.ids)
     if command == "approve-professor":
         return approve_professor(cur, args.id, args.slug)
     if command.startswith("merge-"):
@@ -380,6 +462,7 @@ def run(cur, args):
 
 COMMANDS = {
     "approve-rating": approve_rating, "reject-rating": reject_rating,
+    "approve-comment": approve_comment, "reject-comment": reject_comment,
     "reject-professor": reject_professor, "merge-professor": merge_professor,
     "approve-course": approve_course, "merge-course": merge_course,
     "reject-course": reject_course, "remove-comment": remove_comment,
