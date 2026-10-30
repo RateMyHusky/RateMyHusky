@@ -290,6 +290,7 @@ export default function Rate() {
 
   const back = () => {
     window.clearTimeout(pickTimer.current);
+    setPending(null); // backing out of a submit that waits on Cloudflare's click box
     const prev = prevStep(step, answers);
     if (prev) setStep(prev);
   };
@@ -430,10 +431,14 @@ export default function Rate() {
         return (
           <CommentStep
             value={answers.comment}
-            onChange={(comment) => setAnswers((a) => ({ ...a, comment }))}
+            onChange={(comment) => {
+              setPending(null); // an edit cancels a submit waiting on the click box
+              setAnswers((a) => ({ ...a, comment }));
+            }}
             onSubmit={submit}
             onBack={back}
             submitting={locked}
+            editLocked={held}
             updating={!!answers.updating}
             error={submitError}
             turnstileRef={containerRef}
@@ -449,6 +454,9 @@ export default function Rate() {
 
   const tags = contextTags(answers);
   const locked = sending || pending !== null;
+  // While Cloudflare's box waits for a click the wait is the student's, so they can still edit or go
+  // back, which cancels the submit; solving the box first sends it as usual.
+  const held = sending || (pending !== null && !interactive);
   const canBack = prevStep(step, answers) !== null;
 
   return (
@@ -459,7 +467,7 @@ export default function Rate() {
           {startFailed && <p className="rate-hint" role="alert">We couldn't start the form. Please reload and try again.</p>}
           {ready && step !== 'thanks' && (
             <div className="rate-top">
-              <button type="button" className={`rate-back-top${canBack ? '' : ' is-hidden'}`} disabled={locked} onClick={back}>
+              <button type="button" className={`rate-back-top${canBack ? '' : ' is-hidden'}`} disabled={held} onClick={back}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></svg>
                 Back
               </button>
