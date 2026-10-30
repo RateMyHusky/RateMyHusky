@@ -227,7 +227,9 @@ export default function Rate() {
     const giveUp = () => {
       setPending(null);
       setSubmitError(!start ? NETWORK_MESSAGE : scriptFailed ? BLOCKED_MESSAGE : FAILURE_MESSAGES[403]);
-      reset();
+      // A failed script is requested again by the next Submit, not now: a request made while the
+      // blocker is still on would fail too, and the next Submit would wait out its timeout.
+      if (!scriptFailed) reset();
     };
     if (failed || startFailed) {
       giveUp();
