@@ -1,16 +1,22 @@
-"""Student reviews from /rate for the professor page, read live from survey_ratings.
+"""Student ratings from /rate for the professor page, read live from survey_ratings.
 
-One statement reads the professor's accepted ratings, newest first, so a rating
-shows as soon as the professor's cached page is dropped, not at the weekly
-pipeline run. `grade` is never selected: the form promises it only appears in
-totals. The term shows next to a comment only when the professor taught at
+One statement reads the professor's accepted ratings, newest first. Every one
+counts in the page's numbers as soon as the professor's cached page is dropped,
+not at the weekly pipeline run (live_summary_rows), except the ones that run
+would hold for a weekly surge (fetch_rows). A comment becomes a review
+card only once a reviewer approves it (review_ratings.py approve-comment);
+until then it shows nowhere and counts in no comment total. `grade` feeds only
+the totals and never goes out with a comment: the form promises that. The term shows next to a comment only when the professor taught at
 least MIN_TERM_ENROLLMENT students in that course that term. Otherwise the year
 shows only when they taught the course in two or more terms that year, since the
 page's teaching history would turn a one-term year back into the term; else no
 date. No exact date goes out either: it would pin the term the year is hiding.
 """
 
+from datetime import datetime, timezone
+
 import rating_identity
+from pipeline import survey
 
 MIN_TERM_ENROLLMENT = 15
 MAX_SURVEY_REVIEWS = 200
@@ -31,19 +37,42 @@ _TAUGHT = """
                  WHERE bci.professor_slug = r.professor_slug AND bs.subject_course = r.course_code"""
 
 
-def fetch_rows(slug, query):
-    """The professor's accepted ratings with the Banner enrollment of the term they
-    name, and how many terms of that term's year they taught the course."""
-    return query(f"""
-        SELECT r.id, r.course_code, r.term_label, r.rating, r.comment, r.created_at, r.updated_at,
+def fetch_rows(slug, query, now=None):
+    """The professor's accepted ratings, each with its course's catalog name, the
+    Banner enrollment of the term it names, and how many terms of that term's year
+    the professor taught the course. `comment` is NULL unless a reviewer approved it.
+
+    Ratings over the professor's weekly limit (pipeline/survey.surge_ids) are left
+    out, so a drip under the route's hourly and daily caps can't move the page
+    before the weekly run holds it. A reviewer-approved rating keeps its
+    hold_reasons and still counts, as in the pipeline. Only this professor's rows
+    are read, so the per-course limit is left to the weekly run."""
+    rows = query(f"""
+        SELECT r.id, r.professor_slug, r.course_code, c.name AS course_name, r.term_label,
+               r.rating, r.difficulty, r.hours, r.grade,
+               CASE WHEN r.comment_status = 'approved' THEN r.comment END AS comment,
+               r.created_at, r.updated_at, r.hold_reasons,
                (SELECT SUM(bs.enrollment) {_TAUGHT}
                    AND bt.term_label = r.term_label) AS term_enrollment,
                (SELECT COUNT(DISTINCT bs.term_code) {_TAUGHT}
                    AND right(bt.term_label, 4) = right(r.term_label, 4)) AS terms_in_year
         FROM survey_ratings r
+        LEFT JOIN course_catalog c ON c.code = r.course_code
         WHERE r.professor_slug = %s AND r.status = 'accepted'
         ORDER BY r.updated_at DESC
     """, (slug,))
+    surge = survey.surge_ids(rows, now or datetime.now(timezone.utc))
+    return [r for r in rows if r["id"] not in surge]
+
+
+def live_summary_rows(rows):
+    """The professor's `survey` source_summary rows, (slug, '') and one per course,
+    built from fetch_rows the way the weekly pipeline builds them. A rating on a
+    pending course has no course_code and counts nowhere, as in the pipeline.
+    Each row carries its course's catalog name (None on the professor row)."""
+    names = {r["course_code"]: r["course_name"] for r in rows}
+    return [{**r, "course_name": names.get(r["course_code"])}
+            for r in survey.survey_rows(rows) if r["professor_slug"]]
 
 
 def when(term_label, enrollment, terms_in_year, created_at):
@@ -61,7 +90,7 @@ def _shown(r):
 
 
 def comment_count(rows):
-    """Comments a reader can see, before the MAX_SURVEY_REVIEWS cap."""
+    """Approved comments a reader can see, before the MAX_SURVEY_REVIEWS cap."""
     return sum(1 for r in rows if _shown(r))
 
 

@@ -90,10 +90,10 @@ def test_a_slow_drip_is_held(replay, pg):
         psycopg2.extras.execute_values(
             cur,
             "INSERT INTO survey_ratings (id, professor_slug, course_code, rating, hours, comment, "
-            "comment_hash, status, device_hash, new_device, ip_hash, ip_prefix_hash, network_type, "
+            "comment_hash, comment_status, status, device_hash, new_device, ip_hash, ip_prefix_hash, network_type, "
             "fill_seconds, created_at, updated_at) VALUES %s",
             [(str(uuid.uuid4()), SLUG, "CS2500", 1 + n % 2, "5-7", comments[n % len(comments)],
-              rating_checks.comment_hash(comments[n % len(comments)]), "accepted", f"drip-device-{n}", True,
+              rating_checks.comment_hash(comments[n % len(comments)]), "pending", "accepted", f"drip-device-{n}", True,
               f"drip-ip-{n}", f"drip-net-{n % 50}", "other", 60, stamp, stamp)
              for n in range(576)
              for stamp in [now - timedelta(hours=n // 8, minutes=1 + n % 8)]])

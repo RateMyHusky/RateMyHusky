@@ -47,6 +47,8 @@ const FAILURE_MESSAGES: Record<number, string> = {
   429: 'Too many ratings from this device for now. Try again later.',
   503: 'Ratings are paused right now. Try again later.',
 };
+// Only for a script that never loaded: it can't come back without a reload.
+const BLOCKED_MESSAGE = "We couldn't verify your browser. Try turning off a VPN or ad blocker, then submit again. If that doesn't work, reload the page.";
 const TOKEN_WAIT_MS = 15000;
 const NETWORK_MESSAGE = "Couldn't send. Check your connection and try again.";
 
@@ -68,8 +70,10 @@ export default function Rate() {
   const [typedName, setTypedName] = useState('');
   const [counter, setCounter] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState('');
-  // until: when the wait gives up, fixed at submit so a re-run of the timer effect can't extend it.
-  const [pending, setPending] = useState<{ skip: boolean; honeypot: string; until: number } | null>(null);
+  const [pending, setPending] = useState<{ skip: boolean; honeypot: string } | null>(null);
+  // When the wait for a pending submit gives up: set at submit, so a re-run of the timer effect can't
+  // extend it, and Infinity while Cloudflare's box waits for a click.
+  const deadline = useRef(0);
   const [sending, setSending] = useState(false);
   const [contextReload, setContextReload] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -78,10 +82,8 @@ export default function Rate() {
   // The start the prefill already fetched the context with, so the context effect doesn't fetch it again.
   const prefetchedFor = useRef<RateStart | null>(null);
   const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
-  const { containerRef, token, failed, interactive, reset } = useTurnstile();
-  // The checkpoint holds the form back until the first token; later re-checks happen under the form.
-  // Starts cleared when the token is already there (no site key), so the checkpoint never flashes.
-  const [cleared, setCleared] = useState(() => !!token);
+  // The check runs on the comment step, while the student writes; only the submit waits for its token.
+  const { containerRef, token, failed, scriptFailed, interactive, reset } = useTurnstile();
 
   const slug = answers.professor?.slug ?? null;
   // null while the professor's courses load; a new professor has none to load.
@@ -204,7 +206,8 @@ export default function Rate() {
     else {
       // An earlier challenge error would end this wait at once, so run a fresh challenge.
       if (failed) reset();
-      setPending({ skip, honeypot, until: Date.now() + TOKEN_WAIT_MS });
+      deadline.current = Date.now() + TOKEN_WAIT_MS;
+      setPending({ skip, honeypot });
       if (!start) beginVisit();
     }
   };
@@ -218,20 +221,29 @@ export default function Rate() {
   }, [pending, token, start]);
 
   // Bound the wait for the token or the visit start so a blocked challenge can't leave the step stuck.
+  // No timer while Cloudflare's box waits for a click: that wait is the student's, and the box stays up.
+  // A click starts the wait over, for the token it sends.
   useEffect(() => {
     if (!pending) return;
     const giveUp = () => {
       setPending(null);
-      setSubmitError(start ? FAILURE_MESSAGES[403] : NETWORK_MESSAGE);
-      reset();
+      setSubmitError(!start ? NETWORK_MESSAGE : scriptFailed ? BLOCKED_MESSAGE : FAILURE_MESSAGES[403]);
+      // A failed script is requested again by the next Submit, not now: a request made while the
+      // blocker is still on would fail too, and the next Submit would wait out its timeout.
+      if (!scriptFailed) reset();
     };
     if (failed || startFailed) {
       giveUp();
       return;
     }
-    const timer = setTimeout(giveUp, pending.until - Date.now());
+    if (interactive) {
+      deadline.current = Infinity;
+      return;
+    }
+    if (deadline.current === Infinity) deadline.current = Date.now() + TOKEN_WAIT_MS;
+    const timer = setTimeout(giveUp, deadline.current - Date.now());
     return () => clearTimeout(timer);
-  }, [pending, failed, startFailed, reset, start]);
+  }, [pending, failed, scriptFailed, startFailed, interactive, reset, start]);
 
   const rateAnother = () => {
     window.clearTimeout(pickTimer.current);
@@ -248,20 +260,12 @@ export default function Rate() {
 
   useEffect(() => () => window.clearTimeout(pickTimer.current), []);
 
-  useEffect(() => { if (token) setCleared(true); }, [token]);
-
-  // The checkpoint stands alone, like Cloudflare's own page, so the navbar waits with the form.
-  useEffect(() => {
-    document.body.classList.toggle('rate-checking', !cleared);
-    return () => document.body.classList.remove('rate-checking');
-  }, [cleared]);
-
   // /rate's URL never changes, so ScrollToTop never fires; every step opens at the top, as an instant jump.
   useLayoutEffect(() => { window.scrollTo(0, 0); }, [step]);
 
   useEffect(() => {
     if (ready) panelRef.current?.querySelector<HTMLElement>('h1')?.focus({ preventScroll: true });
-  }, [step, ready, coursesLoading, cleared]);
+  }, [step, ready, coursesLoading]);
 
   const go = (next: Answers, from: StepId) => {
     window.clearTimeout(pickTimer.current);
@@ -289,6 +293,7 @@ export default function Rate() {
 
   const back = () => {
     window.clearTimeout(pickTimer.current);
+    setPending(null); // backing out of a submit that waits on Cloudflare's click box
     const prev = prevStep(step, answers);
     if (prev) setStep(prev);
   };
@@ -346,6 +351,7 @@ export default function Rate() {
           <OtherCourseStep
             own={courses ?? []}
             rated={(rated ?? []).map((r) => r.code)}
+            slug={answers.professor?.slug ?? null}
             // A hit on the professor's list takes the listed course, so its terms show.
             onPick={(c) => go(pickCourse(answers, courses?.find((x) => x.code === c.code) ?? c, rated ?? [], new Date()), 'otherCourse')}
             onBack={back}
@@ -459,12 +465,18 @@ export default function Rate() {
         return (
           <CommentStep
             value={answers.comment}
-            onChange={(comment) => setAnswers((a) => ({ ...a, comment }))}
+            onChange={(comment) => {
+              setPending(null); // an edit cancels a submit waiting on the click box
+              setAnswers((a) => ({ ...a, comment }));
+            }}
             onSubmit={submit}
             onBack={back}
             submitting={locked}
+            editLocked={held}
             updating={!!answers.updating}
             error={submitError}
+            turnstileRef={containerRef}
+            verifying={interactive}
           />
         );
       case 'thanks':
@@ -476,18 +488,20 @@ export default function Rate() {
 
   const tags = contextTags(answers);
   const locked = sending || pending !== null;
+  // While Cloudflare's box waits for a click the wait is the student's, so they can still edit or go
+  // back, which cancels the submit; solving the box first sends it as usual.
+  const held = sending || (pending !== null && !interactive);
   const canBack = prevStep(step, answers) !== null;
-  const host = window.location.hostname;
 
   return (
-    <div className={`rate-page${cleared ? '' : ' rate-page-check'}`}>
+    <div className="rate-page">
       <div className="rate-shell">
         <div className="rate-panel" ref={panelRef}>
-          {cleared && <ProgressBar index={progressIndex(step)} done={step === 'thanks'} />}
+          {ready && <ProgressBar index={progressIndex(step)} done={step === 'thanks'} />}
           {startFailed && <p className="rate-hint" role="alert">We couldn't start the form. Please reload and try again.</p>}
-          {cleared && ready && step !== 'thanks' && (
+          {ready && step !== 'thanks' && (
             <div className="rate-top">
-              <button type="button" className={`rate-back-top${canBack ? '' : ' is-hidden'}`} disabled={locked} onClick={back}>
+              <button type="button" className={`rate-back-top${canBack ? '' : ' is-hidden'}`} disabled={held} onClick={back}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></svg>
                 Back
               </button>
@@ -499,27 +513,7 @@ export default function Rate() {
               )}
             </div>
           )}
-          {cleared && ready && <Fragment key={step}>{renderStep()}</Fragment>}
-          {!cleared && (
-            <div className="rate-check">
-              <h1 className="rate-check-host" tabIndex={-1}>{host}</h1>
-              {failed ? (
-                <p className="rate-error" role="alert">We couldn't verify your browser. Try turning off a VPN or ad blocker, then try again.</p>
-              ) : (
-                <p className="rate-check-lead" role="status">Verifying you are human. This may take a few seconds.</p>
-              )}
-            </div>
-          )}
-          {/* One container in one place for the whole visit, so the widget survives the checkpoint giving way to the form. */}
-          <div ref={containerRef} className={`rate-turnstile${cleared && !interactive ? ' is-done' : ''}`} />
-          {!cleared && (
-            <div className="rate-check">
-              {/* A reload, since a blocked script never rendered a widget to reset; nothing is filled in yet to lose. */}
-              {failed && <button type="button" className="rate-check-retry" onClick={() => window.location.reload()}>Try again</button>}
-              <p className="rate-check-note">{host} needs to review the security of your connection before you can rate.</p>
-              <p className="rate-check-foot">Protected by Cloudflare Turnstile</p>
-            </div>
-          )}
+          {ready && <Fragment key={step}>{renderStep()}</Fragment>}
         </div>
       </div>
     </div>

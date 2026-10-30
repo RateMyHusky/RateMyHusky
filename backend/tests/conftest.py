@@ -24,6 +24,45 @@ os.environ["JWT_SECRET"] = "test-secret"
 # a stray test reach prod. The PG integration tests set their own URL.
 os.environ["ORACLE_DATABASE_URL"] = "postgresql://test:test@localhost:1/test"
 
+# Set empty so load_dotenv() can't bring in a real key: with one, the rating
+# route and moderate_queue.py would call Groq. Tests that want the Groq path set
+# it with monkeypatch and pass a FakeGroq. Groq's free quota is shared with
+# production, so no test may reach it.
+os.environ["GROQ_MODERATION_KEY"] = ""
+
+
+class FakeGroq:
+    """Stands in for the OpenAI-package client moderation_groq.check calls. Each
+    entry of `replies` is the reply text, or an exception to raise; the last one
+    repeats. `calls` records each request's keyword arguments."""
+
+    def __init__(self, *replies):
+        self.replies = list(replies) or ["ALLOW"]
+        self.calls = []
+        self.chat = type("Chat", (), {})()
+        self.chat.completions = type("Completions", (), {})()
+        self.chat.completions.create = self._create
+
+    def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        reply = self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
+        if isinstance(reply, Exception):
+            raise reply
+        message = type("Message", (), {"content": reply})()
+        return type("Response", (), {"choices": [type("Choice", (), {"message": message})()]})()
+
+
+class GroqRateLimited(Exception):
+    status_code = 429
+
+
+FakeGroq.RateLimited = GroqRateLimited
+
+
+@pytest.fixture
+def fake_groq():
+    return FakeGroq
+
 
 @pytest.fixture(autouse=True)
 def _no_background_ask_log_purge(monkeypatch):

@@ -136,6 +136,8 @@ export interface ProfessorPage {
 }
 
 export interface ProfessorReview {
+  /** Review id as text (too long for a JS number). */
+  id?: string;
   course: string;
   courseCode: string | null;
   quality: number;
@@ -220,6 +222,16 @@ export const fetchGoatProfessors = (college: string, limit = 10) =>
   get<Professor[]>(`/api/goat-professors?college=${encodeURIComponent(college)}&limit=${limit}`);
 
 export const fetchRandomProfessor = () => get<RandomProfessor>("/api/random-professor");
+
+/* Teaching-style tags (only ones 3+ reviews mention). Any failure gives an empty
+   list, so the professor page never breaks over tags. */
+export type ProfessorTag = { tag: string; count: number; reviewIds?: string[] };
+
+export const fetchProfessorTags = (slug: string) =>
+  get<ProfessorTag[]>(`/api/professors/${encodeURIComponent(slug)}/tags?v=2`).catch(() => [] as ProfessorTag[]);
+
+export const fetchPopularTags = () =>
+  get<ProfessorTag[]>('/api/tags/popular').catch(() => [] as ProfessorTag[]);
 
 /* ---- Professor page fetchers ---- */
 /* The Professor page's single round-trip. Every visitor gets the same payload, so the
@@ -445,6 +457,7 @@ export function fetchProfessorsCatalog(params: {
   q?: string;
   college?: string;
   dept?: string;
+  tags?: string;
   minRating?: number;
   maxRating?: number;
   minReviews?: number;
@@ -464,6 +477,7 @@ export function fetchProfessorsCatalog(params: {
   if (params.sort) sp.set('sort', params.sort);
   if (params.page) sp.set('page', String(params.page));
   if (params.limit) sp.set('limit', String(params.limit));
+  if (params.tags) sp.set('tags', params.tags);
   return get<CatalogResponse>(`/api/professors-catalog?${sp.toString()}`);
 }
 
@@ -550,11 +564,13 @@ export type RateSubmitResult = { ok: true; counter: number | null } | { ok: fals
 
 /* The form waits on start, the context and the professor before it shows courses, so a hung request fails like any other. */
 const RATE_WAIT_MS = 10000;
+/* The course name field waits on suggestions, so they get a short wait and no retry. */
+const SUGGEST_WAIT_MS = 3000;
 
 /* AbortSignal.timeout needs Safari 16, so the timer is set by hand. */
-function rateSignal(): AbortSignal {
+function rateSignal(ms = RATE_WAIT_MS): AbortSignal {
   const abort = new AbortController();
-  setTimeout(() => abort.abort(), RATE_WAIT_MS);
+  setTimeout(() => abort.abort(), ms);
   return abort.signal;
 }
 
@@ -584,6 +600,19 @@ export async function fetchRateContext(slug: string, deviceToken: string): Promi
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
+}
+
+/* Near matches for a typed code that isn't a known course. Never blocks the form, so any error is no suggestions. */
+export async function fetchCourseSuggestions(code: string, slug: string | null): Promise<{ code: string; name: string | null }[]> {
+  try {
+    const params = new URLSearchParams({ code });
+    if (slug) params.set("slug", slug);
+    const res = await fetch(`${API_BASE}/api/rate/course-suggestions?${params}`, { signal: rateSignal(SUGGEST_WAIT_MS) });
+    if (!res.ok) return [];
+    return (await res.json()).suggestions;
+  } catch {
+    return [];
+  }
 }
 
 /* status 0 = network failure or the maintenance redirect. */

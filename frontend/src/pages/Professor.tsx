@@ -8,7 +8,9 @@ import StarRating from '../components/StarRating';
 import RatingBar from '../components/RatingBar';
 import Breadcrumbs from '../components/Breadcrumbs';
 import Seo from '../components/Seo';
-import { fetchProfessorFull } from '../api/api';
+import { fetchProfessorFull, fetchProfessorTags } from '../api/api';
+import type { ProfessorTag } from '../api/api';
+import { tagLabel } from '../utils/tagLabels';
 import type { ProfessorPage, ProfessorCourse, RatingDistribution, RedditMention, TeachingAward } from '../api/api';
 import { RATE_ENABLED, SHOW_SURVEY_STATS } from '../config';
 import { relativeTerm, seasonYear, termSortKey } from '../utils/termUtils';
@@ -258,6 +260,7 @@ const Professor = () => {
   const [visibleReviews, setVisibleReviews] = useState(10);
   const [visibleStudentReviews, setVisibleStudentReviews] = useState(10);
   const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set());
+  const [activeTag, setActiveTag] = useState<string | null>(null);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [gradesAnimated, setGradesAnimated] = useState(false);
   const [reviewPillStyle, setReviewPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
@@ -338,6 +341,7 @@ const Professor = () => {
         const wanted = new URLSearchParams(location.search).get('course')?.toUpperCase();
         const rated = wanted && res.data.courses.some(c => c.code === wanted && c.rating !== null);
         setSelectedCourses(rated ? new Set([wanted]) : new Set());
+        setActiveTag(null);
         // An Ask citation picks its own tab (the pins effect); otherwise open on the first with entries.
         if (!(location.state as { askPins?: unknown } | null)?.askPins) {
           setReviewTab(defaultTab({
@@ -352,6 +356,16 @@ const Professor = () => {
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- location.state and ?course= are read once per load, like the pins effect
+  }, [slug]);
+
+  /* ── tags: separate request so a slow or missing tags table never holds up the page ── */
+  const [tags, setTags] = useState<ProfessorTag[]>([]);
+  useEffect(() => {
+    if (!slug) return;
+    let cancelled = false;
+    setTags([]);
+    fetchProfessorTags(slug).then((t) => { if (!cancelled) setTags(t); });
+    return () => { cancelled = true; };
   }, [slug]);
 
   const reviews = useMemo(() => profile?.sources.rmp.reviews ?? [], [profile]);
@@ -417,9 +431,28 @@ const Professor = () => {
     () => unfiltered ? reviews : reviews.filter(r => r.courseCode !== null && selectedCourses.has(r.courseCode)),
     [reviews, selectedCourses, unfiltered]);
 
+  /* The reviews behind the tag pill the user clicked, if any. */
+  const activeTagIds = useMemo(
+    () => activeTag ? new Set(tags.find(t => t.tag === activeTag)?.reviewIds ?? []) : null,
+    [activeTag, tags]);
+
   const filteredRmpReviews = useMemo(
-    () => deduplicateByText(rmpRatingsInSelection.filter(r => r.comment?.trim()), r => r.comment),
-    [rmpRatingsInSelection]);
+    () => deduplicateByText(
+      rmpRatingsInSelection.filter(r => r.comment?.trim() && (!activeTagIds || activeTagIds.has(r.id ?? ''))),
+      r => r.comment),
+    [rmpRatingsInSelection, activeTagIds]);
+
+  /* Clicking a pill shows the reviews behind it; clicking it again clears the filter. */
+  const selectTag = (tag: string) => {
+    // older cached data has no review ids; filtering would show an empty list
+    if (!tags.find(t => t.tag === tag)?.reviewIds?.length || !reviews.some(r => r.id)) return;
+    const next = activeTag === tag ? null : tag;
+    setActiveTag(next);
+    if (next) {
+      setReviewTab('rmp');
+      setTimeout(() => reviewsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    }
+  };
 
   const filteredStudentReviews = useMemo(
     () => filterByCourses(studentReviews, selectedCourses), [studentReviews, selectedCourses]);
@@ -821,6 +854,23 @@ const Professor = () => {
                 ))}
               </ul>
             )}
+            {tags.length > 0 && (
+              <ul className="prof-tags" aria-label="What students mention">
+                {tags.map(({ tag, count }) => (
+                  <li key={tag}>
+                    <button
+                      type="button"
+                      className={`prof-tag${activeTag === tag ? ' active' : ''}`}
+                      title={`Mentioned in ${count} reviews. Click to see them.`}
+                      aria-pressed={activeTag === tag}
+                      onClick={() => selectTag(tag)}
+                    >
+                      {tagLabel(tag)}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       </header>
@@ -1112,10 +1162,12 @@ const Professor = () => {
               )}
               <Dropdown className="feedback-dropdown" options={sortOptions} value={sortBy} onChange={setSortBy} placeholder="Sort by…" />
             </div>
-            {!unfiltered && (
+            {(!unfiltered || activeTag) && (
               <div className="prof-active-filter">
-                Showing {filteredRmpReviews.length} review{filteredRmpReviews.length === 1 ? '' : 's'} for <strong>{selectedLabel}</strong>
-                <button className="prof-action-link" onClick={() => setSelectedCourses(new Set())}>Show all</button>
+                Showing {filteredRmpReviews.length} review{filteredRmpReviews.length === 1 ? '' : 's'}
+                {activeTag && <> mentioning <strong>{tagLabel(activeTag)}</strong></>}
+                {!unfiltered && <> for <strong>{selectedLabel}</strong></>}
+                <button className="prof-action-link" onClick={() => { setSelectedCourses(new Set()); setActiveTag(null); }}>Show all</button>
               </div>
             )}
             <div className="prof-reviews-list">

@@ -23,6 +23,11 @@ IP_BURST = 10  # prior ratings from one IP hash in an hour
 PREFIX_BURST = 25  # prior ratings from one /24 or /64 hash in an hour
 COUNTER_MIN = 25  # the "huskies this term" counter is hidden below this
 IP_HASH_DAYS = 30
+# Model calls at submit a sender may make in a rolling day (moderation_calls rows).
+# Campus and Relay share addresses, so there one total replaces the per-IP count.
+DEVICE_MODERATION_BUDGET = 3
+IP_MODERATION_BUDGET = 10
+SHARED_MODERATION_BUDGET = 100
 NEAR_DUPLICATE_DAYS = 30  # how far back a comment can be a near copy of one on the same professor
 # skew_week thresholds are starting values to tune against real traffic.
 SKEW_DAYS = 7  # the window of new-device ratings for one professor
@@ -37,7 +42,11 @@ RATING_COLUMNS = (
     "pending_course_id", "term_label", "rating", "hours", "grade", "comment",
     "comment_hash", "status", "hold_reasons", "device_hash", "new_device",
     "ip_hash", "ip_prefix_hash", "network_type", "fill_seconds", "collection", "difficulty",
+    "comment_status", "comment_check", "comment_check_reason", "comment_check_attempts",
+    "comment_next_check_at", "comment_checked_at",
 )
+# Set by the moderation check of the comment's text; NULL without a comment.
+CHECK_COLUMNS = RATING_COLUMNS[-5:]
 
 _KEY_COLUMNS = ("professor_slug", "pending_professor_id", "course_code", "pending_course_id")
 _KEY_MATCH = " AND ".join(f"{c} IS NOT DISTINCT FROM %s" for c in _KEY_COLUMNS)
@@ -142,9 +151,22 @@ def _key_params(key):
     return tuple(key[c] for c in _KEY_COLUMNS)
 
 
+def find_pending_professor(name, query_one):
+    """The pending row a submit naming this professor would reuse, or None. Reads only."""
+    row = query_one("SELECT id FROM survey_pending_professors WHERE name_key = %s AND status = 'pending'",
+                    (rmp_link_key(name)[0],))
+    return str(row["id"]) if row else None
+
+
+def find_pending_course(code, query_one):
+    """The pending row a submit with this new course would reuse, or None. Reads only."""
+    row = query_one("SELECT id FROM survey_pending_courses WHERE code = %s AND status = 'pending'", (code,))
+    return str(row["id"]) if row else None
+
+
 def existing_rating(device_hash, key, query_one):
     return query_one(
-        f"SELECT id, status, hold_reasons FROM survey_ratings WHERE device_hash = %s AND {_KEY_MATCH}",
+        f"SELECT id, status, hold_reasons, comment FROM survey_ratings WHERE device_hash = %s AND {_KEY_MATCH}",
         (device_hash, *_key_params(key)))
 
 
@@ -360,13 +382,17 @@ def hold_burst(reasons, key, ip_hash, prefix_hash, write, now):
 # status has its own held-stays-held rule below, and a clean resubmit keeps the
 # row's hold_reasons, so a reviewer's approval stays out of the burst and surge
 # counts. new_device keeps its first value, so an edit can't take a row out of
-# the burst_pair count. A page still on the form from before the difficulty
-# question sends none, so an edit from it keeps the stored difficulty (temporary,
-# see rating_checks.validate_submission).
+# the burst_pair count. A comment a reviewer approved stays approved while its text
+# is unchanged; new or edited text waits for review again. The CHECK_COLUMNS follow
+# the text the same way: unchanged text keeps its check, even one moderate_queue.py
+# recorded after the route read the row. A page still on the form from before the
+# difficulty question sends none, so an edit from it keeps the stored difficulty
+# (temporary, see rating_checks.validate_submission).
 _INSERT_COLUMNS = tuple(c for c in RATING_COLUMNS if c != "id")
 _SET_COLUMNS = tuple(
     c for c in _INSERT_COLUMNS
-    if c not in ("status", "hold_reasons", "device_hash", "new_device", "difficulty", *_KEY_COLUMNS))
+    if c not in ("status", "hold_reasons", "comment_status", "device_hash", "new_device", "difficulty",
+                 *_KEY_COLUMNS, *CHECK_COLUMNS))
 _UPSERT_SQL = (
     f"INSERT INTO survey_ratings (id, {', '.join(_INSERT_COLUMNS)}) "
     f"VALUES (%s, {', '.join(['%s'] * len(_INSERT_COLUMNS))}) "
@@ -375,7 +401,12 @@ _UPSERT_SQL = (
     + ", ".join(f"{c} = EXCLUDED.{c}" for c in _SET_COLUMNS)
     + ", status = CASE WHEN survey_ratings.status = 'held' THEN 'held' ELSE EXCLUDED.status END"
     ", hold_reasons = COALESCE(EXCLUDED.hold_reasons, survey_ratings.hold_reasons)"
-    ", difficulty = COALESCE(EXCLUDED.difficulty, survey_ratings.difficulty)"
+    ", comment_status = CASE WHEN EXCLUDED.comment IS NULL THEN NULL "
+    "WHEN EXCLUDED.comment = survey_ratings.comment THEN survey_ratings.comment_status "
+    "ELSE 'pending' END"
+    + "".join(f", {c} = CASE WHEN EXCLUDED.comment IS NOT DISTINCT FROM survey_ratings.comment "
+              f"THEN survey_ratings.{c} ELSE EXCLUDED.{c} END" for c in CHECK_COLUMNS)
+    + ", difficulty = COALESCE(EXCLUDED.difficulty, survey_ratings.difficulty)"
     ", updated_at = now()"
 )
 
@@ -384,13 +415,15 @@ def save_rating(row, existing, write):
     """Insert or replace this device's rating in one statement; return its id.
 
     The unique index on (device, key) is the conflict target, so two racing
-    submits still leave one row, and a held row stays held. A resubmit adds the
+    submits still leave one row, and a held row stays held. A new comment starts
+    as pending, whatever row["comment_status"] says. A resubmit adds the
     new hold reasons to the old ones, or keeps the old ones when it has none.
     """
     if existing and existing["hold_reasons"] and row["hold_reasons"]:
         old = existing["hold_reasons"].split(",")
         row = {**row, "hold_reasons": ",".join(
             old + [r for r in row["hold_reasons"].split(",") if r not in old])}
+    row = {**row, "comment_status": "pending" if row["comment"] else None}
     new_id = str(uuid.uuid4())
     write(_UPSERT_SQL, (new_id, *(row[c] for c in _INSERT_COLUMNS)))
     return existing["id"] if existing else new_id
@@ -439,3 +472,29 @@ def purge_ip_hashes(write, now):
     write("UPDATE survey_ratings SET ip_hash = NULL, ip_prefix_hash = NULL "
           "WHERE created_at < %s AND ip_hash IS NOT NULL", (cutoff,))
     write("DELETE FROM rating_flags WHERE kind = 'ip' AND created_at < %s", (cutoff,))
+    write("UPDATE moderation_calls SET ip_hash = NULL WHERE called_at < %s AND ip_hash IS NOT NULL", (cutoff,))
+
+
+def moderation_budget_left(device_hash, ip_hash, shared, query_one, now):
+    """True while this sender's submits made fewer model calls in the last day than
+    DEVICE_MODERATION_BUDGET, and fewer than IP_MODERATION_BUDGET from its IP, or
+    on a shared network fewer than SHARED_MODERATION_BUDGET from all of them."""
+    row = query_one(
+        "SELECT count(*) FILTER (WHERE device_hash = %s) AS device, "
+        "count(*) FILTER (WHERE ip_hash = %s) AS ip, count(*) FILTER (WHERE shared_network) AS shared "
+        "FROM moderation_calls WHERE source = 'submit' AND called_at >= %s",
+        (device_hash, ip_hash, now - timedelta(days=1)))
+    if not row:
+        return True
+    if row["device"] >= DEVICE_MODERATION_BUDGET:
+        return False
+    if shared:
+        return row["shared"] < SHARED_MODERATION_BUDGET
+    return row["ip"] < IP_MODERATION_BUDGET
+
+
+def record_moderation_call(source, outcome, device_hash, ip_hash, shared, write, now):
+    """One row per model attempt, failures included: no comment text or rating id."""
+    write("INSERT INTO moderation_calls (id, called_at, source, outcome, device_hash, ip_hash, shared_network) "
+          "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+          (str(uuid.uuid4()), now, source, outcome, device_hash, ip_hash, shared))

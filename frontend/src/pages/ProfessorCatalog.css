@@ -1820,3 +1820,7 @@
 .dark .sidebar-inner {
   border-right-color: #333;
 }
+.tag-filter-hint { margin: 0 0 8px; font-size: 0.75rem; opacity: 0.7; }
+
+
+.tag-search-input { width: 100%; box-sizing: border-box; cursor: text; font: inherit; text-align: left; }

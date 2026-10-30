@@ -303,7 +303,9 @@ const Privacy = () => {
                 <li>
                   <strong>Groq</strong>: the answers and comments of ratings held for review, why
                   they were held, and recent ratings and comments for the same professor, are sent to Groq for an
-                  automated check. Subject to{' '}
+                  automated check. Comments, including public RateMyProfessors comments, are also used to
+                  suggest nicknames that help search find a professor. Nicknames are used only in search and are
+                  never shown. Subject to{' '}
                   <a
                     href="https://groq.com/privacy-policy/"
                     target="_blank"

@@ -15,11 +15,15 @@ interface CommentStepProps {
   onSubmit: (skip: boolean, honeypot: string) => void;
   onBack: () => void;
   submitting: boolean;
+  // Narrower than submitting: false while the submit only waits on Cloudflare's click box.
+  editLocked: boolean;
   updating: boolean;
   error: string;
+  turnstileRef: (el: HTMLDivElement | null) => void;
+  verifying: boolean;
 }
 
-export function CommentStep({ value, onChange, onSubmit, onBack, submitting, updating, error }: CommentStepProps) {
+export function CommentStep({ value, onChange, onSubmit, onBack, submitting, editLocked, updating, error, turnstileRef, verifying }: CommentStepProps) {
   const [honeypot, setHoneypot] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -54,7 +58,7 @@ export function CommentStep({ value, onChange, onSubmit, onBack, submitting, upd
         rows={5}
         placeholder="Optional"
         value={value}
-        readOnly={submitting}
+        readOnly={editLocked}
         onChange={(e) => onChange(e.target.value)}
       />
       <input
@@ -68,9 +72,15 @@ export function CommentStep({ value, onChange, onSubmit, onBack, submitting, upd
         onChange={(e) => setHoneypot(e.target.value)}
       />
       {error && <p className="rate-error" role="alert">{error}</p>}
-      <StepFoot onBack={onBack} backDisabled={submitting}>
+      <StepFoot onBack={onBack} backDisabled={editLocked}>
+        {/* Empty unless Cloudflare needs a click; then the box shows right above Submit, pinned with it on desktop. */}
+        <div className={`rate-verify${verifying ? ' is-on' : ''}`}>
+          {/* Always in the page, so screen readers announce the text when it's filled in. */}
+          <p className="rate-verify-lead" role="status">{verifying ? 'One quick check before we send your rating.' : ''}</p>
+          <div ref={turnstileRef} className="rate-turnstile" />
+        </div>
         <button type="button" className="rate-btn" disabled={submitting} onClick={() => onSubmit(false, honeypot)}>
-          {submitting ? 'Checking…' : updating ? 'Update rating' : 'Submit rating'}
+          {submitting ? (verifying ? 'Waiting for the check…' : 'Sending…') : updating ? 'Update rating' : 'Submit rating'}
         </button>
         {!updating && (
           <button type="button" className="rate-ghost" disabled={submitting} onClick={() => onSubmit(true, honeypot)}>

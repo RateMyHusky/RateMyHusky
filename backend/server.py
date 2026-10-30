@@ -40,10 +40,12 @@ from course_page import build_course
 from professor_full import build_payload
 import bookmarks
 import moderation
+import moderation_groq
 import notify
 import ip_networks
 import rating_identity
 import rating_checks
+import course_typos
 import ratings
 import survey_reviews
 import usage_alert
@@ -843,6 +845,42 @@ def decode_session_token(token):
 # ──────────────────────────────────────────────
 #  Search helper
 # ──────────────────────────────────────────────
+ALIAS_TTL_SECONDS = 300
+_alias_cache = {"map": {}, "loaded_at": None, "version": None}
+_alias_lock = Lock()
+
+
+def _reset_alias_cache():
+    with _alias_lock:
+        _alias_cache.update(map={}, loaded_at=None, version=None)
+
+
+def _approved_aliases():
+    """alias_key -> slugs of approved professor nicknames. Only used to find slugs:
+    a nickname never goes into a response. Reloaded at most once per TTL, or when
+    data_version() moves (approving or rejecting an alias bumps it); a failed load keeps
+    the last good map. One request reloads while the others use the last map, so a slow
+    or failing load never queues searches behind it."""
+    version = data_version()
+    now = time.time()
+    loaded = _alias_cache["loaded_at"]
+    stale = loaded is None or now - loaded >= ALIAS_TTL_SECONDS or version != _alias_cache["version"]
+    if stale and _alias_lock.acquire(blocking=False):
+        try:
+            rows = query("SELECT alias_key, slug FROM professor_aliases WHERE status = 'approved'")
+            fresh = {}
+            for r in rows:
+                fresh.setdefault(r["alias_key"], []).append(r["slug"])
+            _alias_cache["map"] = fresh
+        except Exception as e:
+            print(f"approved aliases: load failed, keeping the last map: {e}")
+        finally:
+            _alias_cache["loaded_at"] = now
+            _alias_cache["version"] = version
+            _alias_lock.release()
+    return _alias_cache["map"]
+
+
 def _professor_search(q, limit=5, rated_only=False):
     """Search professors with tiered relevance ranking. rated_only applies the
     caller's avg_rating filter before the 100-row cut, not after it."""
@@ -867,12 +905,19 @@ def _professor_search(q, limit=5, rated_only=False):
     # Build WHERE: each *original* word must match, OR its alias expansion must
     conditions = []
     params = []
+    aliases = _approved_aliases()
+    alias_slugs = set()
     for word in words:
-        alt_words = _WORD_ALIAS.get(word)
-        if alt_words:
-            group = [word] + list(alt_words)
-            conditions.append("(" + " OR ".join("name_key LIKE %s" for _ in group) + ")")
+        group = [word] + list(_WORD_ALIAS.get(word, ()))
+        alias_hit = aliases.get(word)
+        if len(group) > 1 or alias_hit:
+            parts = ["name_key LIKE %s" for _ in group]
             params.extend(f"%{w}%" for w in group)
+            if alias_hit:
+                parts.append("slug = ANY(%s)")
+                params.append(alias_hit)
+                alias_slugs.update(alias_hit)
+            conditions.append("(" + " OR ".join(parts) + ")")
         else:
             conditions.append("name_key LIKE %s")
             params.append(f"%{word}%")
@@ -880,11 +925,14 @@ def _professor_search(q, limit=5, rated_only=False):
     if rated_only:
         conditions.append("avg_rating IS NOT NULL")
     where = " AND ".join(conditions)
+    # An alias hit sorts first so the 100-row cut can never drop it before ranking.
+    alias_first = "(slug = ANY(%s)) DESC, " if alias_slugs else ""
+    alias_params = [sorted(alias_slugs)] if alias_slugs else []
     rows = query(
         f"SELECT slug, name, name_key, department, avg_rating, total_reviews "
         f"FROM professors_catalog WHERE {where} "
-        f"ORDER BY (name_key LIKE %s OR name_key LIKE %s) DESC, total_reviews DESC LIMIT 100",
-        params + [f"{q_resolved}%", f"% {q_resolved}%"]
+        f"ORDER BY {alias_first}(name_key LIKE %s OR name_key LIKE %s) DESC, total_reviews DESC LIMIT 100",
+        params + alias_params + [f"{q_resolved}%", f"% {q_resolved}%"]
     )
 
     # Rank in Python for proper tiered relevance (use resolved query)
@@ -895,6 +943,9 @@ def _professor_search(q, limit=5, rated_only=False):
         nk = row['name_key']
         parts = nk.split()
 
+        # Tier 1: an approved nickname of this professor was searched
+        if row['slug'] in alias_slugs:
+            return 1
         # Tier 1: q matches a whole name part exactly
         if q_rank in parts:
             return 1
@@ -1370,8 +1421,14 @@ def professor_full(slug):
 
 
 from professor_full import _resolve_professor  # same lookup as /full, skips denied profs
+from tags import TAG_TAXONOMY
+import rmp
 
 MIN_TAG_REVIEWS = 3  # need at least this many reviews before showing a tag
+MIN_TAG_SHARE = 0.05  # and at least 5% of the professor's reviews, so 3 of 250 doesn't count
+MAX_PROF_TAGS = 5  # most tags shown on one professor page
+# same visibility rule for the professor page, popular tags and the catalog filter
+TAG_VISIBLE_SQL = "pt.review_count >= %s AND pt.review_count >= pc.total_reviews * %s"
 
 
 @app.route("/api/professors/<slug>/tags")
@@ -1383,11 +1440,17 @@ def professor_tags(slug):
         if not prof:
             return jsonify({"error": "Professor not found"}), 404
         rows = query(
-            "SELECT tag, review_count FROM professor_tags "
-            "WHERE name_key = %s AND review_count >= %s ORDER BY review_count DESC",
-            (prof["name_key"], MIN_TAG_REVIEWS),
+            "SELECT pt.tag, pt.review_count FROM professor_tags pt "
+            "JOIN professors_catalog pc ON pc.name_key = pt.name_key "
+            "WHERE pt.name_key = %s AND " + TAG_VISIBLE_SQL + " "
+            "ORDER BY pt.review_count DESC LIMIT %s",
+            (prof["name_key"], MIN_TAG_REVIEWS, MIN_TAG_SHARE, MAX_PROF_TAGS),
         )
         data = [{"tag": r["tag"], "count": r["review_count"]} for r in rows]
+        # which reviews produced each tag, so clicking a pill can show them
+        ids = rmp.tagged_review_ids(prof["name_key"], [d["tag"] for d in data], query) if data else {}
+        for d in data:
+            d["reviewIds"] = ids.get(d["tag"], [])
         cache_set(cache_key, data)
     resp = jsonify(data)
     resp.headers["Cache-Control"] = "public, max-age=3600"
@@ -1402,8 +1465,8 @@ def popular_tags():
         rows = query(
             "SELECT pt.tag, COUNT(*) AS profs FROM professor_tags pt "
             "JOIN professors_catalog pc ON pc.name_key = pt.name_key "
-            "WHERE pt.review_count >= %s GROUP BY pt.tag ORDER BY profs DESC LIMIT 20",
-            (MIN_TAG_REVIEWS,),
+            "WHERE " + TAG_VISIBLE_SQL + " GROUP BY pt.tag ORDER BY profs DESC LIMIT 20",
+            (MIN_TAG_REVIEWS, MIN_TAG_SHARE),
         )
         # count is number of profs with the tag
         data = [{"tag": r["tag"], "count": int(r["profs"])} for r in rows]
@@ -1555,9 +1618,14 @@ def professors_catalog():
     max_reviews = int_arg("maxReviews", -1, -1, 100000)
     max_reviews = None if max_reviews < 0 else max_reviews
 
+    # teaching-style tags, only real tag names count
+    tag_list = sorted({t for t in split_filter(request.args.get("tags", "")) if t in TAG_TAXONOMY})
+
     def key(pg, rows):
+        # tags only go in the key when picked, so the sitemap's exact key below still matches
         return (f"profcat:{q}:{college}:{dept}:{sort}:{pg}:{rows}:"
-                f"{min_rating}:{max_rating}:{min_reviews}:{max_reviews}")
+                f"{min_rating}:{max_rating}:{min_reviews}:{max_reviews}"
+                + (f":{'|'.join(tag_list)}" if tag_list else ""))
 
     # Only the sitemap's exact request gets the whole catalog; any other big page gets
     # CACHEABLE_PAGE_LIMIT rows. So every page served is small or that one, and cached.
@@ -1615,6 +1683,12 @@ def professors_catalog():
     if max_reviews is not None:
         conditions.append("total_reviews <= %s")
         params.append(max_reviews)
+    # professor has to have every tag picked
+    for t in tag_list:
+        conditions.append("name_key IN (SELECT pt.name_key FROM professor_tags pt "
+                          "JOIN professors_catalog pc ON pc.name_key = pt.name_key "
+                          "WHERE pt.tag = %s AND " + TAG_VISIBLE_SQL + ")")
+        params.extend([t, MIN_TAG_REVIEWS, MIN_TAG_SHARE])
 
     where = " AND ".join(conditions)
 
@@ -2282,6 +2356,7 @@ SHOW_STUDENT_REVIEWS = os.getenv("SHOW_STUDENT_REVIEWS", "false").lower() == "tr
 # Loaded at import so gunicorn --preload reads the data files once.
 _networks = ip_networks.load_index(os.getenv("IP_DATA_DIR", "/tmp/ipdata"))
 _rating_moderation_client = None
+_groq_moderation_client = None
 _last_ip_purge = 0.0
 _IP_PURGE_INTERVAL = 3600
 _MIN_RATING_SECRET = 32
@@ -2296,7 +2371,7 @@ def _rating_enabled():
 
 
 def _rating_moderation_score(texts):
-    """moderation.score_texts through a client that gives up after 5 s, so a slow API holds the rating."""
+    """moderation.score_texts through a client that gives up after 5 s, so a slow API leaves the comment unchecked."""
     global _rating_moderation_client
     if _rating_moderation_client is None:
         api_key = os.getenv("OPENAI_API_KEY")
@@ -2305,6 +2380,21 @@ def _rating_moderation_score(texts):
         from openai import OpenAI
         _rating_moderation_client = OpenAI(api_key=api_key, timeout=5, max_retries=0)
     return moderation.score_texts(texts, client=_rating_moderation_client)
+
+
+def _moderate_comment(comment):
+    """(action, reason) from Groq when GROQ_MODERATION_KEY is set, else from OpenAI.
+    action is "allow" | "review" | "block" | "unavailable"; never raises."""
+    global _groq_moderation_client
+    if moderation_groq.enabled():
+        try:
+            if _groq_moderation_client is None:
+                _groq_moderation_client = moderation_groq.client()
+        except Exception:
+            return "unavailable", "groq_unavailable"
+        return moderation_groq.check(comment, _groq_moderation_client)
+    action = rating_checks.moderate(comment, score=_rating_moderation_score)
+    return action, {"allow": None, "review": "review", "block": "blocked"}.get(action, "openai_unavailable")
 
 
 def _rating_limit_key():
@@ -2381,6 +2471,19 @@ def rate_professor(slug):
     return _rating_response(ratings.professor_context(slug, device_hash, query), 200)
 
 
+@app.route("/api/rate/course-suggestions")
+@limiter.limit("600 per minute")
+@limiter.limit("30 per minute", exempt_when=_shared_network)
+def rate_course_suggestions():
+    if not _rating_enabled():
+        return _rating_unavailable()
+    code = re.sub(r"\s+", "", request.args.get("code", "")).upper()
+    if not rating_checks.COURSE_CODE_RE.fullmatch(code):
+        return _rating_response({"suggestions": []}, 200)
+    slug = request.args.get("slug") or None
+    return _rating_response({"suggestions": course_typos.banner_candidates(code, query, slug)}, 200)
+
+
 @app.route("/api/rate", methods=["POST"])
 @limiter.limit("20 per hour", key_func=_rating_limit_key)
 @limiter.limit("300 per hour", exempt_when=_shared_network)
@@ -2430,22 +2533,11 @@ def rate_submit():
     # A well-formed token the client picked is no returning device unless it already has a rating.
     new_device = minted_now or opened_minted or not ratings.device_seen(device_hash, query_one)
 
-    # 7. Moderation: a blocked comment stops here, before anything is written
-    moderation_action = rating_checks.moderate(clean["comment"], score=_rating_moderation_score)
-    if moderation_action == "block":
-        return _rating_response({"error": "comment_blocked"}, 422, device)
-
-    # 8. Pending professor / course. No team email: invented names cost nothing to
-    # submit, so one email each could flood the inbox and the Resend quota the
-    # feedback form shares. Reviewers find them with `review_ratings.py list`.
-    pending_professor_id = pending_course_id = None
-    if clean["new_professor"]:
-        name, dept = clean["new_professor"]["name"], clean["new_professor"]["department"]
-        pending_professor_id, _ = ratings.pending_professor(name, dept, query_one, _write)
-    if new_course:
-        pending_course_id, _ = ratings.pending_course(clean["course_code"], new_course, query_one, _write)
-
-    # 9. Replace-or-insert, holds and bursts
+    # 7. Duplicates and bursts, read-only so a blocked comment writes nothing. A new
+    # professor or course without a pending row yet has no earlier ratings to count.
+    pending_professor_id = (ratings.find_pending_professor(clean["new_professor"]["name"], query_one)
+                            if clean["new_professor"] else None)
+    pending_course_id = ratings.find_pending_course(clean["course_code"], query_one) if new_course else None
     key = ratings.rating_key(clean, pending_professor_id, pending_course_id)
     existing = ratings.existing_rating(device_hash, key, query_one)
     chash = rating_checks.comment_hash(clean["comment"])
@@ -2454,22 +2546,57 @@ def rate_submit():
     skew = ratings.skew_week(key, clean["rating"], new_device, existing["id"] if existing else None,
                              query_one, now)
     bursts = ratings.burst_reasons(key, ip_hash, prefix_hash, network_type, query_one, now)
+
+    # 8. Free rules on new or edited text: a link, contact details or keyboard mashing
+    # stops here, before any model call. Text the edit leaves alone passed the rules
+    # when it was saved, so a later rule doesn't lock the student out of changing the stars.
+    changed = bool(clean["comment"]) and (not existing or existing["comment"] != clean["comment"])
+    if changed and rating_checks.rule_block(clean["comment"]):
+        return _rating_response({"error": "comment_blocked"}, 422, device)
+
+    # 9. Moderation of new or edited text. A blocked comment stops here; anything else
+    # only marks the comment for the reviewer, so a busy or failed check never holds the
+    # rating. Duplicates (near copies too) and bursts get no call and no queue, or a flood
+    # would just move its model calls there. Text the edit leaves alone keeps its earlier check
+    # (ratings._UPSERT_SQL), so these fields stay unset.
+    check = {}
+    if changed:
+        shared = _shared_network()
+        reason = None
+        if duplicate or near:
+            action = "duplicate"
+        elif bursts:
+            action = "burst"
+        elif not ratings.moderation_budget_left(device_hash, ip_hash, shared, query_one, now):
+            action = "over_budget"
+        else:
+            action, reason = _moderate_comment(clean["comment"])
+            ratings.record_moderation_call("submit", action, device_hash, ip_hash, shared, _write, now)
+            if action == "block":
+                return _rating_response({"error": "comment_blocked"}, 422, device)
+        check = rating_checks.comment_check_fields(action, reason, now)
+
+    # 10. Pending professor / course. No team email: invented names cost nothing to
+    # submit, so one email each could flood the inbox and the Resend quota the
+    # feedback form shares. Reviewers find them with `review_ratings.py list`.
+    # A row created here is new, so no rating of this device's sits on it yet.
+    if clean["new_professor"]:
+        name, dept = clean["new_professor"]["name"], clean["new_professor"]["department"]
+        pending_professor_id, _ = ratings.pending_professor(name, dept, query_one, _write)
+    if new_course:
+        pending_course_id, _ = ratings.pending_course(clean["course_code"], new_course, query_one, _write)
+
+    # 11. Replace-or-insert and holds
+    key = ratings.rating_key(clean, pending_professor_id, pending_course_id)
     # A pending professor or course counts nowhere until a reviewer approves it, so only
     # a known pair is checked against who Banner and RMP have teaching the course.
     unverified = (bool(key["professor_slug"]) and bool(key["course_code"])
                   and not ratings.pair_taught(key["professor_slug"], key["course_code"], query_one))
-    # A reviewer took this rating's comment down (review_ratings.py remove-comment): the mark
-    # stays on the row, and any comment it carries again waits for review.
-    removed = bool(existing) and "comment_removed" in (existing["hold_reasons"] or "").split(",")
     silent = ratings.flagged(device_hash, ip_hash, network_type, query_one, now)
-    status, reasons = rating_checks.assess(fill_seconds, network_type, bursts, duplicate, moderation_action,
+    status, reasons = rating_checks.assess(fill_seconds, network_type, bursts, duplicate,
                                            edit=bool(existing) and existing["status"] == "accepted",
-                                           unverified_pair=unverified,
-                                           comment_removed=removed and bool(clean["comment"]),
-                                           near_duplicate=bool(near), skew_week=skew,
-                                           silent_hold=silent)
-    if removed and "comment_removed" not in reasons:
-        reasons.append("comment_removed")
+                                           unverified_pair=unverified, near_duplicate=bool(near),
+                                           skew_week=skew, silent_hold=silent)
     row = {
         **key,
         "term_label": clean["term_label"], "rating": clean["rating"], "difficulty": clean["difficulty"],
@@ -2479,6 +2606,7 @@ def rate_submit():
         "device_hash": device_hash, "new_device": new_device,
         "ip_hash": ip_hash, "ip_prefix_hash": prefix_hash, "network_type": network_type,
         "fill_seconds": fill_seconds, "collection": "turnstile+device",
+        **{c: check.get(c) for c in ratings.CHECK_COLUMNS},
     }
     ratings.save_rating(row, existing, _write)
     held = ratings.hold_burst(bursts, key, ip_hash, prefix_hash, _write, now) if bursts else set()
@@ -2486,20 +2614,21 @@ def rate_submit():
         ratings.hold_matches(near, "near_duplicate", device_hash, ip_hash, prefix_hash, network_type, _write)
     if skew:
         ratings.hold_skew_week(key, _write, now)
-    # The page shows student reviews live. Any save can change it: a new review, an edit,
-    # or an accepted review edited into a held one, whose old comment must come down. A burst
-    # also holds reviews on other professors. Dropped after the hold, so no request between
-    # the two writes re-caches rows that are about to be held.
+    # The page's student numbers are live (its comments wait for review_ratings.py
+    # approve-comment). Any save can change them: a new rating, an edit, an accepted
+    # rating edited into a held one, or an edited comment that must come down until it's
+    # read again. A burst also holds ratings on other professors. Dropped after the hold,
+    # so no request between the two writes re-caches rows that are about to be held.
     pages = held | {key["professor_slug"]} if key.get("professor_slug") else held
     if pages:
         drop_professor_pages(pages)
 
-    # 10. Clear old IP hashes, at most hourly per process
+    # 12. Clear old IP hashes, at most hourly per process
     if time.time() - _last_ip_purge >= _IP_PURGE_INTERVAL:
         _last_ip_purge = time.time()
         ratings.purge_ip_hashes(_write, now)
 
-    # 11. Same body whether accepted or held
+    # 13. Same body whether accepted or held
     return _rating_response({"ok": True, "counter": ratings.huskies_this_term(query_one, now)}, 200, device)
 
 
