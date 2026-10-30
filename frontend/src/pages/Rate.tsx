@@ -48,7 +48,7 @@ const FAILURE_MESSAGES: Record<number, string> = {
   503: 'Ratings are paused right now. Try again later.',
 };
 // Only for a script that never loaded: it can't come back without a reload.
-const BLOCKED_MESSAGE = "We couldn't verify your browser. Try turning off a VPN or ad blocker, then reload the page.";
+const BLOCKED_MESSAGE = "We couldn't verify your browser. Try turning off a VPN or ad blocker, then submit again. If that doesn't work, reload the page.";
 const TOKEN_WAIT_MS = 15000;
 const NETWORK_MESSAGE = "Couldn't send. Check your connection and try again.";
 

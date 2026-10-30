@@ -5,6 +5,7 @@ const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY;
 const NO_WIDGET_TOKEN = 'no-turnstile';
 // An ad blocker or network filter can stop the script from ever loading.
 const SCRIPT_WAIT_MS = 10000;
+const SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 // The framed box (Rate.css .rate-verify.is-on) is 2px wider than Cloudflare's 300px one.
 const NORMAL_MIN_WIDTH = 302;
 
@@ -17,15 +18,24 @@ export function useTurnstile(): {
   const widgetIdRef = useRef<string | null>(null);
   const [loaded, setLoaded] = useState(() => !!window.turnstile);
   const [scriptFailed, setScriptFailed] = useState(false);
+  // Bumped by reset() after the script failed, to request it again (index.html requests it once).
+  const [scriptAttempt, setScriptAttempt] = useState(0);
   const [widgetFailed, setWidgetFailed] = useState(false);
   const [token, setToken] = useState('');
   const [interactive, setInteractive] = useState(false);
   const [size, setSize] = useState<'normal' | 'compact' | null>(null);
 
   // Watched from page load, so a blocked script is already known by the last step. Polling keeps on
-  // past the wait, so a script that arrives late (a slow phone) still recovers without a reload.
+  // past the wait, so a script that arrives late (a slow phone) still recovers without a reload. A retry
+  // adds a fresh <script>, so once the student turns off the blocker the widget renders with answers kept.
   useEffect(() => {
     if (!TURNSTILE_SITE_KEY || loaded) return;
+    if (scriptAttempt > 0) {
+      const script = document.createElement('script');
+      script.src = SCRIPT_SRC;
+      script.async = true;
+      document.head.appendChild(script);
+    }
     const giveUp = setTimeout(() => setScriptFailed(true), SCRIPT_WAIT_MS);
     const interval = setInterval(() => {
       if (!window.turnstile) return;
@@ -38,7 +48,7 @@ export function useTurnstile(): {
       clearInterval(interval);
       clearTimeout(giveUp);
     };
-  }, [loaded]);
+  }, [loaded, scriptAttempt]);
 
   // Measured on the column, not the box, which shrinks to the widget once it shows. A phone rotated
   // across the line renders the widget again at the size that fits.
@@ -83,10 +93,16 @@ export function useTurnstile(): {
     };
   }, [loaded, container, size]);
 
-  // A script that never loaded has no widget to retry, so it stays failed and Rate says why at once.
+  // A script that never loaded has no widget to retry, so the script itself is requested again.
   const reset = useCallback(() => {
     setToken('');
-    if (widgetIdRef.current === null) return;
+    if (widgetIdRef.current === null) {
+      if (TURNSTILE_SITE_KEY && !window.turnstile) {
+        setScriptFailed(false);
+        setScriptAttempt((n) => n + 1);
+      }
+      return;
+    }
     setWidgetFailed(false);
     window.turnstile?.reset(widgetIdRef.current);
   }, []);
