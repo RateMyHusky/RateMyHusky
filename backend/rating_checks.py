@@ -172,13 +172,13 @@ _RULES = (
     ("link", re.compile(rf"\b[A-Za-z0-9][A-Za-z0-9-]*\.{_TLD}\b(?!\.?\w)")),
     ("link", re.compile(rf"\b\w+\s*(?:\(\s*dot\s*\)|\[\s*dot\s*\]|\s+dot\s+){_TLD}\b", re.I)),
     ("link", re.compile(r"\bt\.me/|\bdiscord\.gg\b|\bbit\.ly\b", re.I)),
+    # "use code" only with a code after it that has a digit: "use code from lecture" is
+    # a programming course's homework policy.
     ("promo", re.compile(r"\b(?:promo|coupon|discount|referral|invite)\s+codes?\b"
-                         r"|\buse\s+(?:my\s+)?code\b", re.I)),
+                         r"|\buse\s+(?:my\s+)?code\s+(?=[a-z]*\d)\w{4,}\b", re.I)),
     ("phone", re.compile(r"(?<![\d-])(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]\d{4}(?![\d-])")),
-    # No "Dr": "CHEM 2311 Organic Chemistry Dr Smith" names a course and professor.
-    ("address", re.compile(r"\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}"
-                           r"(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Ln|Lane|Drive|Ct|Court|"
-                           r"Pl|Place|Ter|Terrace|Pkwy|Parkway|Hwy|Highway)\b")),
+    # No street-address rule: campus buildings are street addresses ("office hours at
+    # 360 Huntington Ave"), so telling a professor's home address apart is left to the model.
 )
 # Eight consonants in a row (y counts as a vowel), once stretched letters are
 # folded ("boringgggg"), is past English words and texting shorthand ("pwrpnts");
@@ -189,7 +189,7 @@ _STRETCHED = re.compile(r"(\w)\1+", re.I)
 
 def rule_block(comment):
     """The first rule the comment breaks ("link", "promo", "phone", "email",
-    "address", "mash"), or None. Pure; tuned on the RMP comments so a real
+    "mash"), or None. Pure; tuned on the RMP comments so a real
     review almost never matches."""
     for reason, pattern in _RULES:
         if pattern.search(comment):
