@@ -1,11 +1,21 @@
 import searchFixture from './fixtures/search.json';
+import rachlin from './fixtures/professors/john-rachlin.json';
+import kaeli from './fixtures/professors/david-kaeli.json';
+
+// Keyed by slug so fixture mode behaves like the real API: a slug we captured
+// resolves, anything else 404s. Add a file and a line here to capture more.
+const PROFESSOR_FIXTURES: Record<string, unknown> = {
+  'john-rachlin': rachlin,
+  'david-kaeli': kaeli,
+};
 
 // Flip once the site is out of maintenance and /api/* returns JSON again.
 export const USE_FIXTURES = true;
 
 // Must be the site, not the backend host: the API only accepts traffic
 // proxied through here, which is what attaches the shared secret.
-const API_BASE = 'https://ratemyhusky.com';
+export const SITE_URL = 'https://ratemyhusky.com';
+const API_BASE = SITE_URL;
 
 export type ProfessorSuggestion = {
   type: 'professor';
@@ -31,6 +41,9 @@ const MAINTENANCE_PATH = '/maintenance.html';
  *  must not be reported as maintenance. */
 class Unavailable extends Error {}
 
+/** The slug doesn't resolve. A missing professor is not a broken extension. */
+class NotFound extends Error {}
+
 async function get<T>(path: string): Promise<T> {
   let resp: Response;
   try {
@@ -45,6 +58,7 @@ async function get<T>(path: string): Promise<T> {
     throw new Unavailable('site is in maintenance');
   }
 
+  if (resp.status === 404) throw new NotFound(`${resp.status} ${resp.statusText}`);
   if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
 
   const text = await resp.text();
@@ -79,6 +93,53 @@ export function isUnavailable(err: unknown): boolean {
   return err instanceof Unavailable;
 }
 
+export function isNotFound(err: unknown): boolean {
+  return err instanceof NotFound;
+}
+
 export function professorUrl(slug: string): string {
   return `${API_BASE}/professors/${encodeURIComponent(slug)}`;
+}
+
+export type Professor = {
+  version: number;
+  identity: {
+    slug: string;
+    name: string;
+    department: string | null;
+    college: string | null;
+    imageUrl: string | null;
+    focusX: number;
+    focusY: number;
+  };
+  summary: {
+    rating: number | null;
+    difficulty: number | null;
+    wouldTakeAgainPct: number | null;
+    numRatings: number;
+    numComments: number;
+    hoursPerWeek: number | null; // always null — no source provides it
+  };
+  courses: { code: string; name: string | null; hasPage: boolean }[];
+  lastTaught: string | null;
+  awards: TeachingAward[];
+};
+
+/** Same shape as TeachingAward in frontend/src/api/api.ts. */
+export type TeachingAward = {
+  award: string;
+  awardingBody: string;
+  year: number;
+  /** As the source prints it: "2022–23" for an academic year, "2024" for Khoury's. */
+  yearLabel: string;
+  sourceUrl: string;
+};
+
+export async function fetchProfessor(slug: string): Promise<Professor> {
+  if (USE_FIXTURES) {
+    const hit = PROFESSOR_FIXTURES[slug];
+    if (!hit) throw new NotFound(`no fixture for ${slug}`);
+    return hit as Professor;
+  }
+  return get<Professor>(`/api/professors/${encodeURIComponent(slug)}/full`);
 }
