@@ -10,6 +10,7 @@ import re
 from psycopg2.extras import Json
 
 from denylist import is_denied_key
+from teaching_history import COURSE_SUCCESSORS
 
 from .db import chunk_insert
 
@@ -101,6 +102,27 @@ def course_rows(catalog_courses, summary_rows):
                      "avg_rating": b.get("rating"), "difficulty": b.get("difficulty"),
                      "num_ratings": b.get("num_ratings", 0)})
     return rows
+
+
+def retired_courses(catalog_courses, titles):
+    """catalog_courses-shaped rows for the codes COURSE_SUCCESSORS retires once the current
+    catalog edition stops listing them (CS2500 after the Fall 2025 intro redesign). Their
+    reviews stay on the old code, so without a row they get no course code, no course page
+    and no search result. The department and subject are the successor's; `titles` maps a
+    code to Banner's title for it, and a code Banner never titled is skipped. Pure."""
+    by_code = {c["code"]: c for c in catalog_courses}
+    out = []
+    for old, (new, _) in COURSE_SUCCESSORS.items():
+        successor = by_code.get(new)
+        if old in by_code or not successor or not titles.get(old):
+            continue
+        # Banner titles can carry doubled spaces; collapse them so name matches search_text.
+        name = " ".join(titles[old].split())
+        out.append({"code": old, "name": name, "department": successor["department"],
+                    "subject": successor["subject"],
+                    "search_text": f"{old} {name}".lower(),
+                    "is_placeholder": False})
+    return out
 
 
 def keep_summaries(summary_rows, catalog_slugs):

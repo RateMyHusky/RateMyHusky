@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { ProfessorTag } from '../api/api';
 import { tagLabel } from '../utils/tagLabels';
 import { fetchPopularTags } from '../api/api';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   FILTER_SEPARATOR,
   fetchProfessorsCatalog,
@@ -23,7 +23,9 @@ import { photoThumb, thumbOnError } from '../utils/photoThumb';
 
 import './ProfessorCatalog.css';
 
+// Most Rated first and by default: A–Z opened on a 5.0 from a single rating.
 const SORT_OPTIONS = [
+  { value: 'ratings', label: 'Most Rated' },
   { value: 'alpha',   label: 'A – Z' },
   { value: 'alpha_desc', label: 'Z – A' },
   { value: 'rating',  label: 'Highest Rating' },
@@ -56,7 +58,7 @@ const DEFAULT_FILTERS: Filters = {
   maxRating:  5,
   minReviews: 0,
   maxReviews: null,
-  sort:       'alpha',
+  sort:       'ratings',
   page:       1,
 };
 
@@ -64,7 +66,7 @@ function getFiltersFromSearchParams(sp: URLSearchParams): Filters {
   const sortValue = sp.get('sort');
   const sort = sortValue && SORT_OPTIONS.some(o => o.value === sortValue)
     ? sortValue
-    : 'alpha';
+    : 'ratings';
 
   const minRating = Number(sp.get('minRating') || '0');
   const maxRating = Number(sp.get('maxRating') || '5');
@@ -97,14 +99,13 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
   if (filters.maxRating < 5) next.set('maxRating', String(filters.maxRating));
   if (filters.minReviews > 0) next.set('minReviews', String(filters.minReviews));
   if (filters.maxReviews !== null) next.set('maxReviews', String(filters.maxReviews));
-  if (filters.sort !== 'alpha') next.set('sort', filters.sort);
+  if (filters.sort !== 'ratings') next.set('sort', filters.sort);
   if (filters.page > 1) next.set('page', String(filters.page));
   return next;
 }
 
 
 export default function ProfessorCatalog() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters]       = useState<Filters>(() => getFiltersFromSearchParams(searchParams));
   const [colleges]     = useState<string[]>([
@@ -409,7 +410,8 @@ export default function ProfessorCatalog() {
         currentText = fullText.substring(0, currentText.length + 1);
         typingSpeed = 100;
       }
-      setSearchPlaceholder(`Search for "${currentText}"`);
+      // Between examples the text is empty: show the plain prompt, not `Search for ""`.
+      setSearchPlaceholder(currentText ? `Search for "${currentText}"` : 'Search professor name…');
       if (!isDeleting && currentText === fullText) {
         isDeleting = true;
         typingSpeed = 2000;
@@ -739,7 +741,18 @@ export default function ProfessorCatalog() {
             </div>
           ) : professors.length === 0 ? (
             <div className="catalog-empty">
-              <p>No professors match your filters.</p>
+              {/* Blame the query only when it's the sole filter; otherwise a filter may be the cause. */}
+              <p>
+                {!filters.q.trim() ? 'No professors match your filters.'
+                  : activeFilterCount > 1 ? <>No professors match “{filters.q.trim()}” with these filters.</>
+                  : <>No professors match “{filters.q.trim()}”.</>}
+              </p>
+              {/* A course code or title typed here belongs in the course catalog. */}
+              {filters.q.trim() && activeFilterCount === 1 && (
+                <Link className="catalog-empty-alt" to={`/courses?q=${encodeURIComponent(filters.q.trim())}`}>
+                  Search courses for “{filters.q.trim()}” →
+                </Link>
+              )}
               <button className="clear-btn prominent" onClick={clearFilters}>
                 Clear filters
               </button>
@@ -747,16 +760,7 @@ export default function ProfessorCatalog() {
           ) : viewMode === 'list' ? (
             <div className="catalog-list">
               {professors.map(prof => (
-                <div
-                  key={prof.slug}
-                  className="prof-list-item"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => navigate(`/professors/${prof.slug}`, { state: { fromCatalog: `/professors?${searchParams.toString()}` } })}
-                  onKeyDown={e =>
-                    e.key === 'Enter' && e.target === e.currentTarget && navigate(`/professors/${prof.slug}`, { state: { fromCatalog: `/professors?${searchParams.toString()}` } })
-                  }
-                >
+                <div key={prof.slug} className="prof-list-item">
                   <BookmarkButton itemType="professor" itemKey={prof.slug} size="sm" className="prof-list-bookmark" label={prof.name} />
                   <div className="prof-list-avatar">
                     {prof.imageUrl ? (
@@ -780,7 +784,7 @@ export default function ProfessorCatalog() {
                     </span>
                   </div>
                   <div className="prof-list-info">
-                    <span className="prof-list-name">{prof.name}</span>
+                    <Link className="prof-list-name card-link" to={`/professors/${prof.slug}`} state={{ fromCatalog: `/professors?${searchParams.toString()}` }}>{prof.name}</Link>
                     <span className="prof-list-college">{prof.college}</span>
                     <span className="prof-list-dept">{prof.department}</span>
                   </div>
@@ -799,16 +803,7 @@ export default function ProfessorCatalog() {
           ) : (
             <div className="catalog-grid" ref={gridRef}>
               {professors.map(prof => (
-                <div
-                  key={prof.slug}
-                  className="prof-card"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => navigate(`/professors/${prof.slug}`, { state: { fromCatalog: `/professors?${searchParams.toString()}` } })}
-                  onKeyDown={e =>
-                    e.key === 'Enter' && e.target === e.currentTarget && navigate(`/professors/${prof.slug}`, { state: { fromCatalog: `/professors?${searchParams.toString()}` } })
-                  }
-                >
+                <div key={prof.slug} className="prof-card">
                   <BookmarkButton itemType="professor" itemKey={prof.slug} size="sm" className="prof-card-bookmark" label={prof.name} />
                   <div className="prof-card-photo">
                     <div className="prof-avatar">
@@ -836,10 +831,12 @@ export default function ProfessorCatalog() {
                   <div className="prof-card-info">
                     <div className="prof-card-info-top">
                       <h3 className="prof-name">
-                        {(() => {
-                          const [first, rest] = splitProfName(stripPrefix(prof.name));
-                          return rest ? <>{first}<br />{rest}</> : first;
-                        })()}
+                        <Link className="card-link" to={`/professors/${prof.slug}`} state={{ fromCatalog: `/professors?${searchParams.toString()}` }}>
+                          {(() => {
+                            const [first, rest] = splitProfName(stripPrefix(prof.name));
+                            return rest ? <>{first}<br />{rest}</> : first;
+                          })()}
+                        </Link>
                       </h3>
                       <div className="prof-card-rating-row">
                         <span className="prof-avg-num">{prof.avgRating != null ? prof.avgRating.toFixed(1) : 'N/A'}</span>

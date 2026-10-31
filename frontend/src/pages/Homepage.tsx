@@ -280,13 +280,6 @@ const Homepage = () => {
   const goatSlug = (p: Professor) =>
     p.slug ?? p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-  // Navigate to professor page
-  const handleProfClick = (slug: string) => {
-    navigate(`/professors/${slug}`, {
-      state: { fromPage: { label: 'GOATED Professors', url: '/#goated' }, goatedCollege: selectedCollege },
-    });
-  };
-
   const updatePill = useCallback(() => {
     if (!tabsRef.current) return;
     const activeTab = tabsRef.current.querySelector('.goat-tab.active') as HTMLElement;
@@ -679,22 +672,21 @@ const Homepage = () => {
             </div>
           ) : (
             profs.map((p, i) => (
-              <div
-                key={goatSlug(p)}
-                className={`goat-row ${i < 3 ? 'goat-top3' : ''}`}
-                // Not a <Link>: the rating cell's click opens its tooltip instead of navigating.
-                // Keyboard handling matches the catalog cards.
-                role="link"
-                tabIndex={0}
-                aria-label={`${i + 1}. ${p.name}, ${p.dept}, rated ${p.avgRating.toFixed(2)} from ${(p.totalReviews ?? 0).toLocaleString()} ratings`}
-                onClick={() => handleProfClick(goatSlug(p))}
-                onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && handleProfClick(goatSlug(p))}
-              >
+              // The name is the row's link, stretched over the row (.card-link); the rating
+              // cell sits above it, so its click opens the tooltip instead of navigating.
+              <div key={goatSlug(p)} className={`goat-row ${i < 3 ? 'goat-top3' : ''}`}>
                 <span className="goat-col-rank">
                   {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                 </span>
                 <div className="goat-col-name">
-                  <span className="goat-name-text">{p.name}</span>
+                  <Link
+                    className="goat-name-text card-link"
+                    to={`/professors/${goatSlug(p)}`}
+                    state={{ fromPage: { label: 'GOATED Professors', url: '/#goated' }, goatedCollege: selectedCollege }}
+                    aria-label={`${i + 1}. ${p.name}, ${p.dept}, rated ${p.avgRating.toFixed(2)} from ${(p.totalReviews ?? 0).toLocaleString()} ratings`}
+                  >
+                    {p.name}
+                  </Link>
                 </div>
                 <span className="goat-col-dept">{p.dept}</span>
                 <RatingCell

@@ -123,7 +123,7 @@ CACHEABLE_PAGE_LIMIT = 100
 CATALOG_FULL_LIMIT = 10000
 # Sorts each catalog knows; anything else is alpha, so made-up sort values all
 # share alpha's cache entry instead of each minting one.
-PROFESSOR_SORTS = {"alpha", "alpha_desc", "rating", "rating_asc", "comments"}
+PROFESSOR_SORTS = {"alpha", "alpha_desc", "rating", "rating_asc", "comments", "ratings"}
 COURSE_SORTS = {"alpha", "alpha_desc", "rating", "rating_asc", "ratings", "recent"}
 
 
@@ -150,6 +150,19 @@ def course_search_text(raw):
     model (pipeline/read_models.course_search_text) once a pipeline run has rebuilt it; that
     covers partial codes ("cs 31"), this keeps a complete one matching until then."""
     return re.sub(r"\b([a-z]{2,5}) (\d{4})\b", r"\1\2", search_text(raw))
+
+
+def course_relevance(q):
+    """ORDER BY tier for a course search q (from course_search_text), with its params.
+    search_text holds the description too, so "calculus" matches every course that mentions
+    it: a code match ranks first, then a title that starts with q, then one that contains it,
+    then description-only matches. The code is compared unspaced, so a partial "cs 35" still
+    lands on CS35xx rather than on courses listing "CS 3500" as a prerequisite."""
+    return ("""CASE WHEN lower(course_catalog.code) LIKE %s THEN 0
+                    WHEN lower(course_catalog.name) LIKE %s THEN 1
+                    WHEN lower(course_catalog.name) LIKE %s THEN 2
+                    ELSE 3 END""",
+            [f"{q.replace(' ', '')}%", f"{q}%", f"%{q}%"])
 
 
 # Build a word-level mapping so partial/typeahead queries also resolve.
@@ -1241,14 +1254,14 @@ def search():
     else:
         # Course search
         q = course_search_text(request.args.get("q", ""))
-        rows = query("""
+        # Best match first (course_relevance), the most-rated course leading within a tier.
+        tier, tier_params = course_relevance(q)
+        rows = query(f"""
             SELECT code, name, department FROM course_catalog
             WHERE search_text LIKE %s
-            ORDER BY
-                CASE WHEN lower(code) LIKE %s THEN 0 ELSE 1 END,
-                code
+            ORDER BY {tier}, num_ratings DESC NULLS LAST, code
             LIMIT %s
-        """, (f"%{q}%", f"{q}%", limit))
+        """, [f"%{q}%", *tier_params, limit])
 
         results = []
         for r in rows:
@@ -1406,9 +1419,9 @@ def professor_full(slug):
     if data is None:
         return jsonify({"error": "Professor not found"}), 404
     # The department links to its hub page only when that page lists this department: the hub
-    # has no page for a department without rated professors (or a BAD_DEPTS alias), and keeps
-    # just the first of two names that slug alike. Copied, because professor_payload hands back
-    # the cached dict.
+    # has no page for a department without rated professors, a BAD_DEPTS alias or a
+    # NOT_DEPARTMENTS label, and keeps just the first of two names that slug alike. Copied,
+    # because professor_payload hands back the cached dict.
     identity = data["identity"]
     dept_slug = department_slug(identity.get("department") or "")
     hub = _department_hub_map().get(dept_slug)
@@ -1518,6 +1531,17 @@ def department_slug(name):
     return s
 
 
+# RMP labels that name no department: a placeholder, or a dean's office. Their professors
+# stay in the catalog (and its department filter); only the hub drops them, and a professor
+# page links a department name with no hub entry to the filtered catalog instead.
+NOT_DEPARTMENTS = {"not specified", "advisor"}
+
+
+def is_hub_department(name):
+    folded = " ".join(name.split()).lower()
+    return folded not in NOT_DEPARTMENTS and not folded.startswith("dean of ")
+
+
 def _department_hub_map():
     """slug -> {name, professorCount, avgRating} for every department with
     >=1 rated professor (avg_rating set, so unrated Banner-only professors
@@ -1538,7 +1562,7 @@ def _department_hub_map():
     by_slug = {}
     for r in rows:
         name = r["department"]
-        if not name or name in BAD_DEPTS:
+        if not name or name in BAD_DEPTS or not is_hub_department(name):
             continue
         slug = department_slug(name)
         if slug in by_slug:
@@ -1726,6 +1750,8 @@ def professors_catalog():
             order = "lower(name) DESC, slug DESC"
         elif sort == "comments":
             order = "total_comments DESC"
+        elif sort == "ratings":
+            order = "total_reviews DESC NULLS LAST, slug ASC"
         else:
             order = "lower(name) ASC"
 
@@ -1863,13 +1889,17 @@ def courses_catalog():
     page = max(1, min(page, total_pages))
     offset = (page - 1) * limit
 
+    # A search ranks like the typeahead it came from: best match first, the chosen sort
+    # within each tier, so Enter on "calculus" doesn't lead with a description-only match.
+    tier, tier_params = course_relevance(q) if q else ("", [])
+
     def page_rows(join, order):
         return query(f"""
             SELECT code, name, department, avg_rating, num_ratings FROM course_catalog {join}
             {where_str}
-            ORDER BY {order}
+            ORDER BY {tier + ", " if tier else ""}{order}
             LIMIT %s OFFSET %s
-        """, params + [limit, offset])
+        """, params + tier_params + [limit, offset])
 
     try:
         rows = page_rows(join, order)
