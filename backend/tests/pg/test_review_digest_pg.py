@@ -30,8 +30,10 @@ def rating(cur, days_ago, status, comment_status=None, hours_ago=None):
 def seed(pg):
     with pg.cursor() as cur:
         cur.execute("INSERT INTO professors (slug, name, name_key) VALUES ('jane-doe', 'Jane Doe', 'jane doe')")
-        rating(cur, 0, "accepted", "approved", hours_ago=1)
-        rating(cur, 0, "held", hours_ago=2)
+        # At most half the time since UTC midnight ago (up to 1 hour), so they stay on today's UTC date.
+        today = min(1, (NOW - NOW.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds() / 7200)
+        rating(cur, 0, "accepted", "approved", hours_ago=today)
+        rating(cur, 0, "held", hours_ago=today)
         rating(cur, 13, "accepted")
         rating(cur, 15, "accepted")
         cur.execute("INSERT INTO moderation_calls (id, source, outcome, tokens) VALUES "

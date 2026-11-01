@@ -54,7 +54,8 @@ def resend_usage():
         return None
     try:
         emails = resp.json()["emails"]
-        return {k: {"used": int(emails[k]["used"]), "limit": emails[k].get("limit")} for k in ("daily", "monthly")}
+        return {k: {"used": int(emails[k]["used"]),
+                    "limit": None if emails[k].get("limit") is None else int(emails[k]["limit"])} for k in ("daily", "monthly")}
     except Exception:
         print("[notify] Resend usage reply unreadable")
         return None

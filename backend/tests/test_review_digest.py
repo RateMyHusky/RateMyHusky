@@ -144,8 +144,9 @@ def test_ratings_section_numbers_chart_and_totals():
 
 def test_agent_bar_counts_decisions():
     approved = [H("a", "CS1", "no_timer", agent_decision="approve") for _ in range(6)]
-    held = ([H("a", "CS1", "no_timer", agent_decision="reject") for _ in range(3)]
-            + [H("b", "CS2", "no_timer", agent_decision="escalate"), H("c", "CS3", "no_timer")])
+    recent = {"agent_reviewed_at": NOW - timedelta(hours=2), "updated_at": NOW - timedelta(hours=3)}
+    held = ([H("a", "CS1", "no_timer", agent_decision="reject", **recent) for _ in range(3)]
+            + [H("b", "CS2", "no_timer", agent_decision="escalate", **recent), H("c", "CS3", "no_timer")])
     merges = [{"code": "A1", "resolved_code": "B1", "n": 1}, {"code": "A2", "resolved_code": "B2", "n": 1}]
     _, text, html = review_digest.build_digest(held, approved, 0, 0, NOW, merges)
     assert "Checked 10 held ratings and made 2 merges." in html
@@ -153,6 +154,28 @@ def test_agent_bar_counts_decisions():
     for n, label in ((6, "approved"), (3, "reject"), (1, "escalated"), (1, "pending")):
         assert f"{n}</b> {label}</td>" in html
         assert f"{label}: {n}" in text
+
+
+def test_agent_sentence_and_bar_cover_only_decisions_from_the_last_24_hours():
+    def reject(hours, id, slug):
+        at = NOW - timedelta(hours=hours)
+        return H(slug, "CS1", "burst_prof", agent_decision="reject", id=id, agent_reviewed_at=at, updated_at=at)
+    held = [reject(72, "oldoldol-0", "z"), reject(2, "newnewne-0", "a"),
+            H("b", "CS2", "no_timer", agent_decision="escalate", agent_reviewed_at=None, updated_at=NOW - timedelta(hours=9))]
+    _, text, html = review_digest.build_digest(held, [], 0, 0, NOW)
+    assert "Checked 1 held rating." in text and "Checked 1 held rating." in html
+    assert "reject: 1" in text and "escalated: 0" in text and "1</b> reject</td>" in html
+    assert "--abuse oldoldol" in text and "--abuse newnewne" in text and "Reject 2 attacks" in html
+
+
+def test_subject_flags_unknown_resend_usage_instead_of_limits_ok():
+    note = {"label": "Resend", "note": "Resend usage unavailable: key can't read usage"}
+    checker = {"label": "Groq checker", "used": 170000, "limit": 200000, "unit": "tokens"}
+    ok = {"label": "Groq agent", "used": 1, "limit": 100, "unit": "tokens"}
+    assert review_digest.build_digest([], [], 0, 0, NOW, meters=[note, ok])[0].endswith(", 0 new ratings, Resend usage unknown")
+    assert review_digest.build_digest([], [], 0, 0, NOW, meters=[note, checker, ok])[0].endswith(
+        ", Groq checker at 85%, Resend usage unknown")
+    assert review_digest.build_digest([], [], 0, 0, NOW, meters=[ok])[0].endswith(", limits OK")
 
 
 def test_meters_render_and_a_note_replaces_resend():
@@ -210,7 +233,7 @@ def _main(monkeypatch, held, pending=(0, 0), key="re-test", comments=0, approved
         if "FROM moderation_calls" in sql:
             return [{"requests": 0, "tokens": 0}]
         if "comment_status" in sql:
-            return [{"n": comments, "flagged": 0, "unchecked": comments}]
+            return [{"n": comments}]
         if "FROM survey_ratings" in sql:
             return list(approved) if "agent_decision = 'approve'" in sql else held
         if "resolved_code" in sql or "resolved_slug" in sql or "professor_aliases" in sql:

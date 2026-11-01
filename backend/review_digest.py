@@ -116,7 +116,10 @@ def _meter_shown(m):
 def _limits_in_subject(meters):
     hot = sorted(((dh.pct(m["used"], m["limit"]), m["label"]) for m in meters if m.get("limit")),
                  key=lambda p: -p[0])
-    return ", ".join(f"{label} at {p}%" for p, label in hot if p >= 50) or "limits OK"
+    parts = [f"{label} at {p}%" for p, label in hot if p >= 50]
+    if any(m.get("note") for m in meters):
+        parts.append("Resend usage unknown")
+    return ", ".join(parts) or "limits OK"
 
 
 def _count_label(n, word):
@@ -124,7 +127,7 @@ def _count_label(n, word):
 
 
 def build_digest(held, approved, pending_professors, pending_courses, now, course_merges=(), professor_merges=(),
-                 aliases=(), pending_comments=0, flagged_comments=0, unchecked_comments=0,
+                 aliases=(), pending_comments=0,
                  names=None, ratings=None, meters=None):
     """(subject, text, html). Pure."""
     ratings = ratings or {"new": 0, "live": 0, "held": 0, "rejected": 0, "live_all": 0, "comments_all": 0,
@@ -146,11 +149,13 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
                   (pending_courses, _count_label(pending_courses, "course")),
                   (len(aliases), _count_label(len(aliases), "nickname"))]
 
+    since = now - timedelta(days=1)
     decided = Counter(decision_of(r) for r in held)
+    recent = Counter(decision_of(r) for r in held if (r.get("agent_reviewed_at") or datetime.min.replace(tzinfo=timezone.utc)) >= since)
     # (count, label, bar color, legend color)
-    agent_parts = [(len(approved), "approved", "#27ae60", "#27ae60"), (decided["reject"], "reject", "#e74c3c", "#e74c3c"),
-                   (decided["escalate"], "escalated", "#f39c12", "#e08e0b"), (decided[None], "pending", "#cfcfd6", "#888")]
-    checked = len(approved) + decided["reject"] + decided["escalate"]
+    agent_parts = [(len(approved), "approved", "#27ae60", "#27ae60"), (recent["reject"], "reject", "#e74c3c", "#e74c3c"),
+                   (recent["escalate"], "escalated", "#f39c12", "#e08e0b"), (decided[None], "pending", "#cfcfd6", "#888")]
+    checked = len(approved) + recent["reject"] + recent["escalate"]
     merges = len(course_merges) + len(professor_merges)
     agent_line = (f"Checked {_plural(checked, 'held rating')}"
                   + (f" and made {_plural(merges, 'merge')}" if merges else "") + ".")
@@ -267,10 +272,7 @@ def main(argv=None, now=None):
         approved = fetch_all(conn, f"SELECT {cols} FROM survey_ratings WHERE status = 'accepted' "
                                    "AND agent_decision = 'approve' AND agent_reviewed_at >= now() - interval '1 day' "
                                    "ORDER BY agent_reviewed_at")
-        comments = fetch_all(conn, "SELECT count(*) AS n, "
-                                   "count(*) FILTER (WHERE comment_check = 'review') AS flagged, "
-                                   "count(*) FILTER (WHERE comment_check IS DISTINCT FROM 'review' "
-                                   "AND comment_check IS DISTINCT FROM 'allow') AS unchecked "
+        comments = fetch_all(conn, "SELECT count(*) AS n "
                                    "FROM survey_ratings WHERE comment_status = 'pending'")
         professors = fetch_all(conn, "SELECT count(*) AS n FROM survey_pending_professors WHERE status = 'pending'")
         courses = fetch_all(conn, "SELECT count(*) AS n FROM survey_pending_courses WHERE status = 'pending'")
@@ -297,9 +299,7 @@ def main(argv=None, now=None):
         conn.close()
     subject, text, html = build_digest(held, approved, professors[0]["n"], courses[0]["n"], now, merges,
                                        prof_merges, aliases, pending_comments=comments[0]["n"],
-                                       flagged_comments=comments[0]["flagged"],
-                                       unchecked_comments=comments[0]["unchecked"], names=names, ratings=ratings,
-                                       meters=meters)
+                                       names=names, ratings=ratings, meters=meters)
     if args.dry_run:
         path = os.path.join(tempfile.gettempdir(), "review-digest.html")
         with open(path, "w", encoding="utf-8") as f:

@@ -92,6 +92,18 @@ def test_resend_usage_is_none_on_errors(monkeypatch):
     assert calls == []
 
 
+def test_resend_usage_coerces_the_limit_and_rejects_a_non_numeric_one(monkeypatch):
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
+    for limit in ("abc", 100.0):
+        monkeypatch.setattr(notify.http_requests, "get", lambda *a, limit=limit, **k: _Resp(200, {"emails": {
+            "daily": {"used": 10, "limit": limit}, "monthly": {"used": 1, "limit": 3000}}}))
+        got = notify.resend_usage()
+        if limit == "abc":
+            assert got is None
+        else:
+            assert got["daily"] == {"used": 10, "limit": 100} and isinstance(got["daily"]["limit"], int)
+
+
 def test_resend_usage_keeps_a_null_limit(monkeypatch):
     monkeypatch.setenv("RESEND_API_KEY", "re_test")
     monkeypatch.setattr(notify.http_requests, "get", lambda *a, **k: _Resp(200, {"emails": {
