@@ -27,20 +27,22 @@ export default function Settings({
     <div className="settings">
       <section>
         <h2 className="section-label">Appearance</h2>
-        {/* radiogroup, not buttons: this is one choice out of three, and the
-            arrow keys should move between them the way a radio group does. */}
+        {/* Real radios rather than buttons wearing role="radio": arrow-key
+            movement, the single tab stop and the "radio, 1 of 3" announcement
+            all come from the browser. Styling them as a segmented control is
+            a label away; re-implementing the keyboard model isn't. */}
         <div className="seg" role="radiogroup" aria-label="Theme">
           {THEMES.map(({ value, label }) => (
-            <button
-              key={value}
-              className={value === theme ? 'seg-opt on' : 'seg-opt'}
-              type="button"
-              role="radio"
-              aria-checked={value === theme}
-              onClick={() => onTheme(value)}
-            >
+            <label key={value} className={value === theme ? 'seg-opt on' : 'seg-opt'}>
+              <input
+                type="radio"
+                name="theme"
+                value={value}
+                checked={value === theme}
+                onChange={() => onTheme(value)}
+              />
               {label}
-            </button>
+            </label>
           ))}
         </div>
         <p className="muted seg-note">

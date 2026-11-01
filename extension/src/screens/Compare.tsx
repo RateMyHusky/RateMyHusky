@@ -1,34 +1,46 @@
 import { useEffect, useState } from 'react';
-import { fetchProfessor, isUnavailable, isNotFound, type Professor } from '../api';
+import { errorMessage, fetchProfessor, type Professor } from '../api';
 import StarRating from '../components/StarRating';
 import { buildRows, MIN_RATINGS } from '../utils/compare';
 import './Compare.css';
 
+/** A slug that didn't load, kept beside the ones that did so the student can
+ *  see which one to remove instead of losing the whole comparison. */
+type Failed = { slug: string; message: string };
+
 type State =
   | { status: 'loading' }
-  | { status: 'ready'; profs: Professor[] }
+  | { status: 'ready'; profs: Professor[]; failed: Failed[] }
   | { status: 'error'; message: string };
 
-export default function Compare({ slugs }: { slugs: string[] }) {
+export default function Compare({
+  slugs,
+  dropped,
+  onDrop,
+}: {
+  slugs: string[];
+  dropped: string[];
+  onDrop: (slug: string) => void;
+}) {
   const [state, setState] = useState<State>({ status: 'loading' });
-  const [dropped, setDropped] = useState<string[]>([]);
 
   useEffect(() => {
     let live = true;
     setState({ status: 'loading' });
-    Promise.all(slugs.map(fetchProfessor))
-      .then((profs) => live && setState({ status: 'ready', profs }))
-      .catch((err) =>
-        live &&
-        setState({
-          status: 'error',
-          message: isNotFound(err)
-            ? 'Professor not found.'
-            : isUnavailable(err)
-              ? "Can't reach RateMyHusky right now."
-              : 'Something went wrong.',
-        }),
+    // allSettled, not all: one stale slug shouldn't throw away the professors
+    // that loaded fine, and a blank screen doesn't say which one to drop.
+    Promise.allSettled(slugs.map(fetchProfessor)).then((results) => {
+      if (!live) return;
+      const profs = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+      const failed = results.flatMap((r, i) =>
+        r.status === 'rejected' ? [{ slug: slugs[i], message: errorMessage(r.reason) }] : [],
       );
+      setState(
+        profs.length > 0
+          ? { status: 'ready', profs, failed }
+          : { status: 'error', message: failed[0]?.message ?? 'Nothing to compare.' },
+      );
+    });
     return () => {
       live = false;
     };
@@ -41,18 +53,21 @@ export default function Compare({ slugs }: { slugs: string[] }) {
   if (profs.length === 0) return <p className="muted">No professors to compare.</p>;
 
   const rows = buildRows(profs);
+  const low = profs.map((p) => p.summary.numRatings < MIN_RATINGS);
   const grid = { gridTemplateColumns: `76px repeat(${profs.length}, minmax(0, 1fr))` };
 
   return (
     <div className="compare">
       <div className="cmp-heads" style={grid}>
-        <span />
+        {/* The blank cell over the row labels. The cards share the rows' grid
+            or they stop sitting above their own numbers. */}
+        <span aria-hidden="true" />
         {profs.map((p) => (
           <div key={p.identity.slug} className="cmp-head">
             <button
               className="cmp-drop"
               type="button"
-              onClick={() => setDropped((d) => [...d, p.identity.slug])}
+              onClick={() => onDrop(p.identity.slug)}
               aria-label={`Remove ${p.identity.name}`}
               title={`Remove ${p.identity.name}`}
             >
@@ -76,22 +91,38 @@ export default function Compare({ slugs }: { slugs: string[] }) {
             {row.values.map((v, i) => (
               <div
                 key={profs[i].identity.slug}
-                className={row.winners.includes(i) ? 'cmp-cell win' : 'cmp-cell'}
-                title={
-                  profs[i].summary.numRatings < MIN_RATINGS
-                    ? `Under ${MIN_RATINGS} ratings — not enough to call a winner`
-                    : undefined
+                className={
+                  low[i]
+                    ? 'cmp-cell low'
+                    : row.winners.includes(i)
+                      ? 'cmp-cell win'
+                      : 'cmp-cell'
                 }
               >
                 {row.label === 'Overall Rating' && v != null && (
                   <StarRating rating={v} size="sm" />
                 )}
-                {v == null ? '—' : row.format(v)}
+                {row.format(v)}
               </div>
             ))}
           </div>
         ))}
       </div>
+
+      {/* On screen rather than in a cell's title: a tooltip on a hover-only
+          cell is unreachable by keyboard and on touch, which left these
+          columns looking like they lost every row. */}
+      {low.some(Boolean) && (
+        <p className="muted cmp-note">
+          Greyed columns have fewer than {MIN_RATINGS} ratings and aren’t ranked.
+        </p>
+      )}
+
+      {state.failed.length > 0 && (
+        <p className="muted cmp-note">
+          Couldn’t load {state.failed.map((f) => f.slug).join(', ')}.
+        </p>
+      )}
 
       {/* The reason sits on screen rather than in a title: Chrome doesn't
           reliably fire tooltips on a disabled button, so a title here would

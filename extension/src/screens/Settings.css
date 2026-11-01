@@ -14,16 +14,28 @@
 }
 
 .seg-opt {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 7px 0;
-  border: none;
   border-radius: 7px;
-  background: transparent;
   color: var(--muted);
-  font-family: inherit;
   font-size: 12.5px;
   font-weight: 700;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
+}
+
+/* The input stays in the page and keeps the focus — it's what carries the
+   arrow keys and the announcement — but the label is what gets drawn. */
+.seg-opt input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .seg-opt:hover:not(.on) {
@@ -36,7 +48,8 @@
   box-shadow: var(--shadow);
 }
 
-.seg-opt:focus-visible {
+/* Focus lands on the hidden input, so the ring has to be drawn by the pill. */
+.seg-opt:has(input:focus-visible) {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
 }

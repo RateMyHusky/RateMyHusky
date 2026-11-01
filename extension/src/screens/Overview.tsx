@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchProfessor, isUnavailable, isNotFound, professorUrl, type Professor } from '../api';
+import { errorMessage, fetchProfessor, professorUrl, type Professor } from '../api';
 import StarRating from '../components/StarRating';
 import StatTile from '../components/StatTile';
 import AwardChips from '../components/AwardChips';
@@ -12,7 +12,15 @@ type State =
   | { status: 'ready'; prof: Professor }
   | { status: 'error'; message: string };
 
-export default function Overview({ slug, onCompare }: { slug: string; onCompare?: () => void }) {
+export default function Overview({
+  slug,
+  onCompare,
+  onCourses,
+}: {
+  slug: string;
+  onCompare?: () => void;
+  onCourses?: () => void;
+}) {
   const [state, setState] = useState<State>({ status: 'loading' });
 
   useEffect(() => {
@@ -22,17 +30,7 @@ export default function Overview({ slug, onCompare }: { slug: string; onCompare?
     setState({ status: 'loading' });
     fetchProfessor(slug)
       .then((prof) => live && setState({ status: 'ready', prof }))
-      .catch((err) =>
-        live &&
-        setState({
-          status: 'error',
-          message: isNotFound(err)
-            ? 'Professor not found.'
-            : isUnavailable(err)
-              ? "Can't reach RateMyHusky right now."
-              : 'Something went wrong.',
-        }),
-      );
+      .catch((err) => live && setState({ status: 'error', message: errorMessage(err) }));
     return () => {
       live = false;
     };
@@ -108,7 +106,7 @@ export default function Overview({ slug, onCompare }: { slug: string; onCompare?
         {/* Labelled all-time on purpose: this counts every course on record,
             and plenty of them were last taught years ago. Sitting unlabelled
             beside Difficulty and Take Again, it read as a current load. */}
-        <StatTile value={String(courses.length)} label="All-Time Courses" />
+        <StatTile value={String(courses.length)} label="All-Time Courses" onClick={onCourses} />
       </div>
     </>
   );

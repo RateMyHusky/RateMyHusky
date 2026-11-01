@@ -5,25 +5,19 @@
 
 /* ── column heads ── */
 
- /* Cards centre across the whole popup rather than sitting in the value
-    columns — reserving a blank cell for the row labels pushed the pair
-    visibly right of centre. */
+/* Same grid as .cmp-row, down to the gap and the side padding, so every card
+   sits over its own column of numbers. Centring the cards instead left them
+   offset from their values — badly enough with three professors that the
+   first column read as belonging to the second card. */
 .cmp-heads {
-  display: flex;
-  justify-content: center;
+  display: grid;
   align-items: stretch;
-  gap: 10px;
+  gap: 8px;
   padding: 0 10px;
   margin-bottom: 12px;
 }
 
-.cmp-heads > span {
-  display: none;
-}
-
 .cmp-head {
-  flex: 1 1 0;
-  max-width: 150px;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -37,12 +31,14 @@
   box-shadow: var(--shadow);
 }
 
+/* 24px of hit area around a 10px glyph — the old 16px square was a hard
+   target with a mouse and a worse one on a trackpad. */
 .cmp-drop {
   position: absolute;
-  top: 3px;
-  right: 4px;
-  width: 16px;
-  height: 16px;
+  top: 0;
+  right: 0;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: none;
   border-radius: 50%;
@@ -56,6 +52,11 @@
 .cmp-drop:hover {
   background: var(--bg-sunken);
   color: var(--fg);
+}
+
+.cmp-drop:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 
 .cmp-face {
@@ -122,6 +123,18 @@
 .cmp-cell.win {
   color: var(--brand);
   font-weight: 900;
+}
+
+/* Too few ratings to rank. Muted the way the site greys these columns, so
+   "not in the running" doesn't read as "lost every row". */
+.cmp-cell.low {
+  color: var(--muted);
+}
+
+.cmp-note {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 /* ── add ── */

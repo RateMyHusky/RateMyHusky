@@ -26,3 +26,22 @@
   text-align: center;
   line-height: 1.2;
 }
+
+/* The button variant has to re-state what a <div> got for free. */
+.stat-tile.tappable {
+  border: none;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.stat-tile.tappable:hover {
+  background: var(--brand-wash);
+  transform: translateY(-1px);
+}
+
+.stat-tile.tappable:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}

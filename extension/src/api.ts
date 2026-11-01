@@ -89,16 +89,21 @@ export async function searchProfessors(
   );
 }
 
-export function isUnavailable(err: unknown): boolean {
-  return err instanceof Unavailable;
-}
-
-export function isNotFound(err: unknown): boolean {
-  return err instanceof NotFound;
+/** Every screen turns a failed fetch into the same three sentences. Keeping
+ *  that here means the next case — a 429, say — is added once rather than in
+ *  Overview, Compare and Courses separately. */
+export function errorMessage(err: unknown): string {
+  if (err instanceof NotFound) return 'Professor not found.';
+  if (err instanceof Unavailable) return "Can't reach RateMyHusky right now.";
+  return 'Something went wrong.';
 }
 
 export function professorUrl(slug: string): string {
   return `${API_BASE}/professors/${encodeURIComponent(slug)}`;
+}
+
+export function courseUrl(code: string): string {
+  return `${SITE_URL}/courses/${encodeURIComponent(code)}`;
 }
 
 export type Professor = {
@@ -120,9 +125,20 @@ export type Professor = {
     numComments: number;
     hoursPerWeek: number | null; // always null — no source provides it
   };
-  courses: { code: string; name: string | null; hasPage: boolean }[];
+  courses: Course[];
   lastTaught: string | null;
   awards: TeachingAward[];
+};
+
+export type Course = {
+  code: string;
+  name: string | null;
+  hasPage: boolean;
+  /** Every term on record, newest first. The design's "6 terms" is its length. */
+  terms: string[];
+  lastTerm: string | null;
+  numRatings: number;
+  rating: number | null;
 };
 
 /** Same shape as TeachingAward in frontend/src/api/api.ts. */
