@@ -2372,6 +2372,7 @@ def submit_feedback():
 
     if not notify.send_team_email(f"[RateMyHusky] {type_label}", body, reply_to=reply_email or None):
         return jsonify({"error": "Failed to send email"}), 500
+    _chat_write(notify.RECORD_SEND)  # best-effort: the email already went out
 
     return jsonify({"ok": True})
 

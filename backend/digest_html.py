@@ -172,10 +172,6 @@ def meter(label, used, limit, shown):
     )
 
 
-def meter_note(text):
-    return f'<tr><td colspan="3" style="padding:4px 0;font-size:11px;color:#999;">{_e(text)}</td></tr>'
-
-
 def page(subject, dateline, body, footer):
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'

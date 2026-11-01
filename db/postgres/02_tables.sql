@@ -481,6 +481,12 @@ CREATE TABLE public.review_agent_runs (
     CONSTRAINT review_agent_runs_pkey PRIMARY KEY (id)
 );
 
+CREATE TABLE public.email_sends (
+    id UUID NOT NULL DEFAULT gen_random_uuid(),
+    sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT email_sends_pkey PRIMARY KEY (id)
+);
+
 CREATE TABLE public.survey_pending_professors (
     id UUID NOT NULL,
     name TEXT NOT NULL,

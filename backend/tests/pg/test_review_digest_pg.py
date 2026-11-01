@@ -9,7 +9,7 @@ import review_digest
 from tests.pg.pgutil import truncate
 
 NOW = datetime.now(timezone.utc)
-TABLES = ("survey_ratings", "professors", "moderation_calls", "review_agent_runs", "ask_log")
+TABLES = ("survey_ratings", "professors", "moderation_calls", "review_agent_runs", "ask_log", "email_sends")
 
 
 @pytest.fixture(autouse=True)
@@ -41,6 +41,8 @@ def seed(pg):
         cur.execute("INSERT INTO review_agent_runs (requests, tokens, keys) VALUES (10, 4000, 6)")
         cur.execute("INSERT INTO ask_log (query, mode, result_status, tokens_used) VALUES "
                     "('q', 'm', 'ok', 1000), ('q', 'm', 'ok', NULL)")
+        cur.execute("INSERT INTO email_sends (sent_at) VALUES (now()), (date_trunc('month', now(), 'UTC')), "
+                    "(now() - interval '40 days')")
     pg.commit()
 
 
@@ -55,19 +57,22 @@ def test_rating_stats_counts_the_last_day_and_fourteen_utc_days(pg):
     assert sum(a + b for a, b in stats["days"]) == 3
 
 
-def test_usage_meters_sum_agent_checker_and_note_unreadable_resend(pg):
+def test_usage_meters_count_sends_by_utc_day_and_month_and_sum_groq(pg):
     seed(pg)
-    meters = review_digest.usage_meters(pg, None)
-    assert meters[0] == {"label": "Resend", "note": "Resend usage unavailable: key can't read usage"}
-    assert meters[1] == {"label": "Groq agent", "used": 5000, "limit": 1_200_000, "unit": "tokens"}
-    assert meters[2] == {"label": "Groq checker", "used": 500, "limit": 200_000, "unit": "tokens"}
+    meters = review_digest.usage_meters(pg)
+    # The month-start send is also today's on the 1st.
+    today = 2 if datetime.now(timezone.utc).day == 1 else 1
+    assert meters[0] == {"label": "Resend today", "used": today, "limit": 100, "unit": ""}
+    assert meters[1] == {"label": "Resend month", "used": 2, "limit": 3000, "unit": ""}
+    assert meters[2] == {"label": "Groq agent", "used": 5000, "limit": 1_200_000, "unit": "tokens"}
+    assert meters[3] == {"label": "Groq checker", "used": 500, "limit": 200_000, "unit": "tokens"}
 
 
 def test_usage_meters_on_an_empty_database_fall_back_to_the_configured_keys(pg):
-    meters = review_digest.usage_meters(pg, {"daily": {"used": 3, "limit": 100}, "monthly": {"used": 9, "limit": None}})
-    assert meters[0] == {"label": "Resend today", "used": 3, "limit": 100, "unit": ""}
-    assert [m["label"] for m in meters] == ["Resend today", "Groq agent", "Groq checker"]
-    assert meters[1]["used"] == 0 and meters[1]["limit"] >= 1000
+    meters = review_digest.usage_meters(pg)
+    assert [m["label"] for m in meters] == ["Resend today", "Resend month", "Groq agent", "Groq checker"]
+    assert meters[0]["used"] == 0 and meters[1]["used"] == 0
+    assert meters[2]["used"] == 0 and meters[2]["limit"] >= 1000
 
 
 def test_main_dry_run_shows_professor_names(pg, pg_env, capsys):

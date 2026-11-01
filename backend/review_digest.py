@@ -7,8 +7,7 @@ Runs from .github/workflows/review-digest.yml. HTML plus a text part, always sen
 that fits Resend's free 100/day next to the feedback caps and usage alerts (see
 FEEDBACK_DAILY_LIMIT in server.py). Counts, names, course codes, hold reasons and rating ids
 only: no comments, agent reasons, hashes or network data. Reads ORACLE_DATABASE_URL and
-RESEND_API_KEY; the Resend meters need a full-access key (a sending-only key shows an
-"unavailable" row instead).
+RESEND_API_KEY. The Resend meters count email_sends (see notify.RECORD_SEND) by UTC day and month.
 """
 
 import argparse
@@ -114,11 +113,9 @@ def _meter_shown(m):
 
 
 def _limits_in_subject(meters):
-    hot = sorted(((dh.pct(m["used"], m["limit"]), m["label"]) for m in meters if m.get("limit")),
+    hot = sorted(((dh.pct(m["used"], m["limit"]), m["label"]) for m in meters),
                  key=lambda p: -p[0])
     parts = [f"{label} at {p}%" for p, label in hot if p >= 50]
-    if any(m.get("note") for m in meters):
-        parts.append("Resend usage unknown")
     return ", ".join(parts) or "limits OK"
 
 
@@ -132,7 +129,7 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
     """(subject, text, html). Pure."""
     ratings = ratings or {"new": 0, "live": 0, "held": 0, "rejected": 0, "live_all": 0, "comments_all": 0,
                           "days": [(0, 0)] * 14}
-    meters = [m for m in (meters or []) if m.get("limit") or m.get("note")]
+    meters = [m for m in (meters or []) if m.get("limit")]
     waiting = len(held) + pending_comments + pending_professors + pending_courses + len(aliases)
     subject = (f"[RateMyHusky] {f'{waiting} to review' if waiting else 'Nothing to review'}, "
                f"{_plural(ratings['new'], 'new rating')}, {_limits_in_subject(meters)}")
@@ -183,8 +180,7 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
     sections = (dh.section("Needs you", needs, first=True) + dh.section("Ratings", ratings_html)
                 + dh.section("Review agent", agent_html))
     if meters:
-        meter_rows = "".join(dh.meter(m["label"], m["used"], m["limit"], _meter_shown(m)) if m.get("limit")
-                             else dh.meter_note(m["note"]) for m in meters)
+        meter_rows = "".join(dh.meter(m["label"], m["used"], m["limit"], _meter_shown(m)) for m in meters)
         sections += dh.section(
             "Usage limits",
             f'<table {_TABLE} style="font-size:12px;color:#444;">{meter_rows}</table>'
@@ -205,11 +201,11 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
     text += ["", "Ratings"] + [f"{label}: {n}" for label, n, _, _ in nums] + [f"{k}: {v}" for k, v in totals]
     text += ["", "Review agent", agent_line] + [f"{label}: {n}" for n, label, _, _ in agent_parts]
     if meters:
-        text += ["", "Usage limits"] + [f"{m['label']}: {_meter_shown(m)}" if m.get("limit") else m["note"]
-                                        for m in meters]
+        text += ["", "Usage limits"] + [f"{m['label']}: {_meter_shown(m)}" for m in meters]
     text += ["", "Full queue: python review_ratings.py list", "No comment text, hashes or network data in this email."]
     return subject, "\n".join(text), html
 
+RESEND_LIMITS = (100, 3000)  # free plan: emails per UTC day, per month
 CHECKER_LIMITS = (1000, 200_000)
 AGENT_LIMITS_PER_KEY = (1000, 200_000)
 _DAY = "now() - interval '1 day'"
@@ -236,15 +232,12 @@ def rating_stats(conn, now):
             "days": [by_day.get(first + timedelta(days=i), (0, 0)) for i in range(14)]}
 
 
-def usage_meters(conn, resend):
-    """The `meters` list of build_digest. `resend` is notify.resend_usage()'s result."""
-    meters = []
-    if resend is None:
-        meters.append({"label": "Resend", "note": "Resend usage unavailable: key can't read usage"})
-    else:
-        for key, label in (("daily", "Resend today"), ("monthly", "Resend month")):
-            if resend[key]["limit"]:
-                meters.append({"label": label, "used": resend[key]["used"], "limit": resend[key]["limit"], "unit": ""})
+def usage_meters(conn):
+    """The `meters` list of build_digest."""
+    (sends,) = fetch_all(conn, "SELECT count(*) FILTER (WHERE sent_at >= date_trunc('day', now(), 'UTC')) AS day, "
+                               "count(*) AS month FROM email_sends WHERE sent_at >= date_trunc('month', now(), 'UTC')")
+    meters = [{"label": "Resend today", "used": int(sends["day"]), "limit": RESEND_LIMITS[0], "unit": ""},
+              {"label": "Resend month", "used": int(sends["month"]), "limit": RESEND_LIMITS[1], "unit": ""}]
     (agent,) = fetch_all(conn, f"""
         SELECT (SELECT COALESCE(sum(requests), 0) FROM review_agent_runs WHERE ran_at >= {_DAY})
                  + (SELECT count(*) FROM ask_log WHERE created_at >= {_DAY} AND tokens_used > 0) AS requests,
@@ -294,19 +287,24 @@ def main(argv=None, now=None):
             conn, "SELECT slug, name FROM professors WHERE slug = ANY(%s)", (slugs,))}
         now = now or datetime.now(timezone.utc)
         ratings = rating_stats(conn, now)
-        meters = usage_meters(conn, notify.resend_usage())
+        meters = usage_meters(conn)
+        subject, text, html = build_digest(held, approved, professors[0]["n"], courses[0]["n"], now, merges,
+                                           prof_merges, aliases, pending_comments=comments[0]["n"],
+                                           names=names, ratings=ratings, meters=meters)
+        if args.dry_run:
+            path = os.path.join(tempfile.gettempdir(), "review-digest.html")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(html)
+            print(f"{subject}\n\n{text}\n\nHTML preview: {path}")
+            return 0
+        if not notify.send_team_email(subject, text, to=notify.DIGEST_EMAIL, html=html):
+            return 1
+        with conn.cursor() as cur:
+            cur.execute(notify.RECORD_SEND)
+        conn.commit()
+        return 0
     finally:
         conn.close()
-    subject, text, html = build_digest(held, approved, professors[0]["n"], courses[0]["n"], now, merges,
-                                       prof_merges, aliases, pending_comments=comments[0]["n"],
-                                       names=names, ratings=ratings, meters=meters)
-    if args.dry_run:
-        path = os.path.join(tempfile.gettempdir(), "review-digest.html")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(html)
-        print(f"{subject}\n\n{text}\n\nHTML preview: {path}")
-        return 0
-    return 0 if notify.send_team_email(subject, text, to=notify.DIGEST_EMAIL, html=html) else 1
 
 
 if __name__ == "__main__":

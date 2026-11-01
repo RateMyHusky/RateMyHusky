@@ -1,5 +1,4 @@
 import re
-from html import escape
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -168,22 +167,11 @@ def test_agent_sentence_and_bar_cover_only_decisions_from_the_last_24_hours():
     assert "--abuse oldoldol" in text and "--abuse newnewne" in text and "Reject 2 attacks" in html
 
 
-def test_subject_flags_unknown_resend_usage_instead_of_limits_ok():
-    note = {"label": "Resend", "note": "Resend usage unavailable: key can't read usage"}
-    checker = {"label": "Groq checker", "used": 170000, "limit": 200000, "unit": "tokens"}
-    ok = {"label": "Groq agent", "used": 1, "limit": 100, "unit": "tokens"}
-    assert review_digest.build_digest([], [], 0, 0, NOW, meters=[note, ok])[0].endswith(", 0 new ratings, Resend usage unknown")
-    assert review_digest.build_digest([], [], 0, 0, NOW, meters=[note, checker, ok])[0].endswith(
-        ", Groq checker at 85%, Resend usage unknown")
-    assert review_digest.build_digest([], [], 0, 0, NOW, meters=[ok])[0].endswith(", limits OK")
-
-
-def test_meters_render_and_a_note_replaces_resend():
-    note = "Resend usage unavailable: key can't read usage"
-    meters = [{"label": "Resend", "note": note},
+def test_meters_render():
+    meters = [{"label": "Resend today", "used": 3, "limit": 100, "unit": ""},
               review_digest.groq_meter("Groq agent", 120, 38000, 6000, 1200000)]
     _, text, html = review_digest.build_digest([], [], 0, 0, NOW, meters=meters)
-    assert html.count("Resend usage unavailable: key can&#x27;t read usage") == 1
+    assert "Resend today" in html and "3 / 100" in html and "Resend today: 3 / 100" in text
     assert "Groq agent" in html and "38K / 1.2M tokens" in html and "38K / 1.2M tokens" in text
     assert [review_digest.fmt(n) for n in (1212, 38000, 1200000, 2000000)] == ["1,212", "38K", "1.2M", "2M"]
     assert [review_digest.fmt(n) for n in (38412, 129400, 999950)] == ["38K", "129K", "1M"]
@@ -209,7 +197,8 @@ def test_no_middot_and_one_reason_per_row():
     codes = ["unverified_pair", "unverified_term", "too_fast", "no_timer", "stale", "datacenter", "skew_week",
              "near_duplicate", "moderation_block", "silent_hold", "burst_prof"]
     held = [H("a", "CS1", ",".join(codes))]
-    meters = [{"label": "Resend", "note": "note"}, {"label": "Resend today", "used": 1, "limit": 100, "unit": ""}]
+    meters = [{"label": "Resend today", "used": 1, "limit": 100, "unit": ""},
+              {"label": "Resend month", "used": 9, "limit": 3000, "unit": ""}]
     subject, text, html = review_digest.build_digest(held, held, 1, 1, NOW, names={"a": "N" * 60}, meters=meters)
     assert not any("·" in x for x in (subject, text, html))
     labels = {review_digest.reason_label(c) for c in codes}
@@ -218,10 +207,12 @@ def test_no_middot_and_one_reason_per_row():
     assert len(reason_rows) == 11
 
 
-def _main(monkeypatch, held, pending=(0, 0), key="re-test", comments=0, approved=(), usage_status=200):
-    posts = []
+def _main(monkeypatch, held, pending=(0, 0), key="re-test", comments=0, approved=(), sent_ok=True):
+    posts, recorded = [], []
 
     def fetch(conn, sql, params=None):
+        if "FROM email_sends" in sql:
+            return [{"day": 3, "month": 40}]
         if "AS live_all" in sql:
             return [{"new": 0, "live": 0, "held": 0, "rejected": 0, "live_all": 0, "comments_all": 0}]
         if "AS day" in sql:
@@ -240,45 +231,48 @@ def _main(monkeypatch, held, pending=(0, 0), key="re-test", comments=0, approved
             return []
         return [{"n": pending[0] if "professors" in sql else pending[1]}]
 
-    usage = {"emails": {"daily": {"used": 3, "limit": 100}, "monthly": {"used": 40, "limit": 3000}}}
-    monkeypatch.setattr(review_digest, "connect", lambda: SimpleNamespace(close=lambda: None))
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def execute(self, sql, params=None): recorded.append(sql)
+
+    monkeypatch.setattr(review_digest, "connect", lambda: SimpleNamespace(
+        close=lambda: None, cursor=Cursor, commit=lambda: recorded.append("COMMIT")))
     monkeypatch.setattr(review_digest, "fetch_all", fetch)
     monkeypatch.setattr(review_digest.notify.http_requests, "post",
-                        lambda url, **kw: posts.append(kw["json"]) or SimpleNamespace(ok=True))
-    monkeypatch.setattr(review_digest.notify.http_requests, "get",
-                        lambda url, **kw: SimpleNamespace(ok=usage_status == 200, status_code=usage_status,
-                                                          json=lambda: usage))
+                        lambda url, **kw: posts.append(kw["json"]) or SimpleNamespace(ok=sent_ok, status_code=500))
     if key:
         monkeypatch.setenv("RESEND_API_KEY", key)
     else:
         monkeypatch.delenv("RESEND_API_KEY", raising=False)
-    return posts
+    return posts, recorded
 
 
 def test_main_sends_daily_to_the_ratings_inbox_with_html(monkeypatch):
-    posts = _main(monkeypatch, [H("jane-doe", "CS2500", "burst_pause")])
+    posts, recorded = _main(monkeypatch, [H("jane-doe", "CS2500", "burst_pause")])
     assert review_digest.main([], now=NOW) == 0
     (payload,) = posts
+    assert recorded == ["INSERT INTO email_sends DEFAULT VALUES", "COMMIT"]
     assert payload["to"] == ["ratings@ratemyhusky.com"]
     assert payload["from"] == "RateMyHusky <feedback@ratemyhusky.com>"
     assert payload["subject"].startswith("[RateMyHusky] 1 to review, 0 new ratings")
     assert payload["text"] and payload["html"].startswith("<!DOCTYPE html>")
-    assert "Resend today" in payload["html"]
+    assert "Resend today: 3 / 100" in payload["text"] and "Resend month: 40 / 3,000" in payload["text"]
 
 
 def test_main_sends_even_when_nothing_is_waiting(monkeypatch):
-    posts = _main(monkeypatch, [])
+    posts, _ = _main(monkeypatch, [])
     assert review_digest.main([], now=NOW) == 0
     (payload,) = posts
     assert payload["subject"].startswith("[RateMyHusky] Nothing to review")
 
 
 def test_main_dry_run_writes_html_and_prints_text(monkeypatch, capsys, tmp_path):
-    posts = _main(monkeypatch, [H("jane-doe", "CS2500", "burst_pause")])
+    posts, recorded = _main(monkeypatch, [H("jane-doe", "CS2500", "burst_pause")])
     monkeypatch.setattr(review_digest.tempfile, "gettempdir", lambda: str(tmp_path))
     assert review_digest.main(["--dry-run"], now=NOW) == 0
     out = capsys.readouterr().out
-    assert posts == [] and out.startswith("[RateMyHusky] 1 to review") and "Needs you" in out
+    assert posts == [] and recorded == [] and out.startswith("[RateMyHusky] 1 to review") and "Needs you" in out
     path = out.rsplit("HTML preview: ", 1)[1].strip()
     assert path == str(tmp_path / "review-digest.html")
     assert open(path, encoding="utf-8").read().startswith("<!DOCTYPE html>")
@@ -286,16 +280,13 @@ def test_main_dry_run_writes_html_and_prints_text(monkeypatch, capsys, tmp_path)
 
 def test_main_fails_without_a_resend_key(monkeypatch):
     # The workflow run turns red, so a missing secret doesn't silently stop the digest.
-    posts = _main(monkeypatch, [H("jane-doe", "CS2500", "burst_pause")], key=None)
-    assert review_digest.main([], now=NOW) == 1 and posts == []
+    posts, recorded = _main(monkeypatch, [H("jane-doe", "CS2500", "burst_pause")], key=None)
+    assert review_digest.main([], now=NOW) == 1 and posts == [] and recorded == []
 
 
-def test_a_sending_only_key_still_sends_with_the_unavailable_row(monkeypatch):
-    posts = _main(monkeypatch, [], usage_status=401)
-    assert review_digest.main([], now=NOW) == 0
-    (payload,) = posts
-    note = "Resend usage unavailable: key can't read usage"
-    assert payload["html"].count(escape(note)) == 1 and payload["text"].count(note) == 1
+def test_a_send_resend_refuses_is_not_counted(monkeypatch):
+    posts, recorded = _main(monkeypatch, [], sent_ok=False)
+    assert review_digest.main([], now=NOW) == 1 and len(posts) == 1 and recorded == []
 
 
 def test_no_comment_or_agent_reason_reaches_the_email():

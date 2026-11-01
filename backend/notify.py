@@ -1,4 +1,7 @@
-"""Team email through Resend: one sender; feedback goes to the team inbox, the review digest to its own."""
+"""Team email through Resend: one sender; feedback goes to the team inbox, the review digest to its own.
+
+Every sender (this one and usage_alert) runs RECORD_SEND after Resend accepts an email, so the
+review digest can meter Resend usage without a full-access key."""
 
 import os
 
@@ -6,6 +9,7 @@ import requests as http_requests
 
 TEAM_EMAIL = "feedback@ratemyhusky.com"
 DIGEST_EMAIL = "ratings@ratemyhusky.com"
+RECORD_SEND = "INSERT INTO email_sends DEFAULT VALUES"
 
 
 def send_team_email(subject, text, reply_to=None, to=None, html=None):
@@ -33,29 +37,3 @@ def send_team_email(subject, text, reply_to=None, to=None, html=None):
         print(f"[notify] Resend error {resp.status_code}")
     return bool(resp.ok)
 
-
-def resend_usage():
-    """{"daily": {"used", "limit"}, "monthly": {...}} from Resend, or None (logged) when it can't be read."""
-    api_key = os.getenv("RESEND_API_KEY")
-    if not api_key:
-        print("[notify] RESEND_API_KEY not configured, usage unavailable")
-        return None
-    try:
-        resp = http_requests.get(
-            "https://api.resend.com/usage",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=10,
-        )
-    except Exception as e:
-        print(f"[notify] Resend usage request error: {type(e).__name__}")
-        return None
-    if not resp.ok:
-        print(f"[notify] Resend usage error {resp.status_code}")
-        return None
-    try:
-        emails = resp.json()["emails"]
-        return {k: {"used": int(emails[k]["used"]),
-                    "limit": None if emails[k].get("limit") is None else int(emails[k]["limit"])} for k in ("daily", "monthly")}
-    except Exception:
-        print("[notify] Resend usage reply unreadable")
-        return None

@@ -89,7 +89,6 @@ def test_no_middot_anywhere():
         h.stacked_bar([(1, "#27ae60")]),
         h.legend([(1, "a", "#27ae60"), (2, "b", "#e74c3c")]),
         h.meter("m", 1, 2, "1 / 2"),
-        h.meter_note("note"),
         h.page("s", "d", "b", "f"),
     ])
     assert "\u00b7" not in html
