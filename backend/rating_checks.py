@@ -109,11 +109,14 @@ def validate_submission(body, this_year):
     else:
         course_name = course_name.strip()
 
-    # Required: a rating without a term would skip the Banner term check (ratings.term_unverified).
+    # Temporary: None from a page still on the form from before "Not sure" was removed, which any
+    # client can also send. The submit route holds it as unverified_term, so leaving the term out
+    # can't skip the Banner term check. Once no such page can still be open, require it here.
     term = body.get("term")
-    m = TERM_RE.fullmatch(term) if isinstance(term, str) else None
-    if not m or label_code(term) is None or not this_year - TERM_YEARS <= int(m.group(2)) <= this_year + 1:
-        return None, "Invalid term"
+    if term is not None:
+        m = TERM_RE.fullmatch(term) if isinstance(term, str) else None
+        if not m or label_code(term) is None or not this_year - TERM_YEARS <= int(m.group(2)) <= this_year + 1:
+            return None, "Invalid term"
 
     rating = body.get("rating")
     if type(rating) is not int or not 1 <= rating <= 5:

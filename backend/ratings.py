@@ -117,19 +117,30 @@ def pair_taught(slug, code, query_one):
 # section of the course in it: a TBA section or a sections-only term could be theirs.
 # Seasons match on Banner's season_group, so all of a year's summer sessions are one (from
 # 2026 one "Summer 2026" term holds Summer 1 and 2), and CPS's Winter quarter counts as
-# Spring, as in scraper/banner_api.pattern_season: the form doesn't offer Winter.
-# Sections never looked up (banner_api.NON_TEACHING_SCHEDULE_TYPES) don't count as gaps.
+# Spring: the form doesn't offer Winter. Sections never looked up don't count as gaps.
 # A merged professor's older spellings are in instructor_keys. A reviewer's approval of a
-# rating held as unverified_term vouches for that term, as TAUGHT_SQL does for a pair.
-_TERM_MATCH = ("(CASE WHEN bt.season_group = 'Winter' THEN 'Spring' ELSE bt.season_group END) = %(group)s "
-               "AND bt.year = %(year)s")
+# rating held as unverified_term vouches for that term's season, as TAUGHT_SQL does for a pair.
+# Copies of scraper/banner_api's _PATTERN_SEASON and NON_TEACHING_SCHEDULE_TYPES: the server
+# deploys without scraper/. tests/test_ratings.py keeps them in step.
+_PATTERN_SEASON = {"Winter": "Spring"}
+NON_TEACHING_SCHEDULE_TYPES = frozenset({"individual instruction", "coop placement"})
+_TERM_SEASONS = ("Fall", "Spring", "Summer 1", "Summer 2", "Summer", "Winter")  # rating_checks.TERM_RE
+
+
+def _season_group(season):
+    """A term's season -> the season it's checked as: "Summer 1" -> "Summer", "Winter" -> "Spring"."""
+    group = season.split()[0]
+    return _PATTERN_SEASON.get(group, group)
+
+
+_TERM_MATCH = "bt.season_group = ANY(%(groups)s) AND bt.year = %(year)s"
 TERM_SQL = (
     "SELECT EXISTS (SELECT 1 FROM banner_course_instructors WHERE subject_course = %(code)s "
     "AND professor_slug = %(slug)s) "
     f"AND EXISTS (SELECT 1 FROM banner_terms bt WHERE {_TERM_MATCH} AND bt.instructors_source = 'banner') "
     "AND NOT EXISTS (SELECT 1 FROM banner_sections bs JOIN banner_terms bt ON bt.term_code = bs.term_code "
     f"WHERE bs.subject_course = %(code)s AND {_TERM_MATCH} AND (bt.instructors_source <> 'banner' OR ("
-    "lower(coalesce(bs.schedule_type, '')) NOT IN ('individual instruction', 'coop placement') "
+    f"lower(coalesce(bs.schedule_type, '')) NOT IN ({', '.join(repr(s) for s in sorted(NON_TEACHING_SCHEDULE_TYPES))}) "
     "AND NOT EXISTS (SELECT 1 FROM banner_section_instructors bsi "
     "WHERE bsi.term_code = bs.term_code AND bsi.crn = bs.crn)))) AS term_checkable, "
     "EXISTS (SELECT 1 FROM banner_sections bs "
@@ -140,7 +151,7 @@ TERM_SQL = (
     "AND bci.subject_course = bs.subject_course "
     f"WHERE bs.subject_course = %(code)s AND bci.professor_slug = %(slug)s AND {_TERM_MATCH}) "
     "OR EXISTS (SELECT 1 FROM survey_ratings WHERE course_code = %(code)s AND professor_slug = %(slug)s "
-    "AND term_label = %(term)s AND status = 'accepted' "
+    "AND term_label = ANY(%(labels)s) AND status = 'accepted' "
     "AND string_to_array(hold_reasons, ',') @> ARRAY['unverified_term']) AS term_taught"
 )
 
@@ -150,8 +161,10 @@ def term_unverified(slug, code, term_label, query_one):
     A gap in Banner's data (a term before it, a TBA section, a pair only RMP knows) never
     counts against the student."""
     season, _, year = term_label.rpartition(" ")
-    group = "Summer" if season.startswith("Summer") else {"Winter": "Spring"}.get(season, season)
-    row = query_one(TERM_SQL, {"code": code, "slug": slug, "group": group, "year": int(year), "term": term_label})
+    seasons = [s for s in _TERM_SEASONS if _season_group(s) == _season_group(season)]
+    row = query_one(TERM_SQL, {"code": code, "slug": slug, "year": int(year),
+                               "groups": sorted({s.split()[0] for s in seasons}),
+                               "labels": [f"{s} {year}" for s in seasons]})
     return bool(row and row["term_checkable"] and not row["term_taught"])
 
 
@@ -209,7 +222,8 @@ def find_pending_course(code, query_one):
 
 def existing_rating(device_hash, key, query_one):
     return query_one(
-        f"SELECT id, status, hold_reasons, comment FROM survey_ratings WHERE device_hash = %s AND {_KEY_MATCH}",
+        f"SELECT id, status, hold_reasons, comment, term_label FROM survey_ratings "
+        f"WHERE device_hash = %s AND {_KEY_MATCH}",
         (device_hash, *_key_params(key)))
 
 

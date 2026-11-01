@@ -75,7 +75,6 @@ def _body(**over):
     _body(term="Summer Full 2025"),
     _body(term="Fall 2025\n"),
     _body(term="Fall ٢٠٢٥"),
-    _body(term=None),
     _body(course={"code": "CS２５００"}),
     _body(comment="x" * 2001),
     _body(professor="jane-doe"),
@@ -152,11 +151,10 @@ def test_validate_new_professor_and_course():
     assert clean["new_course_name"] == "Fundies" and clean["comment"] == ""
 
 
-def test_validate_requires_a_term():
-    # The form has no "Not sure": a rating without a term would skip the Banner term check.
-    body = _body()
-    del body["term"]
-    assert rc.validate_submission(body, 2026) == (None, "Invalid term")
+def test_validate_lets_an_old_page_send_no_term():
+    # Temporary: a page from before "Not sure" was removed sends None; the route holds it.
+    clean, err = rc.validate_submission(_body(term=None), 2026)
+    assert err is None and clean["term_label"] is None
 
 
 def test_validate_missing_grade_is_none():

@@ -567,3 +567,15 @@ def test_purge_also_drops_expired_ip_flags():
     ratings.purge_ip_hashes(f.write, NOW)
     cutoff = NOW - timedelta(days=30)
     assert f.writes[1] == ("DELETE FROM rating_flags WHERE kind = 'ip' AND created_at < %s", (cutoff,))
+
+
+def test_term_check_copies_match_the_scraper():
+    # The server deploys without scraper/, so ratings keeps copies; this keeps them in step.
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scraper"))
+    import banner_api
+
+    assert ratings.NON_TEACHING_SCHEDULE_TYPES == banner_api.NON_TEACHING_SCHEDULE_TYPES
+    for group in ("Fall", "Spring", "Summer", "Winter"):
+        assert ratings._season_group(group) == banner_api.pattern_season(group), group

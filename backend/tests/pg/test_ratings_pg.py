@@ -281,10 +281,10 @@ def test_term_unverified_skips_banner_gaps(pg):
         cur.execute("DELETE FROM banner_terms WHERE term_code = '202635'")
     pg.commit()
     assert ratings.term_unverified("thomas-williams", "CS2500", "Spring 2026", query_one)
-    # A reviewer approving a rating held for that term vouches for it.
+    # A reviewer approving a rating held for a term vouches for every label of its season: Winter is Spring.
     insert(pg, "d1", "thomas-williams", None, "CS2500", None, status="held")
     with pg.cursor() as cur:
-        cur.execute("UPDATE survey_ratings SET term_label = 'Spring 2026', hold_reasons = 'unverified_term'")
+        cur.execute("UPDATE survey_ratings SET term_label = 'Winter 2026', hold_reasons = 'unverified_term'")
     pg.commit()
     assert ratings.term_unverified("thomas-williams", "CS2500", "Spring 2026", query_one)
     with pg.cursor() as cur:
