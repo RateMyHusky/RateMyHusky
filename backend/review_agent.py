@@ -778,52 +778,54 @@ def main(argv=None):
     args = parser.parse_args(argv)
     deadline = time.monotonic() + RUN_SECONDS
     entries = load_entries()
+    groq = Groq(KeyPool(entries)) if entries else None
     counts = None
-    if entries:
-        groq = Groq(KeyPool(entries))
-        calls = []
-
-        def ask(messages):
-            if calls:
-                time.sleep(CALL_GAP_SECONDS)
-            calls.append(1)
-            return groq.ask(messages)
-
-        conn = connect()
-        try:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                counts = review_held(cur, ask, dry_run=args.dry_run)
-        finally:
-            conn.close()
-        print(dict(counts))
-    else:
-        print("no Groq keys; no held ratings reviewed")
-    # After the held review, so an entry whose held rating was just approved merges this run, and
-    # a merge error can't stop the held review. Plain code, so they run with or without a Groq key.
-    # Professors go first: a course rated only under a new professor can't merge until that professor has.
-    conn = connect()
     try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            print("professors", dict(review_pending_professors(cur, datetime.now(timezone.utc), dry_run=args.dry_run)))
-            print("courses", dict(review_pending_courses(cur, dry_run=args.dry_run)))
-    finally:
-        conn.close()
-    if counts is not None and not counts["unavailable"] and (args.nicknames or datetime.now(timezone.utc).weekday() == 0):
+        if entries:
+            calls = []
+
+            def ask(messages):
+                if calls:
+                    time.sleep(CALL_GAP_SECONDS)
+                calls.append(1)
+                return groq.ask(messages)
+
+            conn = connect()
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    counts = review_held(cur, ask, dry_run=args.dry_run)
+            finally:
+                conn.close()
+            print(dict(counts))
+        else:
+            print("no Groq keys; no held ratings reviewed")
+        # After the held review, so an entry whose held rating was just approved merges this run, and
+        # a merge error can't stop the held review. Plain code, so they run with or without a Groq key.
+        # Professors go first: a course rated only under a new professor can't merge until that professor has.
         conn = connect()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                print("nicknames", dict(mine_nicknames(cur, ask, dry_run=args.dry_run, deadline=deadline)))
+                print("professors", dict(review_pending_professors(cur, datetime.now(timezone.utc), dry_run=args.dry_run)))
+                print("courses", dict(review_pending_courses(cur, dry_run=args.dry_run)))
         finally:
             conn.close()
-    if not args.dry_run:
-        # Last, so the nickname calls count.
-        conn = connect()
-        try:
-            with conn.cursor() as cur:
-                record_run(cur, groq.used if entries else {}, len(entries), datetime.now(timezone.utc))
-            conn.commit()
-        finally:
-            conn.close()
+        if counts is not None and not counts["unavailable"] and (args.nicknames or datetime.now(timezone.utc).weekday() == 0):
+            conn = connect()
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    print("nicknames", dict(mine_nicknames(cur, ask, dry_run=args.dry_run, deadline=deadline)))
+            finally:
+                conn.close()
+    finally:
+        # Also when a pass raised or the step timeout interrupted the run, so the calls already made count.
+        if not args.dry_run:
+            conn = connect()
+            try:
+                with conn.cursor() as cur:
+                    record_run(cur, groq.used if groq else {}, len(entries), datetime.now(timezone.utc))
+                conn.commit()
+            finally:
+                conn.close()
     return 0
 
 

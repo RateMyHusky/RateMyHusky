@@ -1273,3 +1273,15 @@ def test_a_course_pass_error_leaves_the_held_review_done(monkeypatch):
     with pytest.raises(psycopg2.OperationalError):
         ra.main([])
     assert order == ["held", "professors", "courses"]
+
+
+def test_a_pass_that_raises_still_records_the_run(monkeypatch):
+    # A crash or the step timeout mid-run is a heavy Groq day: the calls already made still count.
+    def boom(cur, dry_run=False):
+        raise KeyboardInterrupt
+    runs = []
+    _main(monkeypatch, ["k1"], boom, runs=runs)
+    with pytest.raises(KeyboardInterrupt):
+        ra.main([])
+    [(sql, params)] = [r for r in runs if r[0].startswith("INSERT INTO review_agent_runs")]
+    assert tuple(params)[1:] == (4, 700, 1)
