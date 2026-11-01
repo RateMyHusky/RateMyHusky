@@ -646,11 +646,13 @@ const Professor = () => {
   if (loadError || !profile || !stats) return <div className="prof-page"><LoadError /></div>;
 
   const identity = profile.identity;
-  const studentCount = filteredStudentReviews.length;
+  // Ratings, not reviews: reviews[] holds approved comments only. There is no survey-only count per
+  // course (courses[].numRatings mixes in RMP), so a course filter gets the link, not a counted card.
+  const surveyCount = profile.sources.survey.numRatings;
   const profLast = lastName(identity.name);
   const rateCourse = selectedCourses.size === 1 ? [...selectedCourses][0] : null;
-  const showRateCard = RATE_ENABLED && !ratedHere && studentCount < 5;
-  const showRateLink = RATE_ENABLED && !ratedHere && studentCount >= 5;
+  const showRateCard = RATE_ENABLED && !ratedHere && unfiltered && surveyCount < 5;
+  const showRateLink = RATE_ENABLED && !ratedHere && !showRateCard;
   const summary = profile.summary;
   const rmp = profile.sources.rmp;
   // A selection of courses no one has rated has nothing to chart either.
@@ -1127,24 +1129,19 @@ const Professor = () => {
                 <button className="prof-action-link" onClick={() => setSelectedCourses(new Set())}>Show all</button>
               </div>
             )}
-            {showRateCard && studentCount > 0 && (
+            {showRateCard && (
               <div className="prof-rate-card">
                 <p className="prof-rate-card-text">
-                  {`Only ${studentCount} ${studentCount === 1 ? 'Husky has' : 'Huskies have'} rated Prof. ${profLast}${unfiltered ? '' : ` for ${selectedLabel}`}. Help a Husky out`}
+                  {surveyCount === 0
+                    ? `Be the first Husky to rate Prof. ${profLast}`
+                    : `Only ${surveyCount} ${surveyCount === 1 ? 'Husky has' : 'Huskies have'} rated Prof. ${profLast}. Help a Husky out.`}
                 </p>
-                <Link to={rateHref(identity.slug, 'tab_few', rateCourse)} className="prof-rate-btn">Rate this professor</Link>
+                <Link to={rateHref(identity.slug, surveyCount === 0 ? 'tab_empty' : 'tab_few')} className="prof-rate-btn">Rate this professor</Link>
               </div>
             )}
             <div className="prof-reviews-list">
               {filteredStudentReviews.length === 0 ? (
-                showRateCard ? (
-                  <div className="prof-rate-card">
-                    <p className="prof-rate-card-text">
-                      {`Be the first Husky to rate Prof. ${profLast}${unfiltered ? '' : ` for ${selectedLabel}`}`}
-                    </p>
-                    <Link to={rateHref(identity.slug, 'tab_empty', rateCourse)} className="prof-rate-btn">Rate this professor</Link>
-                  </div>
-                ) : (
+                !(showRateCard && surveyCount === 0) && (
                 <p className="prof-no-reviews">
                   {studentReviews.length === 0 ? 'No RateMyHusky reviews yet.' : 'No reviews match current filters.'}
                 </p>

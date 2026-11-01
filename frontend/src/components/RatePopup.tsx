@@ -69,27 +69,29 @@ export default function RatePopup({ slug, profName, reviewsRef }: Props) {
     };
     document.addEventListener('visibilitychange', onVisibility);
 
+    // Counts on a scroll that leaves the reviews' top above the bottom 15% of the screen. Reviews already
+    // on screen at load wait for a scroll, so a tall window can't fire 'scroll' with no scrolling.
     const el = reviewsRef.current;
-    const observer = el
-      ? new IntersectionObserver(entries => {
-          if (!entries.some(e => e.isIntersecting)) return;
-          observer?.disconnect();
-          scrolled = true;
-          schedule();
-        }, { threshold: 0.15 })
-      : null;
-    if (el) observer?.observe(el);
+    const onScroll = () => {
+      if (!el || el.getBoundingClientRect().top > window.innerHeight * 0.85) return;
+      window.removeEventListener('scroll', onScroll);
+      scrolled = true;
+      schedule();
+    };
+    if (el) window.addEventListener('scroll', onScroll, { passive: true });
 
     schedule();
 
     return () => {
       window.clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibility);
-      observer?.disconnect();
+      window.removeEventListener('scroll', onScroll);
     };
   }, [slug, reviewsRef]);
 
-  if (!trigger) return null;
+  // The live region stays mounted while empty: screen readers announce content added to an
+  // existing region, not a region that arrives already filled.
+  if (!trigger) return <div aria-live="polite" />;
 
   const hide = () => setTrigger(null);
   const dismiss = () => {
@@ -100,7 +102,8 @@ export default function RatePopup({ slug, profName, reviewsRef }: Props) {
   };
 
   return (
-    <div className="rate-popup" role="region" aria-live="polite" aria-label="Rate this professor">
+    <div aria-live="polite">
+    <div className="rate-popup" role="region" aria-label="Rate this professor">
       <button type="button" className="rate-popup-close" aria-label="Close" onClick={dismiss}>
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
           <line x1="6" y1="6" x2="18" y2="18" /><line x1="18" y1="6" x2="6" y2="18" />
@@ -117,6 +120,7 @@ export default function RatePopup({ slug, profName, reviewsRef }: Props) {
         </Link>
         <button type="button" className="rate-popup-later" onClick={dismiss}>Maybe later</button>
       </div>
+    </div>
     </div>
   );
 }

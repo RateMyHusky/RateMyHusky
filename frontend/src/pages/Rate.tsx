@@ -60,8 +60,8 @@ const toRateCourses = (page: ProfessorPage): RateCourse[] =>
 
 export default function Rate() {
   const [params] = useSearchParams();
-  // Fixed at mount so later URL changes can't change it.
-  const [from] = useState(() => parseFrom(params.get('from')));
+  // Read once at mount so later URL changes can't change it; "Rate another" resets it to direct.
+  const [rateFrom, setRateFrom] = useState(() => parseFrom(params.get('from')));
   const startedTracked = useRef(false);
   const [ready, setReady] = useState(false);
   const [answers, setAnswers] = useState<Answers>({ comment: '' });
@@ -92,8 +92,8 @@ export default function Rate() {
   useEffect(() => {
     if (startedTracked.current) return;
     startedTracked.current = true;
-    track('rate_started', { from });
-  }, [from]);
+    track('rate_started', { from: rateFrom });
+  }, [rateFrom]);
 
   const slug = answers.professor?.slug ?? null;
   // null while the professor's courses load; a new professor has none to load.
@@ -198,7 +198,8 @@ export default function Rate() {
       setSending(false);
       if (res.ok) {
         markRatedNow(answers.professor?.slug ?? null);
-        track('rating_submitted', { from });
+        // An update edits a rating that was already counted, so only a new rating counts toward its prompt.
+        if (!answers.updating) track('rating_submitted', { from: rateFrom });
         if (skip) setAnswers((a) => ({ ...a, comment: '' }));
         setCounter(res.counter);
         reset();
@@ -268,6 +269,9 @@ export default function Rate() {
     setTypedName('');
     setContextReload((n) => n + 1);
     beginVisit();
+    // The prompt that opened the form led to the first rating only.
+    setRateFrom('direct');
+    track('rate_started', { from: 'direct' });
   };
 
   useEffect(() => () => window.clearTimeout(pickTimer.current), []);

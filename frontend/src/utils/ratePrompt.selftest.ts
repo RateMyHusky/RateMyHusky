@@ -66,6 +66,8 @@ function selftest(): number {
   check('recent rating blocks all',
     !canShowPopup(rated, 'a', T + 21 * DAY_MS - 1) && canShowPopup(rated, 'a', T + 21 * DAY_MS)
     && !canShowPopup(rated, 'b', T + 21 * DAY_MS));
+  check('future timestamps from a clock set ahead expire',
+    canShowPopup({ ...fresh, lastShown: T + 365 * DAY_MS, lastDismiss: T + 365 * DAY_MS, lastRated: T + 365 * DAY_MS }, 'a', T));
 
   const nullRated = recordRating(fresh, null, T);
   check('recordRating null slug', nullRated.lastRated === T && nullRated.rated.length === 0);

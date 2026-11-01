@@ -64,8 +64,9 @@ export function saveState(s: PromptState, storage?: Storage | null): void {
   }
 }
 
+// A time in the future (a clock that was set ahead) counts as expired, so it can't block the popup for good.
 const within = (then: number | undefined, now: number, span: number) =>
-  then !== undefined && now - then < span;
+  then !== undefined && now >= then && now - then < span;
 
 export function hasRated(s: PromptState, slug: string): boolean {
   return s.rated.includes(slug);
