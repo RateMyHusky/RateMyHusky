@@ -237,6 +237,62 @@ def test_term_unverified_reads_the_real_banner_tables(pg):
     assert not ratings.term_unverified("john-roe", "CS2500", "Spring 2026", query_one)
 
 
+def test_term_unverified_skips_banner_gaps(pg):
+    import ratings
+
+    truncate(pg, "survey_ratings", "banner_course_instructors", "banner_terms", "banner_sections",
+             "banner_section_instructors")
+    with pg.cursor() as cur:
+        # A merged professor keeps the newest spelling; the older one is only in instructor_keys.
+        cur.execute(
+            "INSERT INTO banner_course_instructors (subject_course, instructor_key, professor_slug, "
+            "match_method, terms_taught, sections, first_term_code, last_term_code, last_term_label, "
+            "instructor_keys) VALUES ('CS2500', 'thomas williams', 'thomas-williams', 'exact', 2, 2, "
+            "'202530', '202610', 'Fall 2025', 'thomas williams|tom williams')")
+        for code, label, season, year, source in (
+                ("202530", "Spring 2025", "Spring", 2025, "banner"), ("202610", "Fall 2025", "Fall", 2025, "banner"),
+                ("202635", "Winter 2026", "Winter", 2026, "banner"), ("202630", "Spring 2026", "Spring", 2026, "banner"),
+                ("202710", "Fall 2026", "Fall", 2026, "none"), ("202650", "Summer 2026", "Summer", 2026, "banner")):
+            cur.execute(
+                "INSERT INTO banner_terms (term_code, term_label, season, season_group, year, view_only, "
+                "scraped_closed, section_count, attributed_sections, instructor_count, instructors_source) "
+                "VALUES (%s, %s, %s, %s, %s, false, true, 1, 1, 1, %s)", (code, label, season, season, year, source))
+        # (term, crn, schedule type, instructor key, or None for TBA)
+        for code, crn, kind, key in (
+                ("202530", "1", "Lecture", "tom williams"),       # under the older spelling
+                ("202610", "2", "Lecture", "thomas williams"),
+                ("202635", "3", "Lecture", "tom williams"),       # CPS Winter quarter
+                ("202630", "4", "Lecture", "someone else"),
+                ("202630", "5", "Individual Instruction", None),  # never looked up, not a gap
+                ("202650", "6", "Lecture", "someone else"),
+                ("202650", "7", "Lecture", None),                 # TBA: could be theirs
+                ("202710", "8", "Lecture", None)):                # a sections-only term
+            cur.execute("INSERT INTO banner_sections (term_code, crn, subject_course, schedule_type) "
+                        "VALUES (%s, %s, 'CS2500', %s)", (code, crn, kind))
+            if key:
+                cur.execute("INSERT INTO banner_section_instructors (term_code, crn, instructor_key, "
+                            "instructor_name) VALUES (%s, %s, %s, 'x')", (code, crn, key))
+    pg.commit()
+    query_one = pg_query_one(pg)
+    # Spring 2026 folds in the Winter quarter, where they taught it.
+    for term in ("Spring 2025", "Fall 2025", "Winter 2026", "Spring 2026", "Summer 1 2026", "Fall 2026"):
+        assert not ratings.term_unverified("thomas-williams", "CS2500", term, query_one), term
+    with pg.cursor() as cur:
+        cur.execute("DELETE FROM banner_terms WHERE term_code = '202635'")
+    pg.commit()
+    assert ratings.term_unverified("thomas-williams", "CS2500", "Spring 2026", query_one)
+    # A reviewer approving a rating held for that term vouches for it.
+    insert(pg, "d1", "thomas-williams", None, "CS2500", None, status="held")
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET term_label = 'Spring 2026', hold_reasons = 'unverified_term'")
+    pg.commit()
+    assert ratings.term_unverified("thomas-williams", "CS2500", "Spring 2026", query_one)
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET status = 'accepted'")  # review_ratings approve-rating
+    pg.commit()
+    assert not ratings.term_unverified("thomas-williams", "CS2500", "Spring 2026", query_one)
+
+
 def test_an_approved_unverified_pair_rating_makes_the_pair_taught(pg):
     # A professor or course approved from the form is in neither Banner nor RMP.
     import ratings

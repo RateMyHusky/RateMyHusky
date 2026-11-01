@@ -112,27 +112,46 @@ def pair_taught(slug, code, query_one):
     return bool(row and row["taught"])
 
 
-# Banner can check a term when it has this professor teaching this course at all and has
-# loaded a term of that season and year. Seasons match on Banner's season_group, so all of
-# a year's summer sessions are one: from 2026 one "Summer 2026" term holds Summer 1 and 2.
+# Banner can check a term when it has this professor teaching this course at all, has
+# scraped instructors for a term of that season and year, and has an instructor on every
+# section of the course in it: a TBA section or a sections-only term could be theirs.
+# Seasons match on Banner's season_group, so all of a year's summer sessions are one (from
+# 2026 one "Summer 2026" term holds Summer 1 and 2), and CPS's Winter quarter counts as
+# Spring, as in scraper/banner_api.pattern_season: the form doesn't offer Winter.
+# Sections never looked up (banner_api.NON_TEACHING_SCHEDULE_TYPES) don't count as gaps.
+# A merged professor's older spellings are in instructor_keys. A reviewer's approval of a
+# rating held as unverified_term vouches for that term, as TAUGHT_SQL does for a pair.
+_TERM_MATCH = ("(CASE WHEN bt.season_group = 'Winter' THEN 'Spring' ELSE bt.season_group END) = %(group)s "
+               "AND bt.year = %(year)s")
 TERM_SQL = (
-    "SELECT EXISTS (SELECT 1 FROM banner_course_instructors WHERE subject_course = %s AND professor_slug = %s) "
-    "AND EXISTS (SELECT 1 FROM banner_terms WHERE season_group = %s AND year = %s) AS term_checkable, "
+    "SELECT EXISTS (SELECT 1 FROM banner_course_instructors WHERE subject_course = %(code)s "
+    "AND professor_slug = %(slug)s) "
+    f"AND EXISTS (SELECT 1 FROM banner_terms bt WHERE {_TERM_MATCH} AND bt.instructors_source = 'banner') "
+    "AND NOT EXISTS (SELECT 1 FROM banner_sections bs JOIN banner_terms bt ON bt.term_code = bs.term_code "
+    f"WHERE bs.subject_course = %(code)s AND {_TERM_MATCH} AND (bt.instructors_source <> 'banner' OR ("
+    "lower(coalesce(bs.schedule_type, '')) NOT IN ('individual instruction', 'coop placement') "
+    "AND NOT EXISTS (SELECT 1 FROM banner_section_instructors bsi "
+    "WHERE bsi.term_code = bs.term_code AND bsi.crn = bs.crn)))) AS term_checkable, "
     "EXISTS (SELECT 1 FROM banner_sections bs "
     "JOIN banner_terms bt ON bt.term_code = bs.term_code "
     "JOIN banner_section_instructors bsi ON bsi.term_code = bs.term_code AND bsi.crn = bs.crn "
-    "JOIN banner_course_instructors bci ON bci.instructor_key = bsi.instructor_key "
+    "JOIN banner_course_instructors bci "
+    "ON bsi.instructor_key = ANY(string_to_array(coalesce(bci.instructor_keys, bci.instructor_key), '|')) "
     "AND bci.subject_course = bs.subject_course "
-    "WHERE bs.subject_course = %s AND bci.professor_slug = %s AND bt.season_group = %s AND bt.year = %s) AS term_taught"
+    f"WHERE bs.subject_course = %(code)s AND bci.professor_slug = %(slug)s AND {_TERM_MATCH}) "
+    "OR EXISTS (SELECT 1 FROM survey_ratings WHERE course_code = %(code)s AND professor_slug = %(slug)s "
+    "AND term_label = %(term)s AND status = 'accepted' "
+    "AND string_to_array(hold_reasons, ',') @> ARRAY['unverified_term']) AS term_taught"
 )
 
 
 def term_unverified(slug, code, term_label, query_one):
     """Banner can check the term and doesn't have the professor teaching the course in it.
-    A gap in Banner's data (a term before it, a pair only RMP knows) never counts against the student."""
+    A gap in Banner's data (a term before it, a TBA section, a pair only RMP knows) never
+    counts against the student."""
     season, _, year = term_label.rpartition(" ")
-    group = "Summer" if season.startswith("Summer") else season
-    row = query_one(TERM_SQL, (code, slug, group, int(year)) * 2)
+    group = "Summer" if season.startswith("Summer") else {"Winter": "Spring"}.get(season, season)
+    row = query_one(TERM_SQL, {"code": code, "slug": slug, "group": group, "year": int(year), "term": term_label})
     return bool(row and row["term_checkable"] and not row["term_taught"])
 
 

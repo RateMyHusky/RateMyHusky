@@ -60,9 +60,9 @@ def rate(monkeypatch):
         if "AS taught" in sql:  # alice-smith taught CS2500, never CS3500
             return {"taught": params[:2] == ("CS2500", "alice-smith")}
         if "AS term_checkable" in sql:  # Banner covers Fall and Spring 2025; alice-smith taught CS2500 in Fall
-            season, year = params[2:4]
-            return {"term_checkable": params[:2] == ("CS2500", "alice-smith") and (season, year) in (
-                ("Fall", 2025), ("Spring", 2025)), "term_taught": (season, year) == ("Fall", 2025)}
+            season, year = params["group"], params["year"]
+            return {"term_checkable": (params["code"], params["slug"]) == ("CS2500", "alice-smith") and (
+                season, year) in (("Fall", 2025), ("Spring", 2025)), "term_taught": (season, year) == ("Fall", 2025)}
         if "count(*) AS cnt FROM survey_ratings WHERE created_at" in sql:
             return {"cnt": 3}
         if "AND status = 'pending'" in sql:  # the first insert wins, like the partial unique index
@@ -407,13 +407,11 @@ def test_a_term_banner_says_the_professor_didnt_teach_the_course_is_held(rate):
 
 
 def test_a_term_banner_cant_check_is_not_held(rate):
-    # Before Banner's coverage, or a pair only RMP knows: a gap in Banner's data isn't the student's.
+    # A gap in Banner's data isn't the student's (the cases are in tests/pg/test_ratings_pg.py).
     server, client, state, ri = rate
     post(client, ri, {"term": "Fall 2024"})
-    post(client, ri, {"course": {"code": "CS3500"}, "term": "Spring 2025"})
-    covered, pair = (params for sql, params in rating_writes(state))
-    assert "accepted" in covered
-    assert "unverified_pair" in pair and "unverified_term" not in pair
+    covered, = (params for sql, params in rating_writes(state))
+    assert "accepted" in covered and "unverified_term" not in covered
 
 
 def test_pending_professor_or_course_skips_the_taught_check(rate):
