@@ -101,3 +101,7 @@ def test_page_is_a_full_document():
     assert "A &amp; B" in out and "Sat &lt;1&gt;" in out
     assert "max-width:560px" in out
     assert "<script" not in out and "<svg" not in out
+
+
+def test_row_values_never_wrap():
+    assert "white-space:nowrap" in h.rows([("a", "2 ratings, 2 held")])

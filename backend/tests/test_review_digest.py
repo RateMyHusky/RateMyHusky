@@ -162,6 +162,7 @@ def test_meters_render_and_a_note_replaces_resend():
     assert html.count("Resend usage unavailable: key can&#x27;t read usage") == 1
     assert "Groq agent" in html and "38K / 1.2M tokens" in html and "38K / 1.2M tokens" in text
     assert [review_digest.fmt(n) for n in (1212, 38000, 1200000, 2000000)] == ["1,212", "38K", "1.2M", "2M"]
+    assert [review_digest.fmt(n) for n in (38412, 129400, 999950)] == ["38K", "129K", "1M"]
     assert "Usage limits" not in review_digest.build_digest([], [], 0, 0, NOW)[2]
 
 

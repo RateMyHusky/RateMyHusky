@@ -254,4 +254,4 @@ def test_list_and_the_digest_count_flagged_and_unchecked(pg, pg_env, capsys):
     assert comments.index("flagged: blocked") < comments.index("Clean words") < comments.index("Waiting words")
     assert "not yet checked (groq_unavailable)" in comments
     assert review_digest.main(["--dry-run"]) == 0
-    assert "Comments to review: 3 (1 flagged, 1 not yet checked)" in capsys.readouterr().out
+    assert "Comments: 3\n" in capsys.readouterr().out

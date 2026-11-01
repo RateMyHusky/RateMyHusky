@@ -73,7 +73,7 @@ def rows(items, title=None):
     for label, value in items:
         out.append(
             f'<tr><td style="{_CELL}">{_e(label)}</td>'
-            f'<td align="right" width="32" style="{_VALUE}">{_e(value)}</td></tr>'
+            f'<td align="right" style="{_VALUE}white-space:nowrap;padding-left:8px;">{_e(value)}</td></tr>'
         )
     out.append("</table>")
     return "".join(out)

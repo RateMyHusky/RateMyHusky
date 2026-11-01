@@ -58,8 +58,9 @@ def reason_label(code):
 def fmt(n):
     if n < 10_000:
         return f"{n:,}"
-    value, suffix = (n / 1_000_000, "M") if n >= 1_000_000 else (n / 1000, "K")
-    return f"{value:.1f}".removesuffix(".0") + suffix
+    if round(n / 1000) < 1000:
+        return f"{round(n / 1000)}K"
+    return f"{n / 1_000_000:.1f}".removesuffix(".0") + "M"
 
 
 def groq_meter(label, requests, tokens, request_limit, token_limit):
