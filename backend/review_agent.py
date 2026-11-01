@@ -765,6 +765,12 @@ def mine_nicknames(cur, ask, max_calls=MAX_NICKNAME_CALLS, dry_run=False, deadli
     return counts
 
 
+def record_run(cur, used, keys, now):
+    """One row per run, for the daily digest's Groq usage meter."""
+    cur.execute("INSERT INTO review_agent_runs (ran_at, requests, tokens, keys) VALUES (%s, %s, %s, %s)",
+                (now, sum(u["rpd"] for u in used.values()), sum(u["tpd"] for u in used.values()), keys))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true")
@@ -807,6 +813,15 @@ def main(argv=None):
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 print("nicknames", dict(mine_nicknames(cur, ask, dry_run=args.dry_run, deadline=deadline)))
+        finally:
+            conn.close()
+    if not args.dry_run:
+        # Last, so the nickname calls count.
+        conn = connect()
+        try:
+            with conn.cursor() as cur:
+                record_run(cur, groq.used if entries else {}, len(entries), datetime.now(timezone.utc))
+            conn.commit()
         finally:
             conn.close()
     return 0

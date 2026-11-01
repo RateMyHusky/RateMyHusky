@@ -15,7 +15,7 @@ from tests.pg.pgutil import rows, scalar, truncate
 @pytest.fixture(autouse=True)
 def clean(pg):
     truncate(pg, "survey_ratings", "survey_pending_courses", "professors", "banner_course_instructors", "stats_cache",
-             "source_summary")
+             "source_summary", "review_agent_runs")
 
 
 def insert(pg, slug, reasons, device, minute, comment=None):
@@ -519,3 +519,11 @@ def test_namesakes_get_no_nicknames_from_rmp_comments(pg):
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         assert review_agent.mine_nicknames(cur, lambda m: pytest.fail("asked")) == {}
     truncate(pg, "rmp_reviews", "professors_catalog", "professor_aliases")
+
+
+def test_record_run_writes_a_row(pg):
+    now = datetime(2026, 10, 31, 9, 0, tzinfo=timezone.utc)
+    with pg.cursor() as cur:
+        review_agent.record_run(cur, {"k1": {"rpd": 3, "tpd": 900}, "k2": {"rpd": 2, "tpd": 600}}, 2, now)
+    pg.commit()
+    assert rows(pg, "SELECT requests, tokens, keys FROM review_agent_runs") == [{"requests": 5, "tokens": 1500, "keys": 2}]
