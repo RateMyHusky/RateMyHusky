@@ -1,27 +1,31 @@
-"""Daily email to the team when held ratings, comments, or new professors and courses wait for review.
+"""Daily email to ratings@ with the review queue, the day's rating counts and the Resend and Groq usage.
 
-    python review_digest.py            # send, if anything is waiting
-    python review_digest.py --dry-run  # print the email, send nothing
+    python review_digest.py            # send
+    python review_digest.py --dry-run  # print the text, write the HTML to the temp dir, send nothing
 
-Runs from .github/workflows/review-digest.yml. One email a day at most and none
-when the queue is empty, so it fits Resend's free 100/day next to the feedback
-caps and usage alerts (see FEEDBACK_DAILY_LIMIT in server.py). Counts, names,
-course codes, hold reasons and rating ids only: no comments, agent reasons,
-hashes or network data. Reads ORACLE_DATABASE_URL and RESEND_API_KEY.
+Runs from .github/workflows/review-digest.yml. HTML plus a text part, always sent, one a day:
+that fits Resend's free 100/day next to the feedback caps and usage alerts (see
+FEEDBACK_DAILY_LIMIT in server.py). Counts, names, course codes, hold reasons and rating ids
+only: no comments, agent reasons, hashes or network data. Reads ORACLE_DATABASE_URL and
+RESEND_API_KEY; the Resend meters need a full-access key (a sending-only key shows an
+"unavailable" row instead).
 """
 
 import argparse
 import math
 import re
+import os
 import sys
+import tempfile
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html import escape
 
 import digest_html as dh
 import notify
 from review_agent import decision_of, group_held
 from pipeline.db import connect, fetch_all
+from rag.key_pool import load_entries
 
 _REASONS = {
     "unverified_pair": "course not taught per Banner", "unverified_term": "wrong term per Banner",
@@ -201,6 +205,55 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
     text += ["", "Full queue: python review_ratings.py list", "No comment text, hashes or network data in this email."]
     return subject, "\n".join(text), html
 
+CHECKER_LIMITS = (1000, 200_000)
+AGENT_LIMITS_PER_KEY = (1000, 200_000)
+_DAY = "now() - interval '1 day'"
+
+
+def rating_stats(conn, now):
+    """The `ratings` dict of build_digest: last-24-hour counts, all-time totals, 14 UTC days of (live, held)."""
+    (row,) = fetch_all(conn, f"""
+        SELECT count(*) FILTER (WHERE created_at >= {_DAY}) AS new,
+               count(*) FILTER (WHERE created_at >= {_DAY} AND status = 'accepted') AS live,
+               count(*) FILTER (WHERE created_at >= {_DAY} AND status = 'held') AS held,
+               (SELECT count(*) FROM moderation_calls
+                WHERE called_at >= {_DAY} AND source = 'submit' AND outcome = 'block') AS rejected,
+               count(*) FILTER (WHERE status = 'accepted') AS live_all,
+               count(*) FILTER (WHERE status = 'accepted' AND comment_status = 'approved') AS comments_all
+        FROM survey_ratings""")
+    today = now.astimezone(timezone.utc).date()
+    first = today - timedelta(days=13)
+    by_day = {r["day"]: (r["live"], r["held"]) for r in fetch_all(conn, """
+        SELECT (created_at AT TIME ZONE 'UTC')::date AS day,
+               count(*) FILTER (WHERE status = 'accepted') AS live, count(*) FILTER (WHERE status = 'held') AS held
+        FROM survey_ratings WHERE (created_at AT TIME ZONE 'UTC')::date >= %s GROUP BY 1""", (first,))}
+    return {**{k: int(v) for k, v in row.items()},
+            "days": [by_day.get(first + timedelta(days=i), (0, 0)) for i in range(14)]}
+
+
+def usage_meters(conn, resend):
+    """The `meters` list of build_digest. `resend` is notify.resend_usage()'s result."""
+    meters = []
+    if resend is None:
+        meters.append({"label": "Resend", "note": "Resend usage unavailable: key can't read usage"})
+    else:
+        for key, label in (("daily", "Resend today"), ("monthly", "Resend month")):
+            if resend[key]["limit"]:
+                meters.append({"label": label, "used": resend[key]["used"], "limit": resend[key]["limit"], "unit": ""})
+    (agent,) = fetch_all(conn, f"""
+        SELECT (SELECT COALESCE(sum(requests), 0) FROM review_agent_runs WHERE ran_at >= {_DAY})
+                 + (SELECT count(*) FROM ask_log WHERE created_at >= {_DAY} AND tokens_used > 0) AS requests,
+               (SELECT COALESCE(sum(tokens), 0) FROM review_agent_runs WHERE ran_at >= {_DAY})
+                 + (SELECT COALESCE(sum(tokens_used), 0) FROM ask_log WHERE created_at >= {_DAY}) AS tokens,
+               (SELECT keys FROM review_agent_runs ORDER BY ran_at DESC LIMIT 1) AS keys""")
+    keys = int(agent["keys"] or len(load_entries()) or 1)
+    meters.append(groq_meter("Groq agent", int(agent["requests"]), int(agent["tokens"]),
+                             AGENT_LIMITS_PER_KEY[0] * keys, AGENT_LIMITS_PER_KEY[1] * keys))
+    (checker,) = fetch_all(conn, f"SELECT count(*) AS requests, COALESCE(sum(tokens), 0) AS tokens "
+                                 f"FROM moderation_calls WHERE called_at >= {_DAY}")
+    meters.append(groq_meter("Groq checker", int(checker["requests"]), int(checker["tokens"]), *CHECKER_LIMITS))
+    return meters
+
 
 def main(argv=None, now=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -232,20 +285,28 @@ def main(argv=None, now=None):
                                       "AND agent_reviewed_at >= now() - interval '1 day' ORDER BY agent_reviewed_at")
         aliases = fetch_all(conn, "SELECT id, alias_key, slug, source FROM professor_aliases "
                                   "WHERE status = 'pending' ORDER BY id")
+        slugs = sorted({r["professor_slug"] for r in (*held, *approved) if r["professor_slug"]}
+                       | {m["resolved_slug"] for m in prof_merges if m["resolved_slug"]}
+                       | {a["slug"] for a in aliases if a["slug"]})
+        names = {r["slug"]: r["name"] for r in fetch_all(
+            conn, "SELECT slug, name FROM professors WHERE slug = ANY(%s)", (slugs,))}
+        now = now or datetime.now(timezone.utc)
+        ratings = rating_stats(conn, now)
+        meters = usage_meters(conn, notify.resend_usage())
     finally:
         conn.close()
-    if not (held or approved or professors[0]["n"] or courses[0]["n"] or merges or prof_merges or aliases
-            or comments[0]["n"]):
-        print("nothing to review")
-        return 0
-    subject, text, html = build_digest(held, approved, professors[0]["n"], courses[0]["n"],
-                                       now or datetime.now(timezone.utc), merges, prof_merges, aliases,
-                                       pending_comments=comments[0]["n"], flagged_comments=comments[0]["flagged"],
-                                       unchecked_comments=comments[0]["unchecked"])
+    subject, text, html = build_digest(held, approved, professors[0]["n"], courses[0]["n"], now, merges,
+                                       prof_merges, aliases, pending_comments=comments[0]["n"],
+                                       flagged_comments=comments[0]["flagged"],
+                                       unchecked_comments=comments[0]["unchecked"], names=names, ratings=ratings,
+                                       meters=meters)
     if args.dry_run:
-        print(f"{subject}\n\n{text}")
+        path = os.path.join(tempfile.gettempdir(), "review-digest.html")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(html)
+        print(f"{subject}\n\n{text}\n\nHTML preview: {path}")
         return 0
-    return 0 if notify.send_team_email(subject, text) else 1
+    return 0 if notify.send_team_email(subject, text, to=notify.DIGEST_EMAIL, html=html) else 1
 
 
 if __name__ == "__main__":

@@ -356,7 +356,7 @@ def test_a_department_merge_reports_the_rating_merge_professor_held(pg, pg_env, 
     assert scalar(pg, "SELECT agent_reason FROM survey_pending_professors") == \
         "same last name and department; 1 rating(s), 1 held"
     assert review_digest.main(["--dry-run"]) == 0
-    assert "Merged a new professor into christopher-smith: 1 rating, 1 held\n" in capsys.readouterr().out
+    assert "Merged a new professor into Christopher Smith: 1 rating, 1 held\n" in capsys.readouterr().out
     truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
 
 

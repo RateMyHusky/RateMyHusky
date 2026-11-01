@@ -1,4 +1,5 @@
 import re
+from html import escape
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -194,10 +195,20 @@ def test_no_middot_and_one_reason_per_row():
     assert len(reason_rows) == 11
 
 
-def _main(monkeypatch, held, pending=(0, 0), key="re-test", comments=0, approved=()):
+def _main(monkeypatch, held, pending=(0, 0), key="re-test", comments=0, approved=(), usage_status=200):
     posts = []
 
-    def fetch(conn, sql):
+    def fetch(conn, sql, params=None):
+        if "AS live_all" in sql:
+            return [{"new": 0, "live": 0, "held": 0, "rejected": 0, "live_all": 0, "comments_all": 0}]
+        if "AS day" in sql:
+            return []
+        if "FROM professors WHERE slug" in sql:
+            return []
+        if "FROM review_agent_runs" in sql:
+            return [{"requests": 0, "tokens": 0, "keys": None}]
+        if "FROM moderation_calls" in sql:
+            return [{"requests": 0, "tokens": 0}]
         if "comment_status" in sql:
             return [{"n": comments, "flagged": 0, "unchecked": comments}]
         if "FROM survey_ratings" in sql:
@@ -206,10 +217,14 @@ def _main(monkeypatch, held, pending=(0, 0), key="re-test", comments=0, approved
             return []
         return [{"n": pending[0] if "professors" in sql else pending[1]}]
 
+    usage = {"emails": {"daily": {"used": 3, "limit": 100}, "monthly": {"used": 40, "limit": 3000}}}
     monkeypatch.setattr(review_digest, "connect", lambda: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(review_digest, "fetch_all", fetch)
     monkeypatch.setattr(review_digest.notify.http_requests, "post",
                         lambda url, **kw: posts.append(kw["json"]) or SimpleNamespace(ok=True))
+    monkeypatch.setattr(review_digest.notify.http_requests, "get",
+                        lambda url, **kw: SimpleNamespace(ok=usage_status == 200, status_code=usage_status,
+                                                          json=lambda: usage))
     if key:
         monkeypatch.setenv("RESEND_API_KEY", key)
     else:
@@ -217,33 +232,47 @@ def _main(monkeypatch, held, pending=(0, 0), key="re-test", comments=0, approved
     return posts
 
 
-def test_main_sends_one_email_to_the_feedback_inbox(monkeypatch):
+def test_main_sends_daily_to_the_ratings_inbox_with_html(monkeypatch):
     posts = _main(monkeypatch, [H("jane-doe", "CS2500", "burst_pause")])
     assert review_digest.main([], now=NOW) == 0
     (payload,) = posts
-    assert payload["to"] == ["feedback@ratemyhusky.com"]
+    assert payload["to"] == ["ratings@ratemyhusky.com"]
+    assert payload["from"] == "RateMyHusky <feedback@ratemyhusky.com>"
     assert payload["subject"].startswith("[RateMyHusky] 1 to review, 0 new ratings")
+    assert payload["text"] and payload["html"].startswith("<!DOCTYPE html>")
+    assert "Resend today" in payload["html"]
 
 
-def test_main_dry_run_and_an_empty_queue_send_nothing(monkeypatch, capsys):
-    posts = _main(monkeypatch, [H("jane-doe", "CS2500", "burst_pause")])
-    assert review_digest.main(["--dry-run"], now=NOW) == 0
-    assert posts == [] and "Needs you" in capsys.readouterr().out
+def test_main_sends_even_when_nothing_is_waiting(monkeypatch):
     posts = _main(monkeypatch, [])
-    assert review_digest.main([], now=NOW) == 0 and posts == []
-
-
-def test_main_sends_for_waiting_comments_alone(monkeypatch):
-    posts = _main(monkeypatch, [], comments=2)
     assert review_digest.main([], now=NOW) == 0
     (payload,) = posts
-    assert payload["subject"].startswith("[RateMyHusky] 2 to review")
+    assert payload["subject"].startswith("[RateMyHusky] Nothing to review")
+
+
+def test_main_dry_run_writes_html_and_prints_text(monkeypatch, capsys, tmp_path):
+    posts = _main(monkeypatch, [H("jane-doe", "CS2500", "burst_pause")])
+    monkeypatch.setattr(review_digest.tempfile, "gettempdir", lambda: str(tmp_path))
+    assert review_digest.main(["--dry-run"], now=NOW) == 0
+    out = capsys.readouterr().out
+    assert posts == [] and out.startswith("[RateMyHusky] 1 to review") and "Needs you" in out
+    path = out.rsplit("HTML preview: ", 1)[1].strip()
+    assert path == str(tmp_path / "review-digest.html")
+    assert open(path, encoding="utf-8").read().startswith("<!DOCTYPE html>")
 
 
 def test_main_fails_without_a_resend_key(monkeypatch):
     # The workflow run turns red, so a missing secret doesn't silently stop the digest.
     posts = _main(monkeypatch, [H("jane-doe", "CS2500", "burst_pause")], key=None)
     assert review_digest.main([], now=NOW) == 1 and posts == []
+
+
+def test_a_sending_only_key_still_sends_with_the_unavailable_row(monkeypatch):
+    posts = _main(monkeypatch, [], usage_status=401)
+    assert review_digest.main([], now=NOW) == 0
+    (payload,) = posts
+    note = "Resend usage unavailable: key can't read usage"
+    assert payload["html"].count(escape(note)) == 1 and payload["text"].count(note) == 1
 
 
 def test_no_comment_or_agent_reason_reaches_the_email():
