@@ -18,6 +18,7 @@ import {
   lastName, nextStep, pickCourse, prefillCourse, prevStep, progressIndex, toRateCourse,
 } from './rate/rateFlow';
 import type { Answers, RateCourse, RateProfessor, StepId } from './rate/rateFlow';
+import { markRatedNow, parseFrom, track } from '../utils/ratePrompt';
 import './Rate.css';
 
 const PICK_DELAY_MS = 200;
@@ -59,6 +60,9 @@ const toRateCourses = (page: ProfessorPage): RateCourse[] =>
 
 export default function Rate() {
   const [params] = useSearchParams();
+  // Fixed at mount so later URL changes can't change it.
+  const [from] = useState(() => parseFrom(params.get('from')));
+  const startedTracked = useRef(false);
   const [ready, setReady] = useState(false);
   const [answers, setAnswers] = useState<Answers>({ comment: '' });
   const [step, setStep] = useState<StepId>('who');
@@ -84,6 +88,12 @@ export default function Rate() {
   const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
   // The check runs on the comment step, while the student writes; only the submit waits for its token.
   const { containerRef, token, failed, scriptFailed, interactive, reset } = useTurnstile();
+
+  useEffect(() => {
+    if (startedTracked.current) return;
+    startedTracked.current = true;
+    track('rate_started', { from });
+  }, [from]);
 
   const slug = answers.professor?.slug ?? null;
   // null while the professor's courses load; a new professor has none to load.
@@ -187,6 +197,8 @@ export default function Rate() {
     submitRating(body).then((res) => {
       setSending(false);
       if (res.ok) {
+        markRatedNow(answers.professor?.slug ?? null);
+        track('rating_submitted', { from });
         if (skip) setAnswers((a) => ({ ...a, comment: '' }));
         setCounter(res.counter);
         reset();
