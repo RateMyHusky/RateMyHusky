@@ -56,4 +56,11 @@ jobs:
         env:
           ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          # Counted, never called: the Groq agent meter's limit when no agent run has recorded its keys.
+          groq1: ${{ secrets.groq1 }}
+          groq2: ${{ secrets.groq2 }}
+          groq3: ${{ secrets.groq3 }}
+          groq4: ${{ secrets.groq4 }}
+          groq5: ${{ secrets.groq5 }}
+          groq6: ${{ secrets.groq6 }}
         run: python review_digest.py

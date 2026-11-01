@@ -2,6 +2,8 @@ import re
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import psycopg2
+
 import review_digest
 from tests.razzaq_bomb import BOMB
 
@@ -207,7 +209,8 @@ def test_no_middot_and_one_reason_per_row():
     assert len(reason_rows) == 11
 
 
-def _main(monkeypatch, held, pending=(0, 0), key="re-test", comments=0, approved=(), sent_ok=True):
+def _main(monkeypatch, held, pending=(0, 0), key="re-test", comments=0, approved=(), sent_ok=True,
+          record_error=None):
     posts, recorded = [], []
 
     def fetch(conn, sql, params=None):
@@ -234,7 +237,10 @@ def _main(monkeypatch, held, pending=(0, 0), key="re-test", comments=0, approved
     class Cursor:
         def __enter__(self): return self
         def __exit__(self, *a): pass
-        def execute(self, sql, params=None): recorded.append(sql)
+        def execute(self, sql, params=None):
+            if record_error:
+                raise record_error
+            recorded.append(sql)
 
     monkeypatch.setattr(review_digest, "connect", lambda: SimpleNamespace(
         close=lambda: None, cursor=Cursor, commit=lambda: recorded.append("COMMIT")))
@@ -287,6 +293,13 @@ def test_main_fails_without_a_resend_key(monkeypatch):
 def test_a_send_resend_refuses_is_not_counted(monkeypatch):
     posts, recorded = _main(monkeypatch, [], sent_ok=False)
     assert review_digest.main([], now=NOW) == 1 and len(posts) == 1 and recorded == []
+
+
+def test_a_send_that_cannot_be_recorded_still_succeeds(monkeypatch, capsys):
+    # A red run invites a rerun, which would email ratings@ a second time.
+    posts, recorded = _main(monkeypatch, [], record_error=psycopg2.OperationalError("connection lost"))
+    assert review_digest.main([], now=NOW) == 0 and len(posts) == 1 and recorded == []
+    assert "send not recorded: OperationalError" in capsys.readouterr().out
 
 
 def test_no_comment_or_agent_reason_reaches_the_email():

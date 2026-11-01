@@ -6,8 +6,9 @@
 Runs from .github/workflows/review-digest.yml. HTML plus a text part, always sent, one a day:
 that fits Resend's free 100/day next to the feedback caps and usage alerts (see
 FEEDBACK_DAILY_LIMIT in server.py). Counts, names, course codes, hold reasons and rating ids
-only: no comments, agent reasons, hashes or network data. Reads ORACLE_DATABASE_URL and
-RESEND_API_KEY. The Resend meters count email_sends (see notify.RECORD_SEND) by UTC day and month.
+only: no comments, agent reasons, hashes or network data. Reads ORACLE_DATABASE_URL,
+RESEND_API_KEY and the groqN keys (for the agent meter's limit). The Resend meters count
+email_sends (see notify.RECORD_SEND) by UTC day and month.
 """
 
 import argparse
@@ -35,8 +36,6 @@ _REASONS = {
 }
 _RATE_NOTE = ("Each Groq bar shows whichever of requests or tokens is closer to its limit. "
               "Bars turn amber at 50% and red at 80%.")
-_TABLE = 'role="presentation" width="100%" cellpadding="0" cellspacing="0"'
-_MONO = "Consolas,Menlo,monospace"
 
 
 def _plural(n, word):
@@ -150,14 +149,14 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
     decided = Counter(decision_of(r) for r in held)
     recent = Counter(decision_of(r) for r in held if (r.get("agent_reviewed_at") or datetime.min.replace(tzinfo=timezone.utc)) >= since)
     # (count, label, bar color, legend color)
-    agent_parts = [(len(approved), "approved", "#27ae60", "#27ae60"), (recent["reject"], "reject", "#e74c3c", "#e74c3c"),
-                   (recent["escalate"], "escalated", "#f39c12", "#e08e0b"), (decided[None], "pending", "#cfcfd6", "#888")]
+    agent_parts = [(len(approved), "approved", dh.GREEN, dh.GREEN), (recent["reject"], "reject", dh.RED, dh.RED),
+                   (recent["escalate"], "escalated", dh.AMBER, dh.AMBER_TEXT), (decided[None], "pending", "#cfcfd6", "#888")]
     checked = len(approved) + recent["reject"] + recent["escalate"]
     merges = len(course_merges) + len(professor_merges)
     agent_line = (f"Checked {_plural(checked, 'held rating')}"
                   + (f" and made {_plural(merges, 'merge')}" if merges else "") + ".")
-    nums = [("New ratings", ratings["new"], "new", "#222"), ("Live ratings", ratings["live"], "live", "#27ae60"),
-            ("Held ratings", ratings["held"], "held", "#e08e0b"),
+    nums = [("New ratings", ratings["new"], "new", "#222"), ("Live ratings", ratings["live"], "live", dh.GREEN),
+            ("Held ratings", ratings["held"], "held", dh.AMBER_TEXT),
             ("Rejected ratings", ratings["rejected"], "rejected", "#999")]
     totals = [("Live ratings, all time", f"{ratings['live_all']:,}"),
               ("Comments showing, all time", f"{ratings['comments_all']:,}")]
@@ -170,7 +169,7 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
     if aliases:
         needs += dh.command("python review_ratings.py approve-alias ID")
     ratings_html = (
-        f'<table {_TABLE}><tr valign="bottom"><td class="col" width="52%">'
+        f'<table {dh._TABLE}><tr valign="bottom"><td class="col" width="52%">'
         f'{dh.numbers([(n, short_label, c) for _, n, short_label, c in nums])}</td>'
         f'<td class="col col-chart" width="48%" style="padding-left:16px;">{dh.day_bars(ratings["days"])}</td>'
         f"</tr></table>" + dh.rows(totals))
@@ -183,9 +182,9 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
         meter_rows = "".join(dh.meter(m["label"], m["used"], m["limit"], _meter_shown(m)) for m in meters)
         sections += dh.section(
             "Usage limits",
-            f'<table {_TABLE} style="font-size:12px;color:#444;">{meter_rows}</table>'
+            f'<table {dh._TABLE} style="font-size:12px;color:#444;">{meter_rows}</table>'
             f'<div style="font-size:11px;color:#999;margin-top:8px;line-height:1.5;">{_RATE_NOTE}</div>')
-    footer = (f'Full queue: <span style="font-family:{_MONO};">python review_ratings.py list</span><br>'
+    footer = (f'Full queue: <span style="font-family:{dh._MONO};">python review_ratings.py list</span><br>'
               "No comment text, hashes or network data in this email.")
     html = dh.page(subject, dateline, sections, footer)
 
@@ -209,6 +208,8 @@ RESEND_LIMITS = (100, 3000)  # free plan: emails per UTC day, per month
 CHECKER_LIMITS = (1000, 200_000)
 AGENT_LIMITS_PER_KEY = (1000, 200_000)
 _DAY = "now() - interval '1 day'"
+# The agent runs once a day, so a rolling day could hold yesterday's run too, depending on when cron fires.
+_UTC_DAY = "date_trunc('day', now(), 'UTC')"
 
 
 def rating_stats(conn, now):
@@ -227,7 +228,8 @@ def rating_stats(conn, now):
     by_day = {r["day"]: (r["live"], r["held"]) for r in fetch_all(conn, """
         SELECT (created_at AT TIME ZONE 'UTC')::date AS day,
                count(*) FILTER (WHERE status = 'accepted') AS live, count(*) FILTER (WHERE status = 'held') AS held
-        FROM survey_ratings WHERE (created_at AT TIME ZONE 'UTC')::date >= %s GROUP BY 1""", (first,))}
+        FROM survey_ratings WHERE created_at >= %s GROUP BY 1""",
+        (datetime.combine(first, datetime.min.time(), timezone.utc),))}
     return {**{k: int(v) for k, v in row.items()},
             "days": [by_day.get(first + timedelta(days=i), (0, 0)) for i in range(14)]}
 
@@ -239,10 +241,10 @@ def usage_meters(conn):
     meters = [{"label": "Resend today", "used": int(sends["day"]), "limit": RESEND_LIMITS[0], "unit": ""},
               {"label": "Resend month", "used": int(sends["month"]), "limit": RESEND_LIMITS[1], "unit": ""}]
     (agent,) = fetch_all(conn, f"""
-        SELECT (SELECT COALESCE(sum(requests), 0) FROM review_agent_runs WHERE ran_at >= {_DAY})
-                 + (SELECT count(*) FROM ask_log WHERE created_at >= {_DAY} AND tokens_used > 0) AS requests,
-               (SELECT COALESCE(sum(tokens), 0) FROM review_agent_runs WHERE ran_at >= {_DAY})
-                 + (SELECT COALESCE(sum(tokens_used), 0) FROM ask_log WHERE created_at >= {_DAY}) AS tokens,
+        SELECT (SELECT COALESCE(sum(requests), 0) FROM review_agent_runs WHERE ran_at >= {_UTC_DAY})
+                 + (SELECT count(*) FROM ask_log WHERE created_at >= {_UTC_DAY} AND tokens_used > 0) AS requests,
+               (SELECT COALESCE(sum(tokens), 0) FROM review_agent_runs WHERE ran_at >= {_UTC_DAY})
+                 + (SELECT COALESCE(sum(tokens_used), 0) FROM ask_log WHERE created_at >= {_UTC_DAY}) AS tokens,
                (SELECT keys FROM review_agent_runs ORDER BY ran_at DESC LIMIT 1) AS keys""")
     keys = int(agent["keys"] or len(load_entries()) or 1)
     meters.append(groq_meter("Groq agent", int(agent["requests"]), int(agent["tokens"]),
@@ -299,9 +301,13 @@ def main(argv=None, now=None):
             return 0
         if not notify.send_team_email(subject, text, to=notify.DIGEST_EMAIL, html=html):
             return 1
-        with conn.cursor() as cur:
-            cur.execute(notify.RECORD_SEND)
-        conn.commit()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(notify.RECORD_SEND)
+            conn.commit()
+        except Exception as e:
+            # Best-effort: the email already went out, and a failed run invites a rerun that sends it again.
+            print(f"[review_digest] send not recorded: {type(e).__name__}")
         return 0
     finally:
         conn.close()
