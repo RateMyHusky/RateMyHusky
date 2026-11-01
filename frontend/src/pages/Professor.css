@@ -142,6 +142,14 @@
 .prof-rate-btn:hover, .prof-compare-btn:hover { background: #b82e3f; transform: scale(1.03); box-shadow: 0 4px 16px rgba(214,57,76,0.3); }
 .prof-rmp-btn { background: transparent; color: #d6394c; border: 1.5px solid #d6394c; }
 .prof-rmp-btn:hover { background: #fef0f0; transform: scale(1.03); }
+.prof-compare-btn.prof-compare-btn--outline { background: transparent; color: #b8293b; border: 1.5px solid #b8293b; box-shadow: none; }
+.prof-compare-btn.prof-compare-btn--outline:hover { background: #fef0f0; transform: scale(1.03); box-shadow: none; }
+
+.prof-rate-tagline {
+  margin: 10px 0 0; padding: 0 clamp(16px, 3vw, 48px);
+  font-family: 'Nunito', sans-serif; font-size: 0.82rem; color: #666;
+  animation: profSlideUp 0.5s 0.45s ease both;
+}
 
 /* ═══════════ STAT CARDS ═══════════ */
 .prof-stats {
@@ -436,6 +444,13 @@
 .prof-reviews-filters { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .prof-reviews-filters .feedback-dropdown { width: auto; min-width: 180px; margin-bottom: 0; }
 .prof-reviews-list { display: flex; flex-direction: column; gap: 14px; }
+.prof-reviews-filters .prof-rate-link { margin-left: auto; align-self: center; text-decoration: none; display: inline-flex; align-items: center; min-height: 44px; color: #b8293b; }
+.prof-rate-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap;
+  background: #fef0f0; border: 1px solid #f5c6cb; border-radius: 12px;
+  padding: 16px 20px; margin-bottom: 16px; font-family: 'Nunito', sans-serif;
+}
+.prof-rate-card-text { margin: 0; font-size: 0.95rem; font-weight: 700; color: #333; }
 .prof-no-reviews { text-align: center; color: #999; padding: 40px 0; font-size: 0.95rem; }
 /* Contrast is checked against the page background: brand red #d6394c is 4.2:1 on
    #f5f5f5, so the link uses a darker red here and the site's lighter red in dark mode. */
@@ -672,6 +687,11 @@
 .dark .prof-tag { background: #262626; border-color: #3a3a3a; color: #cfcfcf; }
 
 .dark .prof-rate-btn, .dark .prof-compare-btn { box-shadow: 0 2px 8px rgba(214,57,76,0.15); }
+.dark .prof-compare-btn.prof-compare-btn--outline { color: #e06070; border-color: #e06070; box-shadow: none; }
+.dark .prof-compare-btn.prof-compare-btn--outline:hover { background: #3a2020; }
+.dark .prof-rate-tagline { color: #999; }
+.dark .prof-rate-card { background: #2a1a1e; border-color: #5a2a32; }
+.dark .prof-rate-card-text { color: #e8e8e8; }
 .dark .prof-rmp-btn { color: #e06070; border-color: #e06070; }
 .dark .prof-rmp-btn:hover { background: #3a2020; }
 
@@ -750,6 +770,7 @@
   .prof-name { font-size: 1.5rem; }
 
   .prof-hero-actions-row { justify-content: center; }
+  .prof-rate-tagline { text-align: center; }
 
   .prof-stats { grid-template-columns: repeat(3, 1fr); gap: 12px; }
   .prof-section { padding: 36px clamp(12px, 3vw, 20px) 0; }
@@ -790,6 +811,7 @@
 
   .prof-hero-actions-row { flex-direction: column; align-items: center; }
   .prof-rate-btn, .prof-compare-btn, .prof-rmp-btn { justify-content: center; min-width: 180px; }
+  .prof-rate-card { flex-direction: column; align-items: stretch; text-align: center; }
 
   .prof-stats { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .prof-stat-value { font-size: 1.5rem; }
