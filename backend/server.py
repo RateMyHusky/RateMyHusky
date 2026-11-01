@@ -2413,18 +2413,18 @@ def _rating_moderation_score(texts):
 
 
 def _moderate_comment(comment):
-    """(action, reason) from Groq when GROQ_MODERATION_KEY is set, else from OpenAI.
-    action is "allow" | "review" | "block" | "unavailable"; never raises."""
+    """(action, reason, tokens) from Groq when GROQ_MODERATION_KEY is set, else from OpenAI.
+    action is "allow" | "review" | "block" | "unavailable"; tokens is None off Groq; never raises."""
     global _groq_moderation_client
     if moderation_groq.enabled():
         try:
             if _groq_moderation_client is None:
                 _groq_moderation_client = moderation_groq.client()
         except Exception:
-            return "unavailable", "groq_unavailable"
+            return "unavailable", "groq_unavailable", None
         return moderation_groq.check(comment, _groq_moderation_client)
     action = rating_checks.moderate(comment, score=_rating_moderation_score)
-    return action, {"allow": None, "review": "review", "block": "blocked"}.get(action, "openai_unavailable")
+    return action, {"allow": None, "review": "review", "block": "blocked"}.get(action, "openai_unavailable"), None
 
 
 def _rating_limit_key():
@@ -2600,8 +2600,8 @@ def rate_submit():
         elif not ratings.moderation_budget_left(device_hash, ip_hash, shared, query_one, now):
             action = "over_budget"
         else:
-            action, reason = _moderate_comment(clean["comment"])
-            ratings.record_moderation_call("submit", action, device_hash, ip_hash, shared, _write, now)
+            action, reason, tokens = _moderate_comment(clean["comment"])
+            ratings.record_moderation_call("submit", action, device_hash, ip_hash, shared, _write, now, tokens)
             if action == "block":
                 return _rating_response({"error": "comment_blocked"}, 422, device)
         check = rating_checks.comment_check_fields(action, reason, now)

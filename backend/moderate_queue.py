@@ -99,10 +99,10 @@ def run(conn, groq, now=None, sleep=time.sleep):
                 break
             if i:
                 sleep(SPACING_SECONDS)
-            action, reason = moderation_groq.check(row["comment"], groq)
+            action, reason, tokens = moderation_groq.check(row["comment"], groq)
             at = now_fn()
             ratings.record_moderation_call("queue", action, None, None, False,
-                                           lambda sql, params: cur.execute(sql, params), at)
+                                           lambda sql, params: cur.execute(sql, params), at, tokens)
             if record(cur, row, action, reason, at):
                 cur.execute(DATA_VERSION_SQL)  # the professor page drops the held rating's numbers
             conn.commit()

@@ -75,8 +75,8 @@ def test_verdicts_are_recorded_only_on_the_text_checked(fake_groq):
     assert clean[:2] == ("allow", None)
     assert "AND comment = %s AND comment_check = 'unchecked' AND comment_status = 'pending'" in flag_sql
     queue_calls = [p for s, p in conn.executed if s.startswith("INSERT INTO moderation_calls")]
-    assert [(p[2], p[3], p[4], p[5]) for p in queue_calls] == [("queue", "review", None, None),
-                                                              ("queue", "allow", None, None)]
+    assert [(p[2], p[3], p[4], p[5], p[7]) for p in queue_calls] == [("queue", "review", None, None, 500),
+                                                                    ("queue", "allow", None, None, 500)]
 
 
 def test_a_block_holds_the_rating_and_bumps_the_data_version(fake_groq):

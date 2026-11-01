@@ -493,8 +493,8 @@ def moderation_budget_left(device_hash, ip_hash, shared, query_one, now):
     return row["ip"] < IP_MODERATION_BUDGET
 
 
-def record_moderation_call(source, outcome, device_hash, ip_hash, shared, write, now):
+def record_moderation_call(source, outcome, device_hash, ip_hash, shared, write, now, tokens=None):
     """One row per model attempt, failures included: no comment text or rating id."""
-    write("INSERT INTO moderation_calls (id, called_at, source, outcome, device_hash, ip_hash, shared_network) "
-          "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-          (str(uuid.uuid4()), now, source, outcome, device_hash, ip_hash, shared))
+    write("INSERT INTO moderation_calls (id, called_at, source, outcome, device_hash, ip_hash, shared_network, tokens) "
+          "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+          (str(uuid.uuid4()), now, source, outcome, device_hash, ip_hash, shared, tokens))

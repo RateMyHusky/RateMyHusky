@@ -71,16 +71,18 @@ def parse(reply):
 
 
 def check(comment, groq):
-    """(action, reason): action is "allow" | "review" | "block" | "unavailable".
+    """(action, reason, tokens): action is "allow" | "review" | "block" | "unavailable".
     reason is "review" or "blocked" with a verdict, "groq_rate_limited" on a 429 and
-    "groq_unavailable" on any other failure. Never raises."""
+    "groq_unavailable" on any other failure. tokens is the call's usage.total_tokens,
+    None on a failure or a reply without usage. Never raises."""
     try:
         resp = groq.chat.completions.create(
             model=MODEL, temperature=0, reasoning_effort="low",
             messages=[{"role": "system", "content": POLICY}, {"role": "user", "content": comment}])
         action = parse(resp.choices[0].message.content)
+        tokens = getattr(getattr(resp, "usage", None), "total_tokens", None)
     except Exception as exc:
         if getattr(exc, "status_code", None) == 429:
-            return "unavailable", "groq_rate_limited"
-        return "unavailable", "groq_unavailable"
-    return action, {"allow": None, "review": "review", "block": "blocked"}[action]
+            return "unavailable", "groq_rate_limited", None
+        return "unavailable", "groq_unavailable", None
+    return action, {"allow": None, "review": "review", "block": "blocked"}[action], tokens

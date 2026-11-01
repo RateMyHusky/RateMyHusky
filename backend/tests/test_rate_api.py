@@ -265,6 +265,7 @@ def test_groq_verdicts_mark_the_comment_and_never_hold_the_rating(rate, monkeypa
         assert call["messages"][1] == {"role": "user", "content": BODY["comment"]}
     assert state["scored"] == []  # never OpenAI while the Groq key is set
     assert [p[3] for s, p in call_writes(state)] == ["allow", "review", "review", "unavailable", "unavailable"]
+    assert [p[7] for s, p in call_writes(state)] == [500, 500, 500, None, None]
 
 
 def test_groq_block_is_422(rate, monkeypatch, fake_groq):
@@ -283,6 +284,7 @@ def test_a_call_is_logged_without_the_comment(rate):
     device_hash = ri.keyed_hash(SECRET, "device", DEVICE)
     assert params[2:5] == ("submit", "allow", device_hash) and params[6] is False
     assert BODY["comment"] not in repr(params)
+    assert params[7] is None  # the OpenAI path reports no tokens
 
 
 @pytest.mark.parametrize("setup,reason,due", [

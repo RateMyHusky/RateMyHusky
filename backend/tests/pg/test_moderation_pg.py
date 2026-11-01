@@ -214,8 +214,8 @@ def test_a_queue_block_holds_the_rating_and_keeps_the_comment(pg, fake_groq):
         "review", "blocked", None)
     assert row["comment"] and row["comment_status"] == "pending"
     assert scalar(pg, "SELECT value FROM stats_cache WHERE key = 'data_version'") == 1
-    assert rows(pg, "SELECT source, outcome, device_hash, ip_hash FROM moderation_calls") == [
-        {"source": "queue", "outcome": "block", "device_hash": None, "ip_hash": None}]
+    assert rows(pg, "SELECT source, outcome, device_hash, ip_hash, tokens FROM moderation_calls") == [
+        {"source": "queue", "outcome": "block", "device_hash": None, "ip_hash": None, "tokens": 500}]
 
 
 def test_an_approval_takes_the_comment_off_the_queue(pg, fake_groq):

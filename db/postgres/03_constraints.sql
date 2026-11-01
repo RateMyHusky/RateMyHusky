@@ -126,6 +126,9 @@ ALTER TABLE public.moderation_calls ADD CONSTRAINT check_moderation_call_source
 ALTER TABLE public.moderation_calls ADD CONSTRAINT check_moderation_call_outcome
     CHECK (outcome IN ('allow', 'review', 'block', 'unavailable'));
 
+-- review_agent_runs
+CREATE INDEX review_agent_runs_ran_at ON public.review_agent_runs (ran_at);
+
 -- survey_pending_professors
 CREATE INDEX survey_pending_professors_key ON public.survey_pending_professors (name_key);
 CREATE UNIQUE INDEX survey_pending_professors_one_pending ON public.survey_pending_professors (name_key)

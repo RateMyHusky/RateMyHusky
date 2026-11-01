@@ -407,8 +407,12 @@ def test_record_moderation_call_keeps_no_text_or_rating_id():
     ratings.record_moderation_call("queue", "allow", None, None, False,
                                    lambda sql, params: writes.append((sql, params)), NOW)
     ((sql, params),) = writes
-    assert sql.startswith("INSERT INTO moderation_calls") and params[1:] == (NOW, "queue", "allow", None, None, False)
+    assert sql.startswith("INSERT INTO moderation_calls") and params[1:] == (NOW, "queue", "allow", None, None, False, None)
     assert "comment" not in sql and "rating" not in sql
+    writes.clear()
+    ratings.record_moderation_call("queue", "allow", None, None, False,
+                                   lambda sql, params: writes.append((sql, params)), NOW, tokens=512)
+    assert writes[0][1][-1] == 512
 
 
 def test_the_upsert_keeps_the_check_while_the_text_is_unchanged():
