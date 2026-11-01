@@ -76,9 +76,10 @@
     if (navigator.webdriver) gtag('set', 'user_properties', { automated_browser: 'yes' });
     gtag('config', 'G-NY3WJ7WEKL');
     // One real_visit per page load, on the first click, tap, key press or
-    // wheel/touch scroll a person makes (isTrusted skips script-made events).
+    // mouse-wheel scroll a person makes (isTrusted skips events dispatched by
+    // page scripts; a touch scroll starts with a pointerdown).
     (function () {
-      var types = ['pointerdown', 'keydown', 'wheel', 'touchmove'];
+      var types = ['pointerdown', 'keydown', 'wheel'];
       function onAct(e) {
         if (!e.isTrusted) return;
         types.forEach(function (t) { removeEventListener(t, onAct, true); });
