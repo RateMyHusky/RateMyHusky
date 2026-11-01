@@ -251,6 +251,7 @@ const Professor = () => {
   const chartsRef = useRef<HTMLElement>(null);
   const gradesRef = useRef<HTMLDivElement>(null);
   const reviewTabsRef = useRef<HTMLDivElement>(null);
+  const rateCardRef = useRef<HTMLDivElement>(null);
 
   const [profile, setProfile] = useState<ProfessorPage | null>(null);
   const [loadError, setLoadError] = useState<'not_found' | 'failed' | null>(null);
@@ -1130,7 +1131,7 @@ const Professor = () => {
               </div>
             )}
             {showRateCard && (
-              <div className="prof-rate-card">
+              <div className="prof-rate-card" ref={rateCardRef}>
                 <p className="prof-rate-card-text">
                   {surveyCount === 0
                     ? `Be the first Husky to rate Prof. ${profLast}`
@@ -1335,7 +1336,7 @@ const Professor = () => {
       </section>
 
       <Footer />
-      {RATE_ENABLED && <RatePopup key={identity.slug} slug={identity.slug} profName={identity.name} reviewsRef={reviewsRef} />}
+      {RATE_ENABLED && <RatePopup key={identity.slug} slug={identity.slug} profName={identity.name} reviewsRef={reviewsRef} cardRef={rateCardRef} />}
       <button
         className={`prof-back-to-top ${showBackToTop ? 'visible' : ''}`} 
         onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} 

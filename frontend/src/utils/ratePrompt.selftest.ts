@@ -46,6 +46,8 @@ function selftest(): number {
   check('null storage', loadState(null) === null);
   check('corrupt JSON', sameAsFresh(loadState(fakeStorage('{oops'))!));
   check('tampered dismissCount', loadState(fakeStorage('{"dismissCount":"x"}'))!.dismissCount === 0);
+  check('tampered fields dropped', isDeepStrictEqual(
+    loadState(fakeStorage('{"rated":["a",3,null],"lastShown":"x","junk":1}')), { dismissCount: 0, rated: ['a'] }));
 
   const st = fakeStorage();
   const saved: PromptState = { lastShown: T, dismissCount: 2, lastDismiss: T, rated: ['x'], lastVisitDay: '2026-10-31' };

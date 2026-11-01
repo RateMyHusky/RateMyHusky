@@ -89,11 +89,13 @@ export default function Rate() {
   // The check runs on the comment step, while the student writes; only the submit waits for its token.
   const { containerRef, token, failed, scriptFailed, interactive, reset } = useTurnstile();
 
+  // Once per mount; the ref keeps StrictMode's second run from counting twice.
   useEffect(() => {
     if (startedTracked.current) return;
     startedTracked.current = true;
     track('rate_started', { from: rateFrom });
-  }, [rateFrom]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- "Rate another" tracks its own start
+  }, []);
 
   const slug = answers.professor?.slug ?? null;
   // null while the professor's courses load; a new professor has none to load.
@@ -198,8 +200,9 @@ export default function Rate() {
       setSending(false);
       if (res.ok) {
         markRatedNow(answers.professor?.slug ?? null);
-        // An update edits a rating that was already counted, so only a new rating counts toward its prompt.
-        if (!answers.updating) track('rating_submitted', { from: rateFrom });
+        // An update edits a rating that was already counted, so it gets its own event: started is
+        // then compared with submitted plus updated.
+        track(answers.updating ? 'rating_updated' : 'rating_submitted', { from: rateFrom });
         if (skip) setAnswers((a) => ({ ...a, comment: '' }));
         setCounter(res.counter);
         reset();

@@ -249,8 +249,13 @@ export function displayTerm(label: string): string {
   return label.replace(/^Summer (\d{4})$/, 'Full Summer $1');
 }
 
+// "Olin Shivers III" is Prof. Shivers, not Prof. III.
+const NAME_SUFFIX = /^(jr|sr|ii|iii|iv)\.?$/i;
+
 export function lastName(name: string): string {
-  return name.trim().split(/\s+/).pop() ?? '';
+  const parts = name.trim().replace(/,/g, '').split(/\s+/);
+  if (parts.length > 1 && NAME_SUFFIX.test(parts[parts.length - 1])) parts.pop();
+  return parts.pop() ?? '';
 }
 
 export function contextTags(a: Answers): string[] {

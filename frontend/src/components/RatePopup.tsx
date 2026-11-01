@@ -11,9 +11,15 @@ interface Props {
   slug: string;
   profName: string;
   reviewsRef: RefObject<HTMLElement | null>;
+  cardRef: RefObject<HTMLElement | null>;
 }
 
-export default function RatePopup({ slug, profName, reviewsRef }: Props) {
+const onScreen = (el: HTMLElement) => {
+  const r = el.getBoundingClientRect();
+  return r.bottom > 0 && r.top < window.innerHeight;
+};
+
+export default function RatePopup({ slug, profName, reviewsRef, cardRef }: Props) {
   const [trigger, setTrigger] = useState<PromptTrigger | null>(null);
   // Decided once per mount: StrictMode reruns the effect after the first run has saved today's date.
   const revisitRef = useRef<boolean | null>(null);
@@ -38,6 +44,8 @@ export default function RatePopup({ slug, profName, reviewsRef }: Props) {
     const fire = (signal: 'time' | 'scroll') => {
       if (fired) return;
       fired = true;
+      // The in-tab rate card already asks; a second ask would also spend one of the 3 dismissals.
+      if (cardRef.current && onScreen(cardRef.current)) return;
       const now = Date.now();
       const current = loadState();
       if (!current || !canShowPopup(current, slug, now)) return;
@@ -87,7 +95,7 @@ export default function RatePopup({ slug, profName, reviewsRef }: Props) {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('scroll', onScroll);
     };
-  }, [slug, reviewsRef]);
+  }, [slug, reviewsRef, cardRef]);
 
   // The live region stays mounted while empty: screen readers announce content added to an
   // existing region, not a region that arrives already filled.

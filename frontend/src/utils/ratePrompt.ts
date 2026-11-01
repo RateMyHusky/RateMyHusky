@@ -41,12 +41,16 @@ export function loadState(storage?: Storage | null): PromptState | null {
     try {
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object') return defaultState();
-      return {
-        ...defaultState(),
-        ...parsed,
+      // Known keys only, so old or tampered fields aren't saved back.
+      const s: PromptState = {
         dismissCount: Number(parsed.dismissCount) || 0,
-        rated: Array.isArray(parsed.rated) ? parsed.rated : [],
+        rated: Array.isArray(parsed.rated) ? parsed.rated.filter((x: unknown) => typeof x === 'string') : [],
       };
+      for (const k of ['lastShown', 'lastDismiss', 'lastRated'] as const) {
+        if (typeof parsed[k] === 'number') s[k] = parsed[k];
+      }
+      if (typeof parsed.lastVisitDay === 'string') s.lastVisitDay = parsed.lastVisitDay;
+      return s;
     } catch {
       return defaultState();
     }
@@ -131,6 +135,8 @@ function referrerOrigin(): string {
 
 export function track(event: string, params: Record<string, string>): void {
   try {
+    // Deliberately the opposite of RATE_ENABLED: dev and preview traffic stays out of GA, so these
+    // events start sending when the rate flow launches in production.
     if (import.meta.env?.VITE_VERCEL_ENV !== 'production') return;
     if (typeof window.gtag === 'function') {
       window.gtag('event', event, {
