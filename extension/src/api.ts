@@ -22,6 +22,39 @@ export type CourseSuggestion = {
   dept: string | null;
 };
 
+export type ProfessorReview = {
+  course: string;
+  courseCode: string | null;
+  quality: number;
+  difficulty: number;
+  date: string;
+  tags: string;
+  comment: string;
+};
+
+export type ProfessorProfile = {
+  identity: {
+    slug: string;
+    name: string;
+    department: string;
+    imageUrl: string | null;
+  };
+  summary: {
+    rating: number | null;
+    numRatings: number;
+    numComments: number;
+  };
+  sources: {
+    rmp: { reviews: ProfessorReview[]; numRatings: number };
+    survey: {
+      available: boolean;
+      rating: number | null;
+      numRatings: number;
+      ratingDistribution: Record<'1' | '2' | '3' | '4' | '5', number>;
+    };
+  };
+};
+
 export type Suggestion = ProfessorSuggestion | CourseSuggestion;
 
 const MAINTENANCE_PATH = '/maintenance.html';
@@ -80,6 +113,10 @@ export async function searchProfessors(
   return get<ProfessorSuggestion[]>(
     `/api/search?q=${encodeURIComponent(q)}&type=Professor&limit=${limit}`,
   );
+}
+
+export async function fetchProfessorProfile(slug: string): Promise<ProfessorProfile> {
+  return get<ProfessorProfile>(`/api/professors/${encodeURIComponent(slug)}/full`);
 }
 
 export function isUnavailable(err: unknown): boolean {

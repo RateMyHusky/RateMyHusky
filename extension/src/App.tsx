@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   isUnavailable,
-  professorUrl,
+  fetchProfessorProfile,
   searchProfessors,
+  type ProfessorProfile,
+  type ProfessorReview,
   type ProfessorSuggestion,
 } from './api';
 
@@ -85,12 +87,143 @@ function displayDepartment(dept: string | null): string {
   return abbreviations[dept] ?? dept;
 }
 
+function formatReviewDate(value: string): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(date);
+}
+
+function ReviewCard({ review }: { review: ProfessorReview }) {
+  const tags = review.tags.split('--').map((tag) => tag.trim()).filter(Boolean);
+  return (
+    <article className="review-card">
+      <div className="review-card-top">
+        <div className="stars" aria-label={`${review.quality} out of 5 stars`}>
+          {Array.from({ length: 5 }, (_, index) => (
+            <span className={index < Math.round(review.quality) ? 'filled' : ''} key={index}>★</span>
+          ))}
+        </div>
+        <span className="review-date">{formatReviewDate(review.date)}</span>
+      </div>
+      {review.comment ? <p className="review-comment">{review.comment}</p> : (
+        <p className="review-comment muted">No written comment for this rating.</p>
+      )}
+      <div className="review-details">
+        {review.courseCode && <span>{review.courseCode}</span>}
+        <span>Difficulty {review.difficulty}/5</span>
+      </div>
+      {tags.length > 0 && (
+        <div className="review-tags">
+          {tags.map((tag) => <span className="review-tag" key={tag}>{tag}</span>)}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function ProfileView({
+  profile,
+  activeTab,
+  onTabChange,
+}: {
+  profile: ProfessorProfile;
+  activeTab: 'reviews' | 'trace';
+  onTabChange: (tab: 'reviews' | 'trace') => void;
+}) {
+  const [reviewSort, setReviewSort] = useState<'newest' | 'highest' | 'lowest'>('newest');
+  const reviews = profile.sources.rmp.reviews;
+  const orderedReviews = [...reviews].sort((a, b) => {
+    if (reviewSort === 'highest') return b.quality - a.quality;
+    if (reviewSort === 'lowest') return a.quality - b.quality;
+    return Date.parse(b.date) - Date.parse(a.date);
+  });
+  const survey = profile.sources.survey;
+  const distribution = survey.ratingDistribution;
+  const totalEvaluations = Object.values(distribution).reduce((sum, value) => sum + value, 0);
+
+  return (
+    <>
+      <nav className="profile-tabs" aria-label="Professor information">
+        <button className={activeTab === 'reviews' ? 'active' : ''} onClick={() => onTabChange('reviews')} type="button">Reviews</button>
+        <button className={activeTab === 'trace' ? 'active' : ''} onClick={() => onTabChange('trace')} type="button">TRACE Data</button>
+        <button className="disabled-tab" type="button" disabled>Courses</button>
+      </nav>
+
+      {activeTab === 'reviews' ? (
+        <section className="profile-content">
+          <div className="content-heading">
+            <div>
+              <h1>Student Reviews <span className="count">({profile.summary.numComments})</span></h1>
+              <p>Written feedback from Rate My Professors</p>
+            </div>
+            <label className="sort-control">
+              <span className="visually-hidden">Sort reviews</span>
+              <select value={reviewSort} onChange={(event) => setReviewSort(event.target.value as typeof reviewSort)}>
+                <option value="newest">Newest</option>
+                <option value="highest">Highest rated</option>
+                <option value="lowest">Lowest rated</option>
+              </select>
+            </label>
+          </div>
+          {orderedReviews.length ? (
+            <div className="review-list">
+              {orderedReviews.map((review, index) => <ReviewCard key={`${review.date}-${index}`} review={review} />)}
+            </div>
+          ) : (
+            <p className="profile-empty">No written reviews are available for this professor yet.</p>
+          )}
+        </section>
+      ) : (
+        <section className="profile-content trace-content">
+          <div className="content-heading trace-heading">
+            <div>
+              <h1>TRACE Evaluation Results <span className="info-dot" title="Student evaluation data available for this professor">i</span></h1>
+              <p>{survey.available ? `${survey.numRatings.toLocaleString()} responses` : 'Student evaluation data'}</p>
+            </div>
+            {survey.rating != null && <strong className="trace-total">{survey.rating.toFixed(1)}<small> / 5</small></strong>}
+          </div>
+          {survey.available ? (
+            <>
+              <div className="trace-summary">
+                <span>Overall</span>
+                <div className="trace-bar"><span style={{ width: `${((survey.rating ?? 0) / 5) * 100}%` }} /></div>
+                <strong>{survey.rating?.toFixed(1) ?? '—'}</strong>
+              </div>
+              <div className="distribution-heading">Rating distribution <span>{totalEvaluations.toLocaleString()} responses</span></div>
+              {[5, 4, 3, 2, 1].map((score) => {
+                const count = distribution[String(score) as keyof typeof distribution] ?? 0;
+                const percent = totalEvaluations ? (count / totalEvaluations) * 100 : 0;
+                return (
+                  <div className="distribution-row" key={score}>
+                    <span>{score} ★</span>
+                    <div className="trace-bar"><span style={{ width: `${percent}%` }} /></div>
+                    <strong>{count.toLocaleString()}</strong>
+                  </div>
+                );
+              })}
+              <p className="trace-note">Detailed category scores aren’t included in the available evaluation data.</p>
+            </>
+          ) : (
+            <p className="profile-empty">TRACE evaluation data isn’t available for this professor yet.</p>
+          )}
+        </section>
+      )}
+    </>
+  );
+}
+
 export default function App() {
   const [query, setQuery] = useState('');
   const [recents, setRecents] = useState<RecentSearch[]>(loadRecents);
   const [results, setResults] = useState<ProfessorSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [selectedProfessor, setSelectedProfessor] = useState<ProfessorSuggestion | null>(null);
+  const [profile, setProfile] = useState<ProfessorProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileTab, setProfileTab] = useState<'reviews' | 'trace'>('reviews');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -149,7 +282,19 @@ export default function App() {
       dept: professor.dept,
       slug: professor.slug,
     });
-    window.open(professorUrl(professor.slug), '_blank', 'noopener,noreferrer');
+    setSelectedProfessor(professor);
+    setProfile(null);
+    setProfileError('');
+    setProfileTab('reviews');
+    setProfileLoading(true);
+    fetchProfessorProfile(professor.slug)
+      .then(setProfile)
+      .catch((err: unknown) => setProfileError(
+        isUnavailable(err)
+          ? 'Professor details are temporarily unavailable. Check your connection and try again.'
+          : 'Could not load professor details. Please try again.',
+      ))
+      .finally(() => setProfileLoading(false));
   }
 
   function clearRecents() {
@@ -179,7 +324,29 @@ export default function App() {
         </button>
       </header>
 
-      <main className="body">
+      {selectedProfessor ? (
+        <>
+          <div className="profile-titlebar">
+            <button className="back-button" type="button" aria-label="Back to search" onClick={() => {
+              setSelectedProfessor(null);
+              setProfile(null);
+            }}><ChevronIcon /></button>
+            <div className="profile-identity">
+              {profile?.identity.imageUrl ? <img src={profile.identity.imageUrl} alt="" /> : <span className="avatar large" />}
+              <div>
+                <h1>{profile?.identity.name ?? selectedProfessor.name}</h1>
+                <p>{profile?.identity.department ?? displayDepartment(selectedProfessor.dept)}</p>
+                {profile?.summary.rating != null && (
+                  <span className="identity-rating"><b>★ {profile.summary.rating.toFixed(1)}</b> / 5 · {profile.summary.numRatings.toLocaleString()} ratings</span>
+                )}
+              </div>
+            </div>
+          </div>
+          {profileLoading ? <p className="profile-empty">Loading professor details…</p> : profileError ? (
+            <p className="profile-empty error-state">{profileError}</p>
+          ) : profile ? <ProfileView profile={profile} activeTab={profileTab} onTabChange={setProfileTab} /> : null}
+        </>
+      ) : <main className="body">
         <form
           className="search-box"
           role="search"
@@ -276,7 +443,7 @@ export default function App() {
             )}
           </section>
         )}
-      </main>
+      </main>}
     </div>
   );
 }
