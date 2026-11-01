@@ -6,9 +6,8 @@
 Runs from .github/workflows/review-digest.yml. HTML plus a text part, always sent, one a day:
 that fits Resend's free 100/day next to the feedback caps and usage alerts (see
 FEEDBACK_DAILY_LIMIT in server.py). Counts, names, course codes, hold reasons and rating ids
-only: no comments, agent reasons, hashes or network data. Reads ORACLE_DATABASE_URL,
-RESEND_API_KEY and the groqN keys (for the agent meter's limit). The Resend meters count
-email_sends (see notify.RECORD_SEND) by UTC day and month.
+only: no comments, agent reasons, hashes or network data. Reads ORACLE_DATABASE_URL and
+RESEND_API_KEY. The Resend meters count email_sends (see notify.RECORD_SEND) by UTC day and month.
 """
 
 import argparse
@@ -25,7 +24,6 @@ import digest_html as dh
 import notify
 from review_agent import decision_of, group_held
 from pipeline.db import connect, fetch_all
-from rag.key_pool import load_entries
 
 _REASONS = {
     "unverified_pair": "course not taught per Banner", "unverified_term": "wrong term per Banner",
@@ -34,8 +32,8 @@ _REASONS = {
     "duplicate_comment": "copied comment", "near_duplicate": "copied comment",
     "moderation_block": "comment blocked by the checker", "silent_hold": "device held after an abuse reject",
 }
-_RATE_NOTE = ("Each Groq bar shows whichever of requests or tokens is closer to its limit. "
-              "Bars turn amber at 50% and red at 80%.")
+_RATE_NOTE = ("Groq bars cover the last 24 hours, and each shows whichever of requests or tokens is "
+              "closer to its limit. Bars turn amber at 50% and red at 80%.")
 
 
 def _plural(n, word):
@@ -209,6 +207,7 @@ CHECKER_LIMITS = (1000, 200_000)
 AGENT_LIMITS_PER_KEY = (1000, 200_000)
 _DAY = "now() - interval '1 day'"
 # The agent runs once a day, so a rolling day could hold yesterday's run too, depending on when cron fires.
+# Today's run plus a rolling day of chat is the last 24 hours, the same window as the checker.
 _UTC_DAY = "date_trunc('day', now(), 'UTC')"
 
 
@@ -242,11 +241,12 @@ def usage_meters(conn):
               {"label": "Resend month", "used": int(sends["month"]), "limit": RESEND_LIMITS[1], "unit": ""}]
     (agent,) = fetch_all(conn, f"""
         SELECT (SELECT COALESCE(sum(requests), 0) FROM review_agent_runs WHERE ran_at >= {_UTC_DAY})
-                 + (SELECT count(*) FROM ask_log WHERE created_at >= {_UTC_DAY} AND tokens_used > 0) AS requests,
+                 + (SELECT count(*) FROM ask_log WHERE created_at >= {_DAY} AND tokens_used > 0) AS requests,
                (SELECT COALESCE(sum(tokens), 0) FROM review_agent_runs WHERE ran_at >= {_UTC_DAY})
-                 + (SELECT COALESCE(sum(tokens_used), 0) FROM ask_log WHERE created_at >= {_UTC_DAY}) AS tokens,
-               (SELECT keys FROM review_agent_runs ORDER BY ran_at DESC LIMIT 1) AS keys""")
-    keys = int(agent["keys"] or len(load_entries()) or 1)
+                 + (SELECT COALESCE(sum(tokens_used), 0) FROM ask_log WHERE created_at >= {_DAY}) AS tokens,
+               (SELECT keys FROM review_agent_runs WHERE keys > 0 ORDER BY ran_at DESC LIMIT 1) AS keys""")
+    # The agent step records its keys just before the digest, so 1 only before any run has had a key.
+    keys = int(agent["keys"] or 1)
     meters.append(groq_meter("Groq agent", int(agent["requests"]), int(agent["tokens"]),
                              AGENT_LIMITS_PER_KEY[0] * keys, AGENT_LIMITS_PER_KEY[1] * keys))
     (checker,) = fetch_all(conn, f"SELECT count(*) AS requests, COALESCE(sum(tokens), 0) AS tokens "

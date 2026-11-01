@@ -819,13 +819,17 @@ def main(argv=None):
     finally:
         # Also when a pass raised or the step timeout interrupted the run, so the calls already made count.
         if not args.dry_run:
-            conn = connect()
             try:
-                with conn.cursor() as cur:
-                    record_run(cur, groq.used if groq else {}, len(entries), datetime.now(timezone.utc))
-                conn.commit()
-            finally:
-                conn.close()
+                conn = connect()
+                try:
+                    with conn.cursor() as cur:
+                        record_run(cur, groq.used if groq else {}, len(entries), datetime.now(timezone.utc))
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception as e:
+                # Best-effort: a database outage that failed a pass shouldn't bury its error under this one.
+                print(f"[review_agent] run not recorded: {type(e).__name__}")
     return 0
 
 

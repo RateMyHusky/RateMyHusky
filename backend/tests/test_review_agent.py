@@ -1285,3 +1285,22 @@ def test_a_pass_that_raises_still_records_the_run(monkeypatch):
         ra.main([])
     [(sql, params)] = [r for r in runs if r[0].startswith("INSERT INTO review_agent_runs")]
     assert tuple(params)[1:] == (4, 700, 1)
+
+
+def test_a_run_that_cannot_be_recorded_still_raises_the_pass_error(monkeypatch, capsys):
+    # The database went down: the record's own connect failure is logged, not chained over the real error.
+    def boom(cur, dry_run=False):
+        raise psycopg2.OperationalError("server closed the connection unexpectedly")
+    _main(monkeypatch, ["k1"], boom)
+    conn, opened = ra.connect, []
+
+    def connect():
+        opened.append(1)
+        if len(opened) == 3:  # held review, merges, then the run record
+            raise psycopg2.OperationalError("connection timed out")
+        return conn()
+    monkeypatch.setattr(ra, "connect", connect)
+    with pytest.raises(psycopg2.OperationalError, match="server closed") as raised:
+        ra.main([])
+    assert raised.value.__context__ is None
+    assert "run not recorded: OperationalError" in capsys.readouterr().out

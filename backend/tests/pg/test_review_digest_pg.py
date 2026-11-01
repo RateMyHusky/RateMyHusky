@@ -68,20 +68,32 @@ def test_usage_meters_count_sends_by_utc_day_and_month_and_sum_groq(pg):
     assert meters[3] == {"label": "Groq checker", "used": 500, "limit": 200_000, "unit": "tokens"}
 
 
-def test_groq_agent_meter_counts_the_utc_day_not_yesterdays_run(pg):
-    # One second before UTC midnight is always inside a rolling 24 hours.
+def test_groq_agent_meter_counts_todays_run_and_a_rolling_day_of_chat(pg):
+    # One second before UTC midnight is always inside a rolling 24 hours: yesterday's run is left out,
+    # but chat from then still counts, since the digest at 13:00 UTC would otherwise miss Boston's daytime.
     with pg.cursor() as cur:
         cur.execute("INSERT INTO review_agent_runs (ran_at, requests, tokens, keys) VALUES "
                     "(date_trunc('day', now(), 'UTC') - interval '1 second', 900, 150000, 1), (now(), 10, 4000, 1)")
+        cur.execute("INSERT INTO ask_log (query, mode, result_status, tokens_used, created_at) VALUES "
+                    "('q', 'm', 'ok', 2000, date_trunc('day', now(), 'UTC') - interval '1 second'), "
+                    "('q', 'm', 'ok', 7000, now() - interval '25 hours')")
     pg.commit()
-    assert review_digest.usage_meters(pg)[2] == {"label": "Groq agent", "used": 4000, "limit": 200_000, "unit": "tokens"}
+    assert review_digest.usage_meters(pg)[2] == {"label": "Groq agent", "used": 6000, "limit": 200_000, "unit": "tokens"}
 
 
-def test_usage_meters_on_an_empty_database_fall_back_to_the_configured_keys(pg):
+def test_groq_agent_limit_uses_the_last_run_that_had_keys(pg):
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO review_agent_runs (ran_at, requests, tokens, keys) VALUES "
+                    "(now() - interval '2 days', 0, 0, 6), (now(), 0, 0, 0)")
+    pg.commit()
+    assert review_digest.usage_meters(pg)[2]["limit"] == 6000
+
+
+def test_usage_meters_on_an_empty_database_assume_one_key(pg):
     meters = review_digest.usage_meters(pg)
     assert [m["label"] for m in meters] == ["Resend today", "Resend month", "Groq agent", "Groq checker"]
     assert meters[0]["used"] == 0 and meters[1]["used"] == 0
-    assert meters[2]["used"] == 0 and meters[2]["limit"] >= 1000
+    assert meters[2]["used"] == 0 and meters[2]["limit"] == 1000
 
 
 def test_main_dry_run_shows_professor_names(pg, pg_env, capsys):
