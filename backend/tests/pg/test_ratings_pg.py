@@ -205,6 +205,38 @@ def test_pair_taught_reads_the_real_banner_table(pg):
     assert not ratings.pair_taught("jane-doe", "CS3500", pg_query_one(pg))
 
 
+def test_term_unverified_reads_the_real_banner_tables(pg):
+    import ratings
+
+    truncate(pg, "banner_course_instructors", "banner_terms", "banner_sections", "banner_section_instructors")
+    with pg.cursor() as cur:
+        cur.execute(
+            "INSERT INTO banner_course_instructors (subject_course, instructor_key, professor_slug, "
+            "match_method, terms_taught, sections, first_term_code, last_term_code, last_term_label) "
+            "VALUES ('CS2500', 'k1', 'jane-doe', 'exact', 2, 2, '202610', '202650', 'Summer 2026')")
+        # From 2026 one Summer term holds both sessions, labelled "Summer 2026".
+        for code, label, group, year in (("202610", "Fall 2025", "Fall", 2025), ("202630", "Spring 2026", "Spring", 2026),
+                                         ("202650", "Summer 2026", "Summer", 2026)):
+            cur.execute(
+                "INSERT INTO banner_terms (term_code, term_label, season, season_group, year, view_only, "
+                "scraped_closed, section_count, attributed_sections, instructor_count, instructors_source) "
+                "VALUES (%s, %s, %s, %s, %s, false, true, 1, 1, 1, 'banner')", (code, label, group, group, year))
+        for code, crn in (("202610", "1"), ("202650", "2")):
+            cur.execute("INSERT INTO banner_sections (term_code, crn, subject_course) VALUES (%s, %s, 'CS2500')",
+                        (code, crn))
+            cur.execute("INSERT INTO banner_section_instructors (term_code, crn, instructor_key, instructor_name) "
+                        "VALUES (%s, %s, 'k1', 'Doe, Jane')", (code, crn))
+    pg.commit()
+    query_one = pg_query_one(pg)
+    for term in ("Fall 2025", "Summer 1 2026", "Summer 2 2026", "Summer 2026"):
+        assert not ratings.term_unverified("jane-doe", "CS2500", term, query_one), term
+    assert ratings.term_unverified("jane-doe", "CS2500", "Spring 2026", query_one)
+    # Nothing to check against: a term Banner never loaded, or a pair Banner doesn't have.
+    assert not ratings.term_unverified("jane-doe", "CS2500", "Fall 2020", query_one)
+    assert not ratings.term_unverified("jane-doe", "CS3500", "Spring 2026", query_one)
+    assert not ratings.term_unverified("john-roe", "CS2500", "Spring 2026", query_one)
+
+
 def test_an_approved_unverified_pair_rating_makes_the_pair_taught(pg):
     # A professor or course approved from the form is in neither Banner nor RMP.
     import ratings

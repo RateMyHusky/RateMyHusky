@@ -10,8 +10,8 @@ const OTHER = '+other';
 interface TermStepProps {
   professor: RateProfessor;
   course: RateCourse;
-  selected?: string | null;
-  onPick: (term: string | null) => void;
+  selected?: string;
+  onPick: (term: string) => void;
   onOther: () => void;
 }
 
@@ -24,21 +24,18 @@ export function TermStep({ professor, course, selected, onPick, onOther }: TermS
         legend="When did you take it?"
         subtitle={`Terms Prof. ${lastName(professor.name)} taught ${formatCode(course.code)}, or pick any other.`}
         options={options}
-        value={selected ?? undefined}
+        value={selected}
         layout="stack"
         onPick={(v) => (v === OTHER ? onOther() : onPick(v))}
       />
-      {selected === null && (
-        <button type="button" className="rate-ghost on" aria-pressed="true" onClick={() => onPick(null)}>Not sure</button>
-      )}
     </>
   );
 }
 
 interface OtherTermStepProps {
   now: Date;
-  selected?: string | null;
-  onPick: (term: string | null) => void;
+  selected?: string;
+  onPick: (term: string) => void;
   onBack: () => void;
 }
 
@@ -91,14 +88,6 @@ export function OtherTermStep({ now, selected, onPick, onBack }: OtherTermStepPr
       <StepFoot onBack={onBack}>
         <button type="button" className="rate-btn" disabled={!season} onClick={() => onPick(`${season} ${year}`)}>
           Continue
-        </button>
-        <button
-          type="button"
-          className={`rate-ghost${selected === null ? ' on' : ''}`}
-          aria-pressed={selected === null}
-          onClick={() => onPick(null)}
-        >
-          Not sure
         </button>
       </StepFoot>
     </>

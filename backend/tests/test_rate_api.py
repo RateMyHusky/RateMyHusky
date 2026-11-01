@@ -59,6 +59,10 @@ def rate(monkeypatch):
             return {"x": 1} if params[0] in ("CS2500", "CS3500") else None
         if "AS taught" in sql:  # alice-smith taught CS2500, never CS3500
             return {"taught": params[:2] == ("CS2500", "alice-smith")}
+        if "AS term_checkable" in sql:  # Banner covers Fall and Spring 2025; alice-smith taught CS2500 in Fall
+            season, year = params[2:4]
+            return {"term_checkable": params[:2] == ("CS2500", "alice-smith") and (season, year) in (
+                ("Fall", 2025), ("Spring", 2025)), "term_taught": (season, year) == ("Fall", 2025)}
         if "count(*) AS cnt FROM survey_ratings WHERE created_at" in sql:
             return {"cnt": 3}
         if "AND status = 'pending'" in sql:  # the first insert wins, like the partial unique index
@@ -391,6 +395,25 @@ def test_a_course_the_professor_never_taught_is_held_for_review(rate):
     taught, untaught = (params for sql, params in rating_writes(state))
     assert "accepted" in taught and "unverified_pair" not in taught
     assert "held" in untaught and "unverified_pair" in untaught
+
+
+def test_a_term_banner_says_the_professor_didnt_teach_the_course_is_held(rate):
+    server, client, state, ri = rate
+    post(client, ri)
+    post(client, ri, {"term": "Spring 2025"})
+    taught, untaught = (params for sql, params in rating_writes(state))
+    assert "accepted" in taught and "unverified_term" not in taught
+    assert "held" in untaught and "unverified_term" in untaught
+
+
+def test_a_term_banner_cant_check_is_not_held(rate):
+    # Before Banner's coverage, or a pair only RMP knows: a gap in Banner's data isn't the student's.
+    server, client, state, ri = rate
+    post(client, ri, {"term": "Fall 2024"})
+    post(client, ri, {"course": {"code": "CS3500"}, "term": "Spring 2025"})
+    covered, pair = (params for sql, params in rating_writes(state))
+    assert "accepted" in covered
+    assert "unverified_pair" in pair and "unverified_term" not in pair
 
 
 def test_pending_professor_or_course_skips_the_taught_check(rate):

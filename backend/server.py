@@ -2622,11 +2622,14 @@ def rate_submit():
     # a known pair is checked against who Banner and RMP have teaching the course.
     unverified = (bool(key["professor_slug"]) and bool(key["course_code"])
                   and not ratings.pair_taught(key["professor_slug"], key["course_code"], query_one))
+    # Only a pair Banner or RMP knows has terms worth checking.
+    wrong_term = (bool(key["professor_slug"]) and bool(key["course_code"]) and not unverified
+                  and ratings.term_unverified(key["professor_slug"], key["course_code"], clean["term_label"], query_one))
     silent = ratings.flagged(device_hash, ip_hash, network_type, query_one, now)
     status, reasons = rating_checks.assess(fill_seconds, network_type, bursts, duplicate,
                                            edit=bool(existing) and existing["status"] == "accepted",
                                            unverified_pair=unverified, near_duplicate=bool(near),
-                                           skew_week=skew, silent_hold=silent)
+                                           skew_week=skew, silent_hold=silent, unverified_term=wrong_term)
     row = {
         **key,
         "term_label": clean["term_label"], "rating": clean["rating"], "difficulty": clean["difficulty"],

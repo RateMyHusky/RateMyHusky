@@ -75,6 +75,7 @@ def _body(**over):
     _body(term="Summer Full 2025"),
     _body(term="Fall 2025\n"),
     _body(term="Fall ٢٠٢٥"),
+    _body(term=None),
     _body(course={"code": "CS２５００"}),
     _body(comment="x" * 2001),
     _body(professor="jane-doe"),
@@ -144,11 +145,18 @@ def test_new_professor_name_needs_two_latin_words():
 def test_validate_new_professor_and_course():
     clean, err = rc.validate_submission(
         _body(professor={"name": " Jane  Doe ", "department": ""}, course={"code": "cs2500", "name": "Fundies"},
-              term=None, comment=None), 2026)
+              comment=None), 2026)
     assert err is None
     assert clean["professor_slug"] is None
     assert clean["new_professor"] == {"name": "Jane Doe", "department": None}
-    assert clean["new_course_name"] == "Fundies" and clean["term_label"] is None and clean["comment"] == ""
+    assert clean["new_course_name"] == "Fundies" and clean["comment"] == ""
+
+
+def test_validate_requires_a_term():
+    # The form has no "Not sure": a rating without a term would skip the Banner term check.
+    body = _body()
+    del body["term"]
+    assert rc.validate_submission(body, 2026) == (None, "Invalid term")
 
 
 def test_validate_missing_grade_is_none():
@@ -170,6 +178,10 @@ def test_validate_term_window_is_four_years_plus_a_year_each_side():
         assert rc.validate_submission(_body(term=term), 2026)[1] is None
     for term in ("Summer 2 2021", "Spring 2028"):
         assert rc.validate_submission(_body(term=term), 2026)[1] == "Invalid term"
+
+
+def test_a_term_banner_says_they_didnt_teach_it_is_held_for_review():
+    assert rc.assess(30, "campus", [], False, unverified_term=True) == ("held", ["unverified_term"])
 
 
 def test_a_pair_banner_and_rmp_never_saw_is_held_for_review():

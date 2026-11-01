@@ -109,11 +109,11 @@ def validate_submission(body, this_year):
     else:
         course_name = course_name.strip()
 
+    # Required: a rating without a term would skip the Banner term check (ratings.term_unverified).
     term = body.get("term")
-    if term is not None:
-        m = TERM_RE.fullmatch(term) if isinstance(term, str) else None
-        if not m or label_code(term) is None or not this_year - TERM_YEARS <= int(m.group(2)) <= this_year + 1:
-            return None, "Invalid term"
+    m = TERM_RE.fullmatch(term) if isinstance(term, str) else None
+    if not m or label_code(term) is None or not this_year - TERM_YEARS <= int(m.group(2)) <= this_year + 1:
+        return None, "Invalid term"
 
     rating = body.get("rating")
     if type(rating) is not int or not 1 <= rating <= 5:
@@ -252,7 +252,7 @@ def comment_check_fields(action, reason, now):
 
 def assess(fill_seconds, network_type, bursts, duplicate_comment, edit=False,
            unverified_pair=False, near_duplicate=False, skew_week=False,
-           silent_hold=False):
+           silent_hold=False, unverified_term=False):
     """("held", reasons) | ("accepted", []).
 
     Moderation plays no part: a blocked comment never gets here, and a flagged or
@@ -262,6 +262,7 @@ def assess(fill_seconds, network_type, bursts, duplicate_comment, edit=False,
     edit: this replaces an accepted rating. The form prefills the earlier answers,
     so a quick update is normal and only has to clear EDIT_MIN_FILL_SECONDS.
     unverified_pair: neither Banner nor RMP has this professor teaching this course.
+    unverified_term: Banner has them teaching it, but not in the term the student picked.
     near_duplicate: the comment closely matches another rating's (see similarity).
     skew_week: a run of same-direction ratings has landed on this professor this week.
     silent_hold: a reviewer's reject-rating --abuse flagged this device or IP.
@@ -280,6 +281,8 @@ def assess(fill_seconds, network_type, bursts, duplicate_comment, edit=False,
         reasons.append("skew_week")
     if unverified_pair:
         reasons.append("unverified_pair")
+    if unverified_term:
+        reasons.append("unverified_term")
     if duplicate_comment:
         reasons.append("duplicate_comment")
     if near_duplicate:

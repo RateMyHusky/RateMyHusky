@@ -112,6 +112,30 @@ def pair_taught(slug, code, query_one):
     return bool(row and row["taught"])
 
 
+# Banner can check a term when it has this professor teaching this course at all and has
+# loaded a term of that season and year. Seasons match on Banner's season_group, so all of
+# a year's summer sessions are one: from 2026 one "Summer 2026" term holds Summer 1 and 2.
+TERM_SQL = (
+    "SELECT EXISTS (SELECT 1 FROM banner_course_instructors WHERE subject_course = %s AND professor_slug = %s) "
+    "AND EXISTS (SELECT 1 FROM banner_terms WHERE season_group = %s AND year = %s) AS term_checkable, "
+    "EXISTS (SELECT 1 FROM banner_sections bs "
+    "JOIN banner_terms bt ON bt.term_code = bs.term_code "
+    "JOIN banner_section_instructors bsi ON bsi.term_code = bs.term_code AND bsi.crn = bs.crn "
+    "JOIN banner_course_instructors bci ON bci.instructor_key = bsi.instructor_key "
+    "AND bci.subject_course = bs.subject_course "
+    "WHERE bs.subject_course = %s AND bci.professor_slug = %s AND bt.season_group = %s AND bt.year = %s) AS term_taught"
+)
+
+
+def term_unverified(slug, code, term_label, query_one):
+    """Banner can check the term and doesn't have the professor teaching the course in it.
+    A gap in Banner's data (a term before it, a pair only RMP knows) never counts against the student."""
+    season, _, year = term_label.rpartition(" ")
+    group = "Summer" if season.startswith("Summer") else season
+    row = query_one(TERM_SQL, (code, slug, group, int(year)) * 2)
+    return bool(row and row["term_checkable"] and not row["term_taught"])
+
+
 # The insert is a no-op when a pending row already exists: a partial unique index
 # allows one pending row per name_key / code, so two racing submits share one row.
 def pending_professor(name, department, query_one, write):
