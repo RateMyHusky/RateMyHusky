@@ -142,7 +142,11 @@ def maybe_alert(query_fn, query_one_fn, write_fn, num_keys, send_fn=None):
                 summary = build_summary(query_fn, query_one_fn, num_keys)
             subject, text = render_email(tier, summary)
             if send_email(subject, text, send_fn=send_fn):
-                write_fn(notify.RECORD_SEND)
+                try:
+                    write_fn(notify.RECORD_SEND)
+                except Exception as e:
+                    # Best-effort: the email already went out, so the tier still counts as emailed.
+                    print(f"[usage_alert] send not recorded: {type(e).__name__}")
             emailed.append(tier)
         return emailed
     except Exception as e:

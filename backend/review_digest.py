@@ -155,7 +155,7 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
                   + (f" and made {_plural(merges, 'merge')}" if merges else "") + ".")
     nums = [("New ratings", ratings["new"], "new", "#222"), ("Live ratings", ratings["live"], "live", dh.GREEN),
             ("Held ratings", ratings["held"], "held", dh.AMBER_TEXT),
-            ("Rejected ratings", ratings["rejected"], "rejected", "#999")]
+            ("Blocked at submit", ratings["rejected"], "blocked", "#999")]
     totals = [("Live ratings, all time", f"{ratings['live_all']:,}"),
               ("Comments showing, all time", f"{ratings['comments_all']:,}")]
 
@@ -247,10 +247,12 @@ def usage_meters(conn):
                (SELECT keys FROM review_agent_runs WHERE keys > 0 ORDER BY ran_at DESC LIMIT 1) AS keys""")
     # The agent step records its keys just before the digest, so 1 only before any run has had a key.
     keys = int(agent["keys"] or 1)
-    meters.append(groq_meter("Groq agent", int(agent["requests"]), int(agent["tokens"]),
+    # Chat and the agent share the groq1..N keys, so they share one bar.
+    meters.append(groq_meter("Groq chat + agent", int(agent["requests"]), int(agent["tokens"]),
                              AGENT_LIMITS_PER_KEY[0] * keys, AGENT_LIMITS_PER_KEY[1] * keys))
+    # Only Groq replies carry tokens: OpenAI-fallback calls and failed attempts used none of Groq's quota.
     (checker,) = fetch_all(conn, f"SELECT count(*) AS requests, COALESCE(sum(tokens), 0) AS tokens "
-                                 f"FROM moderation_calls WHERE called_at >= {_DAY}")
+                                 f"FROM moderation_calls WHERE called_at >= {_DAY} AND tokens IS NOT NULL")
     meters.append(groq_meter("Groq checker", int(checker["requests"]), int(checker["tokens"]), *CHECKER_LIMITS))
     return meters
 

@@ -141,6 +141,7 @@ def test_ratings_section_numbers_chart_and_totals():
         assert f">{n}</div>" in html
     assert "Last 14 days" in html and "1,284" in html and "412" in html
     assert "New ratings: 42\n" in text and "Live ratings, all time: 1,284" in text
+    assert "Blocked at submit: 2\n" in text and "Rejected" not in text
 
 
 def test_agent_bar_counts_decisions():

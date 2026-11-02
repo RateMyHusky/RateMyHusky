@@ -64,7 +64,7 @@ def test_usage_meters_count_sends_by_utc_day_and_month_and_sum_groq(pg):
     today = 2 if datetime.now(timezone.utc).day == 1 else 1
     assert meters[0] == {"label": "Resend today", "used": today, "limit": 100, "unit": ""}
     assert meters[1] == {"label": "Resend month", "used": 2, "limit": 3000, "unit": ""}
-    assert meters[2] == {"label": "Groq agent", "used": 5000, "limit": 1_200_000, "unit": "tokens"}
+    assert meters[2] == {"label": "Groq chat + agent", "used": 5000, "limit": 1_200_000, "unit": "tokens"}
     assert meters[3] == {"label": "Groq checker", "used": 500, "limit": 200_000, "unit": "tokens"}
 
 
@@ -78,7 +78,17 @@ def test_groq_agent_meter_counts_todays_run_and_a_rolling_day_of_chat(pg):
                     "('q', 'm', 'ok', 2000, date_trunc('day', now(), 'UTC') - interval '1 second'), "
                     "('q', 'm', 'ok', 7000, now() - interval '25 hours')")
     pg.commit()
-    assert review_digest.usage_meters(pg)[2] == {"label": "Groq agent", "used": 6000, "limit": 200_000, "unit": "tokens"}
+    assert review_digest.usage_meters(pg)[2] == {"label": "Groq chat + agent", "used": 6000, "limit": 200_000, "unit": "tokens"}
+
+
+def test_groq_checker_meter_counts_only_calls_that_reached_groq(pg):
+    # OpenAI-fallback calls and failed Groq attempts are recorded with no tokens.
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO moderation_calls (id, source, outcome, tokens) VALUES "
+                    "(%s, 'submit', 'allow', NULL), (%s, 'submit', 'unavailable', NULL), (%s, 'submit', 'allow', 100)",
+                    (str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())))
+    pg.commit()
+    assert review_digest.usage_meters(pg)[3] == {"label": "Groq checker", "used": 1, "limit": 1000, "unit": "requests"}
 
 
 def test_groq_agent_limit_uses_the_last_run_that_had_keys(pg):
@@ -91,7 +101,7 @@ def test_groq_agent_limit_uses_the_last_run_that_had_keys(pg):
 
 def test_usage_meters_on_an_empty_database_assume_one_key(pg):
     meters = review_digest.usage_meters(pg)
-    assert [m["label"] for m in meters] == ["Resend today", "Resend month", "Groq agent", "Groq checker"]
+    assert [m["label"] for m in meters] == ["Resend today", "Resend month", "Groq chat + agent", "Groq checker"]
     assert meters[0]["used"] == 0 and meters[1]["used"] == 0
     assert meters[2]["used"] == 0 and meters[2]["limit"] == 1000
 
