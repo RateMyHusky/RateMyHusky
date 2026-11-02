@@ -133,6 +133,10 @@ function selftest(): number {
   // Misc formatting
   check('formatCode CS4973', formatCode('CS4973') === 'CS 4973');
   check('lastName', lastName('Lucia Nunez') === 'Nunez');
+  check('lastName skips a suffix', lastName('Olin Shivers III') === 'Shivers' && lastName('John Ruys Jr.') === 'Ruys'
+    && lastName('Ifiok Jr.') === 'Ifiok' && lastName('Jane Doe, Sr') === 'Doe' && lastName('Jr') === 'Jr');
+  check('lastName keeps a surname that looks like a numeral', lastName('Naoki Ii') === 'Ii' && lastName('Olin Shivers Iii') === 'Shivers'
+    && lastName('Jane Doe II') === 'Doe' && lastName('Jane Doe IV') === 'Doe');
   check('progressIndex', progressIndex('newProfessor') === 0 && progressIndex('who') === 0 && progressIndex('difficulty') === 4 && progressIndex('comment') === 7 && progressIndex('thanks') === 8);
 
   // buildSubmission

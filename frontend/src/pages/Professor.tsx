@@ -18,7 +18,10 @@ import { isPinned, pinnedFirst } from '../utils/askPinMatch';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
 import BookmarkButton from '../components/BookmarkButton';
 import FitText from '../components/FitText';
+import RatePopup from '../components/RatePopup';
 import { defaultTab, filterByCourses, reportDescription, type ReviewTab } from './professor/studentReviews';
+import { rateHref, loadState, hasRated } from '../utils/ratePrompt';
+import { lastName } from './rate/rateFlow';
 import neuIcon from '../assets/neu-circle-icon.png';
 import './Professor.css';
 
@@ -248,6 +251,7 @@ const Professor = () => {
   const chartsRef = useRef<HTMLElement>(null);
   const gradesRef = useRef<HTMLDivElement>(null);
   const reviewTabsRef = useRef<HTMLDivElement>(null);
+  const rateCardRef = useRef<HTMLDivElement>(null);
 
   const [profile, setProfile] = useState<ProfessorPage | null>(null);
   const [loadError, setLoadError] = useState<'not_found' | 'failed' | null>(null);
@@ -456,6 +460,11 @@ const Professor = () => {
 
   const filteredStudentReviews = useMemo(
     () => filterByCourses(studentReviews, selectedCourses), [studentReviews, selectedCourses]);
+  const profSlug = profile?.identity.slug;
+  const ratedHere = useMemo(() => {
+    const s = loadState();
+    return s !== null && profSlug !== undefined && hasRated(s, profSlug);
+  }, [profSlug]);
 
   /* The cards. Unfiltered: the backend's summary. Filtered: the selected courses[] rows
      combined, weighted by rating count, distributions summed. The per-source hover only
@@ -638,6 +647,13 @@ const Professor = () => {
   if (loadError || !profile || !stats) return <div className="prof-page"><LoadError /></div>;
 
   const identity = profile.identity;
+  // Ratings, not reviews: reviews[] holds approved comments only. There is no survey-only count per
+  // course (courses[].numRatings mixes in RMP), so a course filter gets the link, not a counted card.
+  const surveyCount = profile.sources.survey.numRatings;
+  const profLast = lastName(identity.name);
+  const rateCourse = selectedCourses.size === 1 ? [...selectedCourses][0] : null;
+  const showRateCard = RATE_ENABLED && !ratedHere && unfiltered && surveyCount < 5;
+  const showRateLink = RATE_ENABLED && !ratedHere && !showRateCard;
   const summary = profile.summary;
   const rmp = profile.sources.rmp;
   // A selection of courses no one has rated has nothing to chart either.
@@ -961,7 +977,7 @@ const Professor = () => {
 
       <div className="prof-hero-actions-row">
         {RATE_ENABLED && (
-        <Link to={`/rate?professor=${identity.slug}`} className="prof-rate-btn">
+        <Link to={rateHref(identity.slug, 'hero')} className="prof-rate-btn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
           </svg>
@@ -970,7 +986,7 @@ const Professor = () => {
         )}
         <Link
           to={`/compare?a=${encodeURIComponent(identity.slug)}`}
-          className="prof-compare-btn"
+          className={RATE_ENABLED ? 'prof-compare-btn prof-compare-btn--outline' : 'prof-compare-btn'}
         >
           Compare
         </Link>
@@ -980,6 +996,9 @@ const Professor = () => {
           </a>
         )}
       </div>
+      {RATE_ENABLED && (
+        <p className="prof-rate-tagline">Help other Northeastern students make informed decisions about professors.</p>
+      )}
 
       {(!noRatings || gradeDistribution.length > 0) && (
       <section className="prof-section prof-charts-row" ref={chartsRef}>
@@ -1089,15 +1108,20 @@ const Professor = () => {
 
         {reviewTab === 'students' && (
           <>
-            {canFilter && courses.length > 1 && (
+            {((canFilter && courses.length > 1) || showRateLink) && (
               <div className="prof-reviews-filters">
-                <Dropdown
-                  className="feedback-dropdown"
-                  options={courseOptions}
-                  value={unfiltered ? 'all' : selectedCourses.size === 1 ? [...selectedCourses][0] : ''}
-                  onChange={v => setSelectedCourses(v === 'all' ? new Set() : new Set([v]))}
-                  placeholder={`${selectedCourses.size} courses`}
-                />
+                {canFilter && courses.length > 1 && (
+                  <Dropdown
+                    className="feedback-dropdown"
+                    options={courseOptions}
+                    value={unfiltered ? 'all' : selectedCourses.size === 1 ? [...selectedCourses][0] : ''}
+                    onChange={v => setSelectedCourses(v === 'all' ? new Set() : new Set([v]))}
+                    placeholder={`${selectedCourses.size} courses`}
+                  />
+                )}
+                {showRateLink && (
+                  <Link to={rateHref(identity.slug, 'tab_link', rateCourse)} className="prof-action-link prof-rate-link">Rate this professor</Link>
+                )}
               </div>
             )}
             {!unfiltered && (
@@ -1106,11 +1130,23 @@ const Professor = () => {
                 <button className="prof-action-link" onClick={() => setSelectedCourses(new Set())}>Show all</button>
               </div>
             )}
+            {showRateCard && (
+              <div className="prof-rate-card" ref={rateCardRef}>
+                <p className="prof-rate-card-text">
+                  {surveyCount === 0
+                    ? `Be the first Husky to rate Prof. ${profLast}`
+                    : `Only ${surveyCount} ${surveyCount === 1 ? 'Husky has' : 'Huskies have'} rated Prof. ${profLast}. Help a Husky out.`}
+                </p>
+                <Link to={rateHref(identity.slug, surveyCount === 0 ? 'tab_empty' : 'tab_few')} className="prof-rate-btn">Rate this professor</Link>
+              </div>
+            )}
             <div className="prof-reviews-list">
               {filteredStudentReviews.length === 0 ? (
+                !(showRateCard && surveyCount === 0) && (
                 <p className="prof-no-reviews">
                   {studentReviews.length === 0 ? 'No RateMyHusky reviews yet.' : 'No reviews match current filters.'}
                 </p>
+                )
               ) : (
                 filteredStudentReviews.slice(0, visibleStudentReviews).map(r => (
                   <div key={r.id} id={`review-${r.id}`} className="prof-review-card" style={{ borderLeftColor: r.rating >= 4 ? '#27ae60' : r.rating >= 3 ? '#f39c12' : '#e74c3c' }}>
@@ -1300,6 +1336,7 @@ const Professor = () => {
       </section>
 
       <Footer />
+      {RATE_ENABLED && <RatePopup key={identity.slug} slug={identity.slug} profName={identity.name} reviewsRef={reviewsRef} cardRef={rateCardRef} />}
       <button
         className={`prof-back-to-top ${showBackToTop ? 'visible' : ''}`} 
         onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} 

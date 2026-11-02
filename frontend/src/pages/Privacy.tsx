@@ -110,7 +110,7 @@ const Privacy = () => {
               <p>
                 We do <strong>not</strong> log your search queries, which professor or course
                 pages you viewed, or any other browsing activity on our servers.
-                {RATE_ENABLED ? ' The one exception is the time taken to fill in the rating form, stored with a rating you submit.' : ''} The analytics
+                {RATE_ENABLED ? ' The one exception is the time taken to fill in the rating form, stored with a rating you submit. When you open or submit the rating form, or see or use a prompt to rate a professor, we send Google Analytics which prompt led you there and whether you rated. These events don\'t include the professor, course or your rating, though Google Analytics still records the address of each page you view, as described under Third-Party Services. Whether to show the prompt is decided in your browser.' : ''} The analytics
                 providers listed under <em>Third-Party Services</em> collect their own data
                 about your visit.
               </p>
