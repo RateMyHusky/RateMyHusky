@@ -468,7 +468,23 @@ CREATE TABLE public.moderation_calls (
     device_hash TEXT NULL,
     ip_hash TEXT NULL,
     shared_network BOOLEAN NOT NULL DEFAULT false,
+    tokens BIGINT NULL,
     CONSTRAINT moderation_calls_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE public.review_agent_runs (
+    id UUID NOT NULL DEFAULT gen_random_uuid(),
+    ran_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    requests BIGINT NOT NULL,
+    tokens BIGINT NOT NULL,
+    keys BIGINT NOT NULL,
+    CONSTRAINT review_agent_runs_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE public.email_sends (
+    id UUID NOT NULL DEFAULT gen_random_uuid(),
+    sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT email_sends_pkey PRIMARY KEY (id)
 );
 
 CREATE TABLE public.survey_pending_professors (

@@ -765,6 +765,12 @@ def mine_nicknames(cur, ask, max_calls=MAX_NICKNAME_CALLS, dry_run=False, deadli
     return counts
 
 
+def record_run(cur, used, keys, now):
+    """One row per run, for the daily digest's Groq usage meter."""
+    cur.execute("INSERT INTO review_agent_runs (ran_at, requests, tokens, keys) VALUES (%s, %s, %s, %s)",
+                (now, sum(u["rpd"] for u in used.values()), sum(u["tpd"] for u in used.values()), keys))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true")
@@ -772,43 +778,58 @@ def main(argv=None):
     args = parser.parse_args(argv)
     deadline = time.monotonic() + RUN_SECONDS
     entries = load_entries()
+    groq = Groq(KeyPool(entries)) if entries else None
     counts = None
-    if entries:
-        groq = Groq(KeyPool(entries))
-        calls = []
-
-        def ask(messages):
-            if calls:
-                time.sleep(CALL_GAP_SECONDS)
-            calls.append(1)
-            return groq.ask(messages)
-
-        conn = connect()
-        try:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                counts = review_held(cur, ask, dry_run=args.dry_run)
-        finally:
-            conn.close()
-        print(dict(counts))
-    else:
-        print("no Groq keys; no held ratings reviewed")
-    # After the held review, so an entry whose held rating was just approved merges this run, and
-    # a merge error can't stop the held review. Plain code, so they run with or without a Groq key.
-    # Professors go first: a course rated only under a new professor can't merge until that professor has.
-    conn = connect()
     try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            print("professors", dict(review_pending_professors(cur, datetime.now(timezone.utc), dry_run=args.dry_run)))
-            print("courses", dict(review_pending_courses(cur, dry_run=args.dry_run)))
-    finally:
-        conn.close()
-    if counts is not None and not counts["unavailable"] and (args.nicknames or datetime.now(timezone.utc).weekday() == 0):
+        if entries:
+            calls = []
+
+            def ask(messages):
+                if calls:
+                    time.sleep(CALL_GAP_SECONDS)
+                calls.append(1)
+                return groq.ask(messages)
+
+            conn = connect()
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    counts = review_held(cur, ask, dry_run=args.dry_run)
+            finally:
+                conn.close()
+            print(dict(counts))
+        else:
+            print("no Groq keys; no held ratings reviewed")
+        # After the held review, so an entry whose held rating was just approved merges this run, and
+        # a merge error can't stop the held review. Plain code, so they run with or without a Groq key.
+        # Professors go first: a course rated only under a new professor can't merge until that professor has.
         conn = connect()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                print("nicknames", dict(mine_nicknames(cur, ask, dry_run=args.dry_run, deadline=deadline)))
+                print("professors", dict(review_pending_professors(cur, datetime.now(timezone.utc), dry_run=args.dry_run)))
+                print("courses", dict(review_pending_courses(cur, dry_run=args.dry_run)))
         finally:
             conn.close()
+        if counts is not None and not counts["unavailable"] and (args.nicknames or datetime.now(timezone.utc).weekday() == 0):
+            conn = connect()
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    print("nicknames", dict(mine_nicknames(cur, ask, dry_run=args.dry_run, deadline=deadline)))
+            finally:
+                conn.close()
+    finally:
+        # Also when a pass raised or the step timeout interrupted the run, so the calls already made count.
+        if not args.dry_run:
+            try:
+                conn = connect()
+                try:
+                    with conn.cursor() as cur:
+                        record_run(cur, groq.used if groq else {}, len(entries), datetime.now(timezone.utc))
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception as e:
+                # Best-effort: a database outage that failed a pass shouldn't bury its error under this one.
+                print(f"[review_agent] run not recorded: {type(e).__name__}")
     return 0
 
 

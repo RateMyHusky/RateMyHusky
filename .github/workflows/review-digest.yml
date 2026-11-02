@@ -48,7 +48,8 @@ jobs:
           groq4: ${{ secrets.groq4 }}
           groq5: ${{ secrets.groq5 }}
           groq6: ${{ secrets.groq6 }}
-        run: python review_agent.py
+        # exec, so Python is the process the step timeout sends SIGINT to and the run still gets recorded.
+        run: exec python review_agent.py
 
       - name: Send the review digest
         if: ${{ !cancelled() }}

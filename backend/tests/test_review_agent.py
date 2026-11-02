@@ -1,6 +1,7 @@
 import json
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import psycopg2
 import pytest
@@ -1178,10 +1179,15 @@ def test_nickname_dry_run_writes_nothing(capsys):
     assert "Herc" in capsys.readouterr().out
 
 
-def _main(monkeypatch, entries, courses=lambda cur, dry_run=False: Counter(), weekday=2):
+def _main(monkeypatch, entries, courses=lambda cur, dry_run=False: Counter(), weekday=2, runs=None):
     class Conn:
         def cursor(self, **k):
             return self
+        def execute(self, sql, params=None):
+            if runs is not None:
+                runs.append((sql, params))
+        def commit(self):
+            pass
         def __enter__(self):
             return self
         def __exit__(self, *a):
@@ -1198,12 +1204,45 @@ def _main(monkeypatch, entries, courses=lambda cur, dry_run=False: Counter(), we
     monkeypatch.setattr(ra, "datetime", Day)
     monkeypatch.setattr(ra, "load_entries", lambda: entries)
     monkeypatch.setattr(ra, "KeyPool", lambda entries: None)
-    monkeypatch.setattr(ra, "Groq", lambda pool: None)
+    monkeypatch.setattr(ra, "Groq", lambda pool: SimpleNamespace(used={"k1": {"rpd": 4, "tpd": 700}}))
     monkeypatch.setattr(ra, "review_held", lambda *a, **k: order.append("held") or Counter())
     monkeypatch.setattr(ra, "review_pending_professors", lambda *a, **k: order.append("professors") or Counter())
     monkeypatch.setattr(ra, "review_pending_courses", lambda *a, **k: order.append("courses") or courses(*a, **k))
     monkeypatch.setattr(ra, "mine_nicknames", lambda *a, **k: order.append("nicknames") or Counter())
     return order
+
+
+def test_record_run_sums_every_key():
+    cur = FakeCursor([])
+    ra.record_run(cur, {"k1": {"rpd": 3, "tpd": 900}, "k2": {"rpd": 2, "tpd": 600}}, 6, NOW)
+    [(sql, params)] = cur.statements("INSERT INTO review_agent_runs")
+    assert tuple(params) == (NOW, 5, 1500, 6)
+
+
+def test_record_run_with_no_calls_writes_zeros():
+    cur = FakeCursor([])
+    ra.record_run(cur, {}, 0, NOW)
+    [(sql, params)] = cur.statements("INSERT INTO review_agent_runs")
+    assert tuple(params) == (NOW, 0, 0, 0)
+
+
+def test_main_records_one_run_and_dry_run_records_none(monkeypatch):
+    runs = []
+    _main(monkeypatch, ["k1", "k2"], runs=runs)
+    assert ra.main([]) == 0
+    [(sql, params)] = [r for r in runs if r[0].startswith("INSERT INTO review_agent_runs")]
+    assert tuple(params)[1:] == (4, 700, 2)
+    runs.clear()
+    assert ra.main(["--dry-run"]) == 0
+    assert not runs
+
+
+def test_main_records_a_run_with_no_groq_keys(monkeypatch):
+    runs = []
+    _main(monkeypatch, [], runs=runs)
+    assert ra.main([]) == 0
+    [(sql, params)] = [r for r in runs if r[0].startswith("INSERT INTO review_agent_runs")]
+    assert tuple(params)[1:] == (0, 0, 0)
 
 
 def test_main_reviews_held_ratings_before_pending_professors_and_courses(monkeypatch):
@@ -1234,3 +1273,34 @@ def test_a_course_pass_error_leaves_the_held_review_done(monkeypatch):
     with pytest.raises(psycopg2.OperationalError):
         ra.main([])
     assert order == ["held", "professors", "courses"]
+
+
+def test_a_pass_that_raises_still_records_the_run(monkeypatch):
+    # A crash or the step timeout mid-run is a heavy Groq day: the calls already made still count.
+    def boom(cur, dry_run=False):
+        raise KeyboardInterrupt
+    runs = []
+    _main(monkeypatch, ["k1"], boom, runs=runs)
+    with pytest.raises(KeyboardInterrupt):
+        ra.main([])
+    [(sql, params)] = [r for r in runs if r[0].startswith("INSERT INTO review_agent_runs")]
+    assert tuple(params)[1:] == (4, 700, 1)
+
+
+def test_a_run_that_cannot_be_recorded_still_raises_the_pass_error(monkeypatch, capsys):
+    # The database went down: the record's own connect failure is logged, not chained over the real error.
+    def boom(cur, dry_run=False):
+        raise psycopg2.OperationalError("server closed the connection unexpectedly")
+    _main(monkeypatch, ["k1"], boom)
+    conn, opened = ra.connect, []
+
+    def connect():
+        opened.append(1)
+        if len(opened) == 3:  # held review, merges, then the run record
+            raise psycopg2.OperationalError("connection timed out")
+        return conn()
+    monkeypatch.setattr(ra, "connect", connect)
+    with pytest.raises(psycopg2.OperationalError, match="server closed") as raised:
+        ra.main([])
+    assert raised.value.__context__ is None
+    assert "run not recorded: OperationalError" in capsys.readouterr().out

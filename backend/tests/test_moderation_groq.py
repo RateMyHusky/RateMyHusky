@@ -18,7 +18,7 @@ def test_any_other_reply_is_review():
 
 def test_check_sends_the_policy_and_the_comment(fake_groq):
     groq = fake_groq("ALLOW")
-    assert mg.check("Fair exams.", groq) == ("allow", None)
+    assert mg.check("Fair exams.", groq) == ("allow", None, 500)
     (call,) = groq.calls
     assert call["model"] == mg.MODEL and call["temperature"] == 0 and call["reasoning_effort"] == "low"
     assert call["messages"] == [{"role": "system", "content": mg.POLICY},
@@ -26,12 +26,21 @@ def test_check_sends_the_policy_and_the_comment(fake_groq):
 
 
 def test_check_answers_and_failures(fake_groq):
-    assert mg.check("x", fake_groq("REVIEW")) == ("review", "review")
-    assert mg.check("x", fake_groq("BLOCK")) == ("block", "blocked")
-    assert mg.check("x", fake_groq("??")) == ("review", "review")
-    assert mg.check("x", fake_groq(fake_groq.RateLimited("429"))) == ("unavailable", "groq_rate_limited")
-    assert mg.check("x", fake_groq(TimeoutError("3 s"))) == ("unavailable", "groq_unavailable")
-    assert mg.check("x", fake_groq(RuntimeError("500"))) == ("unavailable", "groq_unavailable")
+    assert mg.check("x", fake_groq("REVIEW")) == ("review", "review", 500)
+    assert mg.check("x", fake_groq("BLOCK")) == ("block", "blocked", 500)
+    assert mg.check("x", fake_groq("??")) == ("review", "review", 500)
+    assert mg.check("x", fake_groq(fake_groq.RateLimited("429"))) == ("unavailable", "groq_rate_limited", None)
+    assert mg.check("x", fake_groq(TimeoutError("3 s"))) == ("unavailable", "groq_unavailable", None)
+    assert mg.check("x", fake_groq(RuntimeError("500"))) == ("unavailable", "groq_unavailable", None)
+
+
+def test_check_without_usage_records_no_tokens():
+    message = type("Message", (), {"content": "ALLOW"})()
+    resp = type("Response", (), {"choices": [type("Choice", (), {"message": message})()]})()
+    groq = type("Groq", (), {})()
+    groq.chat = type("Chat", (), {})()
+    groq.chat.completions = type("Completions", (), {"create": lambda self, **kw: resp})()
+    assert mg.check("x", groq) == ("allow", None, None)
 
 
 def test_the_policy_blocks_attacks_on_appearance():

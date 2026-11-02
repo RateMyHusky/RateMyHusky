@@ -15,7 +15,7 @@ from tests.pg.pgutil import rows, scalar, truncate
 @pytest.fixture(autouse=True)
 def clean(pg):
     truncate(pg, "survey_ratings", "survey_pending_courses", "professors", "banner_course_instructors", "stats_cache",
-             "source_summary")
+             "source_summary", "review_agent_runs")
 
 
 def insert(pg, slug, reasons, device, minute, comment=None):
@@ -356,7 +356,7 @@ def test_a_department_merge_reports_the_rating_merge_professor_held(pg, pg_env, 
     assert scalar(pg, "SELECT agent_reason FROM survey_pending_professors") == \
         "same last name and department; 1 rating(s), 1 held"
     assert review_digest.main(["--dry-run"]) == 0
-    assert "-> christopher-smith (1 rating, 1 held)\n" in capsys.readouterr().out
+    assert "Merged a new professor into Christopher Smith: 1 rating, 1 held\n" in capsys.readouterr().out
     truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
 
 
@@ -499,7 +499,7 @@ def test_the_digest_counts_the_ratings_a_merge_kept(pg, pg_env, capsys):
     assert scalar(pg, "SELECT agent_reason FROM survey_pending_courses") == "one edit from BIOL2299; 1 rating(s)"
     assert scalar(pg, "SELECT count(*) FROM survey_ratings WHERE course_code = 'BIOL2299'") == 2
     assert review_digest.main(["--dry-run"]) == 0
-    assert "  BIO2299 -> BIOL2299 (1 rating)\n" in capsys.readouterr().out
+    assert "Merged BIO 2299 into BIOL 2299: 1 rating\n" in capsys.readouterr().out
 
 
 def test_namesakes_get_no_nicknames_from_rmp_comments(pg):
@@ -519,3 +519,11 @@ def test_namesakes_get_no_nicknames_from_rmp_comments(pg):
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         assert review_agent.mine_nicknames(cur, lambda m: pytest.fail("asked")) == {}
     truncate(pg, "rmp_reviews", "professors_catalog", "professor_aliases")
+
+
+def test_record_run_writes_a_row(pg):
+    now = datetime(2026, 10, 31, 9, 0, tzinfo=timezone.utc)
+    with pg.cursor() as cur:
+        review_agent.record_run(cur, {"k1": {"rpd": 3, "tpd": 900}, "k2": {"rpd": 2, "tpd": 600}}, 2, now)
+    pg.commit()
+    assert rows(pg, "SELECT requests, tokens, keys FROM review_agent_runs") == [{"requests": 5, "tokens": 1500, "keys": 2}]

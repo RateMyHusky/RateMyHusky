@@ -441,6 +441,34 @@ UPDATE public.survey_ratings
     WHERE string_to_array(hold_reasons, ',') @> ARRAY['comment_removed'];
 ```
 
+The daily review digest meters Groq usage, so the checker's token count is kept
+on each `moderation_calls` row (NULL for OpenAI calls and failures) and each
+agent run writes its totals to `review_agent_runs`. It meters Resend by counting
+`email_sends`, one row per email Resend accepted (the sending key can't read
+Resend's usage). Run this after the blocks above and before deploying the backend
+that writes `tokens`, or every checked submit fails on the missing column. Rerunnable:
+
+```sql
+ALTER TABLE public.moderation_calls ADD COLUMN IF NOT EXISTS tokens BIGINT NULL;
+
+CREATE TABLE IF NOT EXISTS public.review_agent_runs (
+    id UUID NOT NULL DEFAULT gen_random_uuid(),
+    ran_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    requests BIGINT NOT NULL,
+    tokens BIGINT NOT NULL,
+    keys BIGINT NOT NULL,
+    CONSTRAINT review_agent_runs_pkey PRIMARY KEY (id)
+);
+CREATE INDEX IF NOT EXISTS review_agent_runs_ran_at ON public.review_agent_runs (ran_at);
+
+CREATE TABLE IF NOT EXISTS public.email_sends (
+    id UUID NOT NULL DEFAULT gen_random_uuid(),
+    sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT email_sends_pkey PRIMARY KEY (id)
+);
+CREATE INDEX IF NOT EXISTS email_sends_sent_at ON public.email_sends (sent_at);
+```
+
 ### Optional cleanup (destructive; take a backup first)
 
 `02_tables.sql` no longer declares the old backup tables or the tables nothing

@@ -34,10 +34,12 @@ os.environ["GROQ_MODERATION_KEY"] = ""
 class FakeGroq:
     """Stands in for the OpenAI-package client moderation_groq.check calls. Each
     entry of `replies` is the reply text, or an exception to raise; the last one
-    repeats. `calls` records each request's keyword arguments."""
+    repeats. `calls` records each request's keyword arguments. Each reply reports
+    `tokens` as its usage.total_tokens."""
 
-    def __init__(self, *replies):
+    def __init__(self, *replies, tokens=500):
         self.replies = list(replies) or ["ALLOW"]
+        self.tokens = tokens
         self.calls = []
         self.chat = type("Chat", (), {})()
         self.chat.completions = type("Completions", (), {})()
@@ -49,7 +51,9 @@ class FakeGroq:
         if isinstance(reply, Exception):
             raise reply
         message = type("Message", (), {"content": reply})()
-        return type("Response", (), {"choices": [type("Choice", (), {"message": message})()]})()
+        usage = type("Usage", (), {"total_tokens": self.tokens})()
+        return type("Response", (), {"choices": [type("Choice", (), {"message": message})()],
+                                     "usage": usage})()
 
 
 class GroqRateLimited(Exception):
