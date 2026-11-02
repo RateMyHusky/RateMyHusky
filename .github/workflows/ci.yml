@@ -44,6 +44,8 @@ jobs:
       - run: npm run build
         env:
           SITEMAP_API_URL: http://127.0.0.1:9
+      # Inline script hashes match the CSP; GA tags survive the build.
+      - run: node scripts/check-inline-scripts.mjs
 
   extension:
     name: Extension build
