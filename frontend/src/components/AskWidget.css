@@ -1,0 +1,285 @@
+/* Four stages run in sequence, and reverse on close:
+     bubble icon out → grow left → grow up → X + chat in
+   Every delay derives from --ask-grow and --ask-icon, so those two values
+   retune the whole sequence. Rules below set the CLOSING direction; the
+   .open block near the bottom sets the opening one. */
+:root {
+  --ask-ease: cubic-bezier(0.65, 0, 0.35, 1);
+  --ask-grow: 210ms;
+  --ask-icon: 80ms;
+  --ask-s1: var(--ask-icon);
+  --ask-s2: calc(var(--ask-icon) + var(--ask-grow));
+  --ask-s3: calc(var(--ask-icon) + var(--ask-grow) * 2);
+  /* Shared by the box and .ask-panel, so the panel can be laid out once at
+     full size and clipped while the box grows. */
+  --ask-w: min(380px, calc(100vw - 48px));
+  --ask-h: min(560px, calc(100dvh - 120px));
+  /* How much of the layout viewport the software keyboard covers. Written by
+     AskWidget.tsx from the VisualViewport API; dvh does not track the keyboard. */
+  --ask-kb: 0px;
+}
+
+.ask-widget {
+  position: fixed;
+  /* index.html sets viewport-fit=cover, so pad past the iOS home indicator */
+  right: calc(24px + env(safe-area-inset-right, 0px));
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  /* Below the navbar (110) so the mobile drawer and the bookmarks sort
+     sheet (150) cover it, but above ordinary page content. */
+  z-index: 100;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #d6394c;
+  color: #fff;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(214, 57, 76, 0.35);
+  font-family: 'Nunito', sans-serif;
+  transform: translateY(calc(-1 * var(--ask-kb)));
+  transition:
+    height var(--ask-grow) var(--ask-ease) var(--ask-s1),
+    width var(--ask-grow) var(--ask-ease) var(--ask-s2),
+    border-radius var(--ask-grow) var(--ask-ease) var(--ask-s2),
+    background 200ms ease,
+    box-shadow 200ms ease,
+    transform 160ms ease;
+}
+
+/* Pinned to opposite corners so the bubble icon holds still while the box
+   grows away from it. Both are 48px, and when collapsed they overlap exactly
+   — hence the pointer-events/tabindex juggling. */
+.ask-widget-open,
+.ask-widget-close {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ask-widget-open {
+  right: 0;
+  bottom: 0;
+  transition: opacity var(--ask-icon) ease var(--ask-s3);
+}
+
+.ask-widget-open svg {
+  width: 22px;
+  height: 22px;
+}
+
+.ask-widget-close {
+  top: 0;
+  left: 0;
+  /* Above the panel, whose header leaves a 48px gap for it. */
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--ask-icon) ease 0ms;
+}
+
+.ask-widget-close svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── chat surface ─────────────────────────────────────────── */
+/* Sized to the opened dimensions regardless of the box's current size, so
+   growing the box clips the panel instead of reflowing it every frame. */
+.ask-panel {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: var(--ask-w);
+  height: var(--ask-h);
+  max-height: calc(100dvh - 120px - var(--ask-kb));
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--ask-icon) ease 0ms;
+}
+
+.ask-panel-head {
+  flex-shrink: 0;
+  height: 48px;
+  /* Clears the close X sitting in the same corner. */
+  padding: 0 16px 0 48px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.ask-panel-title {
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+}
+
+.ask-panel-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  /* Chrome 121+ and Firefox. Setting scrollbar-color makes Chrome IGNORE the
+     ::-webkit-scrollbar rules below, so edit both or neither. */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.45) transparent;
+}
+
+/* Fallback for browsers without scrollbar-color (older Safari/Chrome). Same
+   5px rounded shape as .dept-list and .sh-prof-list elsewhere in the app. */
+.ask-panel-log::-webkit-scrollbar {
+  width: 5px;
+}
+
+.ask-panel-log::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ask-panel-log::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.45);
+  border-radius: 3px;
+}
+
+.ask-msg {
+  max-width: 82%;
+  margin: 0;
+  padding: 9px 13px;
+  border-radius: 14px;
+  font-size: 0.87rem;
+  line-height: 1.45;
+}
+
+.ask-msg-bot {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border-bottom-left-radius: 4px;
+}
+
+/* Solid white, not a tint: small text directly on #d6394c falls under the
+   4.5:1 contrast floor. */
+.ask-msg-user {
+  align-self: flex-end;
+  background: #fff;
+  color: #a8243a;
+  font-weight: 600;
+  border-bottom-right-radius: 4px;
+}
+
+.ask-panel-form {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 14px;
+}
+
+.ask-panel-input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 19px;
+  background: #fff;
+  color: #333;
+  font-family: inherit;
+  /* Must stay >= 16px. iOS Safari zooms the page on focus below that, which
+     drags the fixed panel off-screen with it. */
+  font-size: 1rem;
+}
+
+.ask-panel-input::placeholder {
+  color: #999;
+}
+
+.ask-panel-input:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 2px;
+}
+
+.ask-panel-send {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.ask-panel-send svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── opened ───────────────────────────────────────────────── */
+.ask-widget.open {
+  width: var(--ask-w);
+  height: var(--ask-h);
+  max-height: calc(100dvh - 120px - var(--ask-kb));
+  border-radius: 16px;
+  transition:
+    width var(--ask-grow) var(--ask-ease) var(--ask-s1),
+    border-radius var(--ask-grow) var(--ask-ease) var(--ask-s1),
+    height var(--ask-grow) var(--ask-ease) var(--ask-s2),
+    background 200ms ease,
+    box-shadow 200ms ease,
+    transform 160ms ease;
+}
+
+.ask-widget.open .ask-widget-open {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--ask-icon) ease 0ms;
+}
+
+.ask-widget.open .ask-widget-close,
+.ask-widget.open .ask-panel {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity var(--ask-icon) ease var(--ask-s3);
+}
+
+/* Gated on a real pointer, and scoped to .open. A tap leaves :hover stuck on
+   the element, and an unscoped .ask-widget-close:hover (0,2,0) outranks the
+   closed-state .ask-widget-close (0,1,0) — which left the X painted over the
+   collapsed bubble on phones. Do not loosen either guard. */
+@media (hover: hover) {
+  .ask-widget.open .ask-widget-close:hover {
+    opacity: 0.75;
+  }
+
+  .ask-widget.open .ask-panel-send:hover {
+    background: rgba(255, 255, 255, 0.32);
+  }
+
+  /* Hover lift belongs to the collapsed bubble only — once it is a panel the
+     colour shift reads as the whole surface flickering. */
+  .ask-widget:not(.open):hover {
+    background: #b82e3f;
+    box-shadow: 0 6px 24px rgba(214, 57, 76, 0.45);
+  }
+}
+
+.dark .ask-widget {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
