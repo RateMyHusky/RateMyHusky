@@ -642,8 +642,7 @@ const Professor = () => {
     </div>
   );
 
-  // Drop roster.unique_slug's "-2" collision suffix: search needs every word to match.
-  if (loadError === 'not_found') return <NotFound kind="professor" query={(slug ?? '').replace(/-\d+$/, '').replace(/-/g, ' ')} />;
+  if (loadError === 'not_found') return <NotFound kind="professor" />;
   if (loadError || !profile || !stats) return <div className="prof-page"><LoadError /></div>;
 
   const identity = profile.identity;

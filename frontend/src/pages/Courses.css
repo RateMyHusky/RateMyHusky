@@ -81,6 +81,7 @@
 	padding-top: 10px;
 	border-top: 1px solid #f0f0f0;
 	gap: 6px;
+	flex-wrap: wrap;
 }
 
 .dark .course-card .prof-rating-row {
@@ -144,10 +145,9 @@
 	}
 }
 
-/* Under the rating row, like the professor cards' "N ratings". */
+/* Right end of the rating row; wraps under the stars when the card is too narrow. */
 .course-card-ratings {
-	display: block;
-	margin-top: 6px;
+	margin-left: auto;
 	font-size: 0.72rem;
 	font-weight: 600;
 	color: #999;

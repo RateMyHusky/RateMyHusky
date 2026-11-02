@@ -521,12 +521,12 @@ export default function Courses() {
 											) : (
 												<span className="prof-avg na">N/A</span>
 											)}
+											{course.numRatings != null && (
+												<span className="course-card-ratings">
+													{course.numRatings.toLocaleString()} rating{course.numRatings === 1 ? '' : 's'}
+												</span>
+											)}
 										</div>
-										{course.numRatings != null && (
-											<span className="course-card-ratings">
-												{course.numRatings.toLocaleString()} rating{course.numRatings === 1 ? '' : 's'}
-											</span>
-										)}
 									</div>
 								</div>
 							))}

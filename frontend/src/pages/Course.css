@@ -276,15 +276,16 @@
 	flex-wrap: wrap;
 }
 
+/* Same pill as "Show N more"; red because it leaves the page, like "View all … professors". */
 .course-compare-btn {
 	display: inline-flex;
 	align-items: center;
-	min-height: 36px;
-	padding: 6px 16px;
-	border: 1.5px solid #d6394c;
-	border-radius: 10px;
+	height: 32px;
+	padding: 0 14px;
+	border: 1px solid #d6394c;
+	border-radius: 999px;
 	color: #d6394c;
-	font-size: 0.85rem;
+	font-size: 0.8rem;
 	font-weight: 700;
 	text-decoration: none;
 	white-space: nowrap;
