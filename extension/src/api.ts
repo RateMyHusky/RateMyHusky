@@ -1,7 +1,7 @@
 import searchFixture from './fixtures/search.json';
 
 // Flip once the site is out of maintenance and /api/* returns JSON again.
-export const USE_FIXTURES = true;
+export const USE_FIXTURES = false;
 
 // Must be the site, not the backend host: the API only accepts traffic
 // proxied through here, which is what attaches the shared secret.
