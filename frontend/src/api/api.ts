@@ -548,7 +548,7 @@ export interface RateProfessorContext { ratedCourses: RatedCourse[] }
 export interface RateSubmission {
   professor: { slug: string } | { name: string; department: string | null };
   course: { code: string } | { code: string; name: string };
-  term: string | null;
+  term: string;
   rating: number;
   difficulty: number;
   hours: string;

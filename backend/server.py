@@ -2622,11 +2622,22 @@ def rate_submit():
     # a known pair is checked against who Banner and RMP have teaching the course.
     unverified = (bool(key["professor_slug"]) and bool(key["course_code"])
                   and not ratings.pair_taught(key["professor_slug"], key["course_code"], query_one))
+    # Only a pair Banner or RMP knows has terms worth checking, and an edit only when it changes the
+    # term, so a rating accepted before the check (or before Banner filled a TBA section) stays up.
+    # A reviewer's approval vouches for the term they read (ratings.TERM_SQL), so moving an approved
+    # rating to another term sends it back to review, as does a new rating or an edit with no term
+    # (validate_submission). An edit that keeps a missing term keeps its term, so it isn't held.
+    term_changed = not existing or existing["term_label"] != clean["term_label"]
+    vouched = bool(existing) and "unverified_term" in (existing["hold_reasons"] or "")
+    wrong_term = term_changed and (
+        clean["term_label"] is None or vouched
+        or (bool(key["professor_slug"]) and bool(key["course_code"]) and not unverified
+            and ratings.term_unverified(key["professor_slug"], key["course_code"], clean["term_label"], query_one)))
     silent = ratings.flagged(device_hash, ip_hash, network_type, query_one, now)
     status, reasons = rating_checks.assess(fill_seconds, network_type, bursts, duplicate,
                                            edit=bool(existing) and existing["status"] == "accepted",
                                            unverified_pair=unverified, near_duplicate=bool(near),
-                                           skew_week=skew, silent_hold=silent)
+                                           skew_week=skew, silent_hold=silent, unverified_term=wrong_term)
     row = {
         **key,
         "term_label": clean["term_label"], "rating": clean["rating"], "difficulty": clean["difficulty"],

@@ -47,8 +47,8 @@ def rate(monkeypatch):
              "budget": {"device": 0, "ip": 0, "shared": 0}, "scored": []}
 
     def fake_query_one(sql, params=()):
-        if "SELECT id, status, hold_reasons, comment FROM survey_ratings" in sql:
-            return state["existing"] and {"comment": None, **state["existing"]}
+        if "SELECT id, status, hold_reasons, comment, term_label FROM survey_ratings" in sql:
+            return state["existing"] and {"comment": None, "term_label": BODY["term"], **state["existing"]}
         if "FROM moderation_calls" in sql:
             return state["budget"]
         if "WHERE device_hash = %s LIMIT 1" in sql:
@@ -59,6 +59,10 @@ def rate(monkeypatch):
             return {"x": 1} if params[0] in ("CS2500", "CS3500") else None
         if "AS taught" in sql:  # alice-smith taught CS2500, never CS3500
             return {"taught": params[:2] == ("CS2500", "alice-smith")}
+        if "AS term_checkable" in sql:  # Banner covers Fall and Spring 2025; alice-smith taught CS2500 in Fall
+            groups, year = params["groups"], params["year"]
+            return {"term_checkable": (params["code"], params["slug"]) == ("CS2500", "alice-smith") and year == 2025
+                    and ("Fall" in groups or "Spring" in groups), "term_taught": "Fall" in groups and year == 2025}
         if "count(*) AS cnt FROM survey_ratings WHERE created_at" in sql:
             return {"cnt": 3}
         if "AND status = 'pending'" in sql:  # the first insert wins, like the partial unique index
@@ -391,6 +395,64 @@ def test_a_course_the_professor_never_taught_is_held_for_review(rate):
     taught, untaught = (params for sql, params in rating_writes(state))
     assert "accepted" in taught and "unverified_pair" not in taught
     assert "held" in untaught and "unverified_pair" in untaught
+
+
+def test_a_term_banner_says_the_professor_didnt_teach_the_course_is_held(rate):
+    server, client, state, ri = rate
+    post(client, ri)
+    post(client, ri, {"term": "Spring 2025"})
+    taught, untaught = (params for sql, params in rating_writes(state))
+    assert "accepted" in taught and "unverified_term" not in taught
+    assert "held" in untaught and "unverified_term" in untaught
+
+
+def test_a_term_banner_cant_check_is_not_held(rate):
+    # A gap in Banner's data isn't the student's (the cases are in tests/pg/test_ratings_pg.py).
+    server, client, state, ri = rate
+    post(client, ri, {"term": "Fall 2024"})
+    covered, = (params for sql, params in rating_writes(state))
+    assert "accepted" in covered and "unverified_term" not in covered
+
+
+def test_an_edit_that_keeps_the_term_is_not_checked_again(rate):
+    # Accepted before the check existed: changing the stars doesn't pull it into review.
+    server, client, state, ri = rate
+    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": None, "term_label": "Spring 2025"}
+    post(client, ri, {"term": "Spring 2025", "rating": 2})
+    edit, = (params for sql, params in rating_writes(state))
+    assert "accepted" in edit and "unverified_term" not in edit
+
+
+def test_moving_an_approved_term_sends_it_back_to_review(rate):
+    # The reviewer vouched for Spring 2025 only (ratings.TERM_SQL), even though Fall 2025 checks out.
+    server, client, state, ri = rate
+    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": "unverified_term",
+                         "term_label": "Spring 2025"}
+    post(client, ri, {"term": "Fall 2025"})
+    edit, = (params for sql, params in rating_writes(state))
+    assert "held" in edit and "unverified_term" in edit
+
+
+def test_a_rating_without_a_term_is_held(rate):
+    # A page still on the form from before "Not sure" was removed sends none.
+    server, client, state, ri = rate
+    resp = post(client, ri, {"term": None})
+    assert resp.status_code == 200
+    untermed, = (params for sql, params in rating_writes(state))
+    assert "held" in untermed and "unverified_term" in untermed
+
+
+def test_an_edit_that_keeps_a_missing_term_is_not_held(rate):
+    # Saved with "Not sure" before the check, edited from a page still on that form: the term
+    # didn't change, so it stays up like any edit that keeps its term. Dropping a term is held.
+    server, client, state, ri = rate
+    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": None, "term_label": None}
+    post(client, ri, {"term": None, "rating": 2})
+    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": None, "term_label": "Fall 2024"}
+    post(client, ri, {"term": None, "rating": 2})
+    kept, dropped = (params for sql, params in rating_writes(state))
+    assert "accepted" in kept and "unverified_term" not in kept
+    assert "held" in dropped and "unverified_term" in dropped
 
 
 def test_pending_professor_or_course_skips_the_taught_check(rate):

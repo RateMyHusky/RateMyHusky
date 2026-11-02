@@ -144,11 +144,17 @@ def test_new_professor_name_needs_two_latin_words():
 def test_validate_new_professor_and_course():
     clean, err = rc.validate_submission(
         _body(professor={"name": " Jane  Doe ", "department": ""}, course={"code": "cs2500", "name": "Fundies"},
-              term=None, comment=None), 2026)
+              comment=None), 2026)
     assert err is None
     assert clean["professor_slug"] is None
     assert clean["new_professor"] == {"name": "Jane Doe", "department": None}
-    assert clean["new_course_name"] == "Fundies" and clean["term_label"] is None and clean["comment"] == ""
+    assert clean["new_course_name"] == "Fundies" and clean["comment"] == ""
+
+
+def test_validate_lets_an_old_page_send_no_term():
+    # Temporary: a page from before "Not sure" was removed sends None; the route holds it.
+    clean, err = rc.validate_submission(_body(term=None), 2026)
+    assert err is None and clean["term_label"] is None
 
 
 def test_validate_missing_grade_is_none():
@@ -170,6 +176,10 @@ def test_validate_term_window_is_four_years_plus_a_year_each_side():
         assert rc.validate_submission(_body(term=term), 2026)[1] is None
     for term in ("Summer 2 2021", "Spring 2028"):
         assert rc.validate_submission(_body(term=term), 2026)[1] == "Invalid term"
+
+
+def test_a_term_banner_says_they_didnt_teach_it_is_held_for_review():
+    assert rc.assess(30, "campus", [], False, unverified_term=True) == ("held", ["unverified_term"])
 
 
 def test_a_pair_banner_and_rmp_never_saw_is_held_for_review():

@@ -18,7 +18,8 @@ from tests.razzaq_bomb import BOMB
 
 SECRET = "rating-secret-0123456789abcdefghijklmnop"  # gitleaks:allow
 SLUG = "leena-razzaq"
-CLEAN = ("survey_ratings", "rating_flags", "banner_course_instructors", "course_catalog", "professors_catalog")
+CLEAN = ("survey_ratings", "rating_flags", "banner_course_instructors", "banner_terms", "banner_sections",
+         "banner_section_instructors", "course_catalog", "professors_catalog")
 
 
 def reasons(row):
@@ -57,7 +58,7 @@ def submit(server, row, i, device=None, opened=True):
     device = device or secrets.token_hex(16)
     grade = row.get("grade")
     body = {
-        "professor": {"slug": SLUG}, "course": {"code": row["course"]},
+        "professor": {"slug": SLUG}, "course": {"code": row["course"]}, "term": "Fall 2025",
         "rating": row["rating"], "difficulty": row["difficulty"], "hours": "5-7",
         "grade": grade if grade is None or grade in rating_checks.GRADES else "C- or below",
         "comment": row["comment"], "deviceToken": device, "website": "",
