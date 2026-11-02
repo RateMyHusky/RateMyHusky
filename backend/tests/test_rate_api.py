@@ -442,6 +442,19 @@ def test_a_rating_without_a_term_is_held(rate):
     assert "held" in untermed and "unverified_term" in untermed
 
 
+def test_an_edit_that_keeps_a_missing_term_is_not_held(rate):
+    # Saved with "Not sure" before the check, edited from a page still on that form: the term
+    # didn't change, so it stays up like any edit that keeps its term. Dropping a term is held.
+    server, client, state, ri = rate
+    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": None, "term_label": None}
+    post(client, ri, {"term": None, "rating": 2})
+    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": None, "term_label": "Fall 2024"}
+    post(client, ri, {"term": None, "rating": 2})
+    kept, dropped = (params for sql, params in rating_writes(state))
+    assert "accepted" in kept and "unverified_term" not in kept
+    assert "held" in dropped and "unverified_term" in dropped
+
+
 def test_pending_professor_or_course_skips_the_taught_check(rate):
     # Neither counts anywhere until a reviewer approves it, so there's nothing to check.
     server, client, state, ri = rate

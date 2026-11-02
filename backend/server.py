@@ -2625,7 +2625,8 @@ def rate_submit():
     # Only a pair Banner or RMP knows has terms worth checking, and an edit only when it changes the
     # term, so a rating accepted before the check (or before Banner filled a TBA section) stays up.
     # A reviewer's approval vouches for the term they read (ratings.TERM_SQL), so moving an approved
-    # rating to another term sends it back to review, as does a missing term (validate_submission).
+    # rating to another term sends it back to review, as does a new rating or an edit with no term
+    # (validate_submission). An edit that keeps a missing term keeps its term, so it isn't held.
     term_changed = not existing or existing["term_label"] != clean["term_label"]
     vouched = bool(existing) and "unverified_term" in (existing["hold_reasons"] or "")
     wrong_term = term_changed and (

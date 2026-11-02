@@ -110,8 +110,10 @@ def validate_submission(body, this_year):
         course_name = course_name.strip()
 
     # Temporary: None from a page still on the form from before "Not sure" was removed, which any
-    # client can also send. The submit route holds it as unverified_term, so leaving the term out
-    # can't skip the Banner term check. Once no such page can still be open, require it here.
+    # client can also send. The submit route holds a new rating without one, or an edit that drops
+    # it, as unverified_term, so leaving the term out can't skip the Banner term check. An edit of a
+    # rating saved without a term that keeps none isn't held, like any edit that keeps its term.
+    # Once no such page can still be open, require it here.
     term = body.get("term")
     if term is not None:
         m = TERM_RE.fullmatch(term) if isinstance(term, str) else None
