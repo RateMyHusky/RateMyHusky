@@ -44,7 +44,8 @@ export default function RatePopup({ slug, profName, reviewsRef, cardRef }: Props
     const fire = (signal: 'time' | 'scroll') => {
       if (fired) return;
       fired = true;
-      // The in-tab rate card already asks; a second ask would also spend one of the 3 dismissals.
+      // The in-tab rate card already asked, so the popup stays off for the rest of this page view.
+      // A second ask would also spend one of the 3 dismissals.
       if (cardRef.current && onScreen(cardRef.current)) return;
       const now = Date.now();
       const current = loadState();

@@ -249,12 +249,12 @@ export function displayTerm(label: string): string {
   return label.replace(/^Summer (\d{4})$/, 'Full Summer $1');
 }
 
-// "Olin Shivers III" is Prof. Shivers, not Prof. III.
-const NAME_SUFFIX = /^(jr|sr|ii|iii|iv)\.?$/i;
+// "Olin Shivers III" is Prof. Shivers, not Prof. III. II and IV match upper case only, since Ii is a real surname.
+const isSuffix = (w: string) => /^(jr|sr|iii)\.?$/i.test(w) || /^(II|IV)\.?$/.test(w);
 
 export function lastName(name: string): string {
   const parts = name.trim().replace(/,/g, '').split(/\s+/);
-  if (parts.length > 1 && NAME_SUFFIX.test(parts[parts.length - 1])) parts.pop();
+  if (parts.length > 1 && isSuffix(parts[parts.length - 1])) parts.pop();
   return parts.pop() ?? '';
 }
 
