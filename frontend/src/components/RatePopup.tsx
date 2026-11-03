@@ -113,22 +113,15 @@ export default function RatePopup({ slug, profName, reviewsRef, cardRef }: Props
   return (
     <div aria-live="polite">
     <div className="rate-popup" role="region" aria-label="Rate this professor">
-      <button type="button" className="rate-popup-close" aria-label="Close" onClick={dismiss}>
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
-          <line x1="6" y1="6" x2="18" y2="18" /><line x1="18" y1="6" x2="6" y2="18" />
-        </svg>
-      </button>
       <p className="rate-popup-text">Took Prof. {lastName(profName)}? Help a Husky out and rate them.</p>
-      <div className="rate-popup-actions">
-        <Link
-          to={rateHref(slug, 'popup')}
-          className="rate-popup-rate"
-          onClick={() => { track('rate_prompt_clicked', { trigger }); hide(); }}
-        >
-          Rate
-        </Link>
-        <button type="button" className="rate-popup-later" onClick={dismiss}>Maybe later</button>
-      </div>
+      <Link
+        to={rateHref(slug, 'popup')}
+        className="rate-popup-rate"
+        onClick={() => { track('rate_prompt_clicked', { trigger }); hide(); }}
+      >
+        Rate
+      </Link>
+      <button type="button" className="rate-popup-later" onClick={dismiss}>Skip for now</button>
     </div>
     </div>
   );
