@@ -60,6 +60,11 @@ img {
 
 html {
   background-color: #ffffff;
+  /* Keeps the scrollbar's space when a modal locks scrolling or a page gets too short to scroll, so the layout doesn't jump sideways. */
+  scrollbar-gutter: stable;
+  /* Stops iOS Safari from enlarging some lines of text on its own (it blew up "No ratings yet" on course rows). */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 .husky-email {

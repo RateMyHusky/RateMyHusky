@@ -598,7 +598,17 @@ const Professor = () => {
     () => [{ value: 'all', label: 'All courses' }, ...courses.map(c => ({ value: c.code, label: c.code }))],
     [courses]);
 
-  const toggleCourse = (code: string) => {
+  /* Filtering can drop the chart row above the courses, so the clicked row is put back where it was on screen.
+     Safari has no native scroll anchoring, and Chrome's misses when its anchor was inside the dropped row. */
+  const courseAnchor = useRef<{ el: HTMLElement; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const a = courseAnchor.current;
+    courseAnchor.current = null;
+    if (a) window.scrollBy(0, a.el.getBoundingClientRect().top - a.top);
+  }, [selectedCourses]);
+
+  const toggleCourse = (code: string, row: HTMLElement) => {
+    courseAnchor.current = { el: row, top: row.getBoundingClientRect().top };
     setSelectedCourses(prev => {
       const next = new Set(prev);
       if (next.has(code)) next.delete(code);
@@ -713,7 +723,7 @@ const Professor = () => {
     <div
       key={c.code}
       className={`prof-course-row ${!canFilter ? 'prof-course-row-static' : selectedCourses.has(c.code) ? 'selected' : ''}`}
-      onClick={canFilter ? () => toggleCourse(c.code) : undefined}
+      onClick={canFilter ? (e) => toggleCourse(c.code, e.currentTarget) : undefined}
     >
       <div className="prof-course-row-main">
         <span className="prof-course-code">{c.code}</span>
@@ -995,9 +1005,6 @@ const Professor = () => {
           </a>
         )}
       </div>
-      {RATE_ENABLED && (
-        <p className="prof-rate-tagline">Help other Northeastern students make informed decisions about professors.</p>
-      )}
 
       {(!noRatings || gradeDistribution.length > 0) && (
       <section className="prof-section prof-charts-row" ref={chartsRef}>
