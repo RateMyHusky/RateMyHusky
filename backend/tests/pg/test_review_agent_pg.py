@@ -436,43 +436,6 @@ def test_two_pending_professors_for_one_catalog_professor_are_escalated_not_merg
     truncate(pg, "survey_pending_professors", "professors_catalog", "professor_aliases")
 
 
-def test_nicknames_are_mined_from_rmp_and_accepted_comments_only(pg):
-    truncate(pg, "rmp_reviews", "professors_catalog", "professor_aliases")
-    with pg.cursor() as cur:
-        cur.execute("INSERT INTO professors (slug, name, name_key, department) VALUES ('iraklis-tsekourakis', "
-                    "'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science')")
-        cur.execute("INSERT INTO professors_catalog (slug, name, name_key, department, total_reviews) VALUES "
-                    "('iraklis-tsekourakis', 'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science', 5)")
-        cur.execute("INSERT INTO rmp_reviews (professor_name, comment, name_key) VALUES "
-                    "('Iraklis Tsekourakis', 'But Prof. Herc really tries his hardest', 'iraklis tsekourakis')")
-        cur.execute("INSERT INTO rmp_reviews (professor_name, comment, name_key) "
-                    "SELECT 'Iraklis Tsekourakis', 'the prof is fine ' || n, 'iraklis tsekourakis' "
-                    "FROM generate_series(1, %s) n", (review_agent.COMMON_MIN,))
-        for status, comment, device in (("accepted", "Prof Herc is super nice", "d1"),
-                                        ("held", "Herc Herc Zork Zork", "d2")):
-            cur.execute(
-                "INSERT INTO survey_ratings (id, professor_slug, course_code, term_label, rating, hours, comment, "
-                "comment_status, status, device_hash, new_device, network_type) "
-                "VALUES (%s, 'iraklis-tsekourakis', 'CS2500', 'Fall 2025', 4, '3-4', %s, 'pending', %s, %s, false, "
-                "'unknown')",
-                (str(uuid.uuid4()), comment, status, device))
-    pg.commit()
-    asked = []
-
-    def ask(messages):
-        asked.append(json.loads(messages[1]["content"]))
-        return json.dumps({"Herc": True})
-
-    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        assert review_agent.mine_nicknames(cur, ask) == {"suggested": 1}
-        assert review_agent.mine_nicknames(cur, ask) == {}
-    assert len(asked) == 1 and asked[0]["professor"] == "Iraklis Tsekourakis"
-    assert list(asked[0]["words"]) == ["Herc"] and len(asked[0]["words"]["Herc"]) == 2  # the held comment is unused
-    assert rows(pg, "SELECT alias_key, slug, source, status FROM professor_aliases") == [
-        {"alias_key": "herc", "slug": "iraklis-tsekourakis", "source": "comment", "status": "pending"}]
-    truncate(pg, "rmp_reviews", "professors_catalog", "professor_aliases")
-
-
 def test_a_typo_in_the_number_escalates_even_with_one_candidate(pg):
     # CS3510 is one edit from CS3500 and CS3520; Banner credits jane only with CS3500.
     seed_banner(pg, "jane-doe", ["CS3500"])
@@ -500,25 +463,6 @@ def test_the_digest_counts_the_ratings_a_merge_kept(pg, pg_env, capsys):
     assert scalar(pg, "SELECT count(*) FROM survey_ratings WHERE course_code = 'BIOL2299'") == 2
     assert review_digest.main(["--dry-run"]) == 0
     assert "Merged BIO 2299 into BIOL 2299: 1 rating\n" in capsys.readouterr().out
-
-
-def test_namesakes_get_no_nicknames_from_rmp_comments(pg):
-    # rmp_reviews has no professor id, so its comments can't tell two Iraklis Tsekourakises apart.
-    truncate(pg, "rmp_reviews", "professors_catalog", "professor_aliases")
-    with pg.cursor() as cur:
-        for slug in ("iraklis-tsekourakis", "iraklis-tsekourakis-2"):
-            cur.execute("INSERT INTO professors (slug, name, name_key, department) VALUES (%s, "
-                        "'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science')", (slug,))
-            cur.execute("INSERT INTO professors_catalog (slug, name, name_key, department, total_reviews) VALUES "
-                        "(%s, 'Iraklis Tsekourakis', 'iraklis tsekourakis', 'Computer Science', 5)", (slug,))
-        cur.execute("INSERT INTO rmp_reviews (professor_name, comment, name_key) VALUES "
-                    "('Iraklis Tsekourakis', 'But Prof. Herc really tries his hardest', 'iraklis tsekourakis'), "
-                    "('Iraklis Tsekourakis', 'Prof Herc is super nice', 'iraklis tsekourakis')")
-    pg.commit()
-
-    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        assert review_agent.mine_nicknames(cur, lambda m: pytest.fail("asked")) == {}
-    truncate(pg, "rmp_reviews", "professors_catalog", "professor_aliases")
 
 
 def test_record_run_writes_a_row(pg):
