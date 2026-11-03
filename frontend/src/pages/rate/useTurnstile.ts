@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { track } from '../../utils/ratePrompt';
 
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY;
 // Without a site key there's no widget to wait for; the backend skips the check when it has no secret either.
@@ -9,10 +10,15 @@ const SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render
 // The framed box (Rate.css .rate-verify.is-on) is 2px wider than Cloudflare's 300px one.
 const NORMAL_MIN_WIDTH = 302;
 
+// Codes already sent to GA this page load, since Cloudflare's automatic retries can fail the same way again and again.
+// Module-level, so leaving /rate and coming back doesn't send them again.
+const trackedCodes = new Set<string>();
+
 // The check runs only while `containerRef` is attached (the last step), so a click, when Cloudflare
 // needs one, is asked for next to Submit and the token is fresh when it's sent.
 export function useTurnstile(): {
-  containerRef: (el: HTMLDivElement | null) => void; token: string; failed: boolean; scriptFailed: boolean; interactive: boolean; reset: () => void;
+  containerRef: (el: HTMLDivElement | null) => void; token: string; failed: boolean; scriptFailed: boolean; interactive: boolean; shown: boolean;
+  errorCode: string; reset: () => void;
 } {
   const [container, containerRef] = useState<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
@@ -21,9 +27,12 @@ export function useTurnstile(): {
   // Bumped by reset() after the script failed, to request it again (index.html requests it once).
   const [scriptAttempt, setScriptAttempt] = useState(0);
   const [widgetFailed, setWidgetFailed] = useState(false);
+  // Cloudflare's code for the last failed check (e.g. 600010), which says why it failed.
+  const [errorCode, setErrorCode] = useState('');
   const [token, setToken] = useState('');
   const [interactive, setInteractive] = useState(false);
   const [size, setSize] = useState<'normal' | 'compact' | null>(null);
+  const [shown, setShown] = useState(false);
 
   // Watched from page load, so a blocked script is already known by the last step. Polling keeps on
   // past the wait, so a script that arrives late (a slow phone) still recovers without a reload. A retry
@@ -62,6 +71,19 @@ export function useTurnstile(): {
     return () => observer.disconnect();
   }, [container]);
 
+  // Whether Cloudflare's box is on screen. Wider than `interactive`: a check that fails after asking
+  // for a click leaves its "Verification failed" box up after the interactive callbacks are done.
+  useEffect(() => {
+    if (!container) return;
+    const observer = new ResizeObserver(([entry]) => setShown(entry.contentRect.height > 0));
+    observer.observe(container);
+    return () => {
+      observer.disconnect();
+      // Otherwise the next comment step's first paint would frame an empty box.
+      setShown(false);
+    };
+  }, [container]);
+
   useEffect(() => {
     if (!TURNSTILE_SITE_KEY || !loaded || !container || !size || !window.turnstile) return;
     const id = window.turnstile.render(container, {
@@ -73,8 +95,17 @@ export function useTurnstile(): {
       callback: (t: string) => {
         setToken(t);
         setWidgetFailed(false); // an automatic retry recovered from an earlier error
+        setErrorCode('');
       },
-      'error-callback': () => setWidgetFailed(true),
+      'error-callback': (code?: string) => {
+        const c = code ? String(code) : '';
+        setWidgetFailed(true);
+        setErrorCode(c);
+        if (c && !trackedCodes.has(c)) {
+          trackedCodes.add(c);
+          track('turnstile_error', { error_code: c });
+        }
+      },
       'before-interactive-callback': () => setInteractive(true),
       'after-interactive-callback': () => setInteractive(false),
       'expired-callback': () => {
@@ -89,6 +120,7 @@ export function useTurnstile(): {
       widgetIdRef.current = null;
       setToken('');
       setWidgetFailed(false);
+      setErrorCode('');
       setInteractive(false);
     };
   }, [loaded, container, size]);
@@ -104,10 +136,11 @@ export function useTurnstile(): {
       return;
     }
     setWidgetFailed(false);
+    setErrorCode('');
     window.turnstile?.reset(widgetIdRef.current);
   }, []);
 
   return {
-    containerRef, token: TURNSTILE_SITE_KEY ? token : NO_WIDGET_TOKEN, failed: scriptFailed || widgetFailed, scriptFailed, interactive, reset,
+    containerRef, token: TURNSTILE_SITE_KEY ? token : NO_WIDGET_TOKEN, failed: scriptFailed || widgetFailed, scriptFailed, interactive, shown, errorCode, reset,
   };
 }

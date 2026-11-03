@@ -21,10 +21,15 @@ interface CommentStepProps {
   error: string;
   turnstileRef: (el: HTMLDivElement | null) => void;
   verifying: boolean;
+  // Cloudflare's box is on screen: asking for a click, or showing that the check failed.
+  boxShown: boolean;
+  // The error says Cloudflare's check failed, so it shows with the check, not under the comment.
+  errorAtCheck: boolean;
 }
 
-export function CommentStep({ value, onChange, onSubmit, onBack, submitting, editLocked, updating, error, turnstileRef, verifying }: CommentStepProps) {
+export function CommentStep({ value, onChange, onSubmit, onBack, submitting, editLocked, updating, error, turnstileRef, verifying, boxShown, errorAtCheck }: CommentStepProps) {
   const [honeypot, setHoneypot] = useState('');
+  const checkError = errorAtCheck ? error : '';
   const ref = useRef<HTMLTextAreaElement>(null);
 
   // Grows with the text; the CSS max-height caps it and the box scrolls inside past that.
@@ -71,10 +76,13 @@ export function CommentStep({ value, onChange, onSubmit, onBack, submitting, edi
         value={honeypot}
         onChange={(e) => setHoneypot(e.target.value)}
       />
-      {error && <p className="rate-error" role="alert">{error}</p>}
+      {error && !checkError && <p className="rate-error" role="alert">{error}</p>}
       <StepFoot onBack={onBack} backDisabled={editLocked}>
-        {/* Empty unless Cloudflare needs a click; then the box shows right above Submit, pinned with it on desktop. */}
-        <div className={`rate-verify${verifying ? ' is-on' : ''}`}>
+        {/* Empty unless Cloudflare shows its box or its check failed; then it sits right above Submit,
+            pinned with it on desktop. Placed by the error's kind, not the box: a reset hides the box for a
+            moment, and the error would jump away and back. */}
+        <div className={`rate-verify${boxShown ? ' is-on' : ''}${checkError ? ' has-error' : ''}`}>
+          {checkError && <p className="rate-error" role="alert">{checkError}</p>}
           {/* Always in the page, so screen readers announce the text when it's filled in. */}
           <p className="rate-verify-lead" role="status">{verifying ? 'One quick check before we send your rating.' : ''}</p>
           <div ref={turnstileRef} className="rate-turnstile" />

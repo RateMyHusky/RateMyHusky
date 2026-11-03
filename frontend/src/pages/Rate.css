@@ -229,10 +229,13 @@
 .rate-back:disabled { opacity: 0.45; cursor: default; }
 
 /* The box is centered at Cloudflare's fixed size, framed like the inputs, with its own square edge clipped off. */
-.rate-verify.is-on { display: grid; justify-items: center; gap: 8px; margin-top: 14px; text-align: center; animation: rate-verify-in 0.25s ease-out; }
+.rate-verify.is-on, .rate-verify.has-error { display: grid; justify-items: center; gap: 8px; margin-top: 14px; text-align: center; }
+.rate-verify.is-on { animation: rate-verify-in 0.25s ease-out; }
+.rate-verify .rate-error { margin: 0; }
 .rate-verify-lead { margin: 0; color: #555; font-size: 0.9rem; font-weight: 700; }
 .rate-verify.is-on .rate-turnstile { width: fit-content; max-width: 100%; border: 2px solid #e0e0e0; border-radius: 12px; overflow: hidden; background: #fafafa; }
-.rate-verify.is-on .rate-turnstile > div { display: block; margin: -1px; }
+/* line-height: 0 drops the text-line gap under Cloudflare's iframe, so the -1px margin also hides the widget's own bottom border. */
+.rate-verify.is-on .rate-turnstile > div { display: block; margin: -1px; line-height: 0; }
 @keyframes rate-verify-in { from { opacity: 0; transform: translateY(4px); } }
 @media (prefers-reduced-motion: reduce) { .rate-verify.is-on { animation: none; } }
 
@@ -391,7 +394,7 @@
   .rate-panel > .rate-ghost { margin-top: 1em; }
 
   .rate-btn { min-height: 3.2em; margin-top: 0; border-radius: 0.9em; }
-  .rate-verify.is-on { gap: 0.55em; margin: 0 0 0.9em; }
+  .rate-verify.is-on, .rate-verify.has-error { gap: 0.55em; margin: 0 0 0.9em; }
   .rate-verify-lead { font-size: 0.9em; }
   .rate-verify.is-on .rate-turnstile { border-radius: 0.9em; }
 

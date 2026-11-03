@@ -87,7 +87,7 @@ export default function Rate() {
   const prefetchedFor = useRef<RateStart | null>(null);
   const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
   // The check runs on the comment step, while the student writes; only the submit waits for its token.
-  const { containerRef, token, failed, scriptFailed, interactive, reset } = useTurnstile();
+  const { containerRef, token, failed, scriptFailed, interactive, shown, errorCode, reset } = useTurnstile();
 
   // Once per mount; the ref keeps StrictMode's second run from counting twice.
   useEffect(() => {
@@ -243,7 +243,9 @@ export default function Rate() {
     if (!pending) return;
     const giveUp = () => {
       setPending(null);
-      setSubmitError(!start ? NETWORK_MESSAGE : scriptFailed ? BLOCKED_MESSAGE : FAILURE_MESSAGES[403]);
+      // Cloudflare's code tells a tester (or a student writing in) why the check failed.
+      const code = errorCode ? ` (Cloudflare error ${errorCode})` : '';
+      setSubmitError(!start ? NETWORK_MESSAGE : scriptFailed ? BLOCKED_MESSAGE : FAILURE_MESSAGES[403] + code);
       // A failed script is requested again by the next Submit, not now: a request made while the
       // blocker is still on would fail too, and the next Submit would wait out its timeout.
       if (!scriptFailed) reset();
@@ -259,7 +261,7 @@ export default function Rate() {
     if (deadline.current === Infinity) deadline.current = Date.now() + TOKEN_WAIT_MS;
     const timer = setTimeout(giveUp, deadline.current - Date.now());
     return () => clearTimeout(timer);
-  }, [pending, failed, scriptFailed, startFailed, interactive, reset, start]);
+  }, [pending, failed, scriptFailed, startFailed, interactive, reset, start, errorCode]);
 
   const rateAnother = () => {
     window.clearTimeout(pickTimer.current);
@@ -496,6 +498,8 @@ export default function Rate() {
             error={submitError}
             turnstileRef={containerRef}
             verifying={interactive}
+            boxShown={shown}
+            errorAtCheck={submitError.startsWith(FAILURE_MESSAGES[403])}
           />
         );
       case 'thanks':
