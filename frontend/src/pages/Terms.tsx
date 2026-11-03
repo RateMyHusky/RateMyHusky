@@ -94,11 +94,12 @@ const Terms = () => {
                   <strong>Browser preferences and state:</strong> your theme (dark/light),
                   catalog view mode, and dismissed on-page tips are saved to{' '}
                   <code>localStorage</code>
-                  {RATE_ENABLED ? ', along with when you last saw or skipped a prompt to rate a professor and which professors you rated from this browser' : ''}.
+                  {RATE_ENABLED ? ', along with when you last saw or skipped a prompt to rate a professor, how often you skipped one, which professors you rated from this browser and when, and the last day you visited' : ''}.
                   While you sign in, <code>sessionStorage</code> holds a marker that sign-in is
                   underway and any bookmark you clicked before signing in, until sign-in
-                  finishes or you close the tab. This data stays on your device and is never
-                  synced to our servers.
+                  finishes or you close the tab; that bookmark is then saved to your account.
+                  Otherwise this data stays on your device and is never synced to our
+                  servers{RATE_ENABLED ? ', except for the rating form\'s device ID, which is kept there too and sent to us when you use the rating form (see Ratings below)' : ''}.
                 </li>
                 <li>
                   <strong>Usage data:</strong> Vercel Analytics and Vercel Speed Insights
@@ -127,7 +128,9 @@ const Terms = () => {
               </ul>
               <p>
                 We do <strong>not</strong> log or store your search queries, which professor or
-                course pages you viewed, or any other browsing activity on our servers. Your IP
+                course pages you viewed, or any other browsing activity ourselves, though our
+                hosting providers' request logs record the address of each request, which
+                includes any search. Your IP
                 address is used in the moment to enforce rate limits. We never store it in raw
                 form{RATE_ENABLED ? '; only if you submit a rating do we store keyed hashes of it' : ''}.
               </p>
@@ -170,7 +173,7 @@ const Terms = () => {
                 {RATE_ENABLED && (
                 <li>
                   <strong>OpenAI Moderation</strong>: checks the text of rating comments for
-                  abuse when the Groq check is not available.
+                  abuse when the Groq check is not set up.
                 </li>
                 )}
                 <li>
@@ -181,6 +184,17 @@ const Terms = () => {
                   <strong>Google Analytics</strong>: collects pseudonymous usage data such as
                   page views and engagement to help us understand how the service is used. It
                   uses cookies; we do not send it your name, email, or account id. Subject to{' '}
+                  <a
+                    href="https://policies.google.com/privacy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Google's Privacy Policy
+                  </a>.
+                </li>
+                <li>
+                  <strong>Google AdSense</strong>: Google's advertising service, which may use
+                  cookies to show and measure ads. Subject to{' '}
                   <a
                     href="https://policies.google.com/privacy"
                     target="_blank"
