@@ -944,7 +944,7 @@ def _professor_search(q, limit=5, rated_only=False):
     rows = query(
         f"SELECT slug, name, name_key, department, avg_rating, total_reviews "
         f"FROM professors_catalog WHERE {where} "
-        f"ORDER BY {alias_first}(name_key LIKE %s OR name_key LIKE %s) DESC, total_reviews DESC LIMIT 100",
+        f"ORDER BY {alias_first}(name_key LIKE %s OR name_key LIKE %s) DESC, total_reviews DESC, slug LIMIT 100",
         params + alias_params + [f"{q_resolved}%", f"% {q_resolved}%"]
     )
 
@@ -976,7 +976,8 @@ def _professor_search(q, limit=5, rated_only=False):
             return 5
         return 6
 
-    ranked = sorted(rows, key=lambda r: (rank_match(r), -(r['total_reviews'] or 0)))
+    # slug breaks ties, so the 100-row cut and the order are the same on every request (the catalog pages over them).
+    ranked = sorted(rows, key=lambda r: (rank_match(r), -(r['total_reviews'] or 0), r['slug']))
     return ranked[:limit]
 
 
@@ -1738,7 +1739,7 @@ def professors_catalog():
 
         # Reorder by search ranking
         name_key_order = {nk: i for i, nk in enumerate(matched_name_keys)}
-        all_rows.sort(key=lambda r: name_key_order.get(r["name_key"], 999999))
+        all_rows.sort(key=lambda r: (name_key_order.get(r["name_key"], 999999), r["slug"]))
         page_rows = all_rows[offset:offset + limit]
     else:
         # No search - use SQL sorting. Every order ends in slug: tied rows have no fixed order in
@@ -1750,7 +1751,7 @@ def professors_catalog():
         elif sort == "alpha_desc":
             order = "lower(name) DESC, slug DESC"
         elif sort == "comments":
-            order = "total_comments DESC, slug ASC"
+            order = "total_comments DESC NULLS LAST, slug ASC"
         elif sort == "ratings":
             order = "total_reviews DESC NULLS LAST, slug ASC"
         else:

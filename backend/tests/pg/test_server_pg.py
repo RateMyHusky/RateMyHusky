@@ -151,12 +151,13 @@ def test_catalog_pages_show_each_professor_once_when_sort_values_tie(live_server
                         "VALUES (%s, 'Sam Lee', %s, 10, 4.0, 5)", (slug, f"sam lee {i}"))
     pg.commit()
     client = live_server.app.test_client()
-    for sort in sorted(live_server.PROFESSOR_SORTS):
+    # A search (q) ranks instead of sorting, and every match ties on its rank and review count.
+    for query in [f"sort={sort}" for sort in sorted(live_server.PROFESSOR_SORTS)] + ["q=sam+lee"]:
         seen, page, pages = [], 1, 1
         while page <= pages:
-            body = client.get(f"/api/professors-catalog?sort={sort}&page={page}&limit=7").get_json()
+            body = client.get(f"/api/professors-catalog?{query}&page={page}&limit=7").get_json()
             seen += [p["slug"] for p in body["professors"]]
             pages = body["totalPages"]
             page += 1
-        assert sorted(seen) == sorted(slugs), sort
+        assert sorted(seen) == sorted(slugs), query
     truncate(pg, "professors_catalog")
