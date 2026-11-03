@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { track } from '../../utils/ratePrompt';
 
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY;
 // Without a site key there's no widget to wait for; the backend skips the check when it has no secret either.
@@ -12,7 +13,8 @@ const NORMAL_MIN_WIDTH = 302;
 // The check runs only while `containerRef` is attached (the last step), so a click, when Cloudflare
 // needs one, is asked for next to Submit and the token is fresh when it's sent.
 export function useTurnstile(): {
-  containerRef: (el: HTMLDivElement | null) => void; token: string; failed: boolean; scriptFailed: boolean; interactive: boolean; shown: boolean; reset: () => void;
+  containerRef: (el: HTMLDivElement | null) => void; token: string; failed: boolean; scriptFailed: boolean; interactive: boolean; shown: boolean;
+  errorCode: string; reset: () => void;
 } {
   const [container, containerRef] = useState<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
@@ -21,6 +23,10 @@ export function useTurnstile(): {
   // Bumped by reset() after the script failed, to request it again (index.html requests it once).
   const [scriptAttempt, setScriptAttempt] = useState(0);
   const [widgetFailed, setWidgetFailed] = useState(false);
+  // Cloudflare's code for the last failed check (e.g. 600010), which says why it failed.
+  const [errorCode, setErrorCode] = useState('');
+  // Codes already sent to GA this page load, since Cloudflare's automatic retries can fail the same way again and again.
+  const trackedCodes = useRef(new Set<string>());
   const [token, setToken] = useState('');
   const [interactive, setInteractive] = useState(false);
   const [size, setSize] = useState<'normal' | 'compact' | null>(null);
@@ -83,8 +89,16 @@ export function useTurnstile(): {
       callback: (t: string) => {
         setToken(t);
         setWidgetFailed(false); // an automatic retry recovered from an earlier error
+        setErrorCode('');
       },
-      'error-callback': () => setWidgetFailed(true),
+      'error-callback': (code: string) => {
+        setWidgetFailed(true);
+        setErrorCode(String(code));
+        if (!trackedCodes.current.has(String(code))) {
+          trackedCodes.current.add(String(code));
+          track('turnstile_error', { error_code: String(code) });
+        }
+      },
       'before-interactive-callback': () => setInteractive(true),
       'after-interactive-callback': () => setInteractive(false),
       'expired-callback': () => {
@@ -99,6 +113,7 @@ export function useTurnstile(): {
       widgetIdRef.current = null;
       setToken('');
       setWidgetFailed(false);
+      setErrorCode('');
       setInteractive(false);
     };
   }, [loaded, container, size]);
@@ -114,10 +129,11 @@ export function useTurnstile(): {
       return;
     }
     setWidgetFailed(false);
+    setErrorCode('');
     window.turnstile?.reset(widgetIdRef.current);
   }, []);
 
   return {
-    containerRef, token: TURNSTILE_SITE_KEY ? token : NO_WIDGET_TOKEN, failed: scriptFailed || widgetFailed, scriptFailed, interactive, shown, reset,
+    containerRef, token: TURNSTILE_SITE_KEY ? token : NO_WIDGET_TOKEN, failed: scriptFailed || widgetFailed, scriptFailed, interactive, shown, errorCode, reset,
   };
 }
