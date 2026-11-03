@@ -782,7 +782,7 @@
   .prof-course-title { font-size: 0.82rem; }
   .prof-course-terms { flex-basis: 100%; }
 
-  .prof-back-to-top { bottom: 20px; left: 16px; width: 40px; height: 40px; }
+  .prof-back-to-top { bottom: calc(20px + env(safe-area-inset-bottom, 0px)); left: 16px; width: 40px; height: 40px; }
   .prof-back-to-top svg { width: 18px; height: 18px; }
   /* .prof-section drops its bottom padding here, so the note gets its own space above the footer. */
   .prof-claim-note { margin-bottom: 40px; text-wrap: balance; }
@@ -817,7 +817,7 @@
   .prof-review-card { padding: 16px 18px; }
   .prof-review-rating-value { width: 38px; height: 38px; font-size: 0.95rem; border-radius: 10px; }
 
-  .prof-back-to-top { bottom: 16px; left: 12px; width: 38px; height: 38px; }
+  .prof-back-to-top { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 12px; width: 38px; height: 38px; }
 
   .prof-image-modal {
     width: min(92vw, 560px);

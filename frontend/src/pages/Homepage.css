@@ -1653,8 +1653,9 @@
   .goat-row {
     min-width: 0;
     /* Fixed Rating width: each row is its own grid, so an auto column sized the header
-       to "Rating" and the rows to the stars, and the two didn't line up. */
-    grid-template-columns: 28px minmax(0, 1fr) 104px 48px;
+       to "Rating" and the rows to the stars, and the two didn't line up. Score, stars and
+       the info glyph measure about 111px at 481-600px, so this leaves a little room. */
+    grid-template-columns: 28px minmax(0, 1fr) 116px 48px;
     grid-template-areas: "rank name rating reviews" "rank dept rating reviews";
     column-gap: 8px;
     padding: 0 12px;
@@ -1675,10 +1676,6 @@
   .goat-col-name { grid-area: name; padding-left: 0; }
   .goat-col-rating { grid-area: rating; padding-right: 0; gap: 4px; }
   .goat-col-reviews { grid-area: reviews; padding-left: 0; text-align: left; }
-
-  /* Same grey as the Professor header here, not the desktop's red sort-key accent. */
-  .goat-header-row .goat-col-ranked,
-  .dark .goat-header-row .goat-col-ranked { color: inherit; }
 
   .goat-col-dept {
     grid-area: dept;

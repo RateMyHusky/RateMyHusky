@@ -90,6 +90,7 @@ export default function Courses() {
 	const [loading, setLoading] = useState(true);
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const [deptOpen, setDeptOpen] = useState(false);
+	const [sortOpen, setSortOpen] = useState(false);
 
 	useEffect(() => {
 		const close = () => setSidebarOpen(false);
@@ -350,7 +351,7 @@ export default function Courses() {
 
 			<div className="catalog-layout">
 				<aside ref={sidebarRef} className={`catalog-sidebar ${sidebarOpen ? 'open' : ''}`}>
-					<div className={`sidebar-inner ${deptOpen ? 'dept-open' : ''}`}>
+					<div className={`sidebar-inner ${deptOpen || sortOpen ? 'dept-open' : ''}`}>
 						<div className="sidebar-header">
 							<span className="sidebar-title">Filters</span>
 							{hasActiveFilters && (
@@ -362,7 +363,7 @@ export default function Courses() {
 
 						<div className="filter-section">
 							<p className="filter-label">Sort by</p>
-							<Dropdown options={SORT_OPTIONS} value={filters.sort} onChange={(v) => updateFilter('sort', v as Filters['sort'])} />
+							<Dropdown options={SORT_OPTIONS} value={filters.sort} onChange={(v) => updateFilter('sort', v as Filters['sort'])} onOpenChange={setSortOpen} />
 						</div>
 
 						<div className="filter-section">
@@ -513,14 +514,16 @@ export default function Courses() {
 										<p className="prof-dept">{course.department}</p>
 
 										<div className="prof-rating-row">
-											{course.avgRating != null ? (
-												<>
-													<span className="prof-avg-num">{course.avgRating.toFixed(1)}</span>
-													<StarRating rating={course.avgRating} size="sm" />
-												</>
-											) : (
-												<span className="prof-avg na">N/A</span>
-											)}
+											<span className="course-card-score">
+												{course.avgRating != null ? (
+													<>
+														<span className="prof-avg-num">{course.avgRating.toFixed(1)}</span>
+														<StarRating rating={course.avgRating} size="sm" />
+													</>
+												) : (
+													<span className="prof-avg na">N/A</span>
+												)}
+											</span>
 											{course.numRatings != null && (
 												<span className="course-card-ratings">
 													{course.numRatings.toLocaleString()} rating{course.numRatings === 1 ? '' : 's'}

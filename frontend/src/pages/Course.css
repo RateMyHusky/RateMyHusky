@@ -278,9 +278,10 @@
 
 /* Same pill as "Show N more"; red because it leaves the page, like "View all … professors". */
 .course-compare-btn {
+	position: relative;
 	display: inline-flex;
 	align-items: center;
-	height: 32px;
+	min-height: 32px;
 	padding: 0 14px;
 	border: 1px solid #d6394c;
 	border-radius: 999px;
@@ -292,6 +293,8 @@
 	transition: background 0.2s;
 }
 
+/* 44px tall hit area for touch around the 32px pill. */
+.course-compare-btn::before { content: ''; position: absolute; inset: -6px 0; }
 .course-compare-btn:hover { background: #fef0f0; }
 .course-compare-btn:focus-visible { outline: 2px solid #d6394c; outline-offset: 2px; }
 

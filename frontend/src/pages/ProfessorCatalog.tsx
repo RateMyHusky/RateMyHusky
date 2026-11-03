@@ -122,6 +122,7 @@ export default function ProfessorCatalog() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [deptOpen, setDeptOpen] = useState(false);
   const [collegeOpen, setCollegeOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
 
   useEffect(() => {
     const close = () => setSidebarOpen(false);
@@ -482,7 +483,7 @@ export default function ProfessorCatalog() {
       <div className="catalog-layout">
         {/* ── Sidebar ── */}
         <aside ref={sidebarRef} className={`catalog-sidebar ${sidebarOpen ? 'open' : ''}`}>
-          <div className={`sidebar-inner ${deptOpen || collegeOpen || tagPickerOpen ? 'dept-open' : ''}`}>
+          <div className={`sidebar-inner ${deptOpen || collegeOpen || tagPickerOpen || sortOpen ? 'dept-open' : ''}`}>
             <div className="sidebar-header">
               <span className="sidebar-title">Filters</span>
               {hasActiveFilters && (
@@ -499,6 +500,7 @@ export default function ProfessorCatalog() {
                 options={SORT_OPTIONS}
                 value={filters.sort}
                 onChange={v => updateFilter('sort', v)}
+                onOpenChange={setSortOpen}
               />
             </div>
 
@@ -510,11 +512,12 @@ export default function ProfessorCatalog() {
                   <button className="dept-clear-btn" onClick={() => setCollege('')}>Clear all</button>
                 )}
               </p>
-              <CollegeFilter
-                colleges={colleges}
+              <ChecklistFilter
+                options={colleges}
                 selected={filters.college}
                 onSelect={c => setCollege(c)}
                 onOpenChange={setCollegeOpen}
+                noun="colleges"
               />
             </div>
 
@@ -526,11 +529,12 @@ export default function ProfessorCatalog() {
                   <button className="dept-clear-btn" onClick={() => updateFilter('dept', '')}>Clear all</button>
                 )}
               </p>
-              <DepartmentFilter
-                departments={departments}
+              <ChecklistFilter
+                options={departments}
                 selected={filters.dept}
                 onSelect={d => updateFilter('dept', d)}
                 onOpenChange={setDeptOpen}
+                noun="departments"
               />
             </div>
 
@@ -543,11 +547,12 @@ export default function ProfessorCatalog() {
                     <button className="dept-clear-btn" onClick={() => updateFilter('tags', '')}>Clear all</button>
                   )}
                 </p>
-                <TagFilter
+                <ChecklistFilter
                   options={tagOptions}
                   selected={filters.tags}
                   onSelect={v => updateFilter('tags', v)}
                   onOpenChange={setTagPickerOpen}
+                  noun="teaching styles"
                   formatOption={tagLabel}
                 />
               </div>
@@ -933,257 +938,31 @@ function DualRangeSlider({
   );
 }
 
-// ── College filter sub-component ─────────────────────────────────────────────
+// ── Checklist filter sub-component (College, Department, Teaching style) ─────
+// A toggle that opens a search box over a checklist; picks show as chips when it's closed.
 
-function CollegeFilter({
-  colleges,
-  selected,
-  onSelect,
-  onOpenChange,
-}: {
-  colleges: string[];
-  selected: string;
-  onSelect: (college: string) => void;
-  onOpenChange?: (open: boolean) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const toggle = (o: boolean) => { setOpen(o); onOpenChange?.(o); };
-  const [search, setSearch] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
-  const selectedSet = useMemo(() => new Set(selected ? selected.split(FILTER_SEPARATOR) : []), [selected]);
-  const filtered = colleges.filter(c =>
-    c.toLowerCase().includes(search.toLowerCase())
-  );
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) toggle(false);
-    };
-    const scrollHandler = (e: Event) => {
-      if (ref.current && ref.current.contains(e.target as Node)) return;
-      toggle(false);
-    };
-    const closeHandler = () => toggle(false);
-    document.addEventListener('mousedown', handler);
-    document.addEventListener('scroll', scrollHandler, { capture: true, passive: true });
-    window.addEventListener('close-filter-sidebar', closeHandler);
-    return () => {
-      document.removeEventListener('mousedown', handler);
-      document.removeEventListener('scroll', scrollHandler, { capture: true });
-      window.removeEventListener('close-filter-sidebar', closeHandler);
-    };
-  }, [open]);
-
-  const toggleCollege = (c: string) => {
-    const next = new Set(selectedSet);
-    if (next.has(c)) next.delete(c);
-    else next.add(c);
-    onSelect([...next].join(FILTER_SEPARATOR));
-  };
-
-  const label = selectedSet.size === 0
-    ? 'All colleges'
-    : selectedSet.size === 1
-      ? [...selectedSet][0]
-      : `${selectedSet.size} colleges`;
-
-  return (
-    <div className="dept-filter" ref={ref}>
-      <button
-        className={`dept-toggle ${open ? 'open' : ''}`}
-        onClick={() => toggle(!open)}
-        aria-expanded={open}
-      >
-        <span className="dept-toggle-label">
-          {label}
-        </span>
-        <span className="dept-toggle-icon">
-          <span className="dept-bar" />
-          <span className="dept-bar" />
-          <span className="dept-bar" />
-        </span>
-      </button>
-
-      {open && (
-        <div className="dept-dropdown">
-          <input
-            className="dept-search"
-            type="text"
-            placeholder="Search colleges…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            autoFocus
-          />
-          <div className="dept-list">
-            {filtered.map(c => (
-              <label key={c} className="dept-option">
-                <input
-                  type="checkbox"
-                  checked={selectedSet.has(c)}
-                  onChange={() => toggleCollege(c)}
-                />
-                <span>{c}</span>
-              </label>
-            ))}
-            {filtered.length === 0 && (
-              <p className="dept-empty">No colleges found</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {!open && selectedSet.size > 0 && (
-        <div className="filter-tags">
-          {[...selectedSet].map(c => (
-            <button key={c} className="filter-tag" onClick={() => toggleCollege(c)}>
-              {c}
-              <span className="filter-tag-x">×</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Department filter sub-component ──────────────────────────────────────────
-
-function DepartmentFilter({
-  departments,
-  selected,
-  onSelect,
-  onOpenChange,
-}: {
-  departments: string[];
-  selected: string;
-  onSelect: (dept: string) => void;
-  onOpenChange?: (open: boolean) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const toggle = (o: boolean) => { setOpen(o); onOpenChange?.(o); };
-  const [search, setSearch] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
-  const filtered = departments.filter(d =>
-    d.toLowerCase().includes(search.toLowerCase())
-  );
-  const selectedSet = useMemo(() => new Set(selected ? selected.split(FILTER_SEPARATOR) : []), [selected]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) toggle(false);
-    };
-    const scrollHandler = (e: Event) => {
-      if (ref.current && ref.current.contains(e.target as Node)) return;
-      toggle(false);
-    };
-    const closeHandler = () => toggle(false);
-    document.addEventListener('mousedown', handler);
-    document.addEventListener('scroll', scrollHandler, { capture: true, passive: true });
-    window.addEventListener('close-filter-sidebar', closeHandler);
-    return () => {
-      document.removeEventListener('mousedown', handler);
-      document.removeEventListener('scroll', scrollHandler, { capture: true });
-      window.removeEventListener('close-filter-sidebar', closeHandler);
-    };
-  }, [open]);
-
-  const toggleDept = (d: string) => {
-    const next = new Set(selectedSet);
-    if (next.has(d)) next.delete(d);
-    else next.add(d);
-    onSelect([...next].join(FILTER_SEPARATOR));
-  };
-
-  const label = selectedSet.size === 0
-    ? 'All departments'
-    : selectedSet.size === 1
-      ? [...selectedSet][0]
-      : `${selectedSet.size} departments`;
-
-  return (
-    <div className="dept-filter" ref={ref}>
-      <button
-        className={`dept-toggle ${open ? 'open' : ''}`}
-        onClick={() => toggle(!open)}
-        aria-expanded={open}
-      >
-        <span className="dept-toggle-label">
-          {label}
-        </span>
-        <span className="dept-toggle-icon">
-          <span className="dept-bar" />
-          <span className="dept-bar" />
-          <span className="dept-bar" />
-        </span>
-      </button>
-
-      {open && (
-        <div className="dept-dropdown">
-          <input
-            className="dept-search"
-            type="text"
-            placeholder="Search departments…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            autoFocus
-          />
-          <div className="dept-list">
-            {filtered.map(d => (
-              <label key={d} className="dept-option">
-                <input
-                  type="checkbox"
-                  checked={selectedSet.has(d)}
-                  onChange={() => toggleDept(d)}
-                />
-                <span>{d}</span>
-              </label>
-            ))}
-            {filtered.length === 0 && (
-              <p className="dept-empty">No departments found</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {!open && selectedSet.size > 0 && (
-        <div className="filter-tags">
-          {[...selectedSet].map(d => (
-            <button key={d} className="filter-tag" onClick={() => toggleDept(d)}>
-              {d}
-              <span className="filter-tag-x">×</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Teaching style filter sub-component ──────────────────────────────────────
-// Same toggle and searchable checklist as College and Department.
-
-function TagFilter({
+function ChecklistFilter({
   options,
   selected,
   onSelect,
   onOpenChange,
-  formatOption,
+  noun,
+  formatOption = o => o,
 }: {
   options: string[];
   selected: string;
   onSelect: (value: string) => void;
   onOpenChange?: (open: boolean) => void;
-  formatOption: (value: string) => string;
+  noun: string;
+  formatOption?: (value: string) => string;
 }) {
   const [open, setOpen] = useState(false);
   const toggle = (o: boolean) => { setOpen(o); onOpenChange?.(o); };
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
-  const filtered = options.filter(o =>
-    formatOption(o).toLowerCase().includes(search.toLowerCase())
-  );
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const query = search.trim().toLowerCase();
+  const filtered = options.filter(o => formatOption(o).toLowerCase().includes(query));
   const selectedSet = useMemo(() => new Set(selected ? selected.split(FILTER_SEPARATOR) : []), [selected]);
 
   useEffect(() => {
@@ -1191,8 +970,10 @@ function TagFilter({
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) toggle(false);
     };
+    // Close when the page scrolls, but not in the open phone drawer: scrolling it to reach the
+    // list, or the browser scrolling to show the search box above the keyboard, would close it.
     const scrollHandler = (e: Event) => {
-      if (ref.current && ref.current.contains(e.target as Node)) return;
+      if (!ref.current || ref.current.contains(e.target as Node) || ref.current.closest('.catalog-sidebar.open')) return;
       toggle(false);
     };
     const closeHandler = () => toggle(false);
@@ -1214,14 +995,25 @@ function TagFilter({
   };
 
   const label = selectedSet.size === 0
-    ? 'All teaching styles'
+    ? `All ${noun}`
     : selectedSet.size === 1
       ? formatOption([...selectedSet][0])
-      : `${selectedSet.size} teaching styles`;
+      : `${selectedSet.size} ${noun}`;
 
   return (
-    <div className="dept-filter" ref={ref}>
+    <div
+      className="dept-filter"
+      ref={ref}
+      // Escape closes, and so does tabbing out (the mousedown listener only catches clicks).
+      onKeyDown={e => {
+        if (e.key === 'Escape' && open) { toggle(false); toggleRef.current?.focus(); }
+      }}
+      onBlur={e => {
+        if (open && e.relatedTarget && !ref.current?.contains(e.relatedTarget as Node)) toggle(false);
+      }}
+    >
       <button
+        ref={toggleRef}
         className={`dept-toggle ${open ? 'open' : ''}`}
         onClick={() => toggle(!open)}
         aria-expanded={open}
@@ -1241,28 +1033,35 @@ function TagFilter({
           <input
             className="dept-search"
             type="text"
-            placeholder="Search teaching styles…"
+            placeholder={`Search ${noun}…`}
             value={search}
             onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => {
+              // Enter picks the first match that isn't picked yet.
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              const first = filtered.find(o => !selectedSet.has(o));
+              if (first) pick(first);
+            }}
             autoFocus
           />
           <div className="dept-list">
-            {filtered.map(t => (
-              <label key={t} className="dept-option">
-                <input type="checkbox" checked={selectedSet.has(t)} onChange={() => pick(t)} />
-                <span>{formatOption(t)}</span>
+            {filtered.map(o => (
+              <label key={o} className="dept-option">
+                <input type="checkbox" checked={selectedSet.has(o)} onChange={() => pick(o)} />
+                <span>{formatOption(o)}</span>
               </label>
             ))}
-            {filtered.length === 0 && <p className="dept-empty">No teaching styles found</p>}
+            {filtered.length === 0 && <p className="dept-empty">No {noun} found</p>}
           </div>
         </div>
       )}
 
       {!open && selectedSet.size > 0 && (
         <div className="filter-tags">
-          {[...selectedSet].map(t => (
-            <button key={t} className="filter-tag" onClick={() => pick(t)}>
-              {formatOption(t)}
+          {[...selectedSet].map(o => (
+            <button key={o} className="filter-tag" onClick={() => pick(o)}>
+              {formatOption(o)}
               <span className="filter-tag-x">×</span>
             </button>
           ))}

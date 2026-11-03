@@ -50,12 +50,6 @@
   position: static;
 }
 
-/* Same for the open Sort by menu: it floats over the filters below instead of being cut off in a scroll box. */
-.sidebar-inner:has(.dropdown-menu) {
-  overflow: visible;
-  max-height: none;
-}
-
 .sidebar-header {
   display: flex;
   align-items: center;
@@ -1427,6 +1421,14 @@
     padding-top: 60px;
     background: #fff;
   }
+
+  /* The drawer is already full height, so an open picker or Sort menu fits without unclipping.
+     Staying the scroller keeps its scroll offset, which overflow: visible would reset.
+     .catalog-sidebar beats the copy of .sidebar-inner.dept-open in Courses.css. */
+  .catalog-sidebar .sidebar-inner.dept-open {
+    max-height: 100%;
+    overflow-y: auto;
+  }
 }
 
 @media (max-width: 540px) {
@@ -1458,10 +1460,6 @@
   .prof-card-info {
     padding: 10px;
     gap: 4px;
-  }
-
-  .prof-card-footer {
-    margin-top: 6px;
   }
 
   .prof-rating-count {

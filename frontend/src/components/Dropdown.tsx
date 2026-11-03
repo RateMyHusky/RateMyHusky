@@ -12,10 +12,12 @@ interface DropdownProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  onOpenChange?: (open: boolean) => void;
 }
 
-const Dropdown = ({ options, value, onChange, placeholder, className = '' }: DropdownProps) => {
-  const [isOpen, setIsOpen] = useState(false);
+const Dropdown = ({ options, value, onChange, placeholder, className = '', onOpenChange }: DropdownProps) => {
+  const [isOpen, setOpenState] = useState(false);
+  const setIsOpen = (o: boolean) => { setOpenState(o); onOpenChange?.(o); };
   const ref = useRef<HTMLDivElement>(null);
 
   const selected = options.find((o) => o.value === value);
@@ -25,12 +27,13 @@ const Dropdown = ({ options, value, onChange, placeholder, className = '' }: Dro
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
-        setIsOpen(false);
+        setOpenState(false);
+        onOpenChange?.(false);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, []);
+  }, [onOpenChange]);
 
   const handleSelect = (val: string) => {
     onChange(val);

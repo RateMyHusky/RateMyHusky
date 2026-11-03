@@ -46,12 +46,13 @@
 .dark .rate-popup-later { color: #aaa; }
 .dark .rate-popup-later:hover { color: #e0e0e0; }
 
-/* Phones: bottom lines up with the back-to-top button, and the popup starts just right of it. */
+/* Phones: bottom lines up with the back-to-top button, and the popup starts just right of it.
+   Both sit above the home indicator (viewport-fit=cover). */
 @media (max-width: 768px) {
-  .rate-popup { bottom: 20px; left: 64px; right: 16px; width: auto; max-width: none; margin: 0; }
+  .rate-popup { bottom: calc(20px + env(safe-area-inset-bottom, 0px)); left: 64px; right: 16px; width: auto; max-width: none; margin: 0; }
 }
 @media (max-width: 480px) {
-  .rate-popup { bottom: 16px; left: 58px; right: 12px; }
+  .rate-popup { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 58px; right: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
