@@ -87,7 +87,7 @@ export default function Rate() {
   const prefetchedFor = useRef<RateStart | null>(null);
   const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
   // The check runs on the comment step, while the student writes; only the submit waits for its token.
-  const { containerRef, token, failed, scriptFailed, interactive, reset } = useTurnstile();
+  const { containerRef, token, failed, scriptFailed, interactive, shown, reset } = useTurnstile();
 
   // Once per mount; the ref keeps StrictMode's second run from counting twice.
   useEffect(() => {
@@ -496,6 +496,7 @@ export default function Rate() {
             error={submitError}
             turnstileRef={containerRef}
             verifying={interactive}
+            boxShown={shown}
           />
         );
       case 'thanks':

@@ -232,7 +232,8 @@
 .rate-verify.is-on { display: grid; justify-items: center; gap: 8px; margin-top: 14px; text-align: center; animation: rate-verify-in 0.25s ease-out; }
 .rate-verify-lead { margin: 0; color: #555; font-size: 0.9rem; font-weight: 700; }
 .rate-verify.is-on .rate-turnstile { width: fit-content; max-width: 100%; border: 2px solid #e0e0e0; border-radius: 12px; overflow: hidden; background: #fafafa; }
-.rate-verify.is-on .rate-turnstile > div { display: block; margin: -1px; }
+/* line-height: 0 drops the text-line gap under Cloudflare's iframe, so the -1px margin also hides the widget's own bottom border. */
+.rate-verify.is-on .rate-turnstile > div { display: block; margin: -1px; line-height: 0; }
 @keyframes rate-verify-in { from { opacity: 0; transform: translateY(4px); } }
 @media (prefers-reduced-motion: reduce) { .rate-verify.is-on { animation: none; } }
 
@@ -271,6 +272,8 @@
 .rate-hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
 
 .rate-error { margin: 10px 0 0; color: #c0283a; font-size: 0.9rem; font-weight: 700; }
+/* An error shown over Cloudflare's box, in place of its lead line. */
+.rate-verify-lead.rate-error { margin: 0; color: #c0283a; }
 
 .rate-thanks { text-align: center; }
 .rate-popper { margin: 14px 0 6px; }
@@ -459,6 +462,7 @@
 .dark .rate-sugg.add { color: #f06a7a; }
 .dark .rate-error { color: #f06a7a; }
 .dark .rate-verify-lead { color: #aaa; }
+.dark .rate-verify-lead.rate-error { color: #f06a7a; }
 .dark .rate-verify.is-on .rate-turnstile { border-color: #444; background: #232323; }
 
 @media (min-width: 1024px) {

@@ -12,7 +12,7 @@ const NORMAL_MIN_WIDTH = 302;
 // The check runs only while `containerRef` is attached (the last step), so a click, when Cloudflare
 // needs one, is asked for next to Submit and the token is fresh when it's sent.
 export function useTurnstile(): {
-  containerRef: (el: HTMLDivElement | null) => void; token: string; failed: boolean; scriptFailed: boolean; interactive: boolean; reset: () => void;
+  containerRef: (el: HTMLDivElement | null) => void; token: string; failed: boolean; scriptFailed: boolean; interactive: boolean; shown: boolean; reset: () => void;
 } {
   const [container, containerRef] = useState<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
@@ -24,6 +24,7 @@ export function useTurnstile(): {
   const [token, setToken] = useState('');
   const [interactive, setInteractive] = useState(false);
   const [size, setSize] = useState<'normal' | 'compact' | null>(null);
+  const [shown, setShown] = useState(false);
 
   // Watched from page load, so a blocked script is already known by the last step. Polling keeps on
   // past the wait, so a script that arrives late (a slow phone) still recovers without a reload. A retry
@@ -59,6 +60,15 @@ export function useTurnstile(): {
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(column);
+    return () => observer.disconnect();
+  }, [container]);
+
+  // Whether Cloudflare's box is on screen. Wider than `interactive`: a check that fails after asking
+  // for a click leaves its "Verification failed" box up after the interactive callbacks are done.
+  useEffect(() => {
+    if (!container) return;
+    const observer = new ResizeObserver(([entry]) => setShown(entry.contentRect.height > 0));
+    observer.observe(container);
     return () => observer.disconnect();
   }, [container]);
 
@@ -108,6 +118,6 @@ export function useTurnstile(): {
   }, []);
 
   return {
-    containerRef, token: TURNSTILE_SITE_KEY ? token : NO_WIDGET_TOKEN, failed: scriptFailed || widgetFailed, scriptFailed, interactive, reset,
+    containerRef, token: TURNSTILE_SITE_KEY ? token : NO_WIDGET_TOKEN, failed: scriptFailed || widgetFailed, scriptFailed, interactive, shown, reset,
   };
 }
