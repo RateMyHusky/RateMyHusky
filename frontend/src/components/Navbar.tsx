@@ -5,7 +5,6 @@ import { Link, NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { RATE_ENABLED } from '../config';
 import SignInModal from './SignInModal';
-import ThemeToggle from './ThemeToggle';
 import { clearPendingBookmark } from '../utils/pendingBookmark';
 import './Navbar.css';
 
@@ -23,7 +22,7 @@ const Navbar = () => {
   const location = useLocation();
   const [isDark, setIsDark] = useState(() => localStorage.getItem('theme') === 'dark');
 
-  // Sync with the navbar's ThemeToggle
+  // Sync with floating ThemeToggle
   useEffect(() => {
     const handler = (e: Event) => {
       const dark = (e as CustomEvent<{ isDark: boolean }>).detail.isDark;
@@ -193,9 +192,6 @@ const Navbar = () => {
             </NavLink>
           )}
         </div>
-        {/* Desktop only (hidden under 768px, where the menu has Light/Dark Mode). It used to
-            float bottom-right, over the catalog's right-hand cards. */}
-        <ThemeToggle />
         {authLoading ? null : user ? (
           <div className="navbar-user" ref={userMenuRef}>
             <button className="navbar-user-btn" onClick={() => setShowUserMenu(v => { if (!v) window.dispatchEvent(new CustomEvent('close-filter-sidebar')); return !v; })}>

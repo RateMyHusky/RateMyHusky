@@ -322,11 +322,12 @@ const Privacy = () => {
                   <strong>RateMyProfessors, Northeastern faculty and award pages, the Northeastern course catalog and course schedule (NUBanner) &amp; Reddit</strong>: these are data sources only. We do not send any user
                   data to these services.
                 </li>
+                {RATE_ENABLED && (<>
                 <li>
-                  <strong>Groq</strong>: public RateMyProfessors comments are sent to Groq to
-                  suggest nicknames that help search find a professor. Nicknames are used only in
-                  search and are never shown.
-                  {RATE_ENABLED ? ' The text of rating comments may also be sent to Groq to check it for abuse, and the answers and comments of ratings held for review, why they were held, and recent ratings and comments for the same professor, are sent to Groq for an automated check. Comments submitted through our rating form are also used for nickname suggestions.' : ''} Subject to{' '}
+                  <strong>Groq</strong>: the text of rating comments may be sent to Groq to
+                  check it for abuse, and the answers and comments of ratings held for review, why
+                  they were held, and recent ratings and comments for the same professor, are sent to Groq for an
+                  automated check. Subject to{' '}
                   <a
                     href="https://groq.com/privacy-policy/"
                     target="_blank"
@@ -335,7 +336,6 @@ const Privacy = () => {
                     Groq's Privacy Policy
                   </a>.
                 </li>
-                {RATE_ENABLED && (<>
                 <li>
                   <strong>OpenAI Moderation</strong>: when the Groq check is not set up, the
                   text of an optional rating comment is sent to OpenAI's moderation service

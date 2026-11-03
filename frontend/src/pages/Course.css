@@ -276,21 +276,25 @@
 	flex-wrap: wrap;
 }
 
+/* Same pill as "Show N more"; red because it leaves the page, like "View all … professors". */
 .course-compare-btn {
+	position: relative;
 	display: inline-flex;
 	align-items: center;
-	min-height: 36px;
-	padding: 6px 16px;
-	border: 1.5px solid #d6394c;
-	border-radius: 10px;
+	min-height: 32px;
+	padding: 0 14px;
+	border: 1px solid #d6394c;
+	border-radius: 999px;
 	color: #d6394c;
-	font-size: 0.85rem;
+	font-size: 0.8rem;
 	font-weight: 700;
 	text-decoration: none;
 	white-space: nowrap;
 	transition: background 0.2s;
 }
 
+/* 44px tall hit area for touch around the 32px pill. */
+.course-compare-btn::before { content: ''; position: absolute; inset: -6px 0; }
 .course-compare-btn:hover { background: #fef0f0; }
 .course-compare-btn:focus-visible { outline: 2px solid #d6394c; outline-offset: 2px; }
 

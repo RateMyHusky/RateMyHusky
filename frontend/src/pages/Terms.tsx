@@ -166,16 +166,16 @@ const Terms = () => {
                   <strong>Cloudflare Turnstile</strong>: a CAPTCHA that protects the feedback
                   form{RATE_ENABLED ? ' and the rating form' : ''} from automated abuse.
                 </li>
+                {RATE_ENABLED && (<>
                 <li>
-                  <strong>Groq</strong>: suggests search nicknames for professors from review
-                  comments{RATE_ENABLED ? ', checks the text of rating comments for abuse, and runs an automated reviewer that checks ratings held for review' : ''}.
+                  <strong>Groq</strong>: checks the text of rating comments for abuse and runs an
+                  automated reviewer that checks ratings held for review.
                 </li>
-                {RATE_ENABLED && (
                 <li>
                   <strong>OpenAI Moderation</strong>: checks the text of rating comments for
                   abuse when the Groq check is not set up.
                 </li>
-                )}
+                </>)}
                 <li>
                   <strong>Vercel Analytics &amp; Speed Insights</strong>: collects anonymous
                   performance and usage data to help improve the service.

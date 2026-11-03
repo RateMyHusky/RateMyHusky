@@ -36,20 +36,49 @@ def test_day_bars_scale_to_the_busiest_day():
     assert "height:30px;background:#27ae60" in out
     assert "height:10px;background:#f39c12" in out
     assert "height:10px;background:#d6394c" in out
-    assert out.count("<td") == 14
-    assert "Last 14 days" in out
+    assert out.count('<td align="center">') == 14
+    assert ">40</div><div>0</div>" in out  # the scale tops out at the busiest day
+    assert "13 days ago" in out and "Today" in out
+
+
+def test_every_day_has_a_track_so_a_lone_bar_has_something_to_sit_beside():
+    out = h.day_bars([(0, 0)] * 13 + [(1, 0)])
+    days = out.split('<td align="center">')[1:]
+    assert all(f"height:40px;background:{h.TRACK}" in d for d in days[:13])
+    assert "height:40px;background:#d6394c" in days[13] and h.TRACK not in days[13]
+    assert ">1</div><div>0</div>" in out
 
 
 def test_day_bars_on_a_quiet_fortnight():
     out = h.day_bars([(0, 0)] * 14)
-    assert out.count("<td") == 14
+    assert out.count(f"height:40px;background:{h.TRACK}") == 14
     assert "height:0px" not in out
 
 
 def test_a_tiny_day_still_shows():
     out = h.day_bars([(1, 0)] + [(0, 0)] * 12 + [(1000, 0)])
-    first = out.split("<td")[1]
-    assert "height:1px" in first
+    first = out.split('<td align="center">')[1]
+    assert f"height:39px;background:{h.TRACK}" in first and "height:1px;background:#27ae60" in first
+
+
+def test_every_day_column_adds_up_to_the_chart_height():
+    # Rounding each segment up to 1px on its own used to push these columns past 40px.
+    for days in ([(79, 1)], [(1, 1000)], [(1, 999), (1001, 0)]):
+        out = h.day_bars([(0, 0)] * (14 - len(days)) + days)
+        cols = [c.split("</td>")[0] for c in out.split('<td align="center">')[1:]]
+        assert all(sum(int(px) for px in re.findall(r"height:(\d+)px", c)) == 40 for c in cols)
+    assert f"background:{h.AMBER}" in cols[12] and f"background:{h.GREEN}" in cols[12]
+
+
+def test_day_bar_segments_have_no_line_height_floor():
+    # Outlook and Gmail grow an empty div to the line height unless the font is zeroed.
+    out = h.day_bars([(0, 0)] * 13 + [(3, 1)])
+    segs = re.findall(r'<div style="(width:8px;[^"]*)">', out)
+    assert segs and all("font-size:0;line-height:0;" in s for s in segs)
+
+
+def test_day_bars_scale_uses_thousands_separators():
+    assert ">1,500</div><div>0</div>" in h.day_bars([(0, 0)] * 13 + [(1500, 0)])
 
 
 def test_stacked_bar_widths_sum_to_100():
