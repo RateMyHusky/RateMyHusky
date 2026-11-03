@@ -23,6 +23,13 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     rollupOptions: {
+      input: {
+        index: fileURLToPath(new URL('./index.html', import.meta.url)),
+        // The service worker ships as a module, so it can come through this
+        // pass with the popup. The content script can't — see
+        // vite.content.config.ts for why it gets its own.
+        background: fileURLToPath(new URL('./src/banner/background.ts', import.meta.url)),
+      },
       output: {
         entryFileNames: '[name].js',
         chunkFileNames: '[name].js',
