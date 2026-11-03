@@ -7,6 +7,7 @@ AMBER = "#f39c12"
 AMBER_TEXT = "#e08e0b"
 RED = "#e74c3c"
 BRAND = "#d6394c"
+TRACK = "#eeeef2"
 
 _FONT = "-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 _MONO = "Consolas,Menlo,monospace"
@@ -105,19 +106,21 @@ def numbers(items):
 
 
 def day_bars(days, height=40):
-    """One column per day, oldest first: a gray track the full height, so empty days still show,
-    filled from the bottom with live, then held (amber). A scale on the left gives the busiest day."""
+    """One column per day, oldest first, for the 14 days rating_stats returns: a gray track the
+    full height, so empty days still show, filled from the bottom with live, then held (amber).
+    A scale on the left gives the busiest day."""
     busiest = max((live + held for live, held in days), default=0)
     last = len(days) - 1
     axis = "font-size:10px;color:#999;line-height:12px;"
     cells = [f'<td width="1%" style="{axis}text-align:right;padding-right:6px;white-space:nowrap;">'
-             f'<div style="height:{height - 12}px;">{busiest or ""}</div><div>0</div></td>']
+             f'<div style="height:{height - 12}px;">{f"{busiest:,}" if busiest else ""}</div><div>0</div></td>']
     for i, (live, held) in enumerate(days):
-        segs = [(max(1, round(value * height / busiest)), bg)
-                for value, bg in ((held, AMBER), (live, BRAND if i == last else GREEN)) if value]
-        segs.insert(0, (max(0, height - sum(px for px, _ in segs)), "#eeeef2"))
+        px = [max(1, round(value * height / busiest)) if value else 0 for value in (held, live)]
+        px[px.index(max(px))] -= max(0, sum(px) - height)  # the 1px floor and rounding can overshoot
+        segs = ((height - sum(px), TRACK), (px[0], AMBER), (px[1], BRAND if i == last else GREEN))
         cells.append('<td align="center">' + "".join(
-            f'<div style="width:8px;height:{px}px;background:{bg};"></div>' for px, bg in segs if px) + "</td>")
+            f'<div style="width:8px;height:{h}px;background:{bg};font-size:0;line-height:0;"></div>'
+            for h, bg in segs if h) + "</td>")
     half = len(days) // 2
     return (
         f'<table {_TABLE}><tr valign="bottom">{"".join(cells)}</tr>'
