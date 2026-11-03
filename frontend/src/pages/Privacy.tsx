@@ -9,7 +9,7 @@ const Privacy = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Privacy Policy</h1>
-            <p className="terms-meta">Effective October 28, 2026 &middot; RateMyHusky</p>
+            <p className="terms-meta">Effective November 2, 2026 &middot; RateMyHusky</p>
           </header>
 
           <div className="terms-body">
@@ -51,9 +51,10 @@ const Privacy = () => {
                   catalog view mode, and flags recording that you dismissed an on-page tip are
                   saved to <code>localStorage</code> on your device only and are never
                   transmitted to our servers.
-                  {RATE_ENABLED ? ' The one exception is the rating device ID, described under Ratings below.' : ''} Which review tab you had open on a professor page
-                  is held in <code>sessionStorage</code> so navigation works, and is dropped
-                  when you close the tab.
+                  {RATE_ENABLED ? ' The one exception is the rating device ID, described under Ratings below. We also keep when you last saw or skipped a prompt to rate a professor and which professors you rated from this browser, so prompts are not repeated too often.' : ''} While
+                  you sign in, <code>sessionStorage</code> holds a marker that sign-in is
+                  underway and any bookmark you clicked before signing in, so it can be saved
+                  once you are back; both are dropped when sign-in finishes or you close the tab.
                 </li>
                 <li>
                   <strong>IP address:</strong> your IP address is used in the moment a request
@@ -97,8 +98,10 @@ const Privacy = () => {
                   a secret key that we keep private, so they cannot be matched to an address
                   or device without it. This data is <strong>pseudonymous, not anonymous</strong>:
                   it is not tied to your name or email, but the device ID hash links ratings
-                  from the same device to each other. Comment text is also sent to OpenAI's
-                  moderation service, which checks it for abuse before it is stored. If a rating is
+                  from the same device to each other. Comment text is also sent to an automated
+                  moderation service (Groq, or OpenAI's moderation service), which checks it for
+                  abuse when you submit it; if the check is unavailable at that moment, the
+                  comment is stored and checked later. If a rating is
                   held for review, its answers and comment, and why it was held, are also sent to
                   Groq, where an automated reviewer checks it. Recent ratings and comments for the same
                   professor go with it as context. The reviewer can approve a held rating, but
@@ -112,7 +115,8 @@ const Privacy = () => {
                 pages you viewed, or any other browsing activity on our servers.
                 {RATE_ENABLED ? ' The one exception is the time taken to fill in the rating form, stored with a rating you submit. When you open or submit the rating form, or see or use a prompt to rate a professor, we send Google Analytics which prompt led you there and whether you rated. These events don\'t include the professor, course or your rating, though Google Analytics still records the address of each page you view, as described under Third-Party Services. Whether to show the prompt is decided in your browser.' : ''} The analytics
                 providers listed under <em>Third-Party Services</em> collect their own data
-                about your visit.
+                about your visit; Google Analytics records the address of each page you view,
+                which includes any search you type into the catalog.
               </p>
             </section>
 
@@ -217,11 +221,13 @@ const Privacy = () => {
                   </a>.
                 </li>
                 <li>
-                  <strong>Google Analytics</strong>: collects anonymous usage data such as page
-                  views, engagement, and general geographic region to help us understand
-                  how the service is used and improve it. Google Analytics may use cookies to
-                  distinguish unique users. No personally identifiable information is shared
-                  with Google Analytics. Subject to{' '}
+                  <strong>Google Analytics</strong>: collects usage data such as the address of
+                  each page you view, engagement, and general geographic region to help us
+                  understand how the service is used and improve it. It uses cookies holding a
+                  random identifier to tell visits from the same browser apart, so its data is
+                  pseudonymous rather than anonymous, and it receives your IP address to
+                  estimate your region. We do not send it your name, email, or account id.
+                  Subject to{' '}
                   <a
                     href="https://policies.google.com/privacy"
                     target="_blank"
@@ -287,31 +293,30 @@ const Privacy = () => {
                   <strong>RateMyProfessors, Northeastern faculty and award pages, the Northeastern course catalog and course schedule (NUBanner) &amp; Reddit</strong>: these are data sources only. We do not send any user
                   data to these services.
                 </li>
-                {RATE_ENABLED && (<>
                 <li>
-                  <strong>OpenAI Moderation</strong>: the text of an optional rating comment is
-                  sent to OpenAI's moderation service to check it for abuse before the rating is
-                  stored. Subject to{' '}
-                  <a
-                    href="https://openai.com/policies/privacy-policy/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    OpenAI's Privacy Policy
-                  </a>.
-                </li>
-                <li>
-                  <strong>Groq</strong>: the answers and comments of ratings held for review, why
-                  they were held, and recent ratings and comments for the same professor, are sent to Groq for an
-                  automated check. Comments, including public RateMyProfessors comments, are also used to
-                  suggest nicknames that help search find a professor. Nicknames are used only in search and are
-                  never shown. Subject to{' '}
+                  <strong>Groq</strong>: public RateMyProfessors comments are sent to Groq to
+                  suggest nicknames that help search find a professor. Nicknames are used only in
+                  search and are never shown.
+                  {RATE_ENABLED ? ' The text of rating comments may also be sent to Groq to check it for abuse, and the answers and comments of ratings held for review, why they were held, and recent ratings and comments for the same professor, are sent to Groq for an automated check. Comments submitted through our rating form are also used for nickname suggestions.' : ''} Subject to{' '}
                   <a
                     href="https://groq.com/privacy-policy/"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
                     Groq's Privacy Policy
+                  </a>.
+                </li>
+                {RATE_ENABLED && (<>
+                <li>
+                  <strong>OpenAI Moderation</strong>: when the Groq check is not available, the
+                  text of an optional rating comment is sent to OpenAI's moderation service
+                  instead to check it for abuse. Subject to{' '}
+                  <a
+                    href="https://openai.com/policies/privacy-policy/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    OpenAI's Privacy Policy
                   </a>.
                 </li>
                 <li>
@@ -337,7 +342,7 @@ const Privacy = () => {
                 </>)}
                 {' '}Google Analytics may set
                 cookies (e.g., <code>_ga</code>, <code>_gid</code>) to distinguish unique users
-                and track anonymous session data. You can opt out of Google Analytics tracking by
+                and group page views into visits. You can opt out of Google Analytics tracking by
                 installing the{' '}
                 <a
                   href="https://tools.google.com/dlpage/gaoptout"
@@ -350,11 +355,18 @@ const Privacy = () => {
               <p>
                 <code>localStorage</code> is used to store your JWT session token
                 (<code>auth_token</code>), your theme, your catalog view mode, and flags for
-                on-page tips you have dismissed. <code>sessionStorage</code> holds the review tab
-                you last opened, and is cleared when you close the tab. None of this data is
+                on-page tips you have dismissed{RATE_ENABLED && (<>, plus your rate-prompt history (<code>rmh_rate_prompt</code>)</>)}.
+                While you sign in, <code>sessionStorage</code> holds a sign-in marker and any
+                bookmark you clicked before signing in, and is cleared when you close the tab. None of this data is
                 synced to our servers{RATE_ENABLED ? (<>, with one exception: the rating form also keeps a copy of
                 its device ID (<code>rmh_device</code>) in <code>localStorage</code>, and that
                 copy is sent to our servers when you use the rating form</>) : ''}.
+              </p>
+              <p>
+                <strong>Do Not Track and Global Privacy Control.</strong> RateMyHusky does not
+                change how it behaves when your browser sends a Do Not Track or Global Privacy
+                Control signal. To stop Google Analytics, use the opt-out add-on above or block
+                cookies for this site in your browser.
               </p>
             </section>
 
@@ -384,7 +396,7 @@ const Privacy = () => {
                   <strong>clear localStorage</strong> in your browser settings to remove your
                   session token and stored preferences. You can remove an individual bookmark at
                   any time by un-bookmarking it. To delete everything we hold for your account,
-                  sign in and submit a <strong>Account Deletion</strong> request through the
+                  sign in and submit an <strong>Account Deletion</strong> request through the
                   feedback form: an email address is required, and your signed-in account
                   identifier is included so we can verify your identity and delete the records
                   tied to your account.
@@ -406,8 +418,8 @@ const Privacy = () => {
                   <strong>Right to correction:</strong> your name, email, and photo come
                   directly from Google and are never stored on our servers, so corrections to
                   them are made through your Google account. Your Google account id also comes
-                  from Google and cannot be edited; we store it with your bookmarks, and a Data
-                  Deletion Request removes it (see Right to deletion above).
+                  from Google and cannot be edited; we store it with your bookmarks, and an
+                  Account Deletion request removes it (see Right to deletion above).
                   If you believe professor or course data displayed on the site is inaccurate,
                   you can report it through the feedback form under "Wrong or Missing Data."
                 </li>

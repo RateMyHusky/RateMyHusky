@@ -12,7 +12,7 @@ const Terms = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Terms &amp; Conditions</h1>
-            <p className="terms-meta">Effective October 28, 2026 &middot; RateMyHusky</p>
+            <p className="terms-meta">Effective November 2, 2026 &middot; RateMyHusky</p>
           </header>
 
           <div className="terms-body">
@@ -27,8 +27,9 @@ const Terms = () => {
               <p>
                 RateMyHusky is an aggregator of professor and course information for
                 Northeastern University students. Data displayed on this platform is sourced from
-                RateMyProfessors, from Northeastern's public course catalog, faculty directory
-                pages, and teaching award announcements, and from publicly available discussion
+                RateMyProfessors, from Northeastern's public course catalog, course schedule
+                (NUBanner), faculty directory pages, and teaching award announcements, and from
+                publicly available discussion
                 on Reddit{RATE_ENABLED ? ', and it also includes ratings that students submit through the rating form on this site' : ''}.
                 Alongside that source data we show figures we compute from it — averages, blended
                 ratings, department comparisons, and sentiment labels derived from Reddit text.
@@ -92,14 +93,20 @@ const Terms = () => {
                 <li>
                   <strong>Browser preferences and state:</strong> your theme (dark/light),
                   catalog view mode, and dismissed on-page tips are saved to{' '}
-                  <code>localStorage</code>; your last review tab is held in{' '}
-                  <code>sessionStorage</code> until you close the tab. This data stays on your
-                  device and is never synced to our servers.
+                  <code>localStorage</code>
+                  {RATE_ENABLED ? ', along with when you last saw or skipped a prompt to rate a professor and which professors you rated from this browser' : ''}.
+                  While you sign in, <code>sessionStorage</code> holds a marker that sign-in is
+                  underway and any bookmark you clicked before signing in, until sign-in
+                  finishes or you close the tab. This data stays on your device and is never
+                  synced to our servers.
                 </li>
                 <li>
-                  <strong>Anonymous usage data:</strong> Vercel Analytics, Vercel Speed
-                  Insights, and Google Analytics collect anonymous page view and performance
-                  metrics. No personally identifiable information is included.
+                  <strong>Usage data:</strong> Vercel Analytics and Vercel Speed Insights
+                  collect anonymous page view and performance metrics. Google Analytics collects
+                  page views, including each page's address (which contains any catalog search
+                  you type), using a cookie with a random identifier, so its data is
+                  pseudonymous rather than anonymous. We do not send it your name, email, or
+                  account id.
                 </li>
                 {RATE_ENABLED && (
                 <li>
@@ -156,15 +163,14 @@ const Terms = () => {
                   <strong>Cloudflare Turnstile</strong>: a CAPTCHA that protects the feedback
                   form{RATE_ENABLED ? ' and the rating form' : ''} from automated abuse.
                 </li>
+                <li>
+                  <strong>Groq</strong>: suggests search nicknames for professors from review
+                  comments{RATE_ENABLED ? ', checks the text of rating comments for abuse, and runs an automated reviewer that checks ratings held for review' : ''}.
+                </li>
                 {RATE_ENABLED && (
                 <li>
                   <strong>OpenAI Moderation</strong>: checks the text of rating comments for
-                  abuse before they are stored.
-                </li>
-                )}
-                {RATE_ENABLED && (
-                <li>
-                  <strong>Groq</strong>: an automated reviewer checks ratings held for review.
+                  abuse when the Groq check is not available.
                 </li>
                 )}
                 <li>
@@ -172,10 +178,9 @@ const Terms = () => {
                   performance and usage data to help improve the service.
                 </li>
                 <li>
-                  <strong>Google Analytics</strong>: collects anonymous usage data such as page
-                  views and engagement to help us understand how the service is used.
-                  Google Analytics may use cookies; no personally identifiable information is
-                  shared. Subject to{' '}
+                  <strong>Google Analytics</strong>: collects pseudonymous usage data such as
+                  page views and engagement to help us understand how the service is used. It
+                  uses cookies; we do not send it your name, email, or account id. Subject to{' '}
                   <a
                     href="https://policies.google.com/privacy"
                     target="_blank"
@@ -201,6 +206,11 @@ const Terms = () => {
                   <strong>Northeastern teaching award announcements</strong>: teaching awards
                   shown on professor pages are sourced from the award pages and news posts
                   Northeastern publishes, and each links to its announcement.
+                </li>
+                <li>
+                  <strong>Northeastern course schedule (NUBanner)</strong>: the courses and
+                  terms each professor taught, and class sizes, are sourced from Northeastern's
+                  public course schedule.
                 </li>
                 <li>
                   <strong>Northeastern course catalog</strong>: course names, departments,
@@ -257,10 +267,19 @@ const Terms = () => {
             <section className="terms-section">
               <h2>9. Ratings You Submit</h2>
               <p>
-                If you submit a rating, be honest and rate only classes you took. We may use
-                ratings in aggregate, hold or remove any rating, and count only one rating per
-                professor and course per device. See our <a href="/privacy">Privacy Policy</a>{' '}
-                for what we store with a rating.
+                If you submit a rating, be honest and rate only classes you took. Comments must
+                not contain threats, harassment, sexual comments, attacks on anyone's appearance,
+                identity, or private life, anyone's personal contact details, spam, or claims
+                you know to be false. We may use ratings in aggregate, hold or remove any rating,
+                and count only one rating per professor and course per device. See our{' '}
+                <a href="/privacy">Privacy Policy</a> for what we store with a rating.
+              </p>
+              <p>
+                By submitting a rating, you confirm that it is your own, and you give
+                RateMyHusky a free, non-exclusive license to store, display, and use it on the
+                service, including in the figures we compute from it, for as long as we keep it.
+                You can ask us to delete your rating at any time, as our{' '}
+                <a href="/privacy">Privacy Policy</a> describes.
               </p>
             </section>
             )}
