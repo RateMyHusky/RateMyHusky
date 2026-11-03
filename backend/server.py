@@ -1741,19 +1741,20 @@ def professors_catalog():
         all_rows.sort(key=lambda r: name_key_order.get(r["name_key"], 999999))
         page_rows = all_rows[offset:offset + limit]
     else:
-        # No search - use SQL sorting
+        # No search - use SQL sorting. Every order ends in slug: tied rows have no fixed order in
+        # Postgres, so LIMIT/OFFSET pages could repeat professors and skip others.
         if sort == "rating":
-            order = "avg_rating DESC NULLS LAST"
+            order = "avg_rating DESC NULLS LAST, slug ASC"
         elif sort == "rating_asc":
             order = "avg_rating ASC NULLS LAST, slug ASC"
         elif sort == "alpha_desc":
             order = "lower(name) DESC, slug DESC"
         elif sort == "comments":
-            order = "total_comments DESC"
+            order = "total_comments DESC, slug ASC"
         elif sort == "ratings":
             order = "total_reviews DESC NULLS LAST, slug ASC"
         else:
-            order = "lower(name) ASC"
+            order = "lower(name) ASC, slug ASC"
 
         count_row = query_one(f"SELECT COUNT(*) as cnt FROM professors_catalog WHERE {where}", params)
         total = count_row["cnt"]

@@ -137,3 +137,26 @@ def test_an_alias_hit_survives_the_100_row_cut(live_server, seeded, pg):
     assert found[0]["slug"] == "alice-smith"
     truncate(pg, "professor_aliases", "professors_catalog")
     live_server._reset_alias_cache()
+
+
+def test_catalog_pages_show_each_professor_once_when_sort_values_tie(live_server, pg, monkeypatch):
+    # Tied rows have no fixed order in Postgres, so without a unique last sort key a LIMIT/OFFSET
+    # page can repeat professors from an earlier page and skip others.
+    monkeypatch.setattr(live_server.limiter, "enabled", False)  # the walk is ~50 requests in well under a second
+    truncate(pg, "professors_catalog")
+    slugs = [f"sam-lee-{i}" for i in range(60)]
+    with pg.cursor() as cur:
+        for i, slug in enumerate(slugs):
+            cur.execute("INSERT INTO professors_catalog (slug, name, name_key, total_reviews, avg_rating, total_comments) "
+                        "VALUES (%s, 'Sam Lee', %s, 10, 4.0, 5)", (slug, f"sam lee {i}"))
+    pg.commit()
+    client = live_server.app.test_client()
+    for sort in sorted(live_server.PROFESSOR_SORTS):
+        seen, page, pages = [], 1, 1
+        while page <= pages:
+            body = client.get(f"/api/professors-catalog?sort={sort}&page={page}&limit=7").get_json()
+            seen += [p["slug"] for p in body["professors"]]
+            pages = body["totalPages"]
+            page += 1
+        assert sorted(seen) == sorted(slugs), sort
+    truncate(pg, "professors_catalog")
