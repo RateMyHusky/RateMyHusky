@@ -499,6 +499,7 @@ export default function Rate() {
             turnstileRef={containerRef}
             verifying={interactive}
             boxShown={shown}
+            errorAtCheck={submitError.startsWith(FAILURE_MESSAGES[403])}
           />
         );
       case 'thanks':

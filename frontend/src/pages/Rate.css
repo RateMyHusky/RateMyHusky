@@ -229,7 +229,9 @@
 .rate-back:disabled { opacity: 0.45; cursor: default; }
 
 /* The box is centered at Cloudflare's fixed size, framed like the inputs, with its own square edge clipped off. */
-.rate-verify.is-on { display: grid; justify-items: center; gap: 8px; margin-top: 14px; text-align: center; animation: rate-verify-in 0.25s ease-out; }
+.rate-verify.is-on, .rate-verify.has-error { display: grid; justify-items: center; gap: 8px; margin-top: 14px; text-align: center; }
+.rate-verify.is-on { animation: rate-verify-in 0.25s ease-out; }
+.rate-verify .rate-error { margin: 0; }
 .rate-verify-lead { margin: 0; color: #555; font-size: 0.9rem; font-weight: 700; }
 .rate-verify.is-on .rate-turnstile { width: fit-content; max-width: 100%; border: 2px solid #e0e0e0; border-radius: 12px; overflow: hidden; background: #fafafa; }
 /* line-height: 0 drops the text-line gap under Cloudflare's iframe, so the -1px margin also hides the widget's own bottom border. */
@@ -272,8 +274,6 @@
 .rate-hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
 
 .rate-error { margin: 10px 0 0; color: #c0283a; font-size: 0.9rem; font-weight: 700; }
-/* An error shown over Cloudflare's box, in place of its lead line. */
-.rate-verify-lead.rate-error { margin: 0; color: #c0283a; }
 
 .rate-thanks { text-align: center; }
 .rate-popper { margin: 14px 0 6px; }
@@ -394,7 +394,7 @@
   .rate-panel > .rate-ghost { margin-top: 1em; }
 
   .rate-btn { min-height: 3.2em; margin-top: 0; border-radius: 0.9em; }
-  .rate-verify.is-on { gap: 0.55em; margin: 0 0 0.9em; }
+  .rate-verify.is-on, .rate-verify.has-error { gap: 0.55em; margin: 0 0 0.9em; }
   .rate-verify-lead { font-size: 0.9em; }
   .rate-verify.is-on .rate-turnstile { border-radius: 0.9em; }
 
@@ -462,7 +462,6 @@
 .dark .rate-sugg.add { color: #f06a7a; }
 .dark .rate-error { color: #f06a7a; }
 .dark .rate-verify-lead { color: #aaa; }
-.dark .rate-verify-lead.rate-error { color: #f06a7a; }
 .dark .rate-verify.is-on .rate-turnstile { border-color: #444; background: #232323; }
 
 @media (min-width: 1024px) {

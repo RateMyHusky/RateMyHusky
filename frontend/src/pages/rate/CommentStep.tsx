@@ -23,11 +23,13 @@ interface CommentStepProps {
   verifying: boolean;
   // Cloudflare's box is on screen: asking for a click, or showing that the check failed.
   boxShown: boolean;
+  // The error says Cloudflare's check failed, so it shows with the check, not under the comment.
+  errorAtCheck: boolean;
 }
 
-export function CommentStep({ value, onChange, onSubmit, onBack, submitting, editLocked, updating, error, turnstileRef, verifying, boxShown }: CommentStepProps) {
+export function CommentStep({ value, onChange, onSubmit, onBack, submitting, editLocked, updating, error, turnstileRef, verifying, boxShown, errorAtCheck }: CommentStepProps) {
   const [honeypot, setHoneypot] = useState('');
-  const boxError = boxShown ? error : '';
+  const checkError = errorAtCheck ? error : '';
   const ref = useRef<HTMLTextAreaElement>(null);
 
   // Grows with the text; the CSS max-height caps it and the box scrolls inside past that.
@@ -74,15 +76,15 @@ export function CommentStep({ value, onChange, onSubmit, onBack, submitting, edi
         value={honeypot}
         onChange={(e) => setHoneypot(e.target.value)}
       />
-      {error && !boxShown && <p className="rate-error" role="alert">{error}</p>}
+      {error && !checkError && <p className="rate-error" role="alert">{error}</p>}
       <StepFoot onBack={onBack} backDisabled={editLocked}>
-        {/* Empty unless Cloudflare shows its box; then it sits right above Submit, pinned with it on desktop.
-            An error then shows here with the box instead of up under the comment. */}
-        <div className={`rate-verify${boxShown ? ' is-on' : ''}`}>
+        {/* Empty unless Cloudflare shows its box or its check failed; then it sits right above Submit,
+            pinned with it on desktop. Placed by the error's kind, not the box: a reset hides the box for a
+            moment, and the error would jump away and back. */}
+        <div className={`rate-verify${boxShown ? ' is-on' : ''}${checkError ? ' has-error' : ''}`}>
+          {checkError && <p className="rate-error" role="alert">{checkError}</p>}
           {/* Always in the page, so screen readers announce the text when it's filled in. */}
-          <p className={`rate-verify-lead${boxError ? ' rate-error' : ''}`} role="status">
-            {boxError || (verifying ? 'One quick check before we send your rating.' : '')}
-          </p>
+          <p className="rate-verify-lead" role="status">{verifying ? 'One quick check before we send your rating.' : ''}</p>
           <div ref={turnstileRef} className="rate-turnstile" />
         </div>
         <button type="button" className="rate-btn" disabled={submitting} onClick={() => onSubmit(false, honeypot)}>

@@ -10,6 +10,10 @@ const SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render
 // The framed box (Rate.css .rate-verify.is-on) is 2px wider than Cloudflare's 300px one.
 const NORMAL_MIN_WIDTH = 302;
 
+// Codes already sent to GA this page load, since Cloudflare's automatic retries can fail the same way again and again.
+// Module-level, so leaving /rate and coming back doesn't send them again.
+const trackedCodes = new Set<string>();
+
 // The check runs only while `containerRef` is attached (the last step), so a click, when Cloudflare
 // needs one, is asked for next to Submit and the token is fresh when it's sent.
 export function useTurnstile(): {
@@ -25,8 +29,6 @@ export function useTurnstile(): {
   const [widgetFailed, setWidgetFailed] = useState(false);
   // Cloudflare's code for the last failed check (e.g. 600010), which says why it failed.
   const [errorCode, setErrorCode] = useState('');
-  // Codes already sent to GA this page load, since Cloudflare's automatic retries can fail the same way again and again.
-  const trackedCodes = useRef(new Set<string>());
   const [token, setToken] = useState('');
   const [interactive, setInteractive] = useState(false);
   const [size, setSize] = useState<'normal' | 'compact' | null>(null);
@@ -75,7 +77,11 @@ export function useTurnstile(): {
     if (!container) return;
     const observer = new ResizeObserver(([entry]) => setShown(entry.contentRect.height > 0));
     observer.observe(container);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      // Otherwise the next comment step's first paint would frame an empty box.
+      setShown(false);
+    };
   }, [container]);
 
   useEffect(() => {
@@ -91,12 +97,13 @@ export function useTurnstile(): {
         setWidgetFailed(false); // an automatic retry recovered from an earlier error
         setErrorCode('');
       },
-      'error-callback': (code: string) => {
+      'error-callback': (code?: string) => {
+        const c = code ? String(code) : '';
         setWidgetFailed(true);
-        setErrorCode(String(code));
-        if (!trackedCodes.current.has(String(code))) {
-          trackedCodes.current.add(String(code));
-          track('turnstile_error', { error_code: String(code) });
+        setErrorCode(c);
+        if (c && !trackedCodes.has(c)) {
+          trackedCodes.add(c);
+          track('turnstile_error', { error_code: c });
         }
       },
       'before-interactive-callback': () => setInteractive(true),
