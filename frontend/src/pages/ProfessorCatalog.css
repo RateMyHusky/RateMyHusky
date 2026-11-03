@@ -50,6 +50,12 @@
   position: static;
 }
 
+/* Same for the open Sort by menu: it floats over the filters below instead of being cut off in a scroll box. */
+.sidebar-inner:has(.dropdown-menu) {
+  overflow: visible;
+  max-height: none;
+}
+
 .sidebar-header {
   display: flex;
   align-items: center;
@@ -83,6 +89,15 @@
   border-top: 1px solid #f0f0f0;
   padding-top: 16px;
   margin-top: 16px;
+}
+
+/* Sort by: line the value and its menu up with the left edge, like the other filters' labels. */
+.filter-section .dropdown-trigger {
+  padding-left: 0;
+}
+
+.filter-section .dropdown-menu {
+  left: 0;
 }
 
 .filter-label {
@@ -1083,7 +1098,6 @@
   overflow: hidden;
   margin: 0 0 2px;
   line-height: 1.3;
-  min-height: calc(0.97rem * 1.3 * 2);
   flex: 1;
   min-width: 0;
 }
@@ -1108,7 +1122,11 @@
   justify-content: space-between;
   align-items: center;
   gap: 2px;
-  margin-top: 4px;
+  /* Bottom of the card, so a one-line name keeps college/dept right under it. */
+  margin-top: auto;
+  /* Divider above the stats, like the rating row on course cards. */
+  padding-top: 10px;
+  border-top: 1px solid #f0f0f0;
 }
 
 .prof-rating-count {
@@ -1431,10 +1449,6 @@
   .prof-card-info-top {
     flex-direction: column;
     gap: 2px;
-  }
-
-  .catalog-page .prof-card .prof-name {
-    min-height: 0;
   }
 
   .prof-card-photo {
@@ -1804,6 +1818,10 @@
 }
 
 
+.dark .prof-card-footer {
+  border-top-color: #2e2e2e;
+}
+
 .dark .prof-rating-count {
   color: #555;
 }
@@ -1861,7 +1879,3 @@
 .dark .sidebar-inner {
   border-right-color: #333;
 }
-.tag-filter-hint { margin: 0 0 8px; font-size: 0.75rem; opacity: 0.7; }
-
-
-.tag-search-input { width: 100%; box-sizing: border-box; cursor: text; font: inherit; text-align: left; }

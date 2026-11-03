@@ -543,16 +543,13 @@ export default function ProfessorCatalog() {
                     <button className="dept-clear-btn" onClick={() => updateFilter('tags', '')}>Clear all</button>
                   )}
                 </p>
-                <TagSearch
+                <TagFilter
                   options={tagOptions}
                   selected={filters.tags}
                   onSelect={v => updateFilter('tags', v)}
                   onOpenChange={setTagPickerOpen}
                   formatOption={tagLabel}
                 />
-                {selectedTags.length > 1 && (
-                  <p className="tag-filter-hint">Showing professors with all selected tags</p>
-                )}
               </div>
             )}
 
@@ -1164,10 +1161,10 @@ function DepartmentFilter({
   );
 }
 
-// ── Teaching style search ─────────────────────────────────────────────────────
-// Always-visible search box; focusing or typing shows matching tags, picks show as chips.
+// ── Teaching style filter sub-component ──────────────────────────────────────
+// Same toggle and searchable checklist as College and Department.
 
-function TagSearch({
+function TagFilter({
   options,
   selected,
   onSelect,
@@ -1181,22 +1178,30 @@ function TagSearch({
   formatOption: (value: string) => string;
 }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
   const toggle = (o: boolean) => { setOpen(o); onOpenChange?.(o); };
+  const [search, setSearch] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+  const filtered = options.filter(o =>
+    formatOption(o).toLowerCase().includes(search.toLowerCase())
+  );
   const selectedSet = useMemo(() => new Set(selected ? selected.split(FILTER_SEPARATOR) : []), [selected]);
-  const matches = options.filter(o => formatOption(o).toLowerCase().includes(query.trim().toLowerCase()));
 
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) toggle(false);
     };
+    const scrollHandler = (e: Event) => {
+      if (ref.current && ref.current.contains(e.target as Node)) return;
+      toggle(false);
+    };
     const closeHandler = () => toggle(false);
     document.addEventListener('mousedown', handler);
+    document.addEventListener('scroll', scrollHandler, { capture: true, passive: true });
     window.addEventListener('close-filter-sidebar', closeHandler);
     return () => {
       document.removeEventListener('mousedown', handler);
+      document.removeEventListener('scroll', scrollHandler, { capture: true });
       window.removeEventListener('close-filter-sidebar', closeHandler);
     };
   }, [open]);
@@ -1206,46 +1211,54 @@ function TagSearch({
     if (next.has(value)) next.delete(value);
     else next.add(value);
     onSelect([...next].join(FILTER_SEPARATOR));
-    setQuery('');
   };
+
+  const label = selectedSet.size === 0
+    ? 'All teaching styles'
+    : selectedSet.size === 1
+      ? formatOption([...selectedSet][0])
+      : `${selectedSet.size} teaching styles`;
 
   return (
     <div className="dept-filter" ref={ref}>
-      <input
-        className="dept-toggle tag-search-input"
-        type="text"
-        role="combobox"
+      <button
+        className={`dept-toggle ${open ? 'open' : ''}`}
+        onClick={() => toggle(!open)}
         aria-expanded={open}
-        aria-autocomplete="list"
-        placeholder="Search teaching styles…"
-        value={query}
-        onFocus={() => toggle(true)}
-        onChange={e => { setQuery(e.target.value); if (!open) toggle(true); }}
-        onKeyDown={e => {
-          if (e.key === 'Escape') { toggle(false); e.currentTarget.blur(); }
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            const first = matches.find(m => !selectedSet.has(m));
-            if (first) pick(first);
-          }
-        }}
-      />
+      >
+        <span className="dept-toggle-label">
+          {label}
+        </span>
+        <span className="dept-toggle-icon">
+          <span className="dept-bar" />
+          <span className="dept-bar" />
+          <span className="dept-bar" />
+        </span>
+      </button>
 
       {open && (
         <div className="dept-dropdown">
+          <input
+            className="dept-search"
+            type="text"
+            placeholder="Search teaching styles…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            autoFocus
+          />
           <div className="dept-list">
-            {matches.map(t => (
+            {filtered.map(t => (
               <label key={t} className="dept-option">
                 <input type="checkbox" checked={selectedSet.has(t)} onChange={() => pick(t)} />
                 <span>{formatOption(t)}</span>
               </label>
             ))}
-            {matches.length === 0 && <p className="dept-empty">No teaching styles found</p>}
+            {filtered.length === 0 && <p className="dept-empty">No teaching styles found</p>}
           </div>
         </div>
       )}
 
-      {selectedSet.size > 0 && (
+      {!open && selectedSet.size > 0 && (
         <div className="filter-tags">
           {[...selectedSet].map(t => (
             <button key={t} className="filter-tag" onClick={() => pick(t)}>
