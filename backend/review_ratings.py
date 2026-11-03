@@ -13,7 +13,7 @@
     python review_ratings.py merge-course ID CODE
     python review_ratings.py reject-course ID
     python review_ratings.py approve-alias ID           # pending nickname -> searchable
-    python review_ratings.py reject-alias ID            # keep the row as rejected so the word isn't suggested again
+    python review_ratings.py reject-alias ID            # keep the row as rejected so a later merge doesn't add it again
     python review_ratings.py purge-ip                   # clear IP hashes older than 30 days and expired IP flags
 
 Rating ids may be the short id `list` prints. Each run is one transaction: it

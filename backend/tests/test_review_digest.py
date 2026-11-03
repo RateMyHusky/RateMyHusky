@@ -139,7 +139,7 @@ def test_ratings_section_numbers_chart_and_totals():
     _, text, html = review_digest.build_digest([], [], 0, 0, NOW, ratings=ratings)
     for n in ("42", "36", "4", "2"):
         assert f">{n}</div>" in html
-    assert "Last 14 days" in html and "1,284" in html and "412" in html
+    assert "13 days ago" in html and "1,284" in html and "412" in html
     assert "New ratings: 42\n" in text and "Live ratings, all time: 1,284" in text
     assert "Blocked at submit: 2\n" in text and "Rejected" not in text
 
