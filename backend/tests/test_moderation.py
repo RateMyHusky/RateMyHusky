@@ -212,6 +212,7 @@ def reviews_client(monkeypatch):
                         raising=False)
     monkeypatch.setattr(server, "cache_get", lambda key: None, raising=False)
     monkeypatch.setattr(server, "cache_set", lambda key, data: None, raising=False)
+    monkeypatch.setattr(server, "_department_hub_map", lambda: {})
 
     seen = {"sql": []}
 

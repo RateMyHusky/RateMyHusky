@@ -3,13 +3,17 @@ import { createPortal } from 'react-dom';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext';
+import { RATE_ENABLED } from '../config';
 import SignInModal from './SignInModal';
+import { clearPendingBookmark } from '../utils/pendingBookmark';
 import './Navbar.css';
 
 const Navbar = () => {
   const { user, loading: authLoading, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [showSignIn, setShowSignIn] = useState(false);
+  // Why the modal opened, when the opener said (e.g. a signed-out bookmark tap).
+  const [signInReason, setSignInReason] = useState<string | undefined>();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const [pillStyle, setPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
@@ -28,9 +32,16 @@ const Navbar = () => {
     return () => window.removeEventListener('themechange', handler);
   }, []);
 
-  // Open the sign-in modal on request from elsewhere (e.g. Ask-mode 401 in SearchBar)
+  // Open the sign-in modal on request from elsewhere (e.g. Ask-mode 401 in SearchBar). Only a
+  // bookmark tap keeps its pending bookmark: one left by an abandoned sign-in (a Google redirect
+  // the student backed out of) mustn't be saved by an unrelated sign-in later.
   useEffect(() => {
-    const handler = () => setShowSignIn(true);
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ reason?: string; bookmark?: boolean } | undefined>).detail;
+      if (!detail?.bookmark) clearPendingBookmark();
+      setSignInReason(detail?.reason);
+      setShowSignIn(true);
+    };
     window.addEventListener('open-signin', handler);
     return () => window.removeEventListener('open-signin', handler);
   }, []);
@@ -165,6 +176,21 @@ const Navbar = () => {
             </svg>
             Compare
           </NavLink>
+          {/* Signed out, /bookmarks shows its own sign-in prompt, so the link is for everyone. */}
+          <NavLink to="/bookmarks" className="nav-link" onClick={() => setMenuOpen(false)}>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+            </svg>
+            Bookmarks
+          </NavLink>
+          {RATE_ENABLED && (
+            <NavLink to="/rate" className="nav-link" onClick={() => setMenuOpen(false)}>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+              </svg>
+              Rate
+            </NavLink>
+          )}
         </div>
         {authLoading ? null : user ? (
           <div className="navbar-user" ref={userMenuRef}>
@@ -175,13 +201,12 @@ const Navbar = () => {
             {showUserMenu && (
               <div className="navbar-user-dropdown">
                 <p className="navbar-user-email">{user.email}</p>
-                <Link to="/bookmarks" className="navbar-user-link" onClick={() => { setShowUserMenu(false); setMenuOpen(false); }}>Bookmarks</Link>
                 <button className="navbar-user-signout" onClick={() => { logout(); setShowUserMenu(false); setMenuOpen(false); }}>Sign Out</button>
               </div>
             )}
           </div>
         ) : (
-          <button className="signin-btn" onClick={() => { setShowSignIn(true); setMenuOpen(false); }}>Sign In</button>
+          <button className="signin-btn" onClick={() => { clearPendingBookmark(); setSignInReason(undefined); setShowSignIn(true); setMenuOpen(false); }}>Sign In</button>
         )}
 
         <div className="navbar-util-spacer" />
@@ -224,7 +249,7 @@ const Navbar = () => {
         onTouchStart={() => setMenuOpen(false)}
       />
     )}
-    <SignInModal open={showSignIn} onClose={() => setShowSignIn(false)} />
+    <SignInModal open={showSignIn} onClose={() => setShowSignIn(false)} reason={signInReason} />
     </>
   );
 };

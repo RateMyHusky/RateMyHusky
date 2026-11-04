@@ -9,7 +9,7 @@ export interface RateCourse { code: string; name: string | null; isNew: boolean;
 export interface Answers {
   professor?: RateProfessor;
   course?: RateCourse;
-  term?: string | null;
+  term?: string;
   rating?: number;
   difficulty?: number;
   hours?: string;
@@ -158,15 +158,17 @@ export function pickCourse(a: Answers, c: RateCourse, ratedCourses: RatedCourse[
   const rated = ratedCourses.find((r) => r.code === c.code);
   if (!rated) return answer(base, { course: c });
   // The earlier term stays only where the term step can show it picked: as a tile, or on the different-term screen.
-  const keep = rated.term === null
-    || (c.terms.length > 0 ? inTermWindow(rated.term, now) : splitTerm(rated.term, now) !== null);
-  const addTerm = keep && rated.term !== null && c.terms.length > 0 && !c.terms.includes(rated.term);
+  // A rating saved without one (the form used to offer "Not sure") is asked for a term again.
+  const earlier = rated.term;
+  const keep = earlier !== null
+    && (c.terms.length > 0 ? inTermWindow(earlier, now) : splitTerm(earlier, now) !== null);
+  const addTerm = keep && c.terms.length > 0 && !c.terms.includes(earlier);
   const course = addTerm
-    ? { ...c, terms: [...c.terms, rated.term as string].sort((x, y) => termOrder(y) - termOrder(x)) }
+    ? { ...c, terms: [...c.terms, earlier].sort((x, y) => termOrder(y) - termOrder(x)) }
     : c;
   return answer(base, {
     // A rating from before the difficulty question has none, so the form asks it.
-    course, term: keep ? rated.term : undefined, rating: rated.rating, difficulty: rated.difficulty ?? undefined,
+    course, term: keep ? earlier : undefined, rating: rated.rating, difficulty: rated.difficulty ?? undefined,
     hours: rated.hours, grade: rated.grade, comment: rated.comment, updating: rated,
     draft: {
       course: base.course, term: base.term, rating: base.rating, difficulty: base.difficulty, hours: base.hours,
@@ -249,15 +251,20 @@ export function displayTerm(label: string): string {
   return label.replace(/^Summer (\d{4})$/, 'Full Summer $1');
 }
 
+// "Olin Shivers III" is Prof. Shivers, not Prof. III. II and IV match upper case only, since Ii is a real surname.
+const isSuffix = (w: string) => /^(jr|sr|iii)\.?$/i.test(w) || /^(II|IV)\.?$/.test(w);
+
 export function lastName(name: string): string {
-  return name.trim().split(/\s+/).pop() ?? '';
+  const parts = name.trim().replace(/,/g, '').split(/\s+/);
+  if (parts.length > 1 && isSuffix(parts[parts.length - 1])) parts.pop();
+  return parts.pop() ?? '';
 }
 
 export function contextTags(a: Answers): string[] {
   if (!a.professor) return [];
   if (!a.course) return [`Prof. ${a.professor.name}`];
   const parts = [lastName(a.professor.name), formatCode(a.course.code)];
-  if (a.term !== undefined) parts.push(a.term === null ? 'Term not sure' : displayTerm(a.term));
+  if (a.term !== undefined) parts.push(displayTerm(a.term));
   return parts;
 }
 
@@ -269,7 +276,7 @@ export function prefillCourse(courses: ProfessorCourse[], rated: RatedCourse[], 
 }
 
 export function buildSubmission(a: Answers, start: RateStart, turnstileToken: string, honeypot: string): RateSubmission {
-  // undefined is unanswered; null is "Not sure" or "Prefer not to say".
+  // undefined is unanswered; a null grade is "Prefer not to say".
   if (!a.professor || !a.course || a.term === undefined || a.rating === undefined || a.difficulty === undefined
     || a.hours === undefined || a.grade === undefined) {
     throw new Error('Incomplete rating');
@@ -279,7 +286,7 @@ export function buildSubmission(a: Answers, start: RateStart, turnstileToken: st
       ? { slug: a.professor.slug }
       : { name: a.professor.name, department: a.professor.department },
     course: a.course.isNew ? { code: a.course.code, name: a.course.name ?? '' } : { code: a.course.code },
-    term: a.term ?? null,
+    term: a.term,
     rating: a.rating,
     difficulty: a.difficulty,
     hours: a.hours,

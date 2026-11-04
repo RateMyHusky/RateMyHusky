@@ -1,0 +1,60 @@
+/* Bold title, a full-width Rate button, and a small "Skip for now" link under it. */
+.rate-popup {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 24px;
+  margin: 0 auto;
+  z-index: 105;
+  box-sizing: border-box;
+  width: calc(100% - 32px);
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 22px 22px 14px;
+  background: #fff;
+  border: 1px solid #f5c6cb;
+  border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  font-family: 'Nunito', sans-serif;
+  text-align: center;
+  animation: ratePopupIn 0.35s ease both;
+}
+@keyframes ratePopupIn {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.rate-popup-text { margin: 0 0 16px; font-size: 1.05rem; font-weight: 800; color: #222; line-height: 1.35; text-wrap: balance; }
+.rate-popup-rate {
+  display: flex; align-items: center; justify-content: center; align-self: stretch;
+  min-height: 44px; box-sizing: border-box; padding: 10px 20px; border-radius: 10px;
+  background: #d6394c; color: #fff; font-size: 0.95rem; font-weight: 800; text-decoration: none;
+}
+.rate-popup-rate:hover { background: #b82e3f; }
+/* 44px tall for touch, though the text is small. */
+.rate-popup-later {
+  min-height: 44px; margin-top: 2px; padding: 0 12px;
+  background: none; border: none; cursor: pointer;
+  font-family: inherit; font-size: 0.82rem; font-weight: 600; color: #777;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.rate-popup-later:hover { color: #333; }
+
+.dark .rate-popup { background: #242424; border-color: #4a2a2e; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5); }
+.dark .rate-popup-text { color: #e8e8e8; }
+.dark .rate-popup-later { color: #aaa; }
+.dark .rate-popup-later:hover { color: #e0e0e0; }
+
+/* Phones: bottom lines up with the back-to-top button, and the popup starts just right of it.
+   Both sit above the home indicator (viewport-fit=cover). */
+@media (max-width: 768px) {
+  .rate-popup { bottom: calc(20px + env(safe-area-inset-bottom, 0px)); left: 64px; right: 16px; width: auto; max-width: none; margin: 0; }
+}
+@media (max-width: 480px) {
+  .rate-popup { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 58px; right: 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rate-popup { animation: none; }
+}

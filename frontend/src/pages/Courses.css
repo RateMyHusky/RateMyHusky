@@ -81,6 +81,7 @@
 	padding-top: 10px;
 	border-top: 1px solid #f0f0f0;
 	gap: 6px;
+	flex-wrap: wrap;
 }
 
 .dark .course-card .prof-rating-row {
@@ -143,3 +144,20 @@
 		padding: 12px;
 	}
 }
+
+/* The score grows to push the count to the right end of the row. When the card is too
+   narrow the count wraps to its own line, where it starts at the left, under the stars. */
+.course-card-score {
+	flex: 1 0 auto;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.course-card-ratings {
+	font-size: 0.72rem;
+	font-weight: 600;
+	color: #999;
+}
+
+.dark .course-card-ratings { color: #777; }

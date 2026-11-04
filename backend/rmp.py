@@ -28,11 +28,12 @@ def pct(value):
 def fetch_reviews(name_key, query, sanitize):
     """The professor's stored RMP ratings, moderation filter applied."""
     rows = query(f"""
-        SELECT course, course_code, quality, difficulty, date, tags, attendance, grade,
+        SELECT id, course, course_code, quality, difficulty, date, tags, attendance, grade,
                textbook, online_class, comment
         FROM rmp_reviews WHERE name_key = %s{moderation.sql_filter()}
     """, (name_key,))
     return [{
+        "id": str(r.get("id") or ""),
         "course": str(r["course"] or ""),
         "courseCode": r.get("course_code"),
         "quality": int(r["quality"]) if r["quality"] else 0,
@@ -92,3 +93,16 @@ def build_section(row, professor_url, reviews):
         "gradeDistribution": dict(row.get("grade_distribution") or {}),
         "reviews": reviews,
     }
+
+
+def tagged_review_ids(name_key, tags, query):
+    """Which of the professor's visible reviews have each tag. Ids as text, too long for JS numbers."""
+    rows = query(f"""
+        SELECT rt.tag, CAST(rt.source_id AS TEXT) AS source_id FROM review_tags rt
+        WHERE rt.source = 'rmp' AND rt.tag = ANY(%s)
+          AND rt.source_id IN (SELECT id FROM rmp_reviews WHERE name_key = %s{moderation.sql_filter()})
+    """, (list(tags), name_key))
+    out = {}
+    for row in rows:
+        out.setdefault(row["tag"], []).append(str(row["source_id"]))
+    return out

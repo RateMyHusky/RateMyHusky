@@ -34,21 +34,21 @@ MENTIONS = [{"body": "guha is great", "sentiment": "positive", "sentiment_score"
 
 
 SUMMARY_ROWS = [
-    {"course_code": "", "source": "rmp", "rating": 4.2, "difficulty": 3.1, "would_take_again_pct": 88.0,
+    {"professor_slug": "olin-guha", "course_code": "", "source": "rmp", "rating": 4.2, "difficulty": 3.1, "would_take_again_pct": 88.0,
      "num_ratings": 57, "num_comments": 3, "hours_per_week": None,
      "rating_distribution": {"1": 1, "2": 2, "3": 4, "4": 20, "5": 30}, "grade_distribution": {"A": 9},
      "course_name": None},
-    {"course_code": "", "source": "blend", "rating": 4.2, "difficulty": 3.1, "would_take_again_pct": 88.0,
+    {"professor_slug": "olin-guha", "course_code": "", "source": "blend", "rating": 4.2, "difficulty": 3.1, "would_take_again_pct": 88.0,
      "num_ratings": 57, "num_comments": 3, "hours_per_week": None,
      "rating_distribution": {"1": 1, "2": 2, "3": 4, "4": 20, "5": 30}, "grade_distribution": {"A": 9},
      "course_name": None},
-    {"course_code": "CS3500", "source": "blend", "rating": 4.0, "difficulty": 3.5, "would_take_again_pct": None,
+    {"professor_slug": "olin-guha", "course_code": "CS3500", "source": "blend", "rating": 4.0, "difficulty": 3.5, "would_take_again_pct": None,
      "num_ratings": 2, "num_comments": 1, "hours_per_week": None,
      "rating_distribution": {"3": 1, "5": 1}, "grade_distribution": {}, "course_name": "Object-Oriented Design"},
-    {"course_code": "CS2500", "source": "blend", "rating": 4.0, "difficulty": 2.0, "would_take_again_pct": None,
+    {"professor_slug": "olin-guha", "course_code": "CS2500", "source": "blend", "rating": 4.0, "difficulty": 2.0, "would_take_again_pct": None,
      "num_ratings": 1, "num_comments": 1, "hours_per_week": None,
      "rating_distribution": {"4": 1}, "grade_distribution": {}, "course_name": None},
-    {"course_code": "CS3500", "source": "rmp", "rating": 4.0, "difficulty": 3.5, "would_take_again_pct": None,
+    {"professor_slug": "olin-guha", "course_code": "CS3500", "source": "rmp", "rating": 4.0, "difficulty": 3.5, "would_take_again_pct": None,
      "num_ratings": 2, "num_comments": 1, "hours_per_week": None,
      "rating_distribution": {"3": 1, "5": 1}, "grade_distribution": {}, "course_name": "Object-Oriented Design"},
 ]
@@ -57,8 +57,10 @@ SUMMARY_ROWS = [
 def srow(**kw):
     """An accepted survey_ratings row as survey_reviews.fetch_rows returns it."""
     when = datetime(2026, 10, 20, tzinfo=timezone.utc)
-    return {"id": uuid.uuid4(), "course_code": "CS3500", "term_label": "Fall 2025", "term_enrollment": 40,
-            "terms_in_year": 1, "rating": 5, "comment": "Loved it", "created_at": when, "updated_at": when, **kw}
+    return {"id": uuid.uuid4(), "professor_slug": "olin-guha", "course_code": "CS3500",
+            "course_name": "Object-Oriented Design", "term_label": "Fall 2025", "term_enrollment": 40,
+            "terms_in_year": 1, "rating": 5, "difficulty": 3, "hours": "5-7", "grade": "A",
+            "comment": "Loved it", "created_at": when, "updated_at": when, "hold_reasons": None, **kw}
 
 
 class FakeDB:
@@ -356,7 +358,48 @@ def test_num_comments_counts_live_survey_comments_not_the_stale_survey_row():
                  for r in SUMMARY_ROWS] + [{**SUMMARY_ROWS[0], "source": "survey", "num_comments": 5}]
     db = FakeDB(summaries=summaries, survey=[srow(), srow(), srow(comment=None)])
     data, _, _ = _build(db=db, review_id=lambda u: "abc")
-    assert data["summary"]["numComments"] == 8 - 5 + 2 + len(MENTIONS)
+    assert data["summary"]["numComments"] == 3 + 2 + len(MENTIONS)
+
+
+def test_a_pending_course_comment_counts_like_its_card():
+    # No course_code: the rating counts in no number, but its approved comment has a card.
+    db = FakeDB(survey=[srow(), srow(course_code=None, course_name=None)])
+    data, _, _ = _build(db=db, review_id=lambda u: "abc")
+    assert len(data["sources"]["survey"]["reviews"]) == 2
+    assert data["summary"]["numComments"] == 3 + 2 + len(MENTIONS)
+    assert data["sources"]["survey"]["numRatings"] == 1
+
+
+def test_student_numbers_are_live_and_replace_the_weekly_rows():
+    # The weekly survey row says 9 ratings at 1.0; the live read has two 5s.
+    summaries = SUMMARY_ROWS + [{**SUMMARY_ROWS[0], "source": "survey", "rating": 1.0, "num_ratings": 9}]
+    db = FakeDB(summaries=summaries, survey=[srow(), srow(rating=3, comment=None)])
+    data, _, _ = _build(db=db, review_id=lambda u: "abc")
+    survey = data["sources"]["survey"]
+    assert survey["available"] and survey["numRatings"] == 2 and survey["rating"] == 4.0
+    assert survey["hoursPerWeek"] == 6.0 and survey["gradeDistribution"] == {"A": 2}
+    assert data["summary"]["bySource"]["survey"] == {"rating": 4.0, "numRatings": 2}
+    # rmp 57 at 4.2 blended with survey 2 at 4.0, weighted by count
+    assert data["summary"]["numRatings"] == 59
+    assert data["summary"]["rating"] == round((4.2 * 57 + 4.0 * 2) / 59, 2)
+    cs3500 = next(c for c in data["courses"] if c["code"] == "CS3500")
+    assert cs3500["numRatings"] == 4 and cs3500["name"] == "Object-Oriented Design" and cs3500["hasPage"]
+
+
+def test_a_comment_awaiting_review_counts_in_the_numbers_but_has_no_card():
+    # fetch_rows returns NULL for a comment no reviewer has approved.
+    db = FakeDB(survey=[srow(comment=None, rating=1)])
+    data, _, _ = _build(db=db, review_id=lambda u: "abc")
+    assert data["sources"]["survey"]["reviews"] == []
+    assert data["sources"]["survey"]["numRatings"] == 1
+    assert data["summary"]["numRatings"] == 58
+    assert data["summary"]["numComments"] == 3 + len(MENTIONS)
+
+
+def test_a_failed_survey_read_keeps_the_weekly_numbers():
+    summaries = SUMMARY_ROWS + [{**SUMMARY_ROWS[0], "source": "survey", "rating": 1.0, "num_ratings": 9}]
+    data, _, _ = _build(db=FakeDB(summaries=summaries, survey=RuntimeError("boom")), review_id=lambda u: "abc")
+    assert data["sources"]["survey"]["numRatings"] == 9 and data["summary"]["numRatings"] == 57
 
 
 def test_missing_survey_table_is_no_reviews_and_stays_cacheable():

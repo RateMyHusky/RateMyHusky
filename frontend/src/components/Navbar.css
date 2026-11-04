@@ -344,6 +344,16 @@
 /* ==============================
    MOBILE
    ============================== */
+/* Five links plus Sign In fill the bar before the 768px hamburger takes over: drop the
+   link icons and tighten the spacing in between so nothing is pushed off the right edge. */
+@media (min-width: 769px) and (max-width: 960px) {
+  .navbar { padding-left: 20px; padding-right: 20px; }
+  .navbar-right { gap: 10px; }
+  .nav-links-container .nav-link svg { display: none; }
+  .nav-links-container .nav-link { padding-left: 12px; padding-right: 12px; }
+  .signin-btn { white-space: nowrap; padding-left: 16px; padding-right: 16px; }
+}
+
 @media (max-width: 768px) {
   .navbar {
     padding: 10px 16px;

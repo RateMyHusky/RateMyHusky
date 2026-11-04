@@ -89,3 +89,16 @@ def test_department_slug_is_stable_across_repeated_calls():
     from server import department_slug
     name = "Electrical & Computer Engr"
     assert department_slug(name) == department_slug(name) == "electrical-and-computer-engr"
+
+
+@pytest.mark.parametrize("name, kept", [
+    ("Computer Science", True),
+    ("Not Specified", False),
+    ("Advisor", False),
+    ("Dean of College of Sciences", False),
+    ("Dean of Coll of Soc Sci  Huma", False),
+    ("Public Administration", True),
+])
+def test_rmp_placeholders_and_deans_offices_are_not_hub_departments(name, kept):
+    import server
+    assert server.is_hub_department(name) is kept

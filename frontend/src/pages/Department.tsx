@@ -97,7 +97,7 @@ export default function Department() {
   ];
   if (top) {
     summarySentences.push(
-      `The highest-rated is ${top.name} (${top.avgRating}/5 from ${top.totalRatings} reviews).`
+      `The highest-rated is ${top.name} (${top.avgRating}/5 from ${top.totalRatings} ratings).`
     );
   }
   const wtaValues = linkedProfessors
@@ -165,7 +165,7 @@ export default function Department() {
                   <th><button type="button" className="dept-sort-btn" onClick={() => toggleSort('avgRating')}>Rating{sortArrow('avgRating')}</button></th>
                   <th><button type="button" className="dept-sort-btn" onClick={() => toggleSort('difficulty')}>Difficulty{sortArrow('difficulty')}</button></th>
                   <th><button type="button" className="dept-sort-btn" onClick={() => toggleSort('wouldTakeAgainPct')}>Would take again{sortArrow('wouldTakeAgainPct')}</button></th>
-                  <th><button type="button" className="dept-sort-btn" onClick={() => toggleSort('totalRatings')}>Reviews{sortArrow('totalRatings')}</button></th>
+                  <th><button type="button" className="dept-sort-btn" onClick={() => toggleSort('totalRatings')}>Ratings{sortArrow('totalRatings')}</button></th>
                 </tr>
               </thead>
               <tbody>

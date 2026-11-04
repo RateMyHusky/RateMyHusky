@@ -1,19 +1,26 @@
-"""Team email through Resend: the one sender and inbox for feedback and the review digest."""
+"""Team email through Resend: one sender; feedback goes to the team inbox, the review digest to its own.
+
+Every sender (this one and usage_alert) runs RECORD_SEND after Resend accepts an email, so the
+review digest can meter Resend usage without a full-access key."""
 
 import os
 
 import requests as http_requests
 
 TEAM_EMAIL = "feedback@ratemyhusky.com"
+DIGEST_EMAIL = "ratings@ratemyhusky.com"
+RECORD_SEND = "INSERT INTO email_sends DEFAULT VALUES"
 
 
-def send_team_email(subject, text, reply_to=None):
+def send_team_email(subject, text, reply_to=None, to=None, html=None):
     """True when Resend accepted the email. Never raises; logs why it didn't send."""
     api_key = os.getenv("RESEND_API_KEY")
     if not api_key:
         print("[notify] RESEND_API_KEY not configured")
         return False
-    payload = {"from": f"RateMyHusky <{TEAM_EMAIL}>", "to": [TEAM_EMAIL], "subject": subject, "text": text}
+    payload = {"from": f"RateMyHusky <{TEAM_EMAIL}>", "to": [to or TEAM_EMAIL], "subject": subject, "text": text}
+    if html:
+        payload["html"] = html
     if reply_to:
         payload["reply_to"] = reply_to
     try:
@@ -29,3 +36,4 @@ def send_team_email(subject, text, reply_to=None):
     if not resp.ok:
         print(f"[notify] Resend error {resp.status_code}")
     return bool(resp.ok)
+

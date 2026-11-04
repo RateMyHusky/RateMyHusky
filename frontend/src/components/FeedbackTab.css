@@ -444,3 +444,7 @@
   background: #3a2f1a;
   color: #e8b85c;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .feedback-success-icon { animation: none; }
+}

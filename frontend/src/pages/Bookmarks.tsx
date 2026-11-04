@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useBookmarks } from '../context/BookmarksContext';
 import type { BookmarkedProfessor, BookmarkedCourse } from '../context/BookmarksContext';
@@ -10,6 +10,8 @@ import SignInModal from '../components/SignInModal';
 import Footer from '../components/Footer';
 import { getInitials, splitProfName, stripPrefix } from '../utils/nameUtils';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
+import { clearPendingBookmark } from '../utils/pendingBookmark';
+import { COMPARE_MAX, compareHref } from '../utils/compareLink';
 import './ProfessorCatalog.css';
 import './Courses.css';
 import './Bookmarks.css';
@@ -26,12 +28,6 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 const PREVIEW_ROWS = 2; // per-section preview rows on the All tab
 const BATCH_ROWS = 4;   // "Show more" rows per batch on the type tabs (matches catalog pages)
 
-function ratingColor(v: number | null): 'high' | 'mid' | 'low' | 'neutral' {
-  if (v === null) return 'neutral';
-  if (v >= 4) return 'high';
-  if (v >= 3) return 'mid';
-  return 'low';
-}
 
 const BOOKMARK_ICON = (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -39,18 +35,25 @@ const BOOKMARK_ICON = (
   </svg>
 );
 
-// Exact copy of the catalog grid card (ProfessorCatalog.tsx:756-824), including
-// the footer stats row the old bookmarks page dropped.
-function ProfCard({ prof, onOpen, onRemove }: { prof: BookmarkedProfessor; onOpen: () => void; onRemove: () => void }) {
+interface CompareSelect {
+  selected: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}
+
+function ProfCard({ prof, onRemove, compare }: { prof: BookmarkedProfessor; onRemove: () => void; compare: CompareSelect }) {
   return (
-    <div
-      className="prof-card"
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={e => e.key === 'Enter' && e.target === e.currentTarget && onOpen()}
-    >
+    <div className="prof-card">
       <BookmarkButton itemType="professor" itemKey={prof.slug} size="sm" className="prof-card-bookmark" onToggle={onRemove} />
+      <label
+        className={`bm-compare-check${compare.selected ? ' checked' : ''}${compare.disabled ? ' disabled' : ''}`}
+        title={compare.disabled ? `Compare holds ${COMPARE_MAX}` : undefined}
+        onClick={e => e.stopPropagation()}
+        onKeyDown={e => e.stopPropagation()}
+      >
+        <input type="checkbox" checked={compare.selected} disabled={compare.disabled} onChange={compare.onToggle} />
+        Compare
+      </label>
       <div className="prof-card-photo">
         <div className="prof-avatar">
           {prof.imageUrl ? (
@@ -74,10 +77,12 @@ function ProfCard({ prof, onOpen, onRemove }: { prof: BookmarkedProfessor; onOpe
       <div className="prof-card-info">
         <div className="prof-card-info-top">
           <h3 className="prof-name">
-            {(() => {
-              const [first, rest] = splitProfName(stripPrefix(prof.name));
-              return rest ? <>{first}<br />{rest}</> : first;
-            })()}
+            <Link className="card-link" to={`/professors/${prof.slug}`}>
+              {(() => {
+                const [first, rest] = splitProfName(stripPrefix(prof.name));
+                return rest ? <>{first}<br />{rest}</> : first;
+              })()}
+            </Link>
           </h3>
           <div className="prof-card-rating-row">
             <span className="prof-avg-num">{prof.avgRating != null ? prof.avgRating.toFixed(1) : 'N/A'}</span>
@@ -86,15 +91,10 @@ function ProfCard({ prof, onOpen, onRemove }: { prof: BookmarkedProfessor; onOpe
         </div>
         <span className="prof-college">{prof.college}</span>
         <span className="prof-dept-label">{prof.department}</span>
-        <div className="prof-sub-ratings">
-          <div className="sub-rating-item" data-color={ratingColor(prof.rmpRating)}>
-            <span className="sub-rating-val">{prof.rmpRating != null ? prof.rmpRating.toFixed(1) : '—'}</span>
-            <span className="sub-rating-lbl">RMP</span>
-          </div>
-        </div>
+        {/* No per-source sub-score: one source would repeat the overall rating (as in the catalog). */}
         <div className="prof-card-footer">
-          <span className="prof-rating-count">{prof.totalReviews.toLocaleString()} ratings</span>
-          <span className="prof-rating-count prof-rating-count--center">{prof.totalComments.toLocaleString()} comments</span>
+          <span className="prof-rating-count">{prof.totalReviews.toLocaleString()} rating{prof.totalReviews === 1 ? '' : 's'}</span>
+          <span className="prof-rating-count prof-rating-count--center">{prof.totalComments.toLocaleString()} comment{prof.totalComments === 1 ? '' : 's'}</span>
           <span className="prof-rating-count">{prof.wouldTakeAgainPct != null ? `${Math.round(prof.wouldTakeAgainPct)}% again` : '—'}</span>
         </div>
       </div>
@@ -103,21 +103,17 @@ function ProfCard({ prof, onOpen, onRemove }: { prof: BookmarkedProfessor; onOpe
 }
 
 // Exact copy of the course catalog card (Courses.tsx:478-505).
-function CourseCard({ course, onOpen, onRemove }: { course: BookmarkedCourse; onOpen: () => void; onRemove: () => void }) {
+function CourseCard({ course, onRemove }: { course: BookmarkedCourse; onRemove: () => void }) {
   return (
-    <div
-      className="prof-card course-card"
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={e => e.key === 'Enter' && e.target === e.currentTarget && onOpen()}
-    >
+    <div className="prof-card course-card">
       <BookmarkButton itemType="course" itemKey={course.code} size="sm" className="prof-card-bookmark" onToggle={onRemove} />
       <div className="course-card-header">
         <span className="course-card-code">{course.code}</span>
       </div>
       <div className="prof-body">
-        <h3 className="prof-name">{course.name}</h3>
+        <h3 className="prof-name">
+          <Link className="card-link" to={`/courses/${course.code.toLowerCase()}`}>{course.name}</Link>
+        </h3>
         <p className="prof-dept">{course.department}</p>
         <div className="prof-rating-row">
           {course.avgRating != null ? (
@@ -135,10 +131,11 @@ function CourseCard({ course, onOpen, onRemove }: { course: BookmarkedCourse; on
 }
 
 export default function Bookmarks() {
-  const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
   const { bookmarkedProfessors, bookmarkedCourses, loading, toggleBookmark } = useBookmarks();
   const [showSignIn, setShowSignIn] = useState(false);
+  // Professors ticked for Compare, in the order ticked (that order fills slots a–d).
+  const [compareSel, setCompareSel] = useState<string[]>([]);
 
   const [pending, setPending] = useState<{ type: 'professor' | 'course'; key: string; label: string } | null>(null);
   const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -177,6 +174,20 @@ export default function Bookmarks() {
     () => bookmarkedProfessors.filter(p => !(pending?.type === 'professor' && pending.key === p.slug)),
     [bookmarkedProfessors, pending]
   );
+  // A professor removed from bookmarks leaves the Compare selection too. While the removal can
+  // still be undone the tick is only hidden, so Undo brings it back along with the card.
+  const selectedStillSaved = compareSel.filter(slug => bookmarkedProfessors.some(p => p.slug === slug));
+  if (selectedStillSaved.length !== compareSel.length) setCompareSel(selectedStillSaved);
+  const hiddenSlug = pending?.type === 'professor' ? pending.key : null;
+  const shownSel = compareSel.filter(slug => slug !== hiddenSlug);
+  const compareFor = (slug: string): CompareSelect => ({
+    selected: shownSel.includes(slug),
+    disabled: !shownSel.includes(slug) && shownSel.length >= COMPARE_MAX,
+    // A new tick takes the hidden one's place, so a full selection still has room for it.
+    onToggle: () => setCompareSel(sel => sel.includes(slug)
+      ? sel.filter(s => s !== slug)
+      : [...sel.filter(s => s !== hiddenSlug), slug].slice(0, COMPARE_MAX)),
+  });
   const visibleCourses = useMemo(
     () => bookmarkedCourses.filter(c => !(pending?.type === 'course' && pending.key === c.code)),
     [bookmarkedCourses, pending]
@@ -268,7 +279,7 @@ export default function Bookmarks() {
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
             <p>Sign in with your <span className="husky-email">husky.neu.edu</span> account to view your bookmarks.</p>
-            <button className="bm-signin-btn" onClick={() => setShowSignIn(true)}>Sign In</button>
+            <button className="bm-signin-btn" onClick={() => { clearPendingBookmark(); setShowSignIn(true); }}>Sign In</button>
           </div>
         </div>
         <SignInModal open={showSignIn} onClose={() => setShowSignIn(false)} />
@@ -402,7 +413,7 @@ export default function Bookmarks() {
                       ) : (
                         <div className="catalog-grid" ref={gridRef}>
                           {(q ? profs : profs.slice(0, preview)).map(prof => (
-                            <ProfCard key={prof.slug} prof={prof} onOpen={() => navigate(`/professors/${prof.slug}`)} onRemove={() => requestRemove('professor', prof.slug, stripPrefix(prof.name))} />
+                            <ProfCard key={prof.slug} prof={prof} onRemove={() => requestRemove('professor', prof.slug, stripPrefix(prof.name))} compare={compareFor(prof.slug)} />
                           ))}
                         </div>
                       )}
@@ -422,7 +433,7 @@ export default function Bookmarks() {
                       ) : (
                         <div className="catalog-grid" ref={gridRef}>
                           {(q ? courses : courses.slice(0, preview)).map(course => (
-                            <CourseCard key={course.code} course={course} onOpen={() => navigate(`/courses/${course.code.toLowerCase()}`)} onRemove={() => requestRemove('course', course.code, course.code)} />
+                            <CourseCard key={course.code} course={course} onRemove={() => requestRemove('course', course.code, course.code)} />
                           ))}
                         </div>
                       )}
@@ -455,7 +466,7 @@ export default function Bookmarks() {
                 <>
                   <div className="catalog-grid" ref={gridRef}>
                     {(q ? profs : profs.slice(0, shownBatches.professors * batch)).map(prof => (
-                      <ProfCard key={prof.slug} prof={prof} onOpen={() => navigate(`/professors/${prof.slug}`)} onRemove={() => requestRemove('professor', prof.slug, stripPrefix(prof.name))} />
+                      <ProfCard key={prof.slug} prof={prof} onRemove={() => requestRemove('professor', prof.slug, stripPrefix(prof.name))} compare={compareFor(prof.slug)} />
                     ))}
                   </div>
                   {!q && (
@@ -502,7 +513,7 @@ export default function Bookmarks() {
                 <>
                   <div className="catalog-grid" ref={gridRef}>
                     {(q ? courses : courses.slice(0, shownBatches.courses * batch)).map(course => (
-                      <CourseCard key={course.code} course={course} onOpen={() => navigate(`/courses/${course.code.toLowerCase()}`)} onRemove={() => requestRemove('course', course.code, course.code)} />
+                      <CourseCard key={course.code} course={course} onRemove={() => requestRemove('course', course.code, course.code)} />
                     ))}
                   </div>
                   {!q && (
@@ -528,8 +539,24 @@ export default function Bookmarks() {
           </div>
         </>
       )}
+      {shownSel.length > 0 && (
+        <div className="bm-compare-bar" role="region" aria-label="Compare selected professors">
+          <span className="bm-compare-text">
+            {shownSel.length === 1 ? 'Pick at least one more to compare' : `${shownSel.length} professors selected`}
+          </span>
+          <button className="bm-compare-clear" onClick={() => setCompareSel([])}>Clear</button>
+          {shownSel.length >= 2 && (
+            <Link
+              className="bm-compare-go"
+              to={compareHref(shownSel)}
+            >
+              Compare {shownSel.length}
+            </Link>
+          )}
+        </div>
+      )}
       {pending && (
-        <div className="bm-snackbar" role="status">
+        <div className={`bm-snackbar${shownSel.length > 0 ? ' raised' : ''}`} role="status">
           <span className="bm-snackbar-text">Removed {pending.label}</span>
           <button className="bm-undo" onClick={undoRemove}>Undo</button>
         </div>

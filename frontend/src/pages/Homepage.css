@@ -202,6 +202,21 @@
   z-index: 1;
 }
 
+/* Below the search bar; z-index under .search-wrapper (2) so suggestions cover it. */
+.hero-rate-link {
+  position: relative;
+  z-index: 1;
+  margin-top: 18px;
+  padding: 6px 4px;
+  color: #d6394c;
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.hero-rate-link:hover { text-decoration: underline; }
+.hero-rate-link:focus-visible { outline: 2px solid #d6394c; outline-offset: 2px; border-radius: 4px; }
+.dark .hero-rate-link { color: #e06070; }
+
 .hero-tagline {
   font-size: 3.25rem;
   font-weight: 900;
@@ -640,6 +655,7 @@
   border-bottom: 1px solid #f0f0f0;
   transition: background 0.15s;
   cursor: pointer;
+  position: relative;
 }
 
 .goat-row:last-child {
@@ -648,6 +664,11 @@
 
 .goat-row:hover {
   background: #fef8f8;
+}
+
+.goat-row:has(.card-link:focus-visible) {
+  outline: 2px solid #d6394c;
+  outline-offset: -2px;
 }
 
 .goat-top3 {
@@ -745,6 +766,8 @@
    RATING TOOLTIP
    ============================== */
 .goat-rating-wrapper {
+  /* Comes after the name link, so position alone paints it above the link's ::after; a z-index
+     would make each wrapper a stacking context and the next row's would cover an open tooltip. */
   position: relative;
   cursor: pointer;
   user-select: none;
@@ -1620,5 +1643,56 @@
     left: 16px;
     right: auto;
     transform: rotate(45deg);
+  }
+}
+
+/* Phones: no sideways scroll. The 620px minimum above pushed Rating, the column
+   the board exists for, off-screen; Department moves under the name instead. */
+@media (max-width: 600px) {
+  .goat-header-row,
+  .goat-row {
+    min-width: 0;
+    /* Fixed Rating width: each row is its own grid, so an auto column sized the header
+       to "Rating" and the rows to the stars, and the two didn't line up. Score, stars and
+       the info glyph measure about 111px at 481-600px, so this leaves a little room. */
+    grid-template-columns: 28px minmax(0, 1fr) 116px 48px;
+    grid-template-areas: "rank name rating reviews" "rank dept rating reviews";
+    column-gap: 8px;
+    padding: 0 12px;
+  }
+
+  .goat-header-row {
+    grid-template-areas: "rank name rating reviews";
+  }
+
+  .goat-row {
+    height: auto;
+    min-height: 56px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .goat-col-rank { grid-area: rank; }
+  .goat-col-name { grid-area: name; padding-left: 0; }
+  .goat-col-rating { grid-area: rating; padding-right: 0; gap: 4px; }
+  .goat-col-reviews { grid-area: reviews; padding-left: 0; text-align: left; }
+
+  .goat-col-dept {
+    grid-area: dept;
+    padding-left: 0;
+    font-size: 0.72rem;
+  }
+
+  .goat-header-row .goat-col-dept {
+    display: none;
+  }
+
+  .goat-leaderboard {
+    min-height: 0;
+  }
+
+  .goat-scroll-wrap::before,
+  .goat-scroll-wrap::after {
+    display: none;
   }
 }

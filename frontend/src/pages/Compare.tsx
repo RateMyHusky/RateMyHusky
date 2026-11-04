@@ -5,13 +5,17 @@ import { fetchProfessorFull, fetchSearchSuggestions } from '../api/api';
 import type { ProfessorPage, ProfessorSuggestion } from '../api/api';
 import StarRating from '../components/StarRating';
 import Footer from '../components/Footer';
+import Seo from '../components/Seo';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
+import { useBookmarks } from '../context/BookmarksContext';
+import { stripPrefix } from '../utils/nameUtils';
 
+import { COMPARE_SLOT_KEYS } from '../utils/compareLink';
 import './Compare.css';
 
 /* ---- Slot config ----
    Each slot maps to a URL param: /compare?a=slug&b=slug&c=slug&d=slug */
-const SLOT_KEYS = ['a', 'b', 'c', 'd'] as const;
+const SLOT_KEYS = COMPARE_SLOT_KEYS;
 const SLOT_LABELS = ['A', 'B', 'C', 'D'] as const;
 const MAX_SLOTS = SLOT_KEYS.length;
 const MIN_OPEN_SLOTS = 2; // A and B always show a search box
@@ -118,6 +122,8 @@ interface SlotSearchProps {
 	onClear: () => void;
 	clearLabel: string | null;
 	autoFocus: boolean;
+	/** Bookmarked professors offered as one-tap picks while the slot is empty. */
+	quickPicks: { slug: string; name: string }[];
 }
 
 function SlotSearch({
@@ -129,6 +135,7 @@ function SlotSearch({
 	onClear,
 	clearLabel,
 	autoFocus,
+	quickPicks,
 }: SlotSearchProps) {
 	const [query, setQuery] = useState('');
 	const [suggestions, setSuggestions] = useState<ProfessorSuggestion[]>([]);
@@ -221,7 +228,7 @@ function SlotSearch({
 			<input
 				ref={inputRef}
 				className="compare-search"
-				placeholder="Search professor name or department"
+				placeholder="Name or department"
 				value={query}
 				onChange={(e) => setQuery(e.target.value)}
 				onFocus={() => {
@@ -245,6 +252,16 @@ function SlotSearch({
 				}}
 				aria-label={`Search ${label}`}
 			/>
+			{!slug && !query.trim() && quickPicks.length > 0 && (
+				<div className="compare-quick-picks" aria-label="From your bookmarks">
+					<span className="compare-quick-label">From your bookmarks</span>
+					{quickPicks.map((prof) => (
+						<button key={prof.slug} type="button" className="compare-quick-pick" onClick={() => onSelect({ type: 'professor', slug: prof.slug, name: prof.name, dept: '', rating: null })}>
+							{stripPrefix(prof.name)}
+						</button>
+					))}
+				</div>
+			)}
 			{open && (
 				<div className="compare-suggestion-list">
 					{suggestions.map((prof, index) => (
@@ -267,8 +284,11 @@ function SlotSearch({
 }
 
 /* ---- Page ---- */
+const QUICK_PICKS = 4;
+
 function Compare() {
 	const [searchParams, setSearchParams] = useSearchParams();
+	const { bookmarkedProfessors } = useBookmarks();
 
 	const [entries, setEntries] = useState<Record<string, ProfileEntry>>({});
 	// Names picked from search, so a slot has a name before its profile arrives
@@ -627,6 +647,11 @@ function Compare() {
 
 	return (
 		<>
+			<Seo
+				title="Compare Northeastern Professors | RateMyHusky"
+				description="Compare up to four Northeastern professors side by side: rating, difficulty, and how many students would take them again."
+				canonical="https://ratemyhusky.com/compare"
+			/>
 			<main className="compare-page">
 				<section className="compare-hero">
 					<div className="compare-hero-inner">
@@ -716,6 +741,7 @@ function Compare() {
 								onClear={() => (canClose ? closeSlot(slot.index) : updateSlot(slot.index, ''))}
 								clearLabel={slot.slug ? 'Clear' : canClose ? 'Remove' : null}
 								autoFocus={focusSlot === slot.index}
+								quickPicks={bookmarkedProfessors.filter((p) => !slugs.includes(p.slug)).slice(0, QUICK_PICKS)}
 							/>
 						);
 					})}
@@ -741,7 +767,7 @@ function Compare() {
 					)}
 				</section>
 
-				<section className="compare-metrics">
+				{selectedCount > 0 && <section className="compare-metrics">
 					<div className="compare-table-card">
 						<header className="compare-metrics-header">
 							<h2>Key Comparison Metrics</h2>
@@ -750,8 +776,8 @@ function Compare() {
 
 						<div className="compare-table-scroll">
 							<div
-								className={`compare-table ${selectedCount > 0 ? 'has-selection' : ''}`}
-								style={{ '--cols': selectedCount || MAX_SLOTS } as React.CSSProperties}
+								className="compare-table has-selection"
+								style={{ '--cols': selectedCount } as React.CSSProperties}
 								role="table"
 								aria-label="Professor metrics comparison table"
 							>
@@ -808,7 +834,7 @@ function Compare() {
 							</p>
 						)}
 					</div>
-				</section>
+				</section>}
 
 				{recommendation && (
 					<section className="compare-verdict">

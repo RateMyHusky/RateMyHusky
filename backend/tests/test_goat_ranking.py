@@ -177,9 +177,10 @@ def test_leaderboard_returns_total_reviews():
 def test_cache_key_was_versioned():
     # A stale entry would serve the previous ordering after deploy — bumped for
     # the shrunk score, again when the prior changed, again for the single review
-    # floor plus the name tiebreak, again for the Law/Professional Studies floor.
+    # floor plus the name tiebreak, again for the Law/Professional Studies floor,
+    # again when rows gained a slug (a cached v6 row has none, so its link breaks).
     import inspect
-    assert 'goat:v6:' in inspect.getsource(server.goat_professors)
+    assert 'goat:v7:' in inspect.getsource(server.goat_professors)
 
 
 # ── the review floor ────────────────────────────────────────────────────────
@@ -313,8 +314,15 @@ def test_board_reads_the_stored_comment_count(monkeypatch):
 
 def test_board_row_has_exactly_these_keys(monkeypatch):
     out, _ = _run_leaderboard(monkeypatch, [ROW])
-    assert set(out["Olin Guha"]) == {"name", "dept", "rmpRating", "avgRating",
+    assert set(out["Olin Guha"]) == {"slug", "name", "dept", "rmpRating", "avgRating",
                                      "totalReviews", "totalComments"}
+
+
+def test_board_row_links_by_the_stored_slug(monkeypatch):
+    # A namesake's slug carries a -2 suffix the name can't reproduce, so the
+    # homepage must link with the stored slug rather than rebuild it from the name.
+    out, _ = _run_leaderboard(monkeypatch, [{**ROW, "slug": "olin-guha-2"}])
+    assert out["Olin Guha"]["slug"] == "olin-guha-2"
 
 
 def test_board_is_one_statement(monkeypatch):
@@ -350,5 +358,5 @@ def test_the_limit_is_clamped_and_the_floor_is_not_a_parameter(monkeypatch, args
     monkeypatch.setattr(server, "cache_set", lambda key, val: None)
     with server.app.test_request_context(f"/api/goat-professors?college=Khoury&{args}&min_reviews=1"):
         server.goat_professors()
-    assert seen == [f"goat:v6:Khoury:{limit}",
+    assert seen == [f"goat:v7:Khoury:{limit}",
                     ("Khoury", server.BOARD_FILL_MIN_REVIEWS, C, server.BOARD_MIN_REVIEWS, C, limit)]

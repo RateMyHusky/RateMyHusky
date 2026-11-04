@@ -1,0 +1,32 @@
+/* Confirms a bookmark tapped while signed out was saved once sign-in finished. */
+.saved-toast {
+  position: fixed;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1200;
+  max-width: calc(100vw - 32px);
+  padding: 12px 18px;
+  border-radius: 12px;
+  background: #1a1a1a;
+  color: #fff;
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.88rem;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  animation: savedToastIn 0.2s ease both;
+}
+
+.dark .saved-toast {
+  background: #f2f2f2;
+  color: #1a1a1a;
+}
+
+@keyframes savedToastIn {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .saved-toast { animation: none; }
+}

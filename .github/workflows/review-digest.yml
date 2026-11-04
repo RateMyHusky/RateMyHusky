@@ -37,7 +37,7 @@ jobs:
         working-directory: backend
         run: pip install -r requirements-data.txt
 
-      - name: Review held ratings, pending professors and courses, and nickname suggestions
+      - name: Review held ratings and pending professors and courses
         timeout-minutes: 30  # a step timeout fails only this step, so the digest still runs
         working-directory: backend
         env:
@@ -48,7 +48,8 @@ jobs:
           groq4: ${{ secrets.groq4 }}
           groq5: ${{ secrets.groq5 }}
           groq6: ${{ secrets.groq6 }}
-        run: python review_agent.py
+        # exec, so Python is the process the step timeout sends SIGINT to and the run still gets recorded.
+        run: exec python review_agent.py
 
       - name: Send the review digest
         if: ${{ !cancelled() }}

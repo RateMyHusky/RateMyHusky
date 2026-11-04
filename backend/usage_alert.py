@@ -1,5 +1,7 @@
 import os, sys, argparse
 import requests as http_requests
+
+import notify
 from rag.chat_throttle import daily_budget, projected_daily_usage, _today_ok_count
 
 
@@ -139,7 +141,12 @@ def maybe_alert(query_fn, query_one_fn, write_fn, num_keys, send_fn=None):
             if summary is None:
                 summary = build_summary(query_fn, query_one_fn, num_keys)
             subject, text = render_email(tier, summary)
-            send_email(subject, text, send_fn=send_fn)
+            if send_email(subject, text, send_fn=send_fn):
+                try:
+                    write_fn(notify.RECORD_SEND)
+                except Exception as e:
+                    # Best-effort: the email already went out, so the tier still counts as emailed.
+                    print(f"[usage_alert] send not recorded: {type(e).__name__}")
             emailed.append(tier)
         return emailed
     except Exception as e:

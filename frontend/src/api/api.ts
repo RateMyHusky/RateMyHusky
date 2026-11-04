@@ -7,6 +7,7 @@ export interface Stat {
 }
 
 export interface Professor {
+  slug: string;
   name: string;
   dept: string;
   rmpRating: number | null;
@@ -31,6 +32,8 @@ export interface ProfessorIdentity {
   slug: string;
   name: string;
   department: string;
+  /** The department's /departments page, or null when it has none (no rated professors, or another spelling holds the slug). */
+  departmentSlug?: string | null;
   college: string | null;
   imageUrl: string | null;
   focusX: number;
@@ -133,6 +136,8 @@ export interface ProfessorPage {
 }
 
 export interface ProfessorReview {
+  /** Review id as text (too long for a JS number). */
+  id?: string;
   course: string;
   courseCode: string | null;
   quality: number;
@@ -217,6 +222,16 @@ export const fetchGoatProfessors = (college: string, limit = 10) =>
   get<Professor[]>(`/api/goat-professors?college=${encodeURIComponent(college)}&limit=${limit}`);
 
 export const fetchRandomProfessor = () => get<RandomProfessor>("/api/random-professor");
+
+/* Teaching-style tags (only ones 3+ reviews mention). Any failure gives an empty
+   list, so the professor page never breaks over tags. */
+export type ProfessorTag = { tag: string; count: number; reviewIds?: string[] };
+
+export const fetchProfessorTags = (slug: string) =>
+  get<ProfessorTag[]>(`/api/professors/${encodeURIComponent(slug)}/tags?v=2`).catch(() => [] as ProfessorTag[]);
+
+export const fetchPopularTags = () =>
+  get<ProfessorTag[]>('/api/tags/popular').catch(() => [] as ProfessorTag[]);
 
 /* ---- Professor page fetchers ---- */
 /* The Professor page's single round-trip. Every visitor gets the same payload, so the
@@ -330,6 +345,8 @@ export interface CatalogCourse {
   name: string;
   department: string;
   avgRating: number | null;
+  /** Ratings behind avgRating. Optional: the bookmarks payload doesn't carry it. */
+  numRatings?: number;
 }
 
 export interface CourseCatalogResponse {
@@ -392,8 +409,7 @@ export interface RecentInstructor {
   terms: string[];
   /** Their ratings of this course: 0 with none, null when unmatched. */
   numRatings: number | null;
-  /** Their catalog-wide numbers; null with no profile. 0% would-take-again is real. */
-  totalComments: number | null;
+  /** Their catalog-wide would-take-again; null with no profile. 0% is real. */
   wouldTakeAgainPct: number | null;
 }
 
@@ -434,12 +450,13 @@ export interface CourseDetail {
   history: CourseHistory | null;
 }
 
-export type ProfessorSort = 'alpha' | 'alpha_desc' | 'rating' | 'rating_asc' | 'comments';
+export type ProfessorSort = 'alpha' | 'alpha_desc' | 'rating' | 'rating_asc' | 'comments' | 'ratings';
 
 export function fetchProfessorsCatalog(params: {
   q?: string;
   college?: string;
   dept?: string;
+  tags?: string;
   minRating?: number;
   maxRating?: number;
   minReviews?: number;
@@ -459,6 +476,7 @@ export function fetchProfessorsCatalog(params: {
   if (params.sort) sp.set('sort', params.sort);
   if (params.page) sp.set('page', String(params.page));
   if (params.limit) sp.set('limit', String(params.limit));
+  if (params.tags) sp.set('tags', params.tags);
   return get<CatalogResponse>(`/api/professors-catalog?${sp.toString()}`);
 }
 
@@ -475,7 +493,7 @@ export const fetchDepartments = (college?: string) => {
 
 export const fetchCourseDepartments = () => get<string[]>('/api/course-departments');
 
-export type CourseSort = 'alpha' | 'alpha_desc' | 'rating' | 'rating_asc' | 'recent';
+export type CourseSort = 'alpha' | 'alpha_desc' | 'rating' | 'rating_asc' | 'ratings' | 'recent';
 
 export function fetchCoursesCatalog(params: {
   q?: string;
@@ -530,7 +548,7 @@ export interface RateProfessorContext { ratedCourses: RatedCourse[] }
 export interface RateSubmission {
   professor: { slug: string } | { name: string; department: string | null };
   course: { code: string } | { code: string; name: string };
-  term: string | null;
+  term: string;
   rating: number;
   difficulty: number;
   hours: string;

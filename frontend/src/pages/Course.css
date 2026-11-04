@@ -78,6 +78,9 @@
 	animation: courseSlideUp 0.5s 0.2s ease both;
 }
 
+.course-dept-link { color: inherit; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: color 0.15s, text-decoration-color 0.15s; }
+.course-dept-link:hover, .course-dept-link:focus-visible { color: #d6394c; text-decoration-color: currentColor; }
+
 
 .course-stats-grid {
 	display: grid;
@@ -239,6 +242,8 @@
 
 .course-empty { margin: 0; color: #888; font-weight: 700; }
 .dark .course-empty { color: #999; }
+.dark .course-compare-btn { color: #e06070; border-color: #e06070; }
+.dark .course-compare-btn:hover { background: #3a2020; }
 
 .course-panel {
 	background: #fff;
@@ -262,6 +267,36 @@
 	align-items: flex-end;
 	gap: 6px;
 }
+
+.course-panel-header--action {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+/* Same pill as "Show N more"; red because it leaves the page, like "View all … professors". */
+.course-compare-btn {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	min-height: 32px;
+	padding: 0 14px;
+	border: 1px solid #d6394c;
+	border-radius: 999px;
+	color: #d6394c;
+	font-size: 0.8rem;
+	font-weight: 700;
+	text-decoration: none;
+	white-space: nowrap;
+	transition: background 0.2s;
+}
+
+/* 44px tall hit area for touch around the 32px pill. */
+.course-compare-btn::before { content: ''; position: absolute; inset: -6px 0; }
+.course-compare-btn:hover { background: #fef0f0; }
+.course-compare-btn:focus-visible { outline: 2px solid #d6394c; outline-offset: 2px; }
 
 .course-panel-subheader {
 	font-size: 0.78rem;
@@ -446,6 +481,24 @@
 	border-bottom: 1px solid #efefef;
 }
 
+.course-sort-btn {
+	background: none;
+	border: none;
+	padding: 0;
+	font: inherit;
+	color: inherit;
+	text-transform: inherit;
+	letter-spacing: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.course-sort-btn:hover,
+.course-sort-btn.active { color: #d6394c; }
+.course-sort-btn:focus-visible { outline: 2px solid #d6394c; outline-offset: 2px; border-radius: 2px; }
+.dark .course-sort-btn:hover,
+.dark .course-sort-btn.active { color: #e06070; }
+
 .instructor-header-row span,
 .instructor-row span {
 	flex: 1;
@@ -496,15 +549,19 @@
 }
 
 .course-expand-btn {
-	width: 28px;
-	height: 28px;
-	padding: 0;
+	height: 32px;
+	padding: 0 14px;
 	border: 1px solid #dfdfdf;
 	background: #fff;
 	border-radius: 999px;
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	gap: 8px;
+	font: inherit;
+	font-size: 0.8rem;
+	font-weight: 700;
+	color: #555;
 	cursor: pointer;
 	transition: border-color 0.2s, background 0.2s;
 }
@@ -697,9 +754,26 @@
 		display: block;
 	}
 
+	/* The four columns a student decides on fit without sideways scroll; Last Taught and
+	   Avg Class (in the stat cards above) step aside, as in the sections table. */
 	.instructor-header-row,
 	.instructor-row {
-		min-width: 640px;
+		gap: 10px;
+	}
+
+	.instructor-header-row span:nth-child(n+5),
+	.instructor-row span:nth-child(n+5) {
+		display: none;
+	}
+
+	.instructor-header-row span:first-child,
+	.instructor-row span:first-child {
+		flex: 2;
+	}
+
+	.instructor-header-row {
+		font-size: 0.66rem;
+		letter-spacing: 0;
 	}
 
 	/* Two-word labels ("Last Taught") wrap instead of running into the next column. */
@@ -775,6 +849,7 @@
 .dark .course-expand-btn {
 	background: #252525;
 	border-color: #3a3a3a;
+	color: #bbb;
 }
 
 .dark .course-expand-btn:hover {

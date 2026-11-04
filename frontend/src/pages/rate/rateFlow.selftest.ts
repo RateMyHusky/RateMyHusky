@@ -64,7 +64,6 @@ function selftest(): number {
   check('edit professor keeps later answers', editedProf.rating === 5 && editedProf.hours === '5-7');
   const reselect = answer(a, { professor: { ...alex }, course: { ...cs2500 } });
   check('re-selecting same professor/course clears nothing', reselect.course?.code === 'CS2500' && reselect.term === 'Summer 1 2025');
-  check('null term (Not sure) counts as answered', nextStep('course', { comment: '', professor: alex, course: cs2500, term: null }) === 'overall');
 
   // New professor path
   let n: Answers = answer({ comment: '' }, { professor: newProf });
@@ -112,7 +111,6 @@ function selftest(): number {
   check('contextTags professor only', same(contextTags({ comment: '', professor: alex }), ['Prof. Alex Rivera']));
   check('contextTags professor + course', same(contextTags({ comment: '', professor: alex, course: cs2500 }), ['Rivera', 'CS 2500']));
   check('contextTags full', same(contextTags(a), ['Rivera', 'CS 2500', 'Summer 1 2025']));
-  check('contextTags Not sure term', same(contextTags(answer(a, { term: null })), ['Rivera', 'CS 2500', 'Term not sure']));
   check('contextTags full summer', same(contextTags(answer(a, { term: 'Summer 2025' })), ['Rivera', 'CS 2500', 'Full Summer 2025']));
 
   // Terms
@@ -135,15 +133,19 @@ function selftest(): number {
   // Misc formatting
   check('formatCode CS4973', formatCode('CS4973') === 'CS 4973');
   check('lastName', lastName('Lucia Nunez') === 'Nunez');
+  check('lastName skips a suffix', lastName('Olin Shivers III') === 'Shivers' && lastName('John Ruys Jr.') === 'Ruys'
+    && lastName('Ifiok Jr.') === 'Ifiok' && lastName('Jane Doe, Sr') === 'Doe' && lastName('Jr') === 'Jr');
+  check('lastName keeps a surname that looks like a numeral', lastName('Naoki Ii') === 'Ii' && lastName('Olin Shivers Iii') === 'Shivers'
+    && lastName('Jane Doe II') === 'Doe' && lastName('Jane Doe IV') === 'Doe');
   check('progressIndex', progressIndex('newProfessor') === 0 && progressIndex('who') === 0 && progressIndex('difficulty') === 4 && progressIndex('comment') === 7 && progressIndex('thanks') === 8);
 
   // buildSubmission
   const start: RateStart = { opened: 'tok', deviceToken: 'dev', counter: 3 };
-  const sub = buildSubmission({ comment: 'ok', professor: newProf, course: newCourse, term: null, rating: 4, difficulty: 2, hours: '3-4', grade: null }, start, 'ts', 'hp');
+  const sub = buildSubmission({ comment: 'ok', professor: newProf, course: newCourse, term: 'Fall 2025', rating: 4, difficulty: 2, hours: '3-4', grade: null }, start, 'ts', 'hp');
   check('buildSubmission new professor and course',
     same(sub.professor, { name: 'Sam Newhire', department: null }) && same(sub.course, { code: 'CS9999', name: 'Brand New' }));
   check('buildSubmission passthrough',
-    sub.term === null && sub.grade === null && sub.rating === 4 && sub.difficulty === 2 && sub.hours === '3-4' && sub.comment === 'ok' &&
+    sub.term === 'Fall 2025' && sub.grade === null && sub.rating === 4 && sub.difficulty === 2 && sub.hours === '3-4' && sub.comment === 'ok' &&
     sub.opened === 'tok' && sub.deviceToken === 'dev' && sub.website === 'hp' && sub.turnstileToken === 'ts');
   const sub2 = buildSubmission({ ...a, comment: 'x' }, start, 't', '');
   check('buildSubmission existing professor and course', same(sub2.professor, { slug: 'alex-rivera' }) && same(sub2.course, { code: 'CS2500' }));
@@ -175,7 +177,8 @@ function selftest(): number {
     && throws(answer(beforeDifficulty, { comment: 'x' })) && !throws(answer(beforeDifficulty, { difficulty: 5 })));
   check('update: re-picking the same course keeps edits', pickCourse(answer(u, { rating: 2 }), cs3500, [prior], now).rating === 2);
   const ub = pickCourse(u, cs4973, [prior, priorB], now);
-  check('update: rated A -> rated B fills B only', ub.term === null && ub.rating === 5 && ub.grade === null
+  // B was saved with no term (the form used to offer "Not sure"), so the term step asks again.
+  check('update: rated A -> rated B fills B only', ub.term === undefined && throws(ub) && firstStep(ub) === 'term' && ub.rating === 5 && ub.grade === null
     && ub.comment === 'Best course.' && ub.updating?.code === 'CS4973');
   const toFresh = pickCourse(answer(u, { rating: 2 }), cs2500, [prior], now);
   check('update: rated -> unrated clears everything', toFresh.updating === undefined && toFresh.term === undefined

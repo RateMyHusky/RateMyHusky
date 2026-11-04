@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
 	FILTER_SEPARATOR,
 	fetchCourseDepartments,
@@ -18,7 +18,9 @@ import { useDebouncedValue } from '../utils/useDebouncedValue';
 import './ProfessorCatalog.css';
 import './Courses.css';
 
+// Most Rated first and by default, as in the professor catalog.
 const SORT_OPTIONS = [
+	{ value: 'ratings', label: 'Most Rated' },
 	{ value: 'alpha', label: 'A - Z' },
 	{ value: 'alpha_desc', label: 'Z - A' },
 	{ value: 'rating', label: 'Highest Rating' },
@@ -40,7 +42,7 @@ const DEFAULT_FILTERS: Filters = {
 	dept: '',
 	minRating: 0,
 	maxRating: 5,
-	sort: 'alpha',
+	sort: 'ratings',
 	page: 1,
 };
 
@@ -49,7 +51,7 @@ function getFiltersFromSearchParams(sp: URLSearchParams): Filters {
 	const sort =
 		sortValue && SORT_OPTIONS.some((o) => o.value === sortValue)
 			? (sortValue as CourseSort)
-			: 'alpha';
+			: 'ratings';
 
 	const minRating = Number(sp.get('minRating') || '0');
 	const maxRating = Number(sp.get('maxRating') || '5');
@@ -71,7 +73,7 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
 	if (filters.dept) next.set('dept', filters.dept);
 	if (filters.minRating > 0) next.set('minRating', String(filters.minRating));
 	if (filters.maxRating < 5) next.set('maxRating', String(filters.maxRating));
-	if (filters.sort !== 'alpha') next.set('sort', filters.sort);
+	if (filters.sort !== 'ratings') next.set('sort', filters.sort);
 	if (filters.page > 1) next.set('page', String(filters.page));
 	return next;
 }
@@ -88,6 +90,7 @@ export default function Courses() {
 	const [loading, setLoading] = useState(true);
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const [deptOpen, setDeptOpen] = useState(false);
+	const [sortOpen, setSortOpen] = useState(false);
 
 	useEffect(() => {
 		const close = () => setSidebarOpen(false);
@@ -308,7 +311,8 @@ export default function Courses() {
 				currentText = fullText.substring(0, currentText.length + 1);
 				typingSpeed = 100;
 			}
-			setSearchPlaceholder(`Search for "${currentText}"`);
+			// Between examples the text is empty: show the plain prompt, not `Search for ""`.
+			setSearchPlaceholder(currentText ? `Search for "${currentText}"` : 'Search course code or title...');
 			if (!isDeleting && currentText === fullText) {
 				isDeleting = true;
 				typingSpeed = 2000;
@@ -325,6 +329,11 @@ export default function Courses() {
 	}, [isSearchFocused, filters.q, courseExamples]);
 
 	const hasActiveFilters = !!filters.q || !!filters.dept || filters.minRating > 0 || filters.maxRating < 5;
+	// Same count as the professor catalog's Filters badge: search, each department, the rating range.
+	const activeFilterCount =
+		(filters.q ? 1 : 0) +
+		(filters.dept ? filters.dept.split(FILTER_SEPARATOR).filter(Boolean).length : 0) +
+		(filters.minRating > 0 || filters.maxRating < 5 ? 1 : 0);
 
 	return (
 		<div className="catalog-page">
@@ -342,7 +351,7 @@ export default function Courses() {
 
 			<div className="catalog-layout">
 				<aside ref={sidebarRef} className={`catalog-sidebar ${sidebarOpen ? 'open' : ''}`}>
-					<div className={`sidebar-inner ${deptOpen ? 'dept-open' : ''}`}>
+					<div className={`sidebar-inner ${deptOpen || sortOpen ? 'dept-open' : ''}`}>
 						<div className="sidebar-header">
 							<span className="sidebar-title">Filters</span>
 							{hasActiveFilters && (
@@ -354,7 +363,7 @@ export default function Courses() {
 
 						<div className="filter-section">
 							<p className="filter-label">Sort by</p>
-							<Dropdown options={SORT_OPTIONS} value={filters.sort} onChange={(v) => updateFilter('sort', v as Filters['sort'])} />
+							<Dropdown options={SORT_OPTIONS} value={filters.sort} onChange={(v) => updateFilter('sort', v as Filters['sort'])} onOpenChange={setSortOpen} />
 						</div>
 
 						<div className="filter-section">
@@ -465,7 +474,7 @@ export default function Courses() {
 							<span className="filter-toggle-bar" />
 						</span>
 						Filters
-						{hasActiveFilters && <span className="filter-active-dot" />}
+						{activeFilterCount > 0 && <span className="filter-active-badge">{activeFilterCount}</span>}
 					</button>
 					</div>
 
@@ -490,30 +499,35 @@ export default function Courses() {
 					) : (
 						<div className="catalog-grid" ref={gridRef}>
 							{courses.map((course) => (
-								<div
-									key={course.code}
-									className="prof-card course-card"
-									role="button"
-									tabIndex={0}
-									onClick={() => navigate(`/courses/${course.code.toLowerCase()}`)}
-									onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && navigate(`/courses/${course.code.toLowerCase()}`)}
-								>
-									<BookmarkButton itemType="course" itemKey={course.code} size="sm" className="prof-card-bookmark" />
+								<div key={course.code} className="prof-card course-card">
+									<BookmarkButton itemType="course" itemKey={course.code} size="sm" className="prof-card-bookmark" label={course.code} />
 									<div className="course-card-header">
 										<span className="course-card-code">{course.code}</span>
 									</div>
 									<div className="prof-body">
-										<h3 className="prof-name">{course.name}</h3>
+										<h3 className="prof-name">
+											{/* The course's "Courses" breadcrumb returns here with these filters (Breadcrumbs fromCatalog). */}
+											<Link className="card-link" to={`/courses/${course.code.toLowerCase()}`} state={{ fromCatalog: `/courses?${searchParams.toString()}` }}>
+												{course.name}
+											</Link>
+										</h3>
 										<p className="prof-dept">{course.department}</p>
 
 										<div className="prof-rating-row">
-											{course.avgRating != null ? (
-												<>
-													<span className="prof-avg-num">{course.avgRating.toFixed(2)}</span>
-													<StarRating rating={course.avgRating} size="sm" />
-												</>
-											) : (
-												<span className="prof-avg na">N/A</span>
+											<span className="course-card-score">
+												{course.avgRating != null ? (
+													<>
+														<span className="prof-avg-num">{course.avgRating.toFixed(1)}</span>
+														<StarRating rating={course.avgRating} size="sm" />
+													</>
+												) : (
+													<span className="prof-avg na">N/A</span>
+												)}
+											</span>
+											{course.numRatings != null && (
+												<span className="course-card-ratings">
+													{course.numRatings.toLocaleString()} rating{course.numRatings === 1 ? '' : 's'}
+												</span>
 											)}
 										</div>
 									</div>

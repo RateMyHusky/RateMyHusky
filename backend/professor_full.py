@@ -3,7 +3,9 @@
 Injectable `query`/`query_one` (the chat_retrieve.py pattern) so it is
 unit-tested without a database. At most six statements: the catalog row, the
 professor's source_summary rows, RMP reviews, Reddit, Banner teaching history,
-then the live student reviews (survey_reviews.py).
+then the live student ratings (survey_reviews.py). Those replace the weekly
+`survey` rows and their blend, so a rating moves the page's numbers as soon as
+it's accepted; its comment shows once a reviewer approves it.
 
 `summary` is the only place blended numbers live; `sources.<name>` holds what
 each source measured. A new source adds `sources.<name>` and
@@ -19,6 +21,7 @@ import rmp
 import survey_reviews
 import teaching_awards
 import teaching_history
+from pipeline.blend import blend
 from prof_aliases import ALIAS_MAP
 
 log = logging.getLogger(__name__)
@@ -47,8 +50,8 @@ def build_identity(prof):
 
 
 def build_survey_section(row, reviews=()):
-    """The `sources.survey` block from the professor's `survey` source_summary row,
-    plus `reviews`, the student comments read live (survey_reviews.shape_reviews).
+    """The `sources.survey` block from the professor's `survey` summary row, plus
+    `reviews`, the approved student comments (survey_reviews.shape_reviews).
 
     Always the same keys. Without survey ratings it is `available: False` with
     every number null, like `rmp.build_section`.
@@ -68,10 +71,22 @@ def build_survey_section(row, reviews=()):
     }
 
 
+def live_summaries(summaries, live_survey):
+    """`summaries` with its `survey` and `blend` rows replaced: `live_survey` (from
+    survey_reviews.live_summary_rows) and a blend of it with the other sources,
+    the same blend the pipeline writes. A blended course keeps its catalog name."""
+    names = {r["course_code"]: r["course_name"] for r in summaries}
+    names.update({r["course_code"]: r["course_name"] for r in live_survey if r["course_name"]})
+    others = [r for r in summaries if r["source"] not in ("survey", "blend")]
+    rows = others + list(live_survey)
+    return rows + [{**b, "course_name": names.get(b["course_code"])} for b in blend(rows)]
+
+
 def build_summary(own_rows, reddit_mentions, survey_comments=None):
-    """`own_rows`: {source: professor-level source_summary row}. `survey_comments`,
-    the live count, replaces the survey row's count from the last pipeline run so
-    the stat matches the RateMyHusky tab; None (reviews off) keeps the pipeline's."""
+    """`own_rows`: {source: professor-level summary row}. `survey_comments`, the
+    count of approved comments on the RateMyHusky tab, replaces the survey row's
+    count so the stat matches the tab, a pending course's comments included;
+    None (reviews off) keeps the pipeline's."""
     b = own_rows.get("blend") or {}
     stale_survey = int((own_rows.get("survey") or {}).get("num_comments") or 0)
     if survey_comments is None:
@@ -155,25 +170,27 @@ def build_payload(slug, query, query_one, sanitize, fetch_reddit_mentions,
     reads before it. Awards come from the committed teaching_awards.json, not
     the database. `review_id(uuid)` gives a student review its public id; None
     (reviews off, or no RATING_SECRET) skips the survey read, so no review text
-    or live count goes out."""
+    goes out and the numbers are the last pipeline run's."""
     prof = _resolve_professor(slug, query_one)
     if not prof:
         return None
     summaries = query("""
-        SELECT s.course_code, s.source, s.rating, s.difficulty, s.would_take_again_pct,
+        SELECT s.professor_slug, s.course_code, s.source, s.rating, s.difficulty, s.would_take_again_pct,
                s.num_ratings, s.num_comments, s.hours_per_week,
                s.rating_distribution, s.grade_distribution, c.name AS course_name
         FROM source_summary s
         LEFT JOIN course_catalog c ON c.code = s.course_code
         WHERE s.professor_slug = %s
     """, (prof["slug"],))
-    own = {r["source"]: r for r in summaries if r["course_code"] == ""}
     reviews = rmp.fetch_reviews(prof["name_key"], query, sanitize)
     mentions = fetch_reddit_mentions(prof["slug"], query, moderation.sql_filter("t"))
     for m in mentions:
         m["body"] = sanitize(m["body"]) if m["body"] else ""
     history, history_failed = _course_history(prof["slug"], query, course_history_for)
     survey_rows, survey_failed = _survey(prof["slug"], query) if review_id else ([], False)
+    if review_id and not survey_failed:   # a failed read keeps the pipeline's numbers
+        summaries = live_summaries(summaries, survey_reviews.live_summary_rows(survey_rows))
+    own = {r["source"]: r for r in summaries if r["course_code"] == ""}
     payload = {
         "version": 2,
         "identity": build_identity(prof),

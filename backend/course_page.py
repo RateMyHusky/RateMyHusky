@@ -41,7 +41,7 @@ def recent_cutoff(terms):
 def build_recent(instructors, professors, cutoff):
     """Instructors who taught the course at or after `cutoff`, newest first
     (instructors' order), one card per professor, with this course's rating
-    and rating count, their catalog-wide comments and would-take-again, and
+    and rating count, their catalog-wide would-take-again, and
     only their in-window terms; with none, they're left out. Unreadable
     labels (label_code None) never count as in-window.
     An unmatched instructor has no slug, so is one card per name, which is
@@ -62,7 +62,6 @@ def build_recent(instructors, professors, cutoff):
             "terms": terms,
             # 0 for a professor with no reviews of this course; None unmatched.
             "numRatings": num_ratings.get(i["slug"], 0) if i["slug"] else None,
-            "totalComments": i["totalComments"],
             "wouldTakeAgainPct": i["wouldTakeAgainPct"],
         })
     return recent[:RECENT_MAX]

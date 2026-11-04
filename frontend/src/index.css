@@ -60,6 +60,11 @@ img {
 
 html {
   background-color: #ffffff;
+  /* Keeps the scrollbar's space when a modal locks scrolling or a page gets too short to scroll, so the layout doesn't jump sideways. */
+  scrollbar-gutter: stable;
+  /* Stops iOS Safari from enlarging some lines of text on its own (it blew up "No ratings yet" on course rows). */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 .husky-email {
@@ -78,4 +83,22 @@ html {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+/* A card or row whose one link is its name: ::after stretches the link over the nearest
+   positioned ancestor (the card), so the whole card clicks through and still opens in a new
+   tab. Controls inside the card (bookmark, Compare, the GOATED rating tooltip) sit above it;
+   positioned display-only pieces need pointer-events: none so they don't swallow the click. The card draws the focus outline with :has(.card-link:focus-visible). */
+.card-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.card-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.card-link:focus-visible {
+  outline: none;
 }

@@ -29,6 +29,9 @@ def client(monkeypatch):
     monkeypatch.setattr(server, "cache_get", lambda key: None, raising=False)
     monkeypatch.setattr(server, "cache_set", lambda key, data: None, raising=False)
     monkeypatch.setattr(server.limiter, "enabled", False)
+    # The department hub map is one process-wide cache entry shared by every professor,
+    # not part of a page's own reads; test_department_link covers it.
+    monkeypatch.setattr(server, "_department_hub_map", lambda: {})
     calls = []
 
     def fake_query(sql, params=()):

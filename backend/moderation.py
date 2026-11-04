@@ -1,8 +1,10 @@
 """Comment moderation. this is where the scores go.
 
-Only new rating comments get scored (server.py, on submit). Existing RMP and
-Reddit comments are left alone, so keep MODERATION_ENFORCE unset: turning it on
-hides every comment that was never scored, which is all of them.
+Only new rating comments get scored (server.py, on submit), and only while
+GROQ_MODERATION_KEY is unset: with it, moderation_groq.py checks them instead and
+this is never called. Existing RMP and Reddit comments are left alone, so keep
+MODERATION_ENFORCE unset: turning it on hides every comment that was never
+scored, which is all of them.
 
 Quota: the OpenAI account has bought no credits, so it's on the free tier.
 OpenAI's docs list that as 250 requests/min, 5,000/day and 10,000 tokens/min,
@@ -13,7 +15,8 @@ whole organization, so every key on the account shares them with production.
 The $5 Build tier (500/min, 20k tokens/min) would lift this, and moderation
 stays free there. Don't bulk-test or run moderate_backfill.py against
 it: about 600 calls on 2026-10-25 drained it, and while it's empty every new
-rating with a comment is held as moderation_unavailable. Check what's left with
+comment is saved unchecked for the reviewer (the rating still counts), and
+moderate_queue.py never retries it on OpenAI. Check what's left with
 one call, which reports it in the x-ratelimit-remaining-tokens header.
 Batches of 100 get a 429 too: one request can pass 10k tokens/min, so
 BATCH_SIZE is too big for a backfill here.

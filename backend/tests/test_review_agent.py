@@ -1,6 +1,7 @@
 import json
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import psycopg2
 import pytest
@@ -981,207 +982,15 @@ def test_professor_dry_run_writes_nothing(monkeypatch, capsys):
     assert "christopher-smith" in capsys.readouterr().out
 
 
-# ---- nickname suggestions ----
-
-HERC_COMMENTS = ["But Prof. Herc really tries his hardest", "Prof Herc is super nice"]
-
-
-def _candidates(comments_by_slug, own=None, parts=None, common=(), known=()):
-    return ra.nickname_candidates(comments_by_slug, own or {}, set(parts or ()), set(common), set(known))
-
-
-def test_herc_is_a_candidate_for_tsekourakis():
-    result = _candidates({"iraklis-tsekourakis": HERC_COMMENTS}, own={"iraklis-tsekourakis": {"iraklis", "tsekourakis"}},
-                         parts={"iraklis", "tsekourakis"}, common={"prof"})
-    assert result == {"iraklis-tsekourakis": ["Herc"]}
-
-
-def test_common_and_name_words_are_dropped():
-    comments = ["Great class, Iraklis and Pavlu agree. Jupyter notebooks were fun",
-                "Great lectures, Iraklis is clear and Pavlu too"]
-    result = _candidates({"iraklis-tsekourakis": comments + ["Herc rocks", "Herc is kind"]},
-                         own={"iraklis-tsekourakis": {"iraklis"}}, parts={"iraklis", "pavlu"}, common={"great"})
-    assert result == {"iraklis-tsekourakis": ["Herc"]}
-
-
-def test_another_professors_surname_is_never_suggested():
-    comments = ["Better than Pavlu by far", "Way clearer than Pavlu"]
-    assert _candidates({"iraklis-tsekourakis": comments}, own={"iraklis-tsekourakis": {"iraklis"}},
-                       parts={"iraklis", "pavlu"}) == {}
-
-
-def test_a_word_repeated_in_one_comment_counts_once():
-    assert _candidates({"x": ["Herc Herc Herc"]}) == {}
-
-
-def test_candidates_are_most_frequent_first_and_capped():
-    words = [f"Wordy{c}" for c in "abcdefghij"]
-    comments = [" ".join(words) + " one", " ".join(words) + " two", "Wordya Wordyb"]
-    result = _candidates({"x": comments})
-    assert len(result["x"]) == ra.MAX_WORDS_PER_CALL and result["x"][:2] == ["Wordya", "Wordyb"]
-
-
-def test_known_pairs_are_not_asked_again():
-    result = _candidates({"a": HERC_COMMENTS, "b": HERC_COMMENTS}, common={"prof"}, known={("herc", "a")})
-    assert result == {"b": ["Herc"]}
-
-
-def test_common_words_are_lowercase_words_in_many_distinct_comments():
-    comments = [f"the Zed professor is great {i}" for i in range(ra.COMMON_MIN)] + ["Herc is nice"] * 3
-    assert ra.common_words(comments) == {"the", "professor", "great"}
-    assert ra.common_words(comments[:ra.COMMON_MIN - 1]) == set()
-
-
-def test_messages_carry_name_words_and_up_to_three_snippets():
-    comments = [f"Herc is nice number {i}. Another sentence." for i in range(5)]
-    messages = ra.nickname_messages("Iraklis Tsekourakis", {"Herc": comments})
-    assert [m["role"] for m in messages] == ["system", "user"]
-    data = json.loads(messages[1]["content"])
-    assert data["professor"] == "Iraklis Tsekourakis"
-    assert data["words"] == {"Herc": [f"Herc is nice number {i}." for i in range(ra.SNIPPETS)]}
-
-
-def test_parse_nicknames_keeps_only_listed_words_with_bools():
-    text = json.dumps({"Herc": True, "Pavlu": False, "Other": True, "Maybe": "yes", "Zero": 0})
-    assert ra.parse_nicknames(text, ["Herc", "Pavlu", "Maybe", "Zero", "Missing"]) == {"Herc": True, "Pavlu": False}
-    for bad in ("not json", "[1]", "null", None):
-        assert ra.parse_nicknames(bad, ["Herc"]) == {}
-
-
-class NicknameCursor:
-    def __init__(self, comments, catalog=(("iraklis-tsekourakis", "Iraklis Tsekourakis", "iraklis tsekourakis"),),
-                 known=()):
-        self.comments, self.catalog, self.known = comments, catalog, known
-        self.calls, self._rows, self.connection = [], [], FakeConnection()
-
-    def execute(self, sql, params=None):
-        self.calls.append((sql, params))
-        self._rows = []
-        if sql == ra.NICKNAME_COMMENTS_SQL:
-            self._rows = [{"slug": s, "comment": c} for s, c in self.comments]
-        elif sql == ra.NICKNAME_CATALOG_SQL:
-            self._rows = [{"slug": s, "name": n, "name_key": k} for s, n, k in self.catalog]
-        elif sql == ra.NICKNAME_KNOWN_SQL:
-            self._rows = [{"alias_key": a, "slug": s} for a, s in self.known]
-
-    def fetchall(self):
-        return list(self._rows)
-
-    def inserts(self):
-        return [p for s, p in self.calls if s == ra.ADD_NICKNAME_SQL]
-
-
-def _herc_cur(**kw):
-    comments = [("iraklis-tsekourakis", c) for c in HERC_COMMENTS]
-    comments += [("other-prof", f"the prof is a {i}") for i in range(ra.COMMON_MIN)]
-    return NicknameCursor(comments, **kw)
-
-
-def test_hyphen_and_apostrophe_name_parts_are_never_suggested():
-    comments = [("ann-smith", f"{w} is great {i}") for w in ("West", "Duran", "Leary") for i in range(2)]
-    catalog = (("ann-smith", "Ann Smith", "ann smith"), ("x-west-duran", "X West-Duran", "x west-duran"),
-               ("y-oleary", "Y O'Leary", "y o'leary"))
-    assert ra.mine_nicknames(NicknameCursor(comments, catalog), lambda m: pytest.fail("asked")) == Counter()
-
-
-def test_another_professors_first_name_can_still_be_a_nickname():
-    comments = [("william-lee", c) for c in ("Bill is the best", "Take Bill for this")]
-    catalog = (("william-lee", "William Lee", "william lee"), ("bill-smith", "Bill Smith", "bill smith"))
-    cur = NicknameCursor(comments, catalog)
-    assert ra.mine_nicknames(cur, lambda m: json.dumps({"Bill": True})) == Counter(suggested=1)
-    assert cur.inserts() == [("bill", "william-lee", "pending")]
-
-
-def test_mine_nicknames_stores_yes_as_pending_and_no_as_rejected():
-    asks = []
-
-    def ask(messages):
-        asks.append(messages)
-        return json.dumps({"Herc": True})
-
-    cur = _herc_cur()
-    assert ra.mine_nicknames(cur, ask) == Counter(suggested=1)
-    assert cur.inserts() == [("herc", "iraklis-tsekourakis", "pending")]
-    assert "'comment'" in ra.ADD_NICKNAME_SQL and "ON CONFLICT (alias_key, slug) DO NOTHING" in ra.ADD_NICKNAME_SQL
-    assert cur.connection.events == ["rollback", "commit"] and len(asks) == 1
-    cur = _herc_cur()
-    assert ra.mine_nicknames(cur, lambda m: json.dumps({"Herc": False})) == Counter(rejected=1)
-    assert cur.inserts() == [("herc", "iraklis-tsekourakis", "rejected")]
-
-
-def test_mine_nicknames_leaves_unanswered_words_for_next_week():
-    cur = _herc_cur()
-    assert ra.mine_nicknames(cur, lambda m: "garbage") == Counter()
-    assert not cur.inserts()
-    cur = _herc_cur()
-    assert ra.mine_nicknames(cur, lambda m: ra.REQUEST_FAILED) == Counter() and not cur.inserts()
-
-
-def test_mine_nicknames_skips_known_pairs():
-    cur = _herc_cur(known=[("herc", "iraklis-tsekourakis")])
-    assert ra.mine_nicknames(cur, lambda m: pytest.fail("asked")) == Counter()
-
-
-def test_mine_nicknames_stops_at_max_calls_or_unavailable():
-    shared = ["Zork rules", "Zork is fun"]
-    comments = [(f"p{i}", c) for i in range(3) for c in shared]
-    catalog = [(f"p{i}", f"Pat P{i}", f"pat p{i}") for i in range(3)]
-    asks = []
-
-    def ask(messages):
-        asks.append(1)
-        return json.dumps({"Zork": True})
-
-    cur = NicknameCursor(comments, catalog)
-    assert ra.mine_nicknames(cur, ask, max_calls=2) == Counter(suggested=2) and len(asks) == 2
-    cur = NicknameCursor(comments, catalog)
-    assert ra.mine_nicknames(cur, lambda m: None) == Counter(unavailable=1)
-    assert not cur.inserts()
-
-
-def test_mine_nicknames_stops_at_the_deadline(monkeypatch):
-    # The workflow step has a 30-minute timeout, and the held-rating review runs first.
-    shared = ["Zork rules", "Zork is fun"]
-    comments = [(f"p{i}", c) for i in range(3) for c in shared]
-    catalog = [(f"p{i}", f"Pat P{i}", f"pat p{i}") for i in range(3)]
-    clock = [0.0]
-    monkeypatch.setattr(ra.time, "monotonic", lambda: clock[0])
-
-    def ask(messages):
-        clock[0] += 60
-        return json.dumps({"Zork": True})
-
-    cur = NicknameCursor(comments, catalog)
-    assert ra.mine_nicknames(cur, ask, deadline=100) == Counter(suggested=2, out_of_time=1)
-    assert len(cur.inserts()) == 2
-
-
-def test_professors_with_the_fewest_decided_words_are_asked_first():
-    # Alphabetical order alone would ask p0 every week a new word turns up, and never reach p2.
-    comments = [(f"p{i}", c) for i in range(3) for c in ("Zork rules", "Zork is fun")]
-    catalog = [(f"p{i}", f"Pat P{i}", f"pat p{i}") for i in range(3)]
-    asked = []
-
-    def ask(messages):
-        asked.append(json.loads(messages[1]["content"])["professor"])
-        return json.dumps({"Zork": True})
-
-    cur = NicknameCursor(comments, catalog, known=[("herc", "p0"), ("bob", "p0"), ("herc", "p1")])
-    assert ra.mine_nicknames(cur, ask, max_calls=2) == Counter(suggested=2)
-    assert asked == ["Pat P2", "Pat P1"]
-
-
-def test_nickname_dry_run_writes_nothing(capsys):
-    cur = _herc_cur()
-    assert ra.mine_nicknames(cur, lambda m: json.dumps({"Herc": True}), dry_run=True) == Counter(suggested=1)
-    assert not cur.inserts() and cur.connection.events == ["rollback"]
-    assert "Herc" in capsys.readouterr().out
-
-
-def _main(monkeypatch, entries, courses=lambda cur, dry_run=False: Counter(), weekday=2):
+def _main(monkeypatch, entries, courses=lambda cur, dry_run=False: Counter(), runs=None):
     class Conn:
         def cursor(self, **k):
             return self
+        def execute(self, sql, params=None):
+            if runs is not None:
+                runs.append((sql, params))
+        def commit(self):
+            pass
         def __enter__(self):
             return self
         def __exit__(self, *a):
@@ -1189,21 +998,48 @@ def _main(monkeypatch, entries, courses=lambda cur, dry_run=False: Counter(), we
         def close(self):
             pass
 
-    class Day(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return datetime(2026, 10, 26 + weekday, tzinfo=tz)  # 2026-10-26 is a Monday
     order = []
     monkeypatch.setattr(ra, "connect", Conn)
-    monkeypatch.setattr(ra, "datetime", Day)
     monkeypatch.setattr(ra, "load_entries", lambda: entries)
     monkeypatch.setattr(ra, "KeyPool", lambda entries: None)
-    monkeypatch.setattr(ra, "Groq", lambda pool: None)
+    monkeypatch.setattr(ra, "Groq", lambda pool: SimpleNamespace(used={"k1": {"rpd": 4, "tpd": 700}}))
     monkeypatch.setattr(ra, "review_held", lambda *a, **k: order.append("held") or Counter())
     monkeypatch.setattr(ra, "review_pending_professors", lambda *a, **k: order.append("professors") or Counter())
     monkeypatch.setattr(ra, "review_pending_courses", lambda *a, **k: order.append("courses") or courses(*a, **k))
-    monkeypatch.setattr(ra, "mine_nicknames", lambda *a, **k: order.append("nicknames") or Counter())
     return order
+
+
+def test_record_run_sums_every_key():
+    cur = FakeCursor([])
+    ra.record_run(cur, {"k1": {"rpd": 3, "tpd": 900}, "k2": {"rpd": 2, "tpd": 600}}, 6, NOW)
+    [(sql, params)] = cur.statements("INSERT INTO review_agent_runs")
+    assert tuple(params) == (NOW, 5, 1500, 6)
+
+
+def test_record_run_with_no_calls_writes_zeros():
+    cur = FakeCursor([])
+    ra.record_run(cur, {}, 0, NOW)
+    [(sql, params)] = cur.statements("INSERT INTO review_agent_runs")
+    assert tuple(params) == (NOW, 0, 0, 0)
+
+
+def test_main_records_one_run_and_dry_run_records_none(monkeypatch):
+    runs = []
+    _main(monkeypatch, ["k1", "k2"], runs=runs)
+    assert ra.main([]) == 0
+    [(sql, params)] = [r for r in runs if r[0].startswith("INSERT INTO review_agent_runs")]
+    assert tuple(params)[1:] == (4, 700, 2)
+    runs.clear()
+    assert ra.main(["--dry-run"]) == 0
+    assert not runs
+
+
+def test_main_records_a_run_with_no_groq_keys(monkeypatch):
+    runs = []
+    _main(monkeypatch, [], runs=runs)
+    assert ra.main([]) == 0
+    [(sql, params)] = [r for r in runs if r[0].startswith("INSERT INTO review_agent_runs")]
+    assert tuple(params)[1:] == (0, 0, 0)
 
 
 def test_main_reviews_held_ratings_before_pending_professors_and_courses(monkeypatch):
@@ -1214,14 +1050,8 @@ def test_main_reviews_held_ratings_before_pending_professors_and_courses(monkeyp
     assert order == ["held", "professors", "courses"]
 
 
-def test_main_mines_nicknames_last_on_mondays(monkeypatch):
-    order = _main(monkeypatch, ["k1"], weekday=0)
-    assert ra.main([]) == 0
-    assert order == ["held", "professors", "courses", "nicknames"]
-
-
 def test_main_merges_without_a_groq_key(monkeypatch, capsys):
-    order = _main(monkeypatch, [], weekday=0)
+    order = _main(monkeypatch, [])
     assert ra.main([]) == 0
     assert order == ["professors", "courses"]
     assert "no Groq keys" in capsys.readouterr().out
@@ -1234,3 +1064,34 @@ def test_a_course_pass_error_leaves_the_held_review_done(monkeypatch):
     with pytest.raises(psycopg2.OperationalError):
         ra.main([])
     assert order == ["held", "professors", "courses"]
+
+
+def test_a_pass_that_raises_still_records_the_run(monkeypatch):
+    # A crash or the step timeout mid-run is a heavy Groq day: the calls already made still count.
+    def boom(cur, dry_run=False):
+        raise KeyboardInterrupt
+    runs = []
+    _main(monkeypatch, ["k1"], boom, runs=runs)
+    with pytest.raises(KeyboardInterrupt):
+        ra.main([])
+    [(sql, params)] = [r for r in runs if r[0].startswith("INSERT INTO review_agent_runs")]
+    assert tuple(params)[1:] == (4, 700, 1)
+
+
+def test_a_run_that_cannot_be_recorded_still_raises_the_pass_error(monkeypatch, capsys):
+    # The database went down: the record's own connect failure is logged, not chained over the real error.
+    def boom(cur, dry_run=False):
+        raise psycopg2.OperationalError("server closed the connection unexpectedly")
+    _main(monkeypatch, ["k1"], boom)
+    conn, opened = ra.connect, []
+
+    def connect():
+        opened.append(1)
+        if len(opened) == 3:  # held review, merges, then the run record
+            raise psycopg2.OperationalError("connection timed out")
+        return conn()
+    monkeypatch.setattr(ra, "connect", connect)
+    with pytest.raises(psycopg2.OperationalError, match="server closed") as raised:
+        ra.main([])
+    assert raised.value.__context__ is None
+    assert "run not recorded: OperationalError" in capsys.readouterr().out

@@ -1,98 +1,260 @@
-"""Daily email to the team when held ratings or new professors and courses wait for review.
+"""Daily email to ratings@ with the review queue, the day's rating counts and the Resend and Groq usage.
 
-    python review_digest.py            # send, if anything is waiting
-    python review_digest.py --dry-run  # print the email, send nothing
+    python review_digest.py            # send
+    python review_digest.py --dry-run  # print the text, write the HTML to the temp dir, send nothing
 
-Runs from .github/workflows/review-digest.yml. One email a day at most and none
-when the queue is empty, so it fits Resend's free 100/day next to the feedback
-caps and usage alerts (see FEEDBACK_DAILY_LIMIT in server.py). Counts, slugs,
-course codes, hold reasons and rating ids only: no comments, agent reasons,
-hashes or network data. Reads ORACLE_DATABASE_URL and RESEND_API_KEY.
+Runs from .github/workflows/review-digest.yml. HTML plus a text part, always sent, one a day:
+that fits Resend's free 100/day next to the feedback caps and usage alerts (see
+FEEDBACK_DAILY_LIMIT in server.py). Counts, names, course codes, hold reasons and rating ids
+only: no comments, agent reasons, hashes or network data. Reads ORACLE_DATABASE_URL and
+RESEND_API_KEY. The Resend meters count email_sends (see notify.RECORD_SEND) by UTC day and month.
 """
 
 import argparse
+import math
+import re
 import os
 import sys
+import tempfile
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from html import escape
 
+import digest_html as dh
 import notify
-from review_agent import decision_of, group_held, reasons_of
+from review_agent import decision_of, group_held
 from pipeline.db import connect, fetch_all
 
-TOP = 5
+_REASONS = {
+    "unverified_pair": "course not taught per Banner", "unverified_term": "wrong term per Banner",
+    "too_fast": "filled in too fast", "no_timer": "no form timer", "stale": "form left open too long",
+    "datacenter": "sent from a data center", "skew_week": "unusual week for this professor",
+    "duplicate_comment": "copied comment", "near_duplicate": "copied comment",
+    "moderation_block": "comment blocked by the checker", "silent_hold": "device held after an abuse reject",
+}
+_RATE_NOTE = ("Groq bars cover the last 24 hours, and each shows whichever of requests or tokens is "
+              "closer to its limit. Bars turn amber at 50% and red at 80%.")
 
 
 def _plural(n, word):
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
-def _counts(counter, limit=None):
-    return [f"  {k}: {v}" for k, v in sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]]
-
-
 def _short(row):
     return str(row["id"])[:8]
 
 
-def _attack_lines(group):
-    group = sorted(group, key=lambda r: r["created_at"])
-    first, last = (group[i]["created_at"].astimezone(timezone.utc) for i in (0, -1))
-    reasons = sorted(reasons_of(group))
-    slug = group[0]["professor_slug"] or "pending-professor"
-    end = f"{last:%H:%M}" if last.date() == first.date() else f"{last:%Y-%m-%d %H:%M}"
-    return [f"  {slug}: {_plural(len(group), 'rating')}, "
-            f"{first:%Y-%m-%d %H:%M}-{end} UTC [{', '.join(reasons)}]",
-            f"    python review_ratings.py reject-rating --abuse {' '.join(_short(r) for r in group)}"]
+def course_label(code):
+    if not code:
+        return "-"
+    m = re.fullmatch(r"([A-Za-z]+)(\d.*)", code)
+    return f"{m[1]} {m[2]}" if m else code
 
 
-def build_digest(held, approved, pending_professors, pending_courses, now, course_merges=(), professor_merges=(), aliases=()):
-    """(subject, text), or None when nothing is waiting. Pure."""
-    if not held and not approved and not pending_professors and not pending_courses and not course_merges \
-            and not professor_merges and not aliases:
-        return None
-    recent = [r for r in held if r["created_at"] >= now - timedelta(days=1)]
-    reasons = Counter(x for r in held for x in (r["hold_reasons"] or "").split(",") if x)
-    subject = (f"[RateMyHusky] To review: {_plural(len(held), 'held rating')}, "
-               f"{_plural(pending_professors, 'new professor')}, {_plural(pending_courses, 'new course')}")
-    if aliases:
-        subject += f", {_plural(len(aliases), 'nickname suggestion')}"
-    if course_merges or professor_merges:
-        subject += f", {_plural(len(course_merges) + len(professor_merges), 'agent merge')}"
-    lines = [f"Held ratings: {len(held)} ({len(recent)} in the last 24 hours)",
-             *_counts(reasons)]
-    if recent:
-        lines += ["", "Most held in the last 24 hours:",
-                  *_counts(Counter(r["professor_slug"] for r in recent if r["professor_slug"]), TOP),
-                  *_counts(Counter(r["course_code"] for r in recent if r["course_code"]), TOP)]
-    attacks = group_held([r for r in held if decision_of(r) == "reject"])
+def reason_label(code):
+    return "rating burst" if code.startswith("burst_") else _REASONS.get(code, code)
+
+
+def fmt(n):
+    if n < 10_000:
+        return f"{n:,}"
+    if round(n / 1000) < 1000:
+        return f"{round(n / 1000)}K"
+    return f"{n / 1_000_000:.1f}".removesuffix(".0") + "M"
+
+
+def groq_meter(label, requests, tokens, request_limit, token_limit):
+    if tokens * request_limit > requests * token_limit:
+        return {"label": label, "used": tokens, "limit": token_limit, "unit": "tokens"}
+    return {"label": label, "used": requests, "limit": request_limit, "unit": "requests"}
+
+
+def _name(slug, names):
+    return "a new professor" if slug is None else (names or {}).get(slug, slug)
+
+
+def _span(group):
+    seconds = (group[-1]["created_at"] - group[0]["created_at"]).total_seconds()
+    minutes = max(1, math.ceil(seconds / 60))
+    if minutes < 120:
+        return _plural(minutes, "minute")
+    hours = math.ceil(seconds / 3600)
+    return _plural(hours, "hour") if hours < 48 else _plural(math.ceil(seconds / 86400), "day")
+
+
+def _attacks(held, names):
+    out = []
+    for g in group_held([r for r in held if decision_of(r) == "reject"]):
+        g = sorted(g, key=lambda r: r["created_at"])
+        courses = ", ".join(sorted({course_label(r["course_code"]) for r in g}))
+        sentence = (f"{_plural(len(g), 'rating')} for {_name(g[0]['professor_slug'], names)} in {courses}, "
+                    f"all within {_span(g)}.")
+        out.append((sentence, "python review_ratings.py reject-rating --abuse " + " ".join(_short(r) for r in g)))
+    return out
+
+
+def _short_rows(approved, course_merges, professor_merges, aliases, names):
+    items = [(f"Agent approved: {_name(r['professor_slug'], names)}, {course_label(r['course_code'])}", _short(r))
+             for r in approved]
+    items += [(f"Merged {course_label(m['code'])} into {course_label(m['resolved_code'])}",
+               _plural(m["n"], "rating")) for m in course_merges]
+    items += [(f"Merged a new professor into {_name(m['resolved_slug'], names)}",
+               _plural(m["n"], "rating") + (f", {m['held']} held" if m.get("held") else ""))
+              for m in professor_merges]
+    items += [(f'Nickname "{a["alias_key"]}" for {_name(a["slug"], names)}', f"#{a['id']}") for a in aliases]
+    return items
+
+
+def _meter_shown(m):
+    return f"{fmt(m['used'])} / {fmt(m['limit'])}" + (f" {m['unit']}" if m["unit"] else "")
+
+
+def _limits_in_subject(meters):
+    hot = sorted(((dh.pct(m["used"], m["limit"]), m["label"]) for m in meters),
+                 key=lambda p: -p[0])
+    parts = [f"{label} at {p}%" for p, label in hot if p >= 50]
+    return ", ".join(parts) or "limits OK"
+
+
+def _count_label(n, word):
+    return word if n == 1 else word + "s"
+
+
+def build_digest(held, approved, pending_professors, pending_courses, now, course_merges=(), professor_merges=(),
+                 aliases=(), pending_comments=0,
+                 names=None, ratings=None, meters=None):
+    """(subject, text, html). Pure."""
+    ratings = ratings or {"new": 0, "live": 0, "held": 0, "rejected": 0, "live_all": 0, "comments_all": 0,
+                          "days": [(0, 0)] * 14}
+    meters = [m for m in (meters or []) if m.get("limit")]
+    waiting = len(held) + pending_comments + pending_professors + pending_courses + len(aliases)
+    subject = (f"[RateMyHusky] {f'{waiting} to review' if waiting else 'Nothing to review'}, "
+               f"{_plural(ratings['new'], 'new rating')}, {_limits_in_subject(meters)}")
+    now = now.astimezone(timezone.utc)
+    dateline = f"{now:%A}, {now:%b} {now.day}. Covers the last 24 hours."
+
+    reasons = Counter(label for r in held
+                      for label in {reason_label(x) for x in (r["hold_reasons"] or "").split(",") if x})
+    reason_items = [(k, str(v)) for k, v in sorted(reasons.items(), key=lambda kv: (-kv[1], kv[0]))]
+    attacks = _attacks(held, names)
+    short = _short_rows(approved, course_merges, professor_merges, aliases, names)
+    tile_items = [(len(held), "held"), (pending_comments, _count_label(pending_comments, "comment")),
+                  (pending_professors, _count_label(pending_professors, "professor")),
+                  (pending_courses, _count_label(pending_courses, "course")),
+                  (len(aliases), _count_label(len(aliases), "nickname"))]
+
+    since = now - timedelta(days=1)
+    decided = Counter(decision_of(r) for r in held)
+    recent = Counter(decision_of(r) for r in held if (r.get("agent_reviewed_at") or datetime.min.replace(tzinfo=timezone.utc)) >= since)
+    # (count, label, bar color, legend color)
+    agent_parts = [(len(approved), "approved", dh.GREEN, dh.GREEN), (recent["reject"], "reject", dh.RED, dh.RED),
+                   (recent["escalate"], "escalated", dh.AMBER, dh.AMBER_TEXT), (decided[None], "pending", "#cfcfd6", "#888")]
+    checked = len(approved) + recent["reject"] + recent["escalate"]
+    merges = len(course_merges) + len(professor_merges)
+    agent_line = (f"Checked {_plural(checked, 'held rating')}"
+                  + (f" and made {_plural(merges, 'merge')}" if merges else "") + ".")
+    nums = [("New ratings", ratings["new"], "new", "#222"), ("Live ratings", ratings["live"], "live", dh.GREEN),
+            ("Held ratings", ratings["held"], "held", dh.AMBER_TEXT),
+            ("Blocked at submit", ratings["rejected"], "blocked", "#999")]
+    totals = [("Live ratings, all time", f"{ratings['live_all']:,}"),
+              ("Comments showing, all time", f"{ratings['comments_all']:,}")]
+
+    needs = dh.tiles(tile_items) + dh.rows(reason_items, "Why they're waiting")
     if attacks:
-        lines += ["", f"Recommended rejections: {_plural(len(attacks), 'attack')}",
-                  *(line for g in attacks for line in _attack_lines(g))]
-    escalated = sum(decision_of(r) == "escalate" for r in held)
-    unreviewed = sum(decision_of(r) is None for r in held)
-    if escalated or unreviewed:
-        lines += ["", f"Escalated without a recommendation: {escalated}",
-                  f"Not yet reviewed by the agent: {unreviewed}"]
-    if approved:
-        lines += ["", f"Agent approved in the last 24 hours: {len(approved)}",
-                  *(f"  {_short(r)} {r['professor_slug'] or 'pending-professor'} {r['course_code'] or '-'} "
-                    f"[{', '.join(x for x in (r['hold_reasons'] or '').split(',') if x)}]" for r in approved)]
-    if course_merges:
-        lines += ["", f"Agent course merges in the last 24 hours: {len(course_merges)}",
-                  *(f"  {m['code']} -> {m['resolved_code']} ({_plural(m['n'], 'rating')})" for m in course_merges)]
-    if professor_merges:
-        lines += ["", f"Agent professor merges in the last 24 hours: {len(professor_merges)}",
-                  *(f"  {m['id'][:8]} -> {m['resolved_slug']} ({_plural(m['n'], 'rating')}"
-                    + (f", {m['held']} held" if m.get("held") else "") + ")" for m in professor_merges)]
+        body = "".join(f"<div>{escape(s)}</div>{dh.command(c)}" for s, c in attacks)
+        needs += dh.callout(f"Reject {_plural(len(attacks), 'attack')}", body)
+    needs += dh.rows(short)
     if aliases:
-        lines += ["", f"Nickname suggestions: {len(aliases)}",
-                  *(f"  #{a['id']} {a['alias_key']} -> {a['slug']} ({a['source']})" for a in aliases),
-                  "Approve with: python review_ratings.py approve-alias ID"]
-    lines += ["", f"New professors to review: {pending_professors}",
-              f"New courses to review: {pending_courses}",
-              "", "Review with: python review_ratings.py list"]
-    return subject, "\n".join(lines)
+        needs += dh.command("python review_ratings.py approve-alias ID")
+    ratings_html = (
+        f'<table {dh._TABLE}><tr valign="bottom"><td class="col" width="52%">'
+        f'{dh.numbers([(n, short_label, c) for _, n, short_label, c in nums])}</td>'
+        f'<td class="col col-chart" width="48%" style="padding-left:16px;">{dh.day_bars(ratings["days"])}</td>'
+        f"</tr></table>" + dh.rows(totals))
+    agent_html = (f'<div style="font-size:12px;color:#444;margin-bottom:8px;">{escape(agent_line)}</div>'
+                  + dh.stacked_bar([(n, bar) for n, _, bar, _ in agent_parts])
+                  + dh.legend([(n, label, legend) for n, label, _, legend in agent_parts]))
+    sections = (dh.section("Needs you", needs, first=True) + dh.section("Ratings", ratings_html)
+                + dh.section("Review agent", agent_html))
+    if meters:
+        meter_rows = "".join(dh.meter(m["label"], m["used"], m["limit"], _meter_shown(m)) for m in meters)
+        sections += dh.section(
+            "Usage limits",
+            f'<table {dh._TABLE} style="font-size:12px;color:#444;">{meter_rows}</table>'
+            f'<div style="font-size:11px;color:#999;margin-top:8px;line-height:1.5;">{_RATE_NOTE}</div>')
+    footer = (f'Full queue: <span style="font-family:{dh._MONO};">python review_ratings.py list</span><br>'
+              "No comment text, hashes or network data in this email.")
+    html = dh.page(subject, dateline, sections, footer)
+
+    text = [dateline, "", "Needs you"] + [f"{label.capitalize()}: {n}" for n, label in tile_items]
+    if reason_items:
+        text += ["", "Why they're waiting"] + [f"{k}: {v}" for k, v in reason_items]
+    if attacks:
+        text += ["", f"Reject {_plural(len(attacks), 'attack')}"] + [line for pair in attacks for line in pair]
+    if short:
+        text += [""] + [f"{label}: {value}" for label, value in short]
+    if aliases:
+        text += ["", "python review_ratings.py approve-alias ID"]
+    text += ["", "Ratings"] + [f"{label}: {n}" for label, n, _, _ in nums] + [f"{k}: {v}" for k, v in totals]
+    text += ["", "Review agent", agent_line] + [f"{label}: {n}" for n, label, _, _ in agent_parts]
+    if meters:
+        text += ["", "Usage limits"] + [f"{m['label']}: {_meter_shown(m)}" for m in meters]
+    text += ["", "Full queue: python review_ratings.py list", "No comment text, hashes or network data in this email."]
+    return subject, "\n".join(text), html
+
+RESEND_LIMITS = (100, 3000)  # free plan: emails per UTC day, per month
+CHECKER_LIMITS = (1000, 200_000)
+AGENT_LIMITS_PER_KEY = (1000, 200_000)
+_DAY = "now() - interval '1 day'"
+# The agent runs once a day, so a rolling day could hold yesterday's run too, depending on when cron fires.
+# Today's run plus a rolling day of chat is the last 24 hours, the same window as the checker.
+_UTC_DAY = "date_trunc('day', now(), 'UTC')"
+
+
+def rating_stats(conn, now):
+    """The `ratings` dict of build_digest: last-24-hour counts, all-time totals, 14 UTC days of (live, held)."""
+    (row,) = fetch_all(conn, f"""
+        SELECT count(*) FILTER (WHERE created_at >= {_DAY}) AS new,
+               count(*) FILTER (WHERE created_at >= {_DAY} AND status = 'accepted') AS live,
+               count(*) FILTER (WHERE created_at >= {_DAY} AND status = 'held') AS held,
+               (SELECT count(*) FROM moderation_calls
+                WHERE called_at >= {_DAY} AND source = 'submit' AND outcome = 'block') AS rejected,
+               count(*) FILTER (WHERE status = 'accepted') AS live_all,
+               count(*) FILTER (WHERE status = 'accepted' AND comment_status = 'approved') AS comments_all
+        FROM survey_ratings""")
+    today = now.astimezone(timezone.utc).date()
+    first = today - timedelta(days=13)
+    by_day = {r["day"]: (r["live"], r["held"]) for r in fetch_all(conn, """
+        SELECT (created_at AT TIME ZONE 'UTC')::date AS day,
+               count(*) FILTER (WHERE status = 'accepted') AS live, count(*) FILTER (WHERE status = 'held') AS held
+        FROM survey_ratings WHERE created_at >= %s GROUP BY 1""",
+        (datetime.combine(first, datetime.min.time(), timezone.utc),))}
+    return {**{k: int(v) for k, v in row.items()},
+            "days": [by_day.get(first + timedelta(days=i), (0, 0)) for i in range(14)]}
+
+
+def usage_meters(conn):
+    """The `meters` list of build_digest."""
+    (sends,) = fetch_all(conn, "SELECT count(*) FILTER (WHERE sent_at >= date_trunc('day', now(), 'UTC')) AS day, "
+                               "count(*) AS month FROM email_sends WHERE sent_at >= date_trunc('month', now(), 'UTC')")
+    meters = [{"label": "Resend today", "used": int(sends["day"]), "limit": RESEND_LIMITS[0], "unit": ""},
+              {"label": "Resend month", "used": int(sends["month"]), "limit": RESEND_LIMITS[1], "unit": ""}]
+    (agent,) = fetch_all(conn, f"""
+        SELECT (SELECT COALESCE(sum(requests), 0) FROM review_agent_runs WHERE ran_at >= {_UTC_DAY})
+                 + (SELECT count(*) FROM ask_log WHERE created_at >= {_DAY} AND tokens_used > 0) AS requests,
+               (SELECT COALESCE(sum(tokens), 0) FROM review_agent_runs WHERE ran_at >= {_UTC_DAY})
+                 + (SELECT COALESCE(sum(tokens_used), 0) FROM ask_log WHERE created_at >= {_DAY}) AS tokens,
+               (SELECT keys FROM review_agent_runs WHERE keys > 0 ORDER BY ran_at DESC LIMIT 1) AS keys""")
+    # The agent step records its keys just before the digest, so 1 only before any run has had a key.
+    keys = int(agent["keys"] or 1)
+    # Chat and the agent share the groq1..N keys, so they share one bar.
+    meters.append(groq_meter("Groq chat + agent", int(agent["requests"]), int(agent["tokens"]),
+                             AGENT_LIMITS_PER_KEY[0] * keys, AGENT_LIMITS_PER_KEY[1] * keys))
+    # Only Groq replies carry tokens: OpenAI-fallback calls and failed attempts used none of Groq's quota.
+    (checker,) = fetch_all(conn, f"SELECT count(*) AS requests, COALESCE(sum(tokens), 0) AS tokens "
+                                 f"FROM moderation_calls WHERE called_at >= {_DAY} AND tokens IS NOT NULL")
+    meters.append(groq_meter("Groq checker", int(checker["requests"]), int(checker["tokens"]), *CHECKER_LIMITS))
+    return meters
 
 
 def main(argv=None, now=None):
@@ -107,6 +269,8 @@ def main(argv=None, now=None):
         approved = fetch_all(conn, f"SELECT {cols} FROM survey_ratings WHERE status = 'accepted' "
                                    "AND agent_decision = 'approve' AND agent_reviewed_at >= now() - interval '1 day' "
                                    "ORDER BY agent_reviewed_at")
+        comments = fetch_all(conn, "SELECT count(*) AS n "
+                                   "FROM survey_ratings WHERE comment_status = 'pending'")
         professors = fetch_all(conn, "SELECT count(*) AS n FROM survey_pending_professors WHERE status = 'pending'")
         courses = fetch_all(conn, "SELECT count(*) AS n FROM survey_pending_courses WHERE status = 'pending'")
         # The merge's reason ends "; N rating(s)": moving the ratings cleared their link to the course.
@@ -120,18 +284,35 @@ def main(argv=None, now=None):
                                       "AND agent_reviewed_at >= now() - interval '1 day' ORDER BY agent_reviewed_at")
         aliases = fetch_all(conn, "SELECT id, alias_key, slug, source FROM professor_aliases "
                                   "WHERE status = 'pending' ORDER BY id")
+        slugs = sorted({r["professor_slug"] for r in (*held, *approved) if r["professor_slug"]}
+                       | {m["resolved_slug"] for m in prof_merges if m["resolved_slug"]}
+                       | {a["slug"] for a in aliases if a["slug"]})
+        names = {r["slug"]: r["name"] for r in fetch_all(
+            conn, "SELECT slug, name FROM professors WHERE slug = ANY(%s)", (slugs,))}
+        now = now or datetime.now(timezone.utc)
+        ratings = rating_stats(conn, now)
+        meters = usage_meters(conn)
+        subject, text, html = build_digest(held, approved, professors[0]["n"], courses[0]["n"], now, merges,
+                                           prof_merges, aliases, pending_comments=comments[0]["n"],
+                                           names=names, ratings=ratings, meters=meters)
+        if args.dry_run:
+            path = os.path.join(tempfile.gettempdir(), "review-digest.html")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(html)
+            print(f"{subject}\n\n{text}\n\nHTML preview: {path}")
+            return 0
+        if not notify.send_team_email(subject, text, to=notify.DIGEST_EMAIL, html=html):
+            return 1
+        try:
+            with conn.cursor() as cur:
+                cur.execute(notify.RECORD_SEND)
+            conn.commit()
+        except Exception as e:
+            # Best-effort: the email already went out, and a failed run invites a rerun that sends it again.
+            print(f"[review_digest] send not recorded: {type(e).__name__}")
+        return 0
     finally:
         conn.close()
-    digest = build_digest(held, approved, professors[0]["n"], courses[0]["n"], now or datetime.now(timezone.utc),
-                          merges, prof_merges, aliases)
-    if digest is None:
-        print("nothing to review")
-        return 0
-    subject, text = digest
-    if args.dry_run:
-        print(f"{subject}\n\n{text}")
-        return 0
-    return 0 if notify.send_team_email(subject, text) else 1
 
 
 if __name__ == "__main__":

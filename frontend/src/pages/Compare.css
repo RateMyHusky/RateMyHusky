@@ -711,6 +711,56 @@
 	background: rgba(214, 57, 76, 0.14);
 }
 
+.compare-quick-picks {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin-top: 10px;
+}
+
+.compare-quick-label {
+	width: 100%;
+	font-size: 0.72rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: #8a8f98;
+}
+
+.compare-quick-pick {
+	min-height: 32px;
+	padding: 4px 12px;
+	border: 1px solid #e1e3e8;
+	border-radius: 999px;
+	background: #fff;
+	color: #333;
+	font: inherit;
+	font-size: 0.82rem;
+	font-weight: 700;
+	cursor: pointer;
+	transition: border-color 0.15s, color 0.15s;
+}
+
+.compare-quick-pick:hover,
+.compare-quick-pick:focus-visible {
+	border-color: #d6394c;
+	color: #d6394c;
+	outline: none;
+}
+
+.dark .compare-quick-pick {
+	background: #1e2023;
+	border-color: #34373d;
+	color: #ddd;
+}
+
+.dark .compare-quick-pick:hover,
+.dark .compare-quick-pick:focus-visible {
+	border-color: #e06070;
+	color: #e06070;
+}
+
 .dark .compare-search {
 	background: #1e2023;
 	color: #e9edf1;

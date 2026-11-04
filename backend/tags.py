@@ -7,8 +7,6 @@
 TAXONOMY_VERSION = 1
 
 TAG_TAXONOMY = {
-    "requires_textbook": "Professor requires or strongly recommends buying a textbook",
-    "mandatory_attendance": "Attendance is tracked and affects the grade",
     "heavy_workload": "Frequent or time-consuming assignments/homework",
     "group_projects": "Significant group project component",
     "curved_grading": "Grades are curved",
@@ -28,9 +26,6 @@ TAG_TAXONOMY = {
 # difficulty word instead of just "final" (which is in almost every review).
 # Used for the pre-filter and to throw out tags the model made up.
 TAG_HINTS = {
-    "requires_textbook": [["textbook", "textbooks", "text book", "buy the book", "need the book",
-                           "required book", "required reading", "readings"]],
-    "mandatory_attendance": [["attendance", "attend", "roll call", "clicker", "iclicker", "show up"]],
     "heavy_workload": [["workload", "lots of homework", "lot of homework", "a lot of work", "lots of work",
                         "heavy", "time consuming", "time-consuming", "busy work", "busywork"]],
     "group_projects": [["group project", "group projects", "group work", "team project", "team projects",

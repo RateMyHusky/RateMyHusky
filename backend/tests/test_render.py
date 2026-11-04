@@ -831,7 +831,7 @@ def test_department_html_summary_mentions_count_avg_and_top_professor():
     body = html.split("<body>")[1]
     assert (
         "The Computer Science department at Northeastern University has 3 rated "
-        "professors averaging 3.87/5. The highest-rated is Alice Smith (4.5/5 from 120 reviews)."
+        "professors averaging 3.87/5. The highest-rated is Alice Smith (4.5/5 from 120 ratings)."
     ) in body
 
 

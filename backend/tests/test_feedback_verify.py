@@ -1,3 +1,5 @@
+import pytest
+
 from server import professor_verify_note
 
 
@@ -256,3 +258,17 @@ def test_json_nested_too_deep_is_400_on_every_route(monkeypatch):
     body = "[" * 30000 + "]" * 30000   # deep enough to recurse, small enough for MAX_CONTENT_LENGTH
     resp = server.app.test_client().post("/api/feedback", data=body, content_type="application/json")
     assert resp.status_code == 400
+
+
+@pytest.mark.parametrize("sent", [True, False])
+def test_a_sent_feedback_email_is_counted_and_a_failed_one_is_not(monkeypatch, sent):
+    import server
+    writes = []
+    monkeypatch.delenv("TURNSTILE_SECRET_KEY", raising=False)
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
+    monkeypatch.setattr(server.limiter, "enabled", False)
+    monkeypatch.setattr(server.notify, "send_team_email", lambda *a, **k: sent)
+    monkeypatch.setattr(server, "_chat_write", lambda sql, params=None: writes.append(sql))
+    resp = server.app.test_client().post("/api/feedback", json={"feedbackType": "bug", "description": "hi"})
+    assert resp.status_code == (200 if sent else 500)
+    assert writes == (["INSERT INTO email_sends DEFAULT VALUES"] if sent else [])

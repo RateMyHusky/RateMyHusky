@@ -11,6 +11,7 @@ from collections import Counter
 from datetime import datetime, timezone
 
 import moderation
+from teaching_history import COURSE_SUCCESSORS
 
 from . import banner_roster, course_codes, name_keys, read_models, review_tags, roster, summaries, survey
 from .blend import blend
@@ -49,6 +50,11 @@ def main(argv=None):
     catalog_courses += survey.approved_courses(
         fetch_all(conn, "SELECT code, name FROM survey_pending_courses WHERE status = 'approved'"),
         catalog_courses)
+    retired = ", ".join(f"'{code}'" for code in COURSE_SUCCESSORS)   # source constants
+    catalog_courses += read_models.retired_courses(catalog_courses, {
+        r["subject_course"]: r["course_title"] for r in fetch_all(
+            conn, "SELECT subject_course, course_title FROM banner_course_offerings "
+                  f"WHERE subject_course IN ({retired})")})
 
     new_links, new_professors, counts = roster.resolve_roster(pages, links, professors)
     _print("roster", counts)
@@ -112,8 +118,10 @@ def main(argv=None):
     rows, coverage = summaries.build_summaries(linked_pages, [r for r in reviews if r["visible"]],
                                                page_slug, name_key_slug, set(slug_by_id.values()))
     _print("coverage", coverage)
+    # A comment no reviewer has approved counts in no comment total.
     ratings = fetch_all(conn, "SELECT id::text AS id, professor_slug, course_code, rating, difficulty, hours, "
-                              "grade, comment, hold_reasons, updated_at "
+                              "grade, CASE WHEN comment_status = 'approved' THEN comment END AS comment, "
+                              "hold_reasons, updated_at "
                               "FROM survey_ratings WHERE status = 'accepted' AND professor_slug IS NOT NULL")
     now = datetime.now(timezone.utc)
     checked = fetch_all(conn, f"SELECT value FROM stats_cache WHERE key = '{survey.SURGE_CHECKED_KEY}'")

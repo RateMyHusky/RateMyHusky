@@ -183,12 +183,74 @@ def test_list_prints_no_hashes(capsys):
             "agent_decision": None, "agent_reason": None,
             "comment": "x" * 100, "created_at": "2026-10-01",
             "device_hash": "DEVICEHASH", "ip_hash": "IPHASH"}
-    cur = FakeCursor({"FROM survey_ratings": [held]})
+    cur = FakeCursor({"comment_status = 'pending'": [], "FROM survey_ratings": [held]})
     rr.list_pending(cur)
     out = capsys.readouterr().out
     assert "abcd1234" in out and "jane-doe" in out and "x" * 80 in out and "x" * 81 not in out
     assert "difficulty 5/5" in out
     assert "DEVICEHASH" not in out and "IPHASH" not in out
+
+
+def test_list_prints_each_waiting_comment_in_full(capsys):
+    waiting = {"id": "beef5678-0000", "professor": "jane-doe", "course": "CS2500", "status": "accepted",
+               "rating": 4, "comment": "y" * 300, "updated_at": "2026-10-01",
+               "comment_check": "unchecked", "comment_check_reason": None}
+    cur = FakeCursor({"comment_status = 'pending'": [waiting]})
+    summary = rr.list_pending(cur)
+    out = capsys.readouterr().out
+    assert "Comments to review (1):" in out and "beef5678" in out and "y" * 300 in out
+    assert "rating accepted" in out and "1 comments to review" in summary
+    assert "not yet checked" in out
+    assert "approve-comment beef5678@2026-10-01" in out
+
+
+def test_list_shows_each_comments_check_and_puts_flagged_first(capsys):
+    rows = [{"id": f"beef567{i}-0000", "professor": "jane-doe", "course": "CS2500", "status": "accepted",
+             "rating": 4, "comment": "fine", "updated_at": "2026-10-01",
+             "comment_check": check, "comment_check_reason": reason}
+            for i, (check, reason) in enumerate((("review", "blocked"), ("allow", None),
+                                                 ("unchecked", "duplicate")))]
+    cur = FakeCursor({"comment_status = 'pending'": rows})
+    rr.list_pending(cur)
+    out = capsys.readouterr().out
+    assert "flagged: blocked" in out and "  clean  " in out and "not yet checked (duplicate)" in out
+    sql = next(s for s, _ in cur.calls if "comment_status = 'pending'" in s)
+    assert "ORDER BY r.comment_check IS DISTINCT FROM 'review', r.updated_at" in sql
+
+
+def test_approve_comment_only_touches_waiting_comments():
+    cur = FakeCursor({"UPDATE survey_ratings": [{"id": "abcd1234"}]})
+    rr.approve_comment(cur, "abcd1234@2026-10-01T00:00:00+00:00")
+    (sql, params), = cur.calls
+    assert "comment_status = 'approved'" in sql and "comment_status = 'pending'" in sql
+    assert "AND updated_at = %s::timestamptz" in sql
+    # Sets nothing else: updated_at stays put, so a later edit still waits for review.
+    assert "status = 'held'" not in sql
+    assert "SET comment_status = 'approved', comment_next_check_at = NULL WHERE" in sql
+    # Off the moderation queue, so a run racing the approval can't hold the rating.
+    assert "comment_next_check_at = NULL" in sql
+    assert params == ("abcd1234%", "2026-10-01T00:00:00+00:00")
+    with pytest.raises(rr.ReviewError):
+        rr.approve_comment(FakeCursor(), "abcd1234@2026-10-01T00:00:00+00:00")
+
+
+def test_approve_comment_needs_the_version_list_printed():
+    for bad in ("abcd1234", "abcd1234@", "abcd1234@yesterday"):
+        with pytest.raises(rr.ReviewError):
+            rr.approve_comment(FakeCursor({"UPDATE survey_ratings": [{"id": "abcd1234"}]}), bad)
+
+
+def test_reject_comment_drops_the_text_and_keeps_the_rating():
+    cur = FakeCursor({"UPDATE survey_ratings": [{"id": "abcd1234"}]})
+    rr.reject_comment(cur, "abcd1234")
+    (sql, params), = cur.calls
+    assert sql.startswith("UPDATE") and "comment = NULL" in sql and "comment_status = NULL" in sql
+    # The rating stays out of hold_reasons: a non-NULL one exempts it from the surge counts.
+    assert "hold_reasons" not in sql and "comment_hash" not in sql
+    assert "comment_check = NULL" in sql and "comment_next_check_at = NULL" in sql
+    assert "WHERE id::text LIKE %s AND comment_status = 'pending'" in sql and params == ("abcd1234%",)
+    with pytest.raises(rr.ReviewError):
+        rr.reject_comment(FakeCursor(), "abcd1234")
 
 
 def test_list_shows_the_agent_decision_and_reason(capsys):
@@ -197,7 +259,7 @@ def test_list_shows_the_agent_decision_and_reason(capsys):
             "comment": "hi", "created_at": "2026-10-01"}
     rejected = dict(base, agent_decision="reject", agent_reason="templated cluster[2J")
     unreviewed = dict(base, id="ffff5678-0000", agent_decision=None, agent_reason=None)
-    rr.list_pending(FakeCursor({"FROM survey_ratings": [rejected, unreviewed]}))
+    rr.list_pending(FakeCursor({"comment_status = 'pending'": [], "FROM survey_ratings": [rejected, unreviewed]}))
     out = capsys.readouterr().out
     assert "agent: reject (templated cluster?[2J)" in out
     assert "agent: -" in out and "" not in out
@@ -227,7 +289,10 @@ def test_list_strips_control_characters(capsys):
             "term_label": None, "rating": 2, "difficulty": None, "hold_reasons": "burst",
             "agent_decision": None, "agent_reason": None,
             "comment": "hi" + evil, "created_at": "2026-10-01"}
-    cur = FakeCursor({"FROM survey_ratings": [held],
+    waiting = {"id": "beef5678-0000", "professor": "jane-doe", "course": "CS2500", "status": "accepted",
+               "rating": 2, "comment": "yo" + evil, "updated_at": "2026-10-01",
+               "comment_check": "review", "comment_check_reason": "x" + evil}
+    cur = FakeCursor({"comment_status = 'pending'": [waiting], "FROM survey_ratings": [held],
                       "FROM survey_pending_professors": [{"id": "p1", "name": "Eve" + evil,
                                                           "name_key": "eve x", "department": evil,
                                                           "n": 1}],
@@ -267,7 +332,8 @@ class FakeConn:
 
 
 @pytest.mark.parametrize("argv", [["approve-rating", "beef5678"], ["reject-rating", "beef5678"],
-                                  ["remove-comment", "abcdef123456"], ["approve-professor", "beef5678"]])
+                                  ["remove-comment", "abcdef123456"], ["approve-professor", "beef5678"],
+                                  ["approve-comment", "beef5678"], ["reject-comment", "beef5678"]])
 def test_commands_that_change_pages_bump_data_version(argv, monkeypatch):
     cur = FakeCursor()
     monkeypatch.setattr(rr, "run", lambda c, args: "ok")
@@ -294,7 +360,10 @@ def test_remove_comment_finds_the_review_by_its_public_id(monkeypatch):
     rr.remove_comment(cur, survey_reviews.public_id(SECRET, target))
     (sql, params), = cur.statements("UPDATE")
     assert "comment = NULL" in sql and "comment_hash" not in sql and params == (target,)
-    assert "'comment_removed'" in sql   # marks the row, so an edit bringing the comment back is held
+    assert "comment_status = NULL" in sql
+    assert "hold_reasons" not in sql   # a comment written again just waits in pending
+    # Only a shown comment has a public id to report.
+    assert "comment_status = 'approved'" in cur.calls[0][0]
 
 
 def test_remove_comment_with_an_unknown_id_raises(monkeypatch):

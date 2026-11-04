@@ -8,7 +8,9 @@ import StarRating from '../components/StarRating';
 import RatingBar from '../components/RatingBar';
 import Breadcrumbs from '../components/Breadcrumbs';
 import Seo from '../components/Seo';
-import { fetchProfessorFull } from '../api/api';
+import { fetchProfessorFull, fetchProfessorTags } from '../api/api';
+import type { ProfessorTag } from '../api/api';
+import { tagLabel } from '../utils/tagLabels';
 import type { ProfessorPage, ProfessorCourse, RatingDistribution, RedditMention, TeachingAward } from '../api/api';
 import { RATE_ENABLED, SHOW_SURVEY_STATS } from '../config';
 import { relativeTerm, seasonYear, termSortKey } from '../utils/termUtils';
@@ -16,7 +18,10 @@ import { isPinned, pinnedFirst } from '../utils/askPinMatch';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
 import BookmarkButton from '../components/BookmarkButton';
 import FitText from '../components/FitText';
+import RatePopup from '../components/RatePopup';
 import { defaultTab, filterByCourses, reportDescription, type ReviewTab } from './professor/studentReviews';
+import { rateHref, loadState, hasRated } from '../utils/ratePrompt';
+import { lastName } from './rate/rateFlow';
 import neuIcon from '../assets/neu-circle-icon.png';
 import './Professor.css';
 
@@ -246,6 +251,7 @@ const Professor = () => {
   const chartsRef = useRef<HTMLElement>(null);
   const gradesRef = useRef<HTMLDivElement>(null);
   const reviewTabsRef = useRef<HTMLDivElement>(null);
+  const rateCardRef = useRef<HTMLDivElement>(null);
 
   const [profile, setProfile] = useState<ProfessorPage | null>(null);
   const [loadError, setLoadError] = useState<'not_found' | 'failed' | null>(null);
@@ -258,6 +264,7 @@ const Professor = () => {
   const [visibleReviews, setVisibleReviews] = useState(10);
   const [visibleStudentReviews, setVisibleStudentReviews] = useState(10);
   const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set());
+  const [activeTag, setActiveTag] = useState<string | null>(null);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [gradesAnimated, setGradesAnimated] = useState(false);
   const [reviewPillStyle, setReviewPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
@@ -333,7 +340,12 @@ const Professor = () => {
       if (cancelled) return;
       if (res.ok) {
         setProfile(res.data);
-        setSelectedCourses(new Set());
+        // ?course=CS3100 (the course page's professor table) opens on that course's reviews,
+        // when they have rated reviews for it; anything else starts unfiltered.
+        const wanted = new URLSearchParams(location.search).get('course')?.toUpperCase();
+        const rated = wanted && res.data.courses.some(c => c.code === wanted && c.rating !== null);
+        setSelectedCourses(rated ? new Set([wanted]) : new Set());
+        setActiveTag(null);
         // An Ask citation picks its own tab (the pins effect); otherwise open on the first with entries.
         if (!(location.state as { askPins?: unknown } | null)?.askPins) {
           setReviewTab(defaultTab({
@@ -347,7 +359,17 @@ const Professor = () => {
       setLoading(false);
     });
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- location.state is read once per load, like the pins effect
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- location.state and ?course= are read once per load, like the pins effect
+  }, [slug]);
+
+  /* ── tags: separate request so a slow or missing tags table never holds up the page ── */
+  const [tags, setTags] = useState<ProfessorTag[]>([]);
+  useEffect(() => {
+    if (!slug) return;
+    let cancelled = false;
+    setTags([]);
+    fetchProfessorTags(slug).then((t) => { if (!cancelled) setTags(t); });
+    return () => { cancelled = true; };
   }, [slug]);
 
   const reviews = useMemo(() => profile?.sources.rmp.reviews ?? [], [profile]);
@@ -413,12 +435,36 @@ const Professor = () => {
     () => unfiltered ? reviews : reviews.filter(r => r.courseCode !== null && selectedCourses.has(r.courseCode)),
     [reviews, selectedCourses, unfiltered]);
 
+  /* The reviews behind the tag pill the user clicked, if any. */
+  const activeTagIds = useMemo(
+    () => activeTag ? new Set(tags.find(t => t.tag === activeTag)?.reviewIds ?? []) : null,
+    [activeTag, tags]);
+
   const filteredRmpReviews = useMemo(
-    () => deduplicateByText(rmpRatingsInSelection.filter(r => r.comment?.trim()), r => r.comment),
-    [rmpRatingsInSelection]);
+    () => deduplicateByText(
+      rmpRatingsInSelection.filter(r => r.comment?.trim() && (!activeTagIds || activeTagIds.has(r.id ?? ''))),
+      r => r.comment),
+    [rmpRatingsInSelection, activeTagIds]);
+
+  /* Clicking a pill shows the reviews behind it; clicking it again clears the filter. */
+  const selectTag = (tag: string) => {
+    // older cached data has no review ids; filtering would show an empty list
+    if (!tags.find(t => t.tag === tag)?.reviewIds?.length || !reviews.some(r => r.id)) return;
+    const next = activeTag === tag ? null : tag;
+    setActiveTag(next);
+    if (next) {
+      setReviewTab('rmp');
+      setTimeout(() => reviewsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    }
+  };
 
   const filteredStudentReviews = useMemo(
     () => filterByCourses(studentReviews, selectedCourses), [studentReviews, selectedCourses]);
+  const profSlug = profile?.identity.slug;
+  const ratedHere = useMemo(() => {
+    const s = loadState();
+    return s !== null && profSlug !== undefined && hasRated(s, profSlug);
+  }, [profSlug]);
 
   /* The cards. Unfiltered: the backend's summary. Filtered: the selected courses[] rows
      combined, weighted by rating count, distributions summed. The per-source hover only
@@ -552,7 +598,17 @@ const Professor = () => {
     () => [{ value: 'all', label: 'All courses' }, ...courses.map(c => ({ value: c.code, label: c.code }))],
     [courses]);
 
-  const toggleCourse = (code: string) => {
+  /* Filtering can drop the chart row above the courses, so the clicked row is put back where it was on screen.
+     Safari has no native scroll anchoring, and Chrome's misses when its anchor was inside the dropped row. */
+  const courseAnchor = useRef<{ el: HTMLElement; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const a = courseAnchor.current;
+    courseAnchor.current = null;
+    if (a) window.scrollBy(0, a.el.getBoundingClientRect().top - a.top);
+  }, [selectedCourses]);
+
+  const toggleCourse = (code: string, row: HTMLElement) => {
+    courseAnchor.current = { el: row, top: row.getBoundingClientRect().top };
     setSelectedCourses(prev => {
       const next = new Set(prev);
       if (next.has(code)) next.delete(code);
@@ -596,10 +652,17 @@ const Professor = () => {
     </div>
   );
 
-  if (loadError === 'not_found') return <NotFound />;
+  if (loadError === 'not_found') return <NotFound kind="professor" />;
   if (loadError || !profile || !stats) return <div className="prof-page"><LoadError /></div>;
 
   const identity = profile.identity;
+  // Ratings, not reviews: reviews[] holds approved comments only. There is no survey-only count per
+  // course (courses[].numRatings mixes in RMP), so a course filter gets the link, not a counted card.
+  const surveyCount = profile.sources.survey.numRatings;
+  const profLast = lastName(identity.name);
+  const rateCourse = selectedCourses.size === 1 ? [...selectedCourses][0] : null;
+  const showRateCard = RATE_ENABLED && !ratedHere && unfiltered && surveyCount < 5;
+  const showRateLink = RATE_ENABLED && !ratedHere && !showRateCard;
   const summary = profile.summary;
   const rmp = profile.sources.rmp;
   // A selection of courses no one has rated has nothing to chart either.
@@ -660,7 +723,7 @@ const Professor = () => {
     <div
       key={c.code}
       className={`prof-course-row ${!canFilter ? 'prof-course-row-static' : selectedCourses.has(c.code) ? 'selected' : ''}`}
-      onClick={canFilter ? () => toggleCourse(c.code) : undefined}
+      onClick={canFilter ? (e) => toggleCourse(c.code, e.currentTarget) : undefined}
     >
       <div className="prof-course-row-main">
         <span className="prof-course-code">{c.code}</span>
@@ -757,7 +820,9 @@ const Professor = () => {
           >
             {identity.imageUrl ? (
               <img
-                key={identity.imageUrl}
+                // Keyed per photo so both remount on a new one, resetting onError's display:none;
+                // prefixed so the two siblings' keys differ.
+                key={`img:${identity.imageUrl}`}
                 src={photoThumb(identity.imageUrl)}
                 alt={identity.name}
                 className="prof-avatar-img"
@@ -770,7 +835,7 @@ const Professor = () => {
               />
             ) : null}
             <span
-              key={identity.imageUrl ?? ''}
+              key={`initials:${identity.imageUrl ?? ''}`}
               className="prof-avatar-initials"
               style={identity.imageUrl ? { display: 'none' } : undefined}
             >
@@ -780,9 +845,24 @@ const Professor = () => {
           <div className="prof-hero-info">
             <h1 className="prof-name">
               {identity.name}
-              <BookmarkButton itemType="professor" itemKey={slug!} size="md" className="prof-hero-bookmark" />
+              <BookmarkButton itemType="professor" itemKey={slug!} size="md" className="prof-hero-bookmark" label={identity.name} />
             </h1>
-            {identity.department && <p className="prof-dept">{identity.department}</p>}
+            {/* Without a hub page the department opens the catalog filtered to it, which lists
+                rated professors only: so only from a rated professor, who is sure to be on it. */}
+            {identity.department && (
+              <p className="prof-dept">
+                {identity.departmentSlug || summary.rating !== null ? (
+                  <Link
+                    className="prof-dept-link"
+                    to={identity.departmentSlug
+                      ? `/departments/${identity.departmentSlug}`
+                      : `/professors?dept=${encodeURIComponent(identity.department)}`}
+                  >
+                    {identity.department}
+                  </Link>
+                ) : identity.department}
+              </p>
+            )}
             {awards.length > 0 && (
               <ul className="prof-awards" aria-label="Teaching awards">
                 {groupAwards(awards).map(({ label, award: a, years }) => (
@@ -802,6 +882,23 @@ const Professor = () => {
                 ))}
               </ul>
             )}
+            {tags.length > 0 && (
+              <ul className="prof-tags" aria-label="What students mention">
+                {tags.map(({ tag, count }) => (
+                  <li key={tag}>
+                    <button
+                      type="button"
+                      className={`prof-tag${activeTag === tag ? ' active' : ''}`}
+                      title={`Mentioned in ${count} reviews. Click to see them.`}
+                      aria-pressed={activeTag === tag}
+                      onClick={() => selectTag(tag)}
+                    >
+                      {tagLabel(tag)}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       </header>
@@ -812,16 +909,17 @@ const Professor = () => {
             <span className="prof-stat-value prof-stat-value-text">No ratings yet</span>
           </div>
         ) : (<>
-        <div className="prof-stat-card prof-stat-clickable">
+        <div className={`prof-stat-card${stats.breakdown.length > 1 ? ' prof-stat-clickable' : ''}`}>
           <span className="prof-stat-value">{stats.rating !== null ? <AnimatedNumber value={stats.rating} /> : '—'}</span>
           <span className="prof-stat-label" style={{ display: 'block', textAlign: 'center', position: 'relative' }}>
             Overall Rating
-            {stats.breakdown.length > 0 && (
+            {stats.breakdown.length > 1 && (
               <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', marginLeft: '4px', opacity: 0.6 }}><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
             )}
           </span>
           <div className="prof-stat-extra"><StarRating rating={stats.rating ?? 0} size="lg" /></div>
-          {stats.breakdown.length > 0 && (
+          {/* One source's score is the overall score, so the breakdown only shows for two or more. */}
+          {stats.breakdown.length > 1 && (
             <div className="prof-stat-breakdown">
               {stats.breakdown.map(([source, rating]) => (
                 <span key={source}>{SOURCE_LABELS[source] ?? source.toUpperCase()}: {rating.toFixed(2)}</span>
@@ -888,7 +986,7 @@ const Professor = () => {
 
       <div className="prof-hero-actions-row">
         {RATE_ENABLED && (
-        <Link to={`/rate?professor=${identity.slug}`} className="prof-rate-btn">
+        <Link to={rateHref(identity.slug, 'hero')} className="prof-rate-btn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
           </svg>
@@ -896,8 +994,8 @@ const Professor = () => {
         </Link>
         )}
         <Link
-          to={`/compare?a=${identity.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`}
-          className="prof-compare-btn"
+          to={`/compare?a=${encodeURIComponent(identity.slug)}`}
+          className={RATE_ENABLED ? 'prof-compare-btn prof-compare-btn--outline' : 'prof-compare-btn'}
         >
           Compare
         </Link>
@@ -1016,15 +1114,20 @@ const Professor = () => {
 
         {reviewTab === 'students' && (
           <>
-            {canFilter && courses.length > 1 && (
+            {((canFilter && courses.length > 1) || showRateLink) && (
               <div className="prof-reviews-filters">
-                <Dropdown
-                  className="feedback-dropdown"
-                  options={courseOptions}
-                  value={unfiltered ? 'all' : selectedCourses.size === 1 ? [...selectedCourses][0] : ''}
-                  onChange={v => setSelectedCourses(v === 'all' ? new Set() : new Set([v]))}
-                  placeholder={`${selectedCourses.size} courses`}
-                />
+                {canFilter && courses.length > 1 && (
+                  <Dropdown
+                    className="feedback-dropdown"
+                    options={courseOptions}
+                    value={unfiltered ? 'all' : selectedCourses.size === 1 ? [...selectedCourses][0] : ''}
+                    onChange={v => setSelectedCourses(v === 'all' ? new Set() : new Set([v]))}
+                    placeholder={`${selectedCourses.size} courses`}
+                  />
+                )}
+                {showRateLink && (
+                  <Link to={rateHref(identity.slug, 'tab_link', rateCourse)} className="prof-action-link prof-rate-link">Rate this professor</Link>
+                )}
               </div>
             )}
             {!unfiltered && (
@@ -1033,11 +1136,23 @@ const Professor = () => {
                 <button className="prof-action-link" onClick={() => setSelectedCourses(new Set())}>Show all</button>
               </div>
             )}
+            {showRateCard && (
+              <div className="prof-rate-card" ref={rateCardRef}>
+                <p className="prof-rate-card-text">
+                  {surveyCount === 0
+                    ? `Be the first Husky to rate Prof. ${profLast}`
+                    : `Only ${surveyCount} ${surveyCount === 1 ? 'Husky has' : 'Huskies have'} rated Prof. ${profLast}. Help a Husky out.`}
+                </p>
+                <Link to={rateHref(identity.slug, surveyCount === 0 ? 'tab_empty' : 'tab_few')} className="prof-rate-btn">Rate this professor</Link>
+              </div>
+            )}
             <div className="prof-reviews-list">
               {filteredStudentReviews.length === 0 ? (
+                !(showRateCard && surveyCount === 0) && (
                 <p className="prof-no-reviews">
                   {studentReviews.length === 0 ? 'No RateMyHusky reviews yet.' : 'No reviews match current filters.'}
                 </p>
+                )
               ) : (
                 filteredStudentReviews.slice(0, visibleStudentReviews).map(r => (
                   <div key={r.id} id={`review-${r.id}`} className="prof-review-card" style={{ borderLeftColor: r.rating >= 4 ? '#27ae60' : r.rating >= 3 ? '#f39c12' : '#e74c3c' }}>
@@ -1092,10 +1207,12 @@ const Professor = () => {
               )}
               <Dropdown className="feedback-dropdown" options={sortOptions} value={sortBy} onChange={setSortBy} placeholder="Sort by…" />
             </div>
-            {!unfiltered && (
+            {(!unfiltered || activeTag) && (
               <div className="prof-active-filter">
-                Showing {filteredRmpReviews.length} review{filteredRmpReviews.length === 1 ? '' : 's'} for <strong>{selectedLabel}</strong>
-                <button className="prof-action-link" onClick={() => setSelectedCourses(new Set())}>Show all</button>
+                Showing {filteredRmpReviews.length} review{filteredRmpReviews.length === 1 ? '' : 's'}
+                {activeTag && <> mentioning <strong>{tagLabel(activeTag)}</strong></>}
+                {!unfiltered && <> for <strong>{selectedLabel}</strong></>}
+                <button className="prof-action-link" onClick={() => { setSelectedCourses(new Set()); setActiveTag(null); }}>Show all</button>
               </div>
             )}
             <div className="prof-reviews-list">
@@ -1165,7 +1282,20 @@ const Professor = () => {
             </div>
             <div className="prof-reddit-list">
               {filteredRedditMentions.length === 0 ? (
-                <p className="prof-no-reviews">No Reddit mentions found for this professor.</p>
+                redditMentions.length === 0 ? (
+                  <p className="prof-no-reviews">No Reddit mentions found for this professor.</p>
+                ) : (
+                  // The search or sentiment filter hid every mention: say so, and offer the way back.
+                  <p className="prof-no-reviews">
+                    No mentions match these filters.{' '}
+                    <button
+                      className="prof-action-link"
+                      onClick={() => { setRedditSearch(''); setRedditSentiment('all'); setVisibleRedditMentions(10); }}
+                    >
+                      Clear filters
+                    </button>
+                  </p>
+                )
               ) : (
                 filteredRedditMentions.slice(0, visibleRedditMentions).map((m, i) => {
                   const redditUrl = safeRedditUrl(m.permalink);
@@ -1212,6 +1342,7 @@ const Professor = () => {
       </section>
 
       <Footer />
+      {RATE_ENABLED && <RatePopup key={identity.slug} slug={identity.slug} profName={identity.name} reviewsRef={reviewsRef} cardRef={rateCardRef} />}
       <button
         className={`prof-back-to-top ${showBackToTop ? 'visible' : ''}`} 
         onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} 

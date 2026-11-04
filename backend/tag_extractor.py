@@ -37,10 +37,6 @@ def might_have_tags(text):
 
 def structured_tags(row):
     tags = set()
-    if (row.get("attendance") or "").strip().lower() in YES:
-        tags.add("mandatory_attendance")
-    if (row.get("textbook") or "").strip().lower() in YES:
-        tags.add("requires_textbook")
     rmp_tags = (row.get("tags") or "").lower()
     for phrase, tag in RMP_TAG_MAP.items():
         if phrase in rmp_tags:

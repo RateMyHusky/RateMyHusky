@@ -15,12 +15,21 @@ interface CommentStepProps {
   onSubmit: (skip: boolean, honeypot: string) => void;
   onBack: () => void;
   submitting: boolean;
+  // Narrower than submitting: false while the submit only waits on Cloudflare's click box.
+  editLocked: boolean;
   updating: boolean;
   error: string;
+  turnstileRef: (el: HTMLDivElement | null) => void;
+  verifying: boolean;
+  // Cloudflare's box is on screen: asking for a click, or showing that the check failed.
+  boxShown: boolean;
+  // The error says Cloudflare's check failed, so it shows with the check, not under the comment.
+  errorAtCheck: boolean;
 }
 
-export function CommentStep({ value, onChange, onSubmit, onBack, submitting, updating, error }: CommentStepProps) {
+export function CommentStep({ value, onChange, onSubmit, onBack, submitting, editLocked, updating, error, turnstileRef, verifying, boxShown, errorAtCheck }: CommentStepProps) {
   const [honeypot, setHoneypot] = useState('');
+  const checkError = errorAtCheck ? error : '';
   const ref = useRef<HTMLTextAreaElement>(null);
 
   // Grows with the text; the CSS max-height caps it and the box scrolls inside past that.
@@ -54,7 +63,7 @@ export function CommentStep({ value, onChange, onSubmit, onBack, submitting, upd
         rows={5}
         placeholder="Optional"
         value={value}
-        readOnly={submitting}
+        readOnly={editLocked}
         onChange={(e) => onChange(e.target.value)}
       />
       <input
@@ -67,10 +76,19 @@ export function CommentStep({ value, onChange, onSubmit, onBack, submitting, upd
         value={honeypot}
         onChange={(e) => setHoneypot(e.target.value)}
       />
-      {error && <p className="rate-error" role="alert">{error}</p>}
-      <StepFoot onBack={onBack} backDisabled={submitting}>
+      {error && !checkError && <p className="rate-error" role="alert">{error}</p>}
+      <StepFoot onBack={onBack} backDisabled={editLocked}>
+        {/* Empty unless Cloudflare shows its box or its check failed; then it sits right above Submit,
+            pinned with it on desktop. Placed by the error's kind, not the box: a reset hides the box for a
+            moment, and the error would jump away and back. */}
+        <div className={`rate-verify${boxShown ? ' is-on' : ''}${checkError ? ' has-error' : ''}`}>
+          {checkError && <p className="rate-error" role="alert">{checkError}</p>}
+          {/* Always in the page, so screen readers announce the text when it's filled in. */}
+          <p className="rate-verify-lead" role="status">{verifying ? 'One quick check before we send your rating.' : ''}</p>
+          <div ref={turnstileRef} className="rate-turnstile" />
+        </div>
         <button type="button" className="rate-btn" disabled={submitting} onClick={() => onSubmit(false, honeypot)}>
-          {submitting ? 'Checking…' : updating ? 'Update rating' : 'Submit rating'}
+          {submitting ? (verifying ? 'Waiting for the check…' : 'Sending…') : updating ? 'Update rating' : 'Submit rating'}
         </button>
         {!updating && (
           <button type="button" className="rate-ghost" disabled={submitting} onClick={() => onSubmit(true, honeypot)}>
