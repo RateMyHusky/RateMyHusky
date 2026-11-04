@@ -1,0 +1,70 @@
+.crs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.crs {
+  border-bottom: 1px solid var(--line);
+}
+
+.crs:last-child {
+  border-bottom: 0;
+}
+
+.crs-link {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 4px;
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+
+a.crs-link:hover {
+  background: var(--bg-sunken);
+}
+
+a.crs-link:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+/* Fixed width so the titles beside them line up down the list. */
+.crs-code {
+  flex: none;
+  width: 62px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--brand);
+  font-variant-numeric: tabular-nums;
+  padding-top: 1px;
+}
+
+.crs-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.crs-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.crs-meta {
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.crs-chev {
+  margin-left: auto;
+  align-self: center;
+  flex: none;
+  color: var(--muted);
+  font-size: 13px;
+}
