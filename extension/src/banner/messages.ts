@@ -18,8 +18,12 @@ export const BANNER_MATCHES = ['https://nubanner.neu.edu/StudentRegistrationSsb/
 
 /** What RateMyHusky knows about the section behind one CRN. */
 export type Section = {
-  /** As Banner spells it — "Last, First". Null when no instructor is on
-   *  record for the section. */
+  /** The section's primary instructor, exactly as Banner's Instructor column
+   *  prints it — "Last, First", HTML entities decoded. The content script
+   *  compares this with the live page to catch a section reassigned since the
+   *  last scrape, and banner_section_instructors stores the name still
+   *  escaped ("O&#39;Connell"), so the endpoint has to unescape it or every
+   *  apostrophe surname reads as stale. Null when no instructor is on record. */
   instructor: string | null;
   /** Null wherever the matcher abstained, and the badge then shows the name
    *  with no rating. Guessing here would publish one professor's rating under
@@ -30,11 +34,16 @@ export type Section = {
   numRatings: number;
 };
 
+/** The most CRNs one request carries: Banner's largest page size (it offers
+ *  10, 15, 20 or 50 per page). The endpoint's own cap has to be at least this,
+ *  or the biggest page of results fails as a whole. */
+export const MAX_CRNS = 50;
+
 export type LookupRequest = {
   type: 'banner:lookup';
   term: Term;
-  /** Every CRN on the page, in one request. The API allows 20/sec per IP and
-   *  a results page lists far more sections than that. */
+  /** Every CRN on the page, in one request — at most MAX_CRNS. The API allows
+   *  20/sec per IP and a results page lists far more sections than that. */
   crns: string[];
 };
 
