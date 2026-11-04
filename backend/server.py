@@ -2384,7 +2384,7 @@ def submit_feedback():
 # ──────────────────────────────────────────────
 
 RATING_SECRET = os.getenv("RATING_SECRET")
-# Off until launch: turn it on with the frontend's RATE_ENABLED (see _student_reviews_shown).
+# On in production since the rate form launched (see _student_reviews_shown).
 SHOW_STUDENT_REVIEWS = os.getenv("SHOW_STUDENT_REVIEWS", "false").lower() == "true"
 # Loaded at import so gunicorn --preload reads the data files once.
 _networks = ip_networks.load_index(os.getenv("IP_DATA_DIR", "/tmp/ipdata"))
