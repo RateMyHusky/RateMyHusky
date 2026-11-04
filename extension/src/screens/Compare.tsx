@@ -1,17 +1,28 @@
-import { useEffect, useState } from 'react';
-import { errorMessage, fetchProfessor, type Professor } from '../api';
+import { errorMessage, fetchProfessor, safeHttpUrl, type Professor } from '../api';
 import StarRating from '../components/StarRating';
 import { buildRows, MIN_RATINGS } from '../utils/compare';
+import { useAsync } from '../utils/useAsync';
 import './Compare.css';
 
 /** A slug that didn't load, kept beside the ones that did so the student can
  *  see which one to remove instead of losing the whole comparison. */
 type Failed = { slug: string; message: string };
 
-type State =
-  | { status: 'loading' }
-  | { status: 'ready'; profs: Professor[]; failed: Failed[] }
-  | { status: 'error'; message: string };
+type Comparison = { profs: Professor[]; failed: Failed[] };
+
+async function loadComparison(slugs: string[]): Promise<Comparison> {
+  // allSettled, not all: one stale slug shouldn't throw away the professors
+  // that loaded fine, and a blank screen doesn't say which one to drop.
+  const results = await Promise.allSettled(slugs.map(fetchProfessor));
+  const profs = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+  const failed = results.flatMap((r, i) =>
+    r.status === 'rejected' ? [{ slug: slugs[i], message: errorMessage(r.reason) }] : [],
+  );
+  // Nothing loaded at all: the first failure becomes the screen's error.
+  const first = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (profs.length === 0 && first) throw first.reason;
+  return { profs, failed };
+}
 
 export default function Compare({
   slugs,
@@ -22,38 +33,16 @@ export default function Compare({
   dropped: string[];
   onDrop: (slug: string) => void;
 }) {
-  const [state, setState] = useState<State>({ status: 'loading' });
-
-  useEffect(() => {
-    let live = true;
-    setState({ status: 'loading' });
-    // allSettled, not all: one stale slug shouldn't throw away the professors
-    // that loaded fine, and a blank screen doesn't say which one to drop.
-    Promise.allSettled(slugs.map(fetchProfessor)).then((results) => {
-      if (!live) return;
-      const profs = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
-      const failed = results.flatMap((r, i) =>
-        r.status === 'rejected' ? [{ slug: slugs[i], message: errorMessage(r.reason) }] : [],
-      );
-      setState(
-        profs.length > 0
-          ? { status: 'ready', profs, failed }
-          : { status: 'error', message: failed[0]?.message ?? 'Nothing to compare.' },
-      );
-    });
-    return () => {
-      live = false;
-    };
-  }, [slugs.join(',')]);
+  const state = useAsync(() => loadComparison(slugs), slugs.join(','));
 
   if (state.status === 'loading') return <p className="muted">Loading…</p>;
   if (state.status === 'error') return <p className="muted">{state.message}</p>;
 
-  const profs = state.profs.filter((p) => !dropped.includes(p.identity.slug));
+  const profs = state.data.profs.filter((p) => !dropped.includes(p.identity.slug));
+  const failed = state.data.failed.filter((f) => !dropped.includes(f.slug));
   if (profs.length === 0) return <p className="muted">No professors to compare.</p>;
 
-  const rows = buildRows(profs);
-  const low = profs.map((p) => p.summary.numRatings < MIN_RATINGS);
+  const { rows, low } = buildRows(profs);
   const grid = { gridTemplateColumns: `76px repeat(${profs.length}, minmax(0, 1fr))` };
 
   return (
@@ -62,26 +51,29 @@ export default function Compare({
         {/* The blank cell over the row labels. The cards share the rows' grid
             or they stop sitting above their own numbers. */}
         <span aria-hidden="true" />
-        {profs.map((p) => (
-          <div key={p.identity.slug} className="cmp-head">
-            <button
-              className="cmp-drop"
-              type="button"
-              onClick={() => onDrop(p.identity.slug)}
-              aria-label={`Remove ${p.identity.name}`}
-              title={`Remove ${p.identity.name}`}
-            >
-              ✕
-            </button>
-            {p.identity.imageUrl ? (
-              <img className="cmp-face" src={p.identity.imageUrl} alt="" />
-            ) : (
-              <div className="cmp-face" aria-hidden="true" />
-            )}
-            <b>{p.identity.name}</b>
-            <span>{p.identity.department ?? '—'}</span>
-          </div>
-        ))}
+        {profs.map((p) => {
+          const image = safeHttpUrl(p.identity.imageUrl);
+          return (
+            <div key={p.identity.slug} className="cmp-head">
+              <button
+                className="cmp-drop"
+                type="button"
+                onClick={() => onDrop(p.identity.slug)}
+                aria-label={`Remove ${p.identity.name}`}
+                title={`Remove ${p.identity.name}`}
+              >
+                ✕
+              </button>
+              {image ? (
+                <img className="cmp-face" src={image} alt="" />
+              ) : (
+                <div className="cmp-face" aria-hidden="true" />
+              )}
+              <b>{p.identity.name}</b>
+              <span>{p.identity.department ?? '—'}</span>
+            </div>
+          );
+        })}
       </div>
 
       <div className="cmp-table">
@@ -99,9 +91,7 @@ export default function Compare({
                       : 'cmp-cell'
                 }
               >
-                {row.label === 'Overall Rating' && v != null && (
-                  <StarRating rating={v} size="sm" />
-                )}
+                {row.stars && v != null && <StarRating rating={v} size="sm" />}
                 {row.format(v)}
               </div>
             ))}
@@ -118,11 +108,25 @@ export default function Compare({
         </p>
       )}
 
-      {state.failed.length > 0 && (
-        <p className="muted cmp-note">
-          Couldn’t load {state.failed.map((f) => f.slug).join(', ')}.
+      {/* One line each, with its own ✕: a slug that failed has no card to
+          remove it from. The reason is shown because it decides what to do —
+          a 404 means drop it, an outage means try again later. */}
+      {failed.map((f) => (
+        <p key={f.slug} className="muted cmp-note cmp-failed">
+          <span>
+            {f.slug}: {f.message}
+          </span>
+          <button
+            className="cmp-drop"
+            type="button"
+            onClick={() => onDrop(f.slug)}
+            aria-label={`Dismiss ${f.slug}`}
+            title={`Dismiss ${f.slug}`}
+          >
+            ✕
+          </button>
         </p>
-      )}
+      ))}
 
       {/* The reason sits on screen rather than in a title: Chrome doesn't
           reliably fire tooltips on a disabled button, so a title here would

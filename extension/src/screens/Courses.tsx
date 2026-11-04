@@ -1,37 +1,26 @@
-import { useEffect, useState } from 'react';
-import { errorMessage, fetchProfessor, courseUrl, type Course, type Professor } from '../api';
-import { termRank } from '../utils/terms';
+import { courseUrl, fetchProfessor, RECENT_TERMS_CAP } from '../api';
 import { plural } from '../utils/format';
+import { useAsync } from '../utils/useAsync';
 import './Courses.css';
 
-type State =
-  | { status: 'loading' }
-  | { status: 'ready'; prof: Professor }
-  | { status: 'error'; message: string };
-
-/** Most recently taught first; ties broken by code so the order is stable. */
-function byRecency(a: Course, b: Course): number {
-  return termRank(b.lastTerm) - termRank(a.lastTerm) || a.code.localeCompare(b.code);
+/** A full list means "at least this many", since Banner history stops at the
+ *  cap. No terms at all means Banner has no record of the course, and printing
+ *  "0 terms" there read as never taught. */
+function termCount(n: number): string | null {
+  if (n === 0) return null;
+  return `${n}${n >= RECENT_TERMS_CAP ? '+' : ''} ${plural(n, 'term')}`;
 }
 
 export default function Courses({ slug }: { slug: string }) {
-  const [state, setState] = useState<State>({ status: 'loading' });
-
-  useEffect(() => {
-    let live = true;
-    setState({ status: 'loading' });
-    fetchProfessor(slug)
-      .then((prof) => live && setState({ status: 'ready', prof }))
-      .catch((err) => live && setState({ status: 'error', message: errorMessage(err) }));
-    return () => {
-      live = false;
-    };
-  }, [slug]);
+  const state = useAsync(() => fetchProfessor(slug), slug);
 
   if (state.status === 'loading') return <p className="muted">Loading…</p>;
   if (state.status === 'error') return <p className="muted">{state.message}</p>;
 
-  const courses = [...state.prof.courses].sort(byRecency);
+  // In the order /full sends them — taught courses most recent first, then
+  // the rated-only ones most-rated first. Re-sorting here undid that, and got
+  // Winter and the summer sessions wrong besides.
+  const courses = state.data.courses;
   if (courses.length === 0) return <p className="muted">No courses on record.</p>;
 
   return (
@@ -43,7 +32,7 @@ export default function Courses({ slug }: { slug: string }) {
       <ul className="crs-list">
         {courses.map((c) => {
           const meta = [
-            `${c.terms.length} ${plural(c.terms.length, 'term')}`,
+            termCount(c.terms.length),
             c.lastTerm ? `last ${c.lastTerm}` : null,
             c.numRatings > 0 ? `${c.numRatings} ${plural(c.numRatings, 'rating')}` : null,
           ]

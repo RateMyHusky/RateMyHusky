@@ -23,7 +23,9 @@
   max-width: 100%;
 }
 
-.award:hover {
+/* Links only. A chip whose sourceUrl didn't pass safeHttpUrl is a span, and
+   shouldn't light up as though it goes somewhere. */
+a.award:hover {
   background: var(--award-bg-hover);
   border-color: var(--award-line-hover);
 }

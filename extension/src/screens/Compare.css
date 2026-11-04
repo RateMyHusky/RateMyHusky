@@ -137,6 +137,20 @@
   line-height: 1.35;
 }
 
+/* A failed slug has no card, so its ✕ sits at the end of its line instead of
+   in a corner. Same button, minus the absolute positioning. */
+.cmp-failed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.cmp-failed .cmp-drop {
+  position: static;
+  flex: none;
+}
+
 /* ── add ── */
 
 .cmp-add {

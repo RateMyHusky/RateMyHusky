@@ -1,16 +1,11 @@
-import { useEffect, useState } from 'react';
-import { errorMessage, fetchProfessor, professorUrl, type Professor } from '../api';
+import { fetchProfessor, professorUrl, safeHttpUrl } from '../api';
 import StarRating from '../components/StarRating';
 import StatTile from '../components/StatTile';
 import AwardChips from '../components/AwardChips';
 import { ScaleIcon, ReviewsIcon, InfoIcon } from '../components/icons';
 import { score, percent, plural } from '../utils/format';
+import { useAsync } from '../utils/useAsync';
 import './Overview.css';
-
-type State =
-  | { status: 'loading' }
-  | { status: 'ready'; prof: Professor }
-  | { status: 'error'; message: string };
 
 export default function Overview({
   slug,
@@ -21,33 +16,21 @@ export default function Overview({
   onCompare?: () => void;
   onCourses?: () => void;
 }) {
-  const [state, setState] = useState<State>({ status: 'loading' });
-
-  useEffect(() => {
-    let live = true;
-    // Without this a slug change keeps the previous professor — name, scores
-    // and View Reviews link — on screen until the new fetch resolves.
-    setState({ status: 'loading' });
-    fetchProfessor(slug)
-      .then((prof) => live && setState({ status: 'ready', prof }))
-      .catch((err) => live && setState({ status: 'error', message: errorMessage(err) }));
-    return () => {
-      live = false;
-    };
-  }, [slug]);
+  const state = useAsync(() => fetchProfessor(slug), slug);
 
   if (state.status === 'loading') return <p className="muted">Loading…</p>;
   if (state.status === 'error') return <p className="muted">{state.message}</p>;
 
-  const { identity, summary, courses, lastTaught, awards } = state.prof;
+  const { identity, summary, courses, lastTaught, awards } = state.data;
+  const image = safeHttpUrl(identity.imageUrl);
 
   return (
     <>
       <div className="hero">
-        {identity.imageUrl ? (
+        {image ? (
           <img
             className="avatar"
-            src={identity.imageUrl}
+            src={image}
             alt=""
             style={{ objectPosition: `${identity.focusX}% ${identity.focusY}%` }}
           />

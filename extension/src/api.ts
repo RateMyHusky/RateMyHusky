@@ -106,6 +106,19 @@ export function courseUrl(code: string): string {
   return `${SITE_URL}/courses/${encodeURIComponent(code)}`;
 }
 
+/** Scraped URLs only become links if they're absolute http(s). A javascript:
+ *  or data: URL in the data would otherwise turn into a clickable href; MV3's
+ *  CSP should stop it running, but scraped data shouldn't lean on that. Same
+ *  rule as safeRedditUrl on the site's professor page. */
+export function safeHttpUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return ['http:', 'https:'].includes(new URL(url).protocol) ? url : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export type Professor = {
   version: number;
   identity: {
@@ -130,11 +143,18 @@ export type Professor = {
   awards: TeachingAward[];
 };
 
+/** Banner history keeps only this many terms per course (`labels[:6]` in
+ *  scraper/banner_history.py), so a course at the cap may have been taught
+ *  more often than its list shows. */
+export const RECENT_TERMS_CAP = 6;
+
 export type Course = {
   code: string;
   name: string | null;
   hasPage: boolean;
-  /** Every term on record, newest first. The design's "6 terms" is its length. */
+  /** The most recent terms it was taught, newest first — at most
+   *  RECENT_TERMS_CAP, not every term on record. Empty when Banner has no
+   *  history for the course at all. */
   terms: string[];
   lastTerm: string | null;
   numRatings: number;
@@ -151,11 +171,31 @@ export type TeachingAward = {
   sourceUrl: string;
 };
 
-export async function fetchProfessor(slug: string): Promise<Professor> {
+/** One request per professor for as long as the popup is open. Every screen
+ *  fetches on mount and the view stack unmounts whatever is underneath, so
+ *  Overview → Courses → Back was downloading the same /full three times. The
+ *  popup lives for seconds; nothing goes stale in that time. */
+const professors = new Map<string, Promise<Professor>>();
+
+export function fetchProfessor(slug: string): Promise<Professor> {
+  const cached = professors.get(slug);
+  if (cached) return cached;
+
+  const pending = loadProfessor(slug);
+  professors.set(slug, pending);
+  // A failure leaves the cache, so the next visit retries instead of
+  // replaying the same error.
+  pending.catch(() => professors.delete(slug));
+  return pending;
+}
+
+async function loadProfessor(slug: string): Promise<Professor> {
   if (USE_FIXTURES) {
-    const hit = PROFESSOR_FIXTURES[slug];
-    if (!hit) throw new NotFound(`no fixture for ${slug}`);
-    return hit as Professor;
+    // hasOwn, not a truthiness check: the fixtures are a plain object, so
+    // "constructor" or "toString" came back as a Professor and crashed the
+    // screen instead of 404ing. Matters once the slug comes from a search.
+    if (!Object.hasOwn(PROFESSOR_FIXTURES, slug)) throw new NotFound(`no fixture for ${slug}`);
+    return PROFESSOR_FIXTURES[slug] as Professor;
   }
   return get<Professor>(`/api/professors/${encodeURIComponent(slug)}/full`);
 }

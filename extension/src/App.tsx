@@ -45,7 +45,13 @@ export default function App() {
         {view === 'overview' && (
           <Overview
             slug={DEMO_SLUG}
-            onCompare={() => open('compare')}
+            onCompare={() => {
+              // A new comparison starts with nobody removed. Back from
+              // Settings pops the stack instead of coming through here, so a
+              // round trip there keeps the drops.
+              setDropped([]);
+              open('compare');
+            }}
             onCourses={() => open('courses')}
           />
         )}

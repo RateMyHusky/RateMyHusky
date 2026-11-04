@@ -1,4 +1,4 @@
-import type { TeachingAward } from '../api';
+import { safeHttpUrl, type TeachingAward } from '../api';
 import './AwardChips.css';
 
 // At most this many chips; the rest collapse into "+N more". Award names run
@@ -33,20 +33,31 @@ export default function AwardChips({
 
   return (
     <ul className="awards">
-      {shown.map(({ label, award, years }) => (
-        <li key={award.award}>
-          <a
-            className="award"
-            href={award.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={`${award.award} — ${award.awardingBody} (${years.join(', ')})`}
-          >
+      {shown.map(({ label, award, years }) => {
+        // sourceUrl is scraped. Anything but absolute http(s) renders as a
+        // plain chip rather than a link.
+        const href = safeHttpUrl(award.sourceUrl);
+        const title = `${award.award} — ${award.awardingBody} (${years.join(', ')})`;
+        const body = (
+          <>
             {label}
             <span className="award-years">{years.join(', ')}</span>
-          </a>
-        </li>
-      ))}
+          </>
+        );
+        return (
+          <li key={award.award}>
+            {href ? (
+              <a className="award" href={href} target="_blank" rel="noopener noreferrer" title={title}>
+                {body}
+              </a>
+            ) : (
+              <span className="award" title={title}>
+                {body}
+              </span>
+            )}
+          </li>
+        );
+      })}
       {hidden > 0 && (
         <li>
           {/* A link rather than a span with a title: a tooltip is unreachable
