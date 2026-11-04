@@ -1,7 +1,7 @@
 import searchFixture from './fixtures/search.json';
 
 // Flip once the site is out of maintenance and /api/* returns JSON again.
-export const USE_FIXTURES = true;
+export const USE_FIXTURES = false;
 
 // Must be the site, not the backend host: the API only accepts traffic
 // proxied through here, which is what attaches the shared secret.
@@ -20,6 +20,39 @@ export type CourseSuggestion = {
   code: string;
   name: string | null;
   dept: string | null;
+};
+
+export type ProfessorReview = {
+  course: string;
+  courseCode: string | null;
+  quality: number;
+  difficulty: number;
+  date: string;
+  tags: string;
+  comment: string;
+};
+
+export type ProfessorProfile = {
+  identity: {
+    slug: string;
+    name: string;
+    department: string;
+    imageUrl: string | null;
+  };
+  summary: {
+    rating: number | null;
+    numRatings: number;
+    numComments: number;
+  };
+  sources: {
+    rmp: { reviews: ProfessorReview[]; numRatings: number };
+    survey: {
+      available: boolean;
+      rating: number | null;
+      numRatings: number;
+      ratingDistribution: Record<'1' | '2' | '3' | '4' | '5', number>;
+    };
+  };
 };
 
 export type Suggestion = ProfessorSuggestion | CourseSuggestion;
@@ -63,16 +96,27 @@ export async function searchProfessors(
   if (q.length < 2) return [];
 
   if (USE_FIXTURES) {
-    const needle = q.toLowerCase();
+    const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
     return (searchFixture as Suggestion[])
       .filter((s): s is ProfessorSuggestion => s.type === 'professor')
-      .filter((s) => s.name.toLowerCase().includes(needle))
+      .filter((s) => {
+        const nameTokens = s.name.toLowerCase().split(/\s+/);
+        return tokens.every((token) =>
+          nameTokens.some(
+            (nameToken) => nameToken.startsWith(token) || token.startsWith(nameToken),
+          ),
+        );
+      })
       .slice(0, limit);
   }
 
   return get<ProfessorSuggestion[]>(
     `/api/search?q=${encodeURIComponent(q)}&type=Professor&limit=${limit}`,
   );
+}
+
+export async function fetchProfessorProfile(slug: string): Promise<ProfessorProfile> {
+  return get<ProfessorProfile>(`/api/professors/${encodeURIComponent(slug)}/full`);
 }
 
 export function isUnavailable(err: unknown): boolean {
