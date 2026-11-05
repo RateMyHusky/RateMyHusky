@@ -780,7 +780,6 @@
   .prof-course-row-main { gap: 2px 8px; flex-wrap: wrap; }
   .prof-course-code { min-width: 70px; font-size: 0.82rem; }
   .prof-course-title { font-size: 0.82rem; }
-  .prof-course-terms { flex-basis: 100%; }
 
   .prof-back-to-top { bottom: calc(20px + env(safe-area-inset-bottom, 0px)); left: 16px; width: 40px; height: 40px; }
   .prof-back-to-top svg { width: 18px; height: 18px; }

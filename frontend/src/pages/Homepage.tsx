@@ -261,11 +261,14 @@ const Homepage = () => {
       if (e.key === 'Escape') setRankSheetOpen(false);
       if (e.key === 'Tab') e.preventDefault();
     };
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    // Locks <html>, not <body>: html has overflow-x: clip, so a hidden body becomes its own
+    // scroll box at 100% height and the page jumps to the top.
+    const root = document.documentElement;
+    const prevOverflow = root.style.overflow;
+    root.style.overflow = 'hidden';
     document.addEventListener('keydown', onKey);
     return () => {
-      document.body.style.overflow = prevOverflow;
+      root.style.overflow = prevOverflow;
       document.removeEventListener('keydown', onKey);
       help?.focus();
     };
@@ -646,8 +649,9 @@ const Homepage = () => {
                 on Rating alone reads as "sorted by Rating, descending", the exact
                 claim the note is there to deny. */}
             <span className="goat-col-rating goat-col-ranked">Rating</span>
-            {/* "Ratings", not "Reviews": many professors on these boards have ratings but no written review. */}
-            <span className="goat-col-reviews goat-col-ranked">Ratings</span>
+            {/* "# Rated", not "Reviews": many professors on these boards have ratings but no
+                written review. Not "Ratings" either: it read as the same column as "Rating". */}
+            <span className="goat-col-reviews goat-col-ranked"># Rated</span>
           </div>
 
           {profsLoading ? (
@@ -696,7 +700,7 @@ const Homepage = () => {
                 />
                 <span className="goat-col-reviews">
                   {/* No totalComments fallback: it is a comment count, so under a
-                      "Ratings" header it would show the wrong unit entirely. */}
+                      "# Rated" header it would show the wrong unit entirely. */}
                   {(p.totalReviews ?? 0).toLocaleString()}
                 </span>
               </div>

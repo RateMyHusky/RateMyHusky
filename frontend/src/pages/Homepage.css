@@ -818,6 +818,11 @@
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
+@keyframes tooltipFadeInEdge {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
 .tooltip-row {
   display: flex;
   justify-content: space-between;
@@ -1424,6 +1429,9 @@
     left: auto;
     right: 0;
     transform: none;
+    /* tooltipFadeIn holds the desktop translateX(-50%), so the bubble faded in half its
+       width to the left and snapped right when the animation ended. */
+    animation-name: tooltipFadeInEdge;
   }
 
   .goat-rating-tooltip::before {
@@ -1654,8 +1662,11 @@
     min-width: 0;
     /* Fixed Rating width: each row is its own grid, so an auto column sized the header
        to "Rating" and the rows to the stars, and the two didn't line up. Score, stars and
-       the info glyph measure about 111px at 481-600px, so this leaves a little room. */
-    grid-template-columns: 28px minmax(0, 1fr) 116px 48px;
+       the info glyph measure about 111px at 481-600px, so 116px leaves a little room.
+       The name used to take all the spare width, which left a wide gap after it and
+       pushed Rating against the count; now the spare width is shared out. 54px fits
+       the "# Rated" header. */
+    grid-template-columns: 28px minmax(0, 1.4fr) minmax(116px, 1fr) minmax(54px, 0.6fr);
     grid-template-areas: "rank name rating reviews" "rank dept rating reviews";
     column-gap: 8px;
     padding: 0 12px;
