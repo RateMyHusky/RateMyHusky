@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { RATE_ENABLED } from '../config';
 import SignInModal from './SignInModal';
 import { clearPendingBookmark } from '../utils/pendingBookmark';
+import ThemeToggle from './ThemeToggle';
 import './Navbar.css';
 
 const Navbar = () => {
@@ -22,7 +23,7 @@ const Navbar = () => {
   const location = useLocation();
   const [isDark, setIsDark] = useState(() => localStorage.getItem('theme') === 'dark');
 
-  // Sync with floating ThemeToggle
+  // Sync with the ThemeToggle button in the bar (and the drawer item below)
   useEffect(() => {
     const handler = (e: Event) => {
       const dark = (e as CustomEvent<{ isDark: boolean }>).detail.isDark;
@@ -192,6 +193,9 @@ const Navbar = () => {
             </NavLink>
           )}
         </div>
+
+        <ThemeToggle />
+
         {authLoading ? null : user ? (
           <div className="navbar-user" ref={userMenuRef}>
             <button className="navbar-user-btn" onClick={() => setShowUserMenu(v => { if (!v) window.dispatchEvent(new CustomEvent('close-filter-sidebar')); return !v; })}>
