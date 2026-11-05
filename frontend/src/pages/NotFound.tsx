@@ -27,6 +27,8 @@ const NotFound = ({ kind }: NotFoundProps) => {
 
   return (
     <div className="not-found-page">
+      <title>Not found | RateMyHusky</title>
+      <meta name="robots" content="noindex" />
       <main className="not-found-main">
         <div className="not-found-shell">
           <section className="not-found-hero">
