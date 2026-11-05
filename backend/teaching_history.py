@@ -59,7 +59,7 @@ _SEASON_CODES = {"Fall": (1, 10), "Winter": (0, 25), "Spring": (0, 30), "Summer 
 
 
 def display_name(banner_name):
-    """Banner's "Last, First Middle" -> "First Middle Last"."""
+    """Banner's "Last, First Middle" -> "First Middle Last", then unescaped and recased by tidy_name."""
     if not banner_name:
         return banner_name
     last, sep, first = banner_name.partition(",")
