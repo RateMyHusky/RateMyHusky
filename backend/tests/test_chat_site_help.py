@@ -81,8 +81,23 @@ def test_non_site_question_still_requires_sign_in(q_client, logged, results):
     assert logged == []
 
 
+@pytest.mark.parametrize("token", ["not-a-jwt", "expired"])
+def test_site_question_with_bad_token_is_answered_as_signed_out(q_client, logged, results, token):
+    if token == "expired":
+        import time
+        import jwt as pyjwt
+        from tests.test_chat_question import _JWT_SECRET
+        token = pyjwt.encode({"sub": "user-123", "iss": "ratemyhusky", "aud": "ratemyhusky-web",
+                              "exp": int(time.time()) - 60}, _JWT_SECRET, algorithm="HS256")
+    resp = q_client.post("/api/chat", json={"q": "how do bookmarks work"},
+                         headers={"Origin": ORIGIN, "Authorization": "Bearer " + token})
+    assert resp.status_code == 200 and resp.get_json()["mode"] == "site_help"
+    assert logged[-1][1][8] is None                                 # session_token
+
+
 def test_keyword_fallback_passes_mod_filter(monkeypatch, q_client, logged):
     import server
+    monkeypatch.setenv("MODERATION_ENFORCE", "true")
     seen = {}
     def _capture(q, session_token, ip_hash, deps):
         seen["deps"] = deps
@@ -96,4 +111,6 @@ def test_keyword_fallback_passes_mod_filter(monkeypatch, q_client, logged):
     resp = q_client.post("/api/chat", json={"q": "is Guha hard"}, headers=_auth_headers())
     assert resp.status_code == 200
     seen["deps"].keyword_search_fn("x")
-    assert "mod_filter" in recorded
+    # With enforcement on, the filter is a real clause; an empty one would show held comments.
+    assert recorded.get("mod_filter")
+    assert "mod_checked_at IS NOT NULL" in recorded["mod_filter"]
