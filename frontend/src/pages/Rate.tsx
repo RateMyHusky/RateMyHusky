@@ -18,6 +18,8 @@ import {
   lastName, nextStep, pickCourse, prefillCourse, prevStep, progressIndex, toRateCourse,
 } from './rate/rateFlow';
 import type { Answers, RateCourse, RateProfessor, StepId } from './rate/rateFlow';
+import { clearRateDraft, keepOpened, loadRateDraft, saveRateDraft } from './rate/rateDraft';
+import type { RateDraft } from './rate/rateDraft';
 import { markRatedNow, parseFrom, track } from '../utils/ratePrompt';
 import './Rate.css';
 
@@ -68,6 +70,7 @@ export default function Rate() {
   const [step, setStep] = useState<StepId>('who');
   const [start, setStart] = useState<RateStart | null>(null);
   const [startFailed, setStartFailed] = useState(false);
+  const [lostDraft, setLostDraft] = useState(false);
   // recent: the list is Banner's newest-first order; without Banner history it is most-rated first.
   const [loaded, setLoaded] = useState<{ slug: string; list: RateCourse[]; recent: boolean } | null>(null);
   const [context, setContext] = useState<{ slug: string; rated: RatedCourse[] } | null>(null);
@@ -105,15 +108,16 @@ export default function Rate() {
   const coursesLoading = courses === null || rated === null;
 
   // Only the latest visit's start lands, so a slow earlier one can't overwrite it.
-  const beginVisit = (): Promise<RateStart | null> => {
+  const beginVisit = (saved: RateDraft | null = null): Promise<RateStart | null> => {
     const visit = ++visitRef.current;
     setStartFailed(false);
     return startRating(readMirror())
       .then((s) => {
         if (visitRef.current !== visit) return null;
         writeMirror(s.deviceToken);
-        setStart(s);
-        return s;
+        const kept = keepOpened(s, saved);
+        setStart(kept);
+        return kept;
       })
       .catch(() => {
         if (visitRef.current === visit) setStartFailed(true);
@@ -124,10 +128,36 @@ export default function Rate() {
   // Start the visit, then resolve any ?professor / ?course prefill.
   useEffect(() => {
     let cancelled = false;
-    const visit = beginVisit();
+    const saved = loadRateDraft(Date.now());
+    const visit = beginVisit(saved);
 
     (async () => {
       const profSlug = params.get('professor');
+      const savedProf = saved?.answers.professor;
+      if (saved && savedProf && (!profSlug || profSlug === savedProf.slug)) {
+        if (savedProf.slug === null) {
+          if (cancelled) return;
+          setAnswers(saved.answers);
+          setStep(saved.step);
+          setReady(true);
+          return;
+        }
+        const res = await fetchRateProfessor(savedProf.slug);
+        if (cancelled) return;
+        if (res.ok) {
+          const { identity } = res.data;
+          setAnswers({ ...saved.answers, professor: { slug: identity.slug, name: identity.name, department: identity.department } });
+          setStep(saved.step);
+        } else {
+          clearRateDraft();
+          setLostDraft(true);
+          setAnswers({ comment: '' });
+          setStep('who');
+        }
+        setReady(true);
+        return;
+      }
+      if (saved) clearRateDraft();
       let initial: Answers = { comment: '' };
       let prefetched: RatedCourse[] | null = null;
       let s: RateStart | null = null;
@@ -161,6 +191,11 @@ export default function Rate() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the prefill is read once, on mount
   }, []);
+
+  useEffect(() => {
+    if (!answers.professor || step === 'thanks') return;
+    saveRateDraft({ step, answers, opened: start?.opened ?? null, deviceToken: start?.deviceToken ?? null }, Date.now());
+  }, [answers, step, start]);
 
   useEffect(() => {
     if (!slug) return;
@@ -206,6 +241,7 @@ export default function Rate() {
         if (skip) setAnswers((a) => ({ ...a, comment: '' }));
         setCounter(res.counter);
         reset();
+        clearRateDraft();
         setStep('thanks');
         setContextReload((n) => n + 1);
         return;
@@ -264,6 +300,8 @@ export default function Rate() {
   }, [pending, failed, scriptFailed, startFailed, interactive, reset, start, errorCode]);
 
   const rateAnother = () => {
+    clearRateDraft();
+    setLostDraft(false);
     window.clearTimeout(pickTimer.current);
     setAnswers({ comment: '' });
     setStep('who');
@@ -522,6 +560,7 @@ export default function Rate() {
         <div className="rate-panel" ref={panelRef}>
           {ready && <ProgressBar index={progressIndex(step)} done={step === 'thanks'} />}
           {startFailed && <p className="rate-hint" role="alert">We couldn't start the form. Please reload and try again.</p>}
+          {lostDraft && step === 'who' && <p className="rate-hint" role="status">We couldn't find the professor from your saved answers. Pick them again.</p>}
           {ready && step !== 'thanks' && (
             <div className="rate-top">
               <button type="button" className={`rate-back-top${canBack ? '' : ' is-hidden'}`} disabled={held} onClick={back}>
