@@ -232,6 +232,7 @@ ENTRIES: tuple[Entry, ...] = (
         _p(r"\b(search|look ?up) (bar|box|for (a |an )?(professor|course|class|instructor)s?)\b",
            r"\bhow (do|can) i (search|look up|find) (a |an |the )?(professor|course|class|instructor)s?(\s+(here|on (the )?(site|website)|on ratemyhusky))?$",
            r"\bbrowse (all )?(professors|courses|classes)\b",
+           r"\bwhere (can|do) i (view|see|find|get|look at) (information|info|ratings|reviews) (about|on|for) (professors|courses|classes|instructors)$",
            r"\bwhere is the search (bar|box)\b")),
     Entry(
         "data_sources", "Where the data comes from",
@@ -268,9 +269,16 @@ def get(entry_id: str) -> Entry | None:
     return _BY_ID.get(entry_id)
 
 
+# Phones and some keyboards type curly quotes, which the patterns' plain apostrophes miss.
+_QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
+# A leading "Hi," / "Hey there!" would stop the anchored menu patterns from matching.
+_GREETING = re.compile(r"^(hi|hello|hey)( there)?\b[\s,!.]*(?=\w)")
+
+
 def _normalise(q: str) -> str:
-    q = re.sub(r"\s+", " ", q.lower())
-    return re.sub(r"^[^\w]+|[^\w]+$", "", q)
+    q = re.sub(r"\s+", " ", q.lower().translate(_QUOTES))
+    q = re.sub(r"^[^\w]+|[^\w]+$", "", q)
+    return _GREETING.sub("", q)
 
 
 def _names_entity(text: str) -> bool:

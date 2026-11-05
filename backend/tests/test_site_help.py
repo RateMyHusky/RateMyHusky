@@ -7,7 +7,8 @@ IDS = ["menu", "data_sources", "affiliation", "rate", "goated", "compare", "sent
        "bookmarks", "departments", "sign_in", "theme", "professors", "privacy", "ask_help"]
 
 SHOULD_MATCH = {
-    "menu": ["what can you do", "help", "what is this site", "what is RateMyHusky?"],
+    "menu": ["what can you do", "help", "what is this site", "what is RateMyHusky?",
+             "Hi, what can you do?", "hey there! help", "hi"],
     "data_sources": ["where do the ratings come from", "where does the data come from",
                      "how often is the data updated", "where do ratings come from",
                      "where does reddit data come from", "where does this data come from"],
@@ -21,7 +22,7 @@ SHOULD_MATCH = {
     "sentiment": ["what does the sentiment bar mean", "how is the reddit sentiment label generated",
                   "what is the sentiment bar on a comment"],
     "photos": ["why doesn't this instructor have a photo", "where do the faculty photos come from",
-               "why is there no picture"],
+               "why is there no picture", "why doesn’t this instructor have a photo?"],
     "no_ratings": ["why do some pages have no ratings", "why does this instructor have zero reviews",
                    "why is there a page with no ratings"],
     "missing_course": ["why is a course missing from a professor's page",
@@ -32,7 +33,8 @@ SHOULD_MATCH = {
                "where does award information come from"],
     "report": ["how do I report wrong data", "where is the feedback button",
                "something on the site is wrong"],
-    "search": ["how do I search for a professor", "where is the search bar", "how do I find a course"],
+    "search": ["how do I search for a professor", "where is the search bar", "how do I find a course",
+               "Hi! Where can i view information about professors?"],
     "bookmarks": ["how do I bookmark a professor", "where are my saved professors",
                   "how do bookmarks work"],
     "departments": ["where can I see all departments", "is there a department page",
@@ -47,6 +49,7 @@ SHOULD_MATCH = {
                  "how does the ask feature work"],
 }
 SHOULD_NOT_MATCH = [
+    "hi, is Guha a good teacher", "where can I view information about Guha",
     "is CS3500 hard", "how do I get an A in CS2500", "compare Wu and Smith for CS2500",
     "should I bookmark Prof Lee's class", "rate Guha's teaching", "how do I sign up for classes",
     "is professor Lieberherr good at explaining compare and contrast", "who teaches DS 3000",
