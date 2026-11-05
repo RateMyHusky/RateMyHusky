@@ -146,6 +146,39 @@ jobs:
           ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
         run: python -m pipeline.run
 
+      # Ask retrieval searches the evidence table (RMP reviews + Reddit comments),
+      # which nothing else refreshes, so it goes stale the week after it is built.
+      # Runs after "Rebuild read models" because the build reads professors_catalog.
+      # working-directory is scraper/ because load_evidence imports denylist from
+      # ../backend by relative path. --prune drops rows the build no longer produces
+      # but refuses (check_prune) to delete over 5% of a source, or anything when the
+      # build came back empty, so a broken source table can't wipe the corpus; the
+      # real weekly delta is tens of rows. There is no --force here on purpose.
+      - name: Rebuild Ask corpus
+        if: ${{ !inputs.dry_run }}
+        working-directory: scraper
+        env:
+          ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
+        run: python load_evidence.py --build-evidence --prune
+
+      # The embedding model comes from the Hugging Face hub; cache it so the
+      # weekly run doesn't depend on a download.
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-bge-small-en-v1.5-onnx
+
+      # Embeds only rows that are missing an embedding or whose text changed, so a
+      # normal week is a few dozen rows. The first run embeds everything (~50k rows;
+      # ~1,100 rows/s on a desktop CPU, slower on a runner).
+      - name: Embed Ask corpus
+        if: ${{ !inputs.dry_run }}
+        working-directory: scraper
+        env:
+          ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
+        run: python embed_evidence.py --embed
+
       # Post-write verification: the pre-scrape floors validate the input CSVs;
       # this validates what actually landed in the DB. Runs BEFORE the store
       # push so a bad DB state also blocks overwriting the data store.
@@ -164,6 +197,18 @@ jobs:
           print(f"professors_catalog: {n} shown rows")
           if n < 3000:
               print(f"::error::professors_catalog has only {n} shown rows after pipeline.run (< 3000). Store push skipped; investigate before re-running.")
+              sys.exit(1)
+          cur.execute("SELECT count(*) FROM evidence")
+          n_ev = cur.fetchone()[0]
+          print(f"evidence: {n_ev} rows")
+          if n_ev < 40000:
+              print(f"::error::evidence has only {n_ev} rows after the Ask corpus rebuild (< 40000). Store push skipped; investigate before re-running.")
+              sys.exit(1)
+          cur.execute("SELECT count(ee.evidence_id)::float / count(*) FROM evidence e LEFT JOIN evidence_embeddings ee ON ee.evidence_id = e.id")
+          share = cur.fetchone()[0]
+          print(f"evidence embedded: {share:.1%}")
+          if share < 0.95:
+              print(f"::error::Only {share:.1%} of evidence rows have an embedding (< 95%). Store push skipped; investigate before re-running.")
               sys.exit(1)
           cur.execute("SELECT count(*) FROM (SELECT 1 FROM rmp_reviews WHERE name_key IS NULL LIMIT 1001) AS probe")
           nulls = cur.fetchone()[0]

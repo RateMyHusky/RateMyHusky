@@ -241,7 +241,29 @@ def upsert_evidence(conn, rows, batch=1000):
         total += len(chunk)
     return total
 
-def prune_evidence(conn, source, fresh_refs, batch=1000):
+# A weekly prune that would remove more than this share of a source's rows is
+# treated as a broken build, not as deletions. The real weekly delta is ~0.03%
+# (14 of 41k rmp rows, 0 reddit), so 5% leaves headroom and still stops a
+# partial source table from wiping the corpus.
+PRUNE_CEILING = 0.05
+
+def check_prune(source: str, n_db: int, n_fresh: int, n_stale: int, force: bool) -> None:
+    """Refuse a prune that looks like a broken build. An empty build is refused even with
+    force (nothing legitimate produces zero rows for a populated source); a prune over
+    PRUNE_CEILING of the source's rows needs force."""
+    if n_fresh == 0 and n_db > 0:
+        raise SystemExit(
+            f"Refusing to prune {source}: the build produced 0 rows but the database holds "
+            f"{n_db}. The source tables are probably empty or unreadable; nothing was deleted."
+        )
+    if n_stale > PRUNE_CEILING * n_db and not force:
+        raise SystemExit(
+            f"Refusing to prune {source}: {n_stale} of {n_db} rows "
+            f"({n_stale / n_db:.1%}) are stale, over the {PRUNE_CEILING:.0%} ceiling. "
+            f"Nothing was deleted. Re-run with --force if this is expected."
+        )
+
+def prune_evidence(conn, source, fresh_refs, batch=1000, force=False):
     """Delete evidence rows (and their embeddings) for `source` whose source_ref is not in
     fresh_refs — cleans up rows orphaned by a Reddit re-score or FP-mention purge. Computes the
     stale refs (in DB, not in fresh_refs) up front, then batches the DELETEs over just those stale
@@ -252,6 +274,7 @@ def prune_evidence(conn, source, fresh_refs, batch=1000):
         cur.execute("SELECT source_ref FROM evidence WHERE source = %s", (source,))
         db_refs = [r[0] for r in cur.fetchall()]
     stale = [ref for ref in db_refs if ref not in fresh_set]
+    check_prune(source, len(db_refs), len(fresh_set), len(stale), force)
 
     deleted = 0
     for start in range(0, len(stale), batch):
@@ -375,12 +398,20 @@ def selftest():
         def cursor(self, *a, **k): return _FakePruneCursor()
         def commit(self): pass
         def rollback(self): pass
-    deleted = prune_evidence(_FakePruneConn(), "reddit", ["keep1", "keep2"])
+    deleted = prune_evidence(_FakePruneConn(), "reddit", ["keep1", "keep2"], force=True)
     check("prune deletes embeddings before evidence", "evidence_embeddings" in prune_sql_holder[0][0])
     check("prune scopes DELETE to source + stale refs only",
           prune_sql_holder[1][1][0] == "reddit" and prune_sql_holder[1][1][1] == ["stale1"]
           and "source_ref = ANY" in prune_sql_holder[1][0] and "NOT" not in prune_sql_holder[1][0])
     check("prune returns deleted count from cursor.rowcount", deleted == 2)
+    prune_sql_holder.clear()
+    try:
+        prune_evidence(_FakePruneConn(), "reddit", ["keep1", "keep2"])
+        refused = False
+    except SystemExit:
+        refused = True
+    check("prune over the ceiling without force refuses before any DELETE",
+          refused and not prune_sql_holder)
 
     # ── Critical: prune must batch over STALE refs (DB minus fresh), not fresh refs — batching
     # over fresh refs means the first chunk's NOT-IN DELETE wipes every fresh row whose ref is in
@@ -406,7 +437,7 @@ def selftest():
         def commit(self): pass
         def rollback(self): pass
     fresh_refs_multi = ["a", "b", "c", "d"]
-    deleted_multi = prune_evidence(_FakeMultiBatchConn(), "reddit", fresh_refs_multi, batch=2)
+    deleted_multi = prune_evidence(_FakeMultiBatchConn(), "reddit", fresh_refs_multi, batch=2, force=True)
     all_delete_params = [p for _, p in prune_multi_sql_holder]
     all_chunk_refs = [ref for _source, chunk in all_delete_params for ref in chunk]
     check("prune (multi-batch) never puts a fresh ref in any DELETE param",
@@ -432,7 +463,12 @@ def main():
     parser.add_argument("--prune", action="store_true",
                          help="After building, delete evidence rows (+ their embeddings) whose "
                               "source_ref is no longer produced by the build (requires --build-evidence)")
+    parser.add_argument("--force", action="store_true",
+                         help="Let --prune delete more than the safety ceiling "
+                              f"({PRUNE_CEILING:.0%} of a source's rows); requires --prune")
     args = parser.parse_args()
+    if args.force and not args.prune:
+        parser.error("--force requires --prune")
 
     if args.selftest:
         sys.exit(selftest())
@@ -455,7 +491,7 @@ def main():
         if args.prune:
             for source, rows in (("reddit", reddit_rows), ("rmp", rmp_rows)):
                 fresh_refs = [r["source_ref"] for r in rows]
-                deleted = prune_evidence(conn, source, fresh_refs)
+                deleted = prune_evidence(conn, source, fresh_refs, force=args.force)
                 print(f"Pruned {deleted} stale {source} evidence rows")
 
         conn.close()

@@ -16,3 +16,8 @@ python-dotenv
 # and other Pillow/libwebp versions encode differently, rewriting every file.
 # 12.0.0 made the committed copies. Bump it with a full --refresh, in the same commit.
 pillow==12.0.0
+
+# Ask corpus embedding (scraper/embed_evidence.py) in the weekly refresh
+onnxruntime
+tokenizers
+huggingface_hub
