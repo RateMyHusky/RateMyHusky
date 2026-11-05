@@ -9,7 +9,8 @@ IDS = ["menu", "data_sources", "affiliation", "rate", "goated", "compare", "sent
 SHOULD_MATCH = {
     "menu": ["what can you do", "help", "what is this site", "what is RateMyHusky?"],
     "data_sources": ["where do the ratings come from", "where does the data come from",
-                     "how often is the data updated"],
+                     "how often is the data updated", "where do ratings come from",
+                     "where does reddit data come from", "where does this data come from"],
     "affiliation": ["is RateMyHusky run by Northeastern", "is this site affiliated with the university",
                     "is this an official Northeastern website"],
     "rate": ["can I write a review here", "how do I rate a professor", "where is the rating form"],

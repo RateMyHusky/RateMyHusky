@@ -213,7 +213,7 @@ ENTRIES: tuple[Entry, ...] = (
         "posts and comments from Northeastern subreddits that mention that professor, with a "
         "link back to each original. We refresh the data every week.",
         (("FAQ: where ratings come from", "/faq#students"),),
-        _p(r"\bwhere (do|does|did) (the |your |these |this site'?s? )(ratings?|reviews?|data|reddit (posts|comments))\b.*\b(come|from|get|got)\b",
+        _p(r"\bwhere (do|does|did) (the |your |these |this |those |this site'?s? )?((reddit|rmp|ratemyprofessors?) )?(ratings?|reviews?|data|posts|comments)\b.*\b(come|from|get|got)\b",
            r"\bhow often (is|are|do|does) (the )?(data|ratings|reviews|site|website) (updat|refresh|chang)",
            r"\bweekly refresh\b",
            r"\bdata sources?\b")),
