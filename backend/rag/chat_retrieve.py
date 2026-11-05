@@ -1,4 +1,5 @@
 import sys, re, argparse
+from pipeline.names import search_squash
 
 # A course code looks like 2–5 letters then 4 digits, optionally space-separated
 # (e.g. "DS3000", "CS 3000", "ENGW1111"). Used to route a gate hint to the course path.
