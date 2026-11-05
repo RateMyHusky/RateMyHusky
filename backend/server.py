@@ -14,7 +14,7 @@ from psycopg2.extras import RealDictCursor
 from functools import lru_cache
 from dotenv import load_dotenv
 from prof_aliases import ALIAS_MAP
-from pipeline.names import COLLEGE_MAP, search_squash
+from pipeline.names import COLLEGE_MAP, search_fold, search_squash
 from flask import Flask, g, jsonify, request, redirect, make_response
 from flask.json.provider import DefaultJSONProvider
 from flask_cors import CORS
@@ -894,6 +894,9 @@ def _approved_aliases():
     return _alias_cache["map"]
 
 
+PROFESSOR_KEY_FOLD_SQL = "regexp_replace(name_key, '[^a-z0-9 ]', '', 'g')"
+
+
 def _professor_search(q, limit=5, rated_only=False):
     """Search professors with tiered relevance ranking. rated_only applies the
     caller's avg_rating filter before the 100-row cut, not after it."""
@@ -920,11 +923,16 @@ def _professor_search(q, limit=5, rated_only=False):
     params = []
     aliases = _approved_aliases()
     alias_slugs = set()
-    for word in words:
-        group = [word] + list(_WORD_ALIAS.get(word, ()))
-        alias_hit = aliases.get(word)
+    folded_words = []
+    for raw in words:
+        word = search_fold(raw)
+        if not word:
+            continue
+        folded_words.append(word)
+        group = [word] + [f for f in (search_fold(a) for a in _WORD_ALIAS.get(raw, ())) if f]
+        alias_hit = aliases.get(raw)
         if len(group) > 1 or alias_hit:
-            parts = ["name_key LIKE %s" for _ in group]
+            parts = [f"{PROFESSOR_KEY_FOLD_SQL} LIKE %s" for _ in group]
             params.extend(f"%{w}%" for w in group)
             if alias_hit:
                 parts.append("slug = ANY(%s)")
@@ -932,9 +940,12 @@ def _professor_search(q, limit=5, rated_only=False):
                 alias_slugs.update(alias_hit)
             conditions.append("(" + " OR ".join(parts) + ")")
         else:
-            conditions.append("name_key LIKE %s")
+            conditions.append(f"{PROFESSOR_KEY_FOLD_SQL} LIKE %s")
             params.append(f"%{word}%")
 
+    if not folded_words:
+        return []
+    q_fold = " ".join(folded_words)
     if rated_only:
         conditions.append("avg_rating IS NOT NULL")
     where = " AND ".join(conditions)
@@ -944,16 +955,16 @@ def _professor_search(q, limit=5, rated_only=False):
     rows = query(
         f"SELECT slug, name, name_key, department, avg_rating, total_reviews "
         f"FROM professors_catalog WHERE {where} "
-        f"ORDER BY {alias_first}(name_key LIKE %s OR name_key LIKE %s) DESC, total_reviews DESC, slug LIMIT 100",
-        params + alias_params + [f"{q_resolved}%", f"% {q_resolved}%"]
+        f"ORDER BY {alias_first}({PROFESSOR_KEY_FOLD_SQL} LIKE %s OR {PROFESSOR_KEY_FOLD_SQL} LIKE %s) DESC, total_reviews DESC, slug LIMIT 100",
+        params + alias_params + [f"{q_fold}%", f"% {q_fold}%"]
     )
 
     # Rank in Python for proper tiered relevance (use resolved query)
-    q_rank = q_resolved
-    words_rank = q_resolved.split()
+    q_rank = q_fold
+    words_rank = folded_words
 
     def rank_match(row):
-        nk = row['name_key']
+        nk = search_fold(row['name_key'])
         parts = nk.split()
 
         # Tier 1: an approved nickname of this professor was searched

@@ -200,3 +200,29 @@ def test_catalog_pages_show_each_professor_once_when_sort_values_tie(live_server
             page += 1
         assert sorted(seen) == sorted(slugs), query
     truncate(pg, "professors_catalog")
+
+
+@pytest.mark.parametrize("q, slug", [
+    ("obrien", "david-o-brien"),
+    ("o’brien", "david-o-brien"),
+    ("O’BRIEN", "david-o-brien"),
+    ("o brien", "david-o-brien"),
+    ("o'brien", "david-o-brien"),
+    ("nunez neto", "blas-nunez-neto"),
+    ("nunezneto", "blas-nunez-neto"),
+    ("dominguez", "carlos-dominguez"),
+    ("domínguez", "carlos-dominguez"),
+])
+def test_professor_search_ignores_apostrophes_hyphens_and_accents(live_server, pg, q, slug):
+    rows = [
+        dict(CATALOG[0], slug="david-o-brien", name="David O'Brien", name_key="david o'brien"),
+        dict(CATALOG[0], slug="blas-nunez-neto", name="Blas Nunez-Neto", name_key="blas nunez-neto"),
+        dict(CATALOG[0], slug="carlos-dominguez", name="Carlos Domínguez", name_key="carlos dominguez"),
+    ]
+    truncate(pg, "professors_catalog", "course_catalog", "source_summary", "stats_cache")
+    read_models.write(pg, rows, COURSES, SUMMARIES, COUNTS)
+    client = live_server.app.test_client()
+    found = client.get("/api/search?q=" + urllib.parse.quote(q))
+    assert found.status_code == 200, found.get_data(as_text=True)[:500]
+    assert found.get_json()[0]["slug"] == slug
+    assert client.get("/api/search?q=%27%27").get_json() == []
