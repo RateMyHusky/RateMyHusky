@@ -428,7 +428,6 @@ function Compare() {
 		if (parts.length === 1) return parts[0];
 		return `${parts[0]} ${parts[parts.length - 1][0]}.`;
 	};
-	const firstName = (slot: SlotData) => slot.name.trim().split(/\s+/)[0] || `Prof. ${slot.label}`;
 
 	/* Professor data shape (api.ts v2): summary = blended numbers across sources.
 	   RMP is the only live source, so the Overall Rating row is the RMP rating. */
@@ -836,7 +835,7 @@ function Compare() {
 											<span className="compare-col-name">
 												{slot.slug && <span className={`compare-col-dot tone-${slot.index}`} aria-hidden="true" />}
 												<span className="compare-name-full">{slot.slug ? displayName(slot) : `Professor ${slot.label}`}</span>
-												<span className="compare-name-short">{slot.slug ? firstName(slot) : `Prof. ${slot.label}`}</span>
+												<span className="compare-name-short">{slot.slug ? chipName(slot) : `Prof. ${slot.label}`}</span>
 											</span>
 										</div>
 									))}
