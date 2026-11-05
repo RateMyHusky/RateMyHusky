@@ -1,5 +1,6 @@
 """Name and department helpers shared by the pipeline and the photo scrapers."""
 
+import html
 import re
 import unicodedata
 
@@ -13,6 +14,35 @@ def normalize_name(name):
 
 def name_to_slug(name):
     return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+
+
+_PARTICLES = {"van", "von", "der", "de", "da", "del", "di", "du", "la", "le"}
+
+
+def tidy_name(name):
+    """Display-name cleanup: unescape, collapse whitespace, and fix casing only
+    when the whole name is lowercase or uppercase (or "Mc" + lowercase).
+    Never feeds slugs, name_key or rmp_name."""
+    if not name:
+        return name
+    s = re.sub(r'\s+', ' ', html.unescape(name)).strip()
+    letters = [c for c in s if c.isalpha()]
+    if letters and (all(c.islower() for c in letters) or all(c.isupper() for c in letters)):
+        words = s.split(' ')
+        last = len(words) - 1
+        out = []
+        for i, w in enumerate(words):
+            bare = w.rstrip('.,')
+            if bare.upper() in {"II", "III", "IV"}:
+                out.append(bare.upper() + w[len(bare):])
+            elif bare.lower() == "jr":
+                out.append("Jr" + w[len(bare):])
+            elif 0 < i < last and w.lower() in _PARTICLES:
+                out.append(w.lower())
+            else:
+                out.append(re.sub(r"(^|[-'’])([a-z])", lambda m: m.group(1) + m.group(2).upper(), w.lower()))
+        s = ' '.join(out)
+    return re.sub(r'\bMc([a-z])', lambda m: "Mc" + m.group(1).upper(), s)
 
 
 def upgrade_image_url(url):
