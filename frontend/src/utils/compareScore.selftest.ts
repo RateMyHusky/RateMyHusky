@@ -46,8 +46,9 @@ function selftest(): number {
 
   const four = scoreProfessors([0, 1, 2, 3], m);
   check('four-way winner is Mislove, runner-up Nunez', four?.kind === 'winner' && four.winner === 3 && four.runnerUp === 1);
-  check('four-way sentence starts with the scores',
-    four?.kind === 'winner' && winnerSentence(four, last).startsWith("Mislove scores 83 to Nunez's 60."));
+  check('four-way sentence is exact',
+    four?.kind === 'winner' && winnerSentence(four, last) ===
+      "Mislove scores 83 to Nunez's 60. Ahead on overall rating, difficulty, and would-take-again rate.");
 
   const tinyLead = scoreProfessors([0, 1], [
     ratingMetric([3.61, 3.54]), difficultyMetric([3.5, 3.5]), takeAgainMetric([60, 60]),

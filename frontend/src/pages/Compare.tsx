@@ -416,14 +416,20 @@ function Compare() {
 		};
 	});
 
-	// A slot gets a column and a chip photo only while it has a slug and hasn't failed
+	// A slot gets a column only while it has a slug and hasn't failed
 	const shown = (slot: SlotData) => Boolean(slot.slug) && !slot.failed;
 	const isReady = (slot: SlotData) => Boolean(slot.slug) && !slot.loading;
 	const displayName = (slot: SlotData) => slot.name || `Professor ${slot.label}`;
-	// "Elena Strange" -> "Elena S." (mobile chips) and "Elena" (mobile table header)
+	// Name words without a trailing generational suffix ("Olin Shivers III" -> ["Olin", "Shivers"])
+	const nameParts = (name: string) => {
+		const parts = name.trim().split(/\s+/).filter(Boolean);
+		if (parts.length > 1 && /^(jr\.?|sr\.?|ii|iii|iv)$/i.test(parts[parts.length - 1])) parts.pop();
+		return parts;
+	};
+	// "Elena Strange" -> "Elena S." (mobile chips and mobile table header)
 	const chipName = (slot: SlotData) => {
 		if (slot.failed) return slot.slug;
-		const parts = slot.name.trim().split(/\s+/).filter(Boolean);
+		const parts = nameParts(slot.name);
 		if (parts.length === 0) return `Prof. ${slot.label}`;
 		if (parts.length === 1) return parts[0];
 		return `${parts[0]} ${parts[parts.length - 1][0]}.`;
@@ -513,11 +519,13 @@ function Compare() {
 		if (result.kind === 'tie') {
 			return { kind: 'tie' as const, names: result.tied.map((i) => displayName(slots[i])), notes };
 		}
-		const lastName = (slot: number) => displayName(slots[slot]).split(/\s+/).pop() as string;
+		const lastName = (slot: number) => nameParts(displayName(slots[slot])).pop() as string;
+		const sameLast = lastName(result.winner) === lastName(result.runnerUp);
+		const sentenceName = (slot: number) => (sameLast ? displayName(slots[slot]) : lastName(slot));
 		return {
 			kind: 'winner' as const,
 			name: displayName(slots[result.winner]),
-			sentence: winnerSentence(result, lastName),
+			sentence: winnerSentence(result, sentenceName),
 			notes,
 		};
 	})();
@@ -526,8 +534,9 @@ function Compare() {
 		if (selectedCount === 0) {
 			return `Pick up to ${MAX_SLOTS} professors and compare ratings, difficulty, and how many students would take them again.`;
 		}
-		if (selectedCount === 1) return 'Add at least one more professor to start comparing.';
-		return `Comparing ${selectedCount} professors side-by-side.`;
+		const count = anyLoading ? selectedCount : loadedSlots.length;
+		if (count < 2) return 'Add at least one more professor to start comparing.';
+		return `Comparing ${count} professors side-by-side.`;
 	})();
 
 	const renderSlotError = (slot: SlotData) => (

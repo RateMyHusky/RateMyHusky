@@ -1076,13 +1076,17 @@
 		margin: 0;
 	}
 
+	.compare-mobile-status .compare-retry {
+		margin-top: 0;
+	}
+
 	.compare-chip.is-failed .compare-chip-avatar {
 		opacity: 0.35;
 		filter: grayscale(1);
 	}
 
 	.compare-chip.is-failed .compare-chip-name {
-		color: #999;
+		color: #767676;
 		font-style: italic;
 	}
 
@@ -1312,6 +1316,10 @@
 	.dark .compare-mobile-status .compare-status {
 		background: #242628;
 		border-color: #5a2d2a;
+	}
+
+	.dark .compare-mobile-status .compare-status-error {
+		color: #f08a80;
 	}
 
 	.dark .compare-chip {
