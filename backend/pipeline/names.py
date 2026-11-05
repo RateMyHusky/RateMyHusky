@@ -23,11 +23,12 @@ _FOLD_PUNCTUATION = str.maketrans({
 
 def search_fold(text):
     """Search key: curly quotes and dashes mapped to ASCII, accents stripped, lowercased,
-    everything but letters, digits and single spaces removed."""
+    everything but letters, digits, "+", "#" and single spaces removed. "+" and "#" are kept
+    (C++, C#) and are not LIKE wildcards."""
     s = (text or "").translate(_FOLD_PUNCTUATION)
     s = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode('ascii').lower()
     s = re.sub(r'\s+', ' ', s)
-    s = re.sub(r'[^a-z0-9 ]', '', s)
+    s = re.sub(r'[^a-z0-9 +#]', '', s)
     return re.sub(r' +', ' ', s).strip()
 
 

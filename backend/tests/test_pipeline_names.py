@@ -42,6 +42,8 @@ def test_tidy_name_passes_empty_through():
     ("International Study—Argentina", "international studyargentina"),
     ("  CS	3500 ", "cs 3500"),
     ("%_'—", ""),
+    ("Programming in C++", "programming in c++"),
+    ("C# .NET", "c# net"),
     (None, ""),
 ])
 def test_search_fold(raw, want):

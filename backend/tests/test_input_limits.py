@@ -189,3 +189,32 @@ def test_course_searches_rank_by_relevance_with_params_in_order(monkeypatch, pat
 def test_course_catalog_without_a_query_keeps_the_plain_sort(monkeypatch):
     [(sql, _)] = _course_queries(monkeypatch, "/api/courses-catalog?sort=ratings")
     assert "CASE WHEN" not in sql
+
+
+@pytest.mark.parametrize("path", ["/api/search?type=Course&q=a%27", "/api/search?q=a%27"])
+def test_a_query_that_folds_to_one_character_never_reaches_the_database(monkeypatch, path):
+    assert _course_like_params(monkeypatch, path) == []
+
+
+def test_course_relevance_title_tiers_keep_plus_and_hash():
+    sql, _ = server.course_relevance("c++")
+    assert sql.count("'[^a-z0-9+#]'") == 2
+
+
+def test_professor_search_gates_on_the_joined_fold_not_per_word(monkeypatch):
+    seen = []
+    monkeypatch.setattr(server, "query", lambda sql, params=None: seen.append(params) or [])
+    monkeypatch.setattr(server, "_approved_aliases", lambda: {})
+    assert server._professor_search("a'") == []
+    assert seen == []
+    server._professor_search("j lee")
+    assert "%j%" in seen[0] and "%lee%" in seen[0]
+
+
+def test_a_hyphenated_word_alias_expansion_reaches_the_like_folded(monkeypatch):
+    assert "hsiao-an" in server._WORD_ALIAS["justin"]
+    seen = []
+    monkeypatch.setattr(server, "query", lambda sql, params=None: seen.append(params) or [])
+    monkeypatch.setattr(server, "_approved_aliases", lambda: {})
+    server._professor_search("justin")
+    assert "%hsiaoan%" in seen[0] and "%hsiao-an%" not in seen[0]

@@ -113,6 +113,8 @@ def test_course_search_ranks_code_and_title_matches_above_descriptions(live_serv
     ("bouvé", "HSCI2000"),
     ("master’s", "CHME7945"),
     ("masters", "CHME7945"),
+    ("c++", "CS3520"),
+    ("c#", "CSYE6202"),
 ])
 def test_course_search_folds_punctuation_spacing_and_accents(live_server, pg, endpoint, q, code):
     rows = [
@@ -121,6 +123,8 @@ def test_course_search_folds_punctuation_spacing_and_accents(live_server, pg, en
         ("ABRD5140", "International Study—Argentina", ""),
         ("HSCI2000", "Co-op for Bouvé Students", ""),
         ("CHME7945", "Master’s Project", ""),
+        ("CS3520", "Programming in C++", ""),
+        ("CSYE6202", "Enterprise Software Design with C#", ""),
     ]
     courses = [_course(c, n, read_models.course_search_text(c, f"{c.lower()} {n.lower()} {d}"), 10)
                for c, n, d in rows]
@@ -131,6 +135,13 @@ def test_course_search_folds_punctuation_spacing_and_accents(live_server, pg, en
     body = resp.get_json()
     found = body["courses"] if isinstance(body, dict) else body
     assert found[0]["code"] == code, found
+
+
+@pytest.mark.parametrize("path", ["/api/search?type=Course&q=a%27", "/api/search?q=a%27"])
+def test_search_of_a_single_folded_character_returns_nothing(live_server, seeded, path):
+    resp = live_server.app.test_client().get(path, headers={"User-Agent": "Mozilla/5.0"})
+    assert resp.status_code == 200
+    assert resp.get_json() == []
 
 
 def test_course_search_with_an_empty_fold_returns_nothing(live_server, seeded):

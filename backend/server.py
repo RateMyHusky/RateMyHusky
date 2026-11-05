@@ -157,7 +157,7 @@ def course_relevance(q):
     it: a code match ranks first, then a title that starts with q, then one that contains it,
     then description-only matches. The code is compared unspaced, so a partial "cs 35" still
     lands on CS35xx rather than on courses listing "CS 3500" as a prerequisite."""
-    name = "regexp_replace(lower(course_catalog.name), '[^a-z0-9]', '', 'g')"
+    name = "regexp_replace(lower(course_catalog.name), '[^a-z0-9+#]', '', 'g')"
     return (f"""CASE WHEN lower(course_catalog.code) LIKE %s THEN 0
                     WHEN {name} LIKE %s THEN 1
                     WHEN {name} LIKE %s THEN 2
@@ -946,6 +946,8 @@ def _professor_search(q, limit=5, rated_only=False):
     if not folded_words:
         return []
     q_fold = " ".join(folded_words)
+    if len(q_fold) < 2:
+        return []
     if rated_only:
         conditions.append("avg_rating IS NOT NULL")
     where = " AND ".join(conditions)
@@ -1267,7 +1269,7 @@ def search():
         # Course search
         q = course_search_text(request.args.get("q", ""))
         # Best match first (course_relevance), the most-rated course leading within a tier.
-        if not q:
+        if len(q) < 2:
             return jsonify([])
         tier, tier_params = course_relevance(q)
         rows = query(f"""
