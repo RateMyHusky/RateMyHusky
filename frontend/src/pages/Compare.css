@@ -184,10 +184,24 @@
 }
 
 .compare-suggestion-meta {
-	display: block;
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
 	font-size: 0.78rem;
 	color: #777;
 	margin-top: 2px;
+}
+
+.compare-suggestion-dept {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.compare-suggestion-rating {
+	flex: none;
+	margin-left: auto;
 }
 
 /* Empty slot in the search row */

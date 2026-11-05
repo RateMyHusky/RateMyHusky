@@ -273,7 +273,8 @@ function SlotSearch({
 						>
 							<span className="compare-suggestion-main">{prof.name}</span>
 							<span className="compare-suggestion-meta">
-								{prof.dept ? `${prof.dept} • ` : ''}{prof.rating !== null ? prof.rating.toFixed(2) : '—'}
+								{prof.dept && <span className="compare-suggestion-dept">{prof.dept}</span>}
+								<span className="compare-suggestion-rating">{prof.rating !== null ? prof.rating.toFixed(2) : '—'}</span>
 							</span>
 						</button>
 					))}

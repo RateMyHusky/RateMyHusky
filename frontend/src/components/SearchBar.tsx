@@ -553,7 +553,7 @@ function AskResult({ result, askedAt }: { result: ChatResponse; askedAt: number 
               <li key={c.code}>
                 <Link className="ask-source-link" to={`/courses/${c.code.toLowerCase()}`} state={ASK_FROM_STATE}>{c.code}</Link>
                 <span className="ask-source-snippet">
-                  {c.name}{c.rating != null ? ` · ${c.rating.toFixed(1)}★` : ''}
+                  {c.name}{c.rating != null ? ` (${c.rating.toFixed(1)}★)` : ''}
                 </span>
               </li>
             ))}

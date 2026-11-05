@@ -63,7 +63,8 @@
 .footer-links {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 16px;
+  flex-wrap: wrap;
   font-size: 0.85rem;
 }
 
@@ -79,10 +80,6 @@
   color: #d6394c;
 }
 
-.footer-divider {
-  color: #ccc;
-}
-
 @media (max-width: 640px) {
   .footer-inner {
     flex-direction: column;
@@ -95,6 +92,10 @@
     flex-direction: column;
     gap: 6px;
     align-items: center;
+  }
+
+  .footer-links {
+    justify-content: center;
   }
 }
 
@@ -118,8 +119,4 @@
 
 .dark .footer-links a:hover {
   color: #d6394c;
-}
-
-.dark .footer-divider {
-  color: #444;
 }

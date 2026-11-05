@@ -12,7 +12,7 @@ const Terms = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Terms &amp; Conditions</h1>
-            <p className="terms-meta">Effective November 2, 2026 &middot; RateMyHusky</p>
+            <p className="terms-meta">Effective November 2, 2026</p>
           </header>
 
           <div className="terms-body">
