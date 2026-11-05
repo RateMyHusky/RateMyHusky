@@ -144,3 +144,20 @@ def test_course_disambiguation_payload_picks_the_course_code():
     assert code == 200 and payload["mode"] == "disambiguation"
     assert payload["ambiguous"] == "Data Science"
     assert [m["pick"] for m in payload["matches"]] == ["DS2000", "DS3000"]
+
+
+def test_site_help_llm_returns_menu_logged_as_site_help():
+    from rag.chat_question import handle_question
+    logged = []
+    deps = _disambiguation_deps(
+        log_fn=lambda sql, params: logged.append(params),
+        query_one_fn=lambda sql, params=(): {"c": 0},
+        gate_fn=lambda q: {"ok": False, "status": "site_help_llm", "professors_or_courses": [],
+                           "professor_or_course": None, "message": None})
+    payload, code = handle_question("what does this thing do", "user-123", "iphash", deps)
+    assert code == 200
+    assert payload["mode"] == "site_help" and payload["id"] == "menu"
+    # log_ask params: (query, mode, slug, result_status, ..., flagged)
+    assert logged[-1][1] == "site_help"
+    assert logged[-1][3] == "site_help_llm"
+    assert logged[-1][-1] is False

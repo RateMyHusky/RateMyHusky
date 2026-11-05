@@ -7,6 +7,7 @@ from .chat_cache import get_cached, set_cached
 from .chat_validate import thin_data_check, validate_output
 from .chat_retrieve import is_course_code
 from .llm_adapter import LLMUnavailable
+from . import site_help
 
 def _fire_usage_alert(deps):
     fn = getattr(deps, "usage_alert_fn", None)
@@ -174,9 +175,9 @@ def handle_question(q, session_token, ip_hash, deps):
     t0 = time.monotonic()
 
     def _log(result_status, professor_slug=None, retrieved_count=0,
-              answer_text=None, tokens_used=0, flagged=False):
+              answer_text=None, tokens_used=0, flagged=False, mode="question"):
         ms = int((time.monotonic() - t0) * 1000)
-        log_ask(deps.log_fn, q, "question", professor_slug, result_status,
+        log_ask(deps.log_fn, q, mode, professor_slug, result_status,
                 retrieved_count, answer_text, tokens_used, ms, session_token, ip_hash, flagged)
 
     # 1. Kill switch. Not logged: with Ask off, nothing a user sends is stored.
@@ -204,6 +205,11 @@ def handle_question(q, session_token, ip_hash, deps):
         if status == "too_long":
             _log(status)
             return _safe_fallback(deps, q, banner=gate.get("message")), 200
+        # The classifier spotted a site question the regex registry missed: show the help
+        # menu, never an abuse strike.
+        if status == "site_help_llm":
+            _log(status, mode="site_help")
+            return site_help.payload(site_help.get("menu")), 200
         _log(status, flagged=True)
         return {"mode": "error", "message": gate.get("message") or "Question not allowed."}, 200
 

@@ -33,6 +33,9 @@ def gate(query, adapter):
     if verdict.get("looks_like_injection"):
         return {"ok": False, "status": "injection_blocked",
                 "professors_or_courses": [], "professor_or_course": None, "message": _REFUSAL}
+    if verdict.get("about_site") and not verdict.get("professors_or_courses"):
+        return {"ok": False, "status": "site_help_llm",
+                "professors_or_courses": [], "professor_or_course": None, "message": None}
     if not verdict.get("on_topic"):
         return {"ok": False, "status": "off_topic",
                 "professors_or_courses": [], "professor_or_course": None, "message": _REFUSAL}
