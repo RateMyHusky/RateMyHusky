@@ -134,6 +134,29 @@ export function prevStep(step: StepId, a: Answers): StepId | null {
   return screenFor(MAIN_ORDER[MAIN_ORDER.indexOf(main) - 1], a);
 }
 
+// The number of Back hops from a screen to the first one. Each hop is one browser history entry.
+export function depth(step: StepId, a: Answers): number {
+  let n = 0;
+  for (let s = prevStep(step, a); s !== null; s = prevStep(s, a)) n++;
+  return n;
+}
+
+// The screen of the next question, or null when it can't be reached without answering this one.
+export function forwardStep(step: StepId, a: Answers): StepId | null {
+  if (step === 'who' && a.professor?.slug === null) return 'newProfessor';
+  const main = mainOf(step);
+  if (main === null || main === 'comment' || !isAnswered(main, a)) return null;
+  return screenFor(MAIN_ORDER[MAIN_ORDER.indexOf(main) + 1], a);
+}
+
+// The screen at history depth target, reached from step and stopping at the first unanswered question.
+export function walkTo(step: StepId, a: Answers, target: number): StepId {
+  let s = step;
+  while (depth(s, a) > target) { const p = prevStep(s, a); if (p === null) break; s = p; }
+  while (depth(s, a) < target) { const f = forwardStep(s, a); if (f === null || depth(f, a) > target) break; s = f; }
+  return s;
+}
+
 function sameProfessor(x: RateProfessor | undefined, y: RateProfessor): boolean {
   return x !== undefined && x.slug === y.slug && (x.slug !== null || x.name === y.name);
 }

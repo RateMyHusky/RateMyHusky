@@ -4,9 +4,9 @@
 import { argv } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import {
-  answer, buildSubmission, commentCountLabel, contextTags, courseGroups, displayTerm, firstStep, formatCode,
+  answer, buildSubmission, commentCountLabel, contextTags, courseGroups, depth, displayTerm, firstStep, forwardStep, formatCode,
   inTermWindow, lastName, nextStep, ownMatches, pickCourse, prefillCourse, prevStep, progressIndex, replacedLine,
-  splitTerm, termYears, toRateCourse,
+  splitTerm, termYears, toRateCourse, walkTo,
   SEASONS,
   type Answers, type RateCourse, type RateProfessor,
 } from './rateFlow';
@@ -249,6 +249,40 @@ function selftest(): number {
   check('commentCountLabel at 1800', commentCountLabel(1800) === '200 characters left');
   check('commentCountLabel singular', commentCountLabel(1999) === '1 character left');
   check('commentCountLabel at the cap', commentCountLabel(2000) === 'No characters left');
+
+  // Step depth (one history entry per question)
+  const fullA: Answers = { comment: '', professor: alex, course: cs2500, term: 'Fall 2024', rating: 5, difficulty: 3, hours: '3-4', grade: 'A' };
+  const listed: Answers = { comment: '', professor: alex, course: cs2500 };
+  check('depth, listed professor with terms', same(
+    (['who', 'course', 'otherCourse', 'term', 'otherTerm', 'overall', 'difficulty', 'workload', 'grade', 'comment', 'thanks'] as const)
+      .map((st) => depth(st, fullA)), [0, 1, 2, 2, 3, 3, 4, 5, 6, 7, 0]));
+  const nsA: Answers = { comment: '', professor: alex, course: noShortcuts };
+  check('depth, course with no terms', depth('otherTerm', nsA) === 2 && depth('overall', nsA) === 3);
+  const newA: Answers = { comment: '', professor: newProf, course: newCourse, term: 'Fall 2025', rating: 5, difficulty: 3, hours: '3-4', grade: 'A' };
+  check('depth, new professor', depth('who', newA) === 0 && depth('newProfessor', newA) === 1 && depth('otherCourse', newA) === 2
+    && depth('term', newA) === 3 && depth('overall', newA) === 4 && depth('comment', newA) === 8);
+  check('depth, update mode term', depth('term', { ...listed, updating: { code: 'CS2500' } as Answers['updating'] }) === 2);
+  const hopOk = (x: Answers) => (['newProfessor', 'course', 'otherCourse', 'term', 'otherTerm', 'overall', 'difficulty', 'workload', 'grade', 'comment'] as const)
+    .every((st) => { const p = prevStep(st, x); return p === null || depth(p, x) === depth(st, x) - 1; });
+  check('depth, each step is one hop from its parent', hopOk(fullA) && hopOk(newA));
+  let lin: Answers = { comment: '' };
+  let ls = firstStep(lin);
+  let monotone = true;
+  for (const ch of [{ professor: alex }, { course: cs2500 }, { term: 'Summer 1 2025' }, { rating: 5 }, { difficulty: 3 }, { hours: '5-7' }, { grade: null }] as Partial<Answers>[]) {
+    lin = answer(lin, ch);
+    const nx = nextStep(ls, lin);
+    if (depth(nx, lin) < depth(ls, lin)) monotone = false;
+    ls = nx;
+  }
+  check('depth, forward moves never lower it', monotone && ls === 'comment');
+  check('forwardStep', forwardStep('course', fullA) === 'term'
+    && forwardStep('who', { comment: '', professor: newProf }) === 'newProfessor'
+    && forwardStep('newProfessor', { comment: '', professor: newProf }) === 'otherCourse'
+    && forwardStep('course', { comment: '', professor: alex }) === null
+    && forwardStep('comment', fullA) === null && forwardStep('thanks', fullA) === null);
+  check('walkTo', walkTo('grade', fullA, 4) === 'difficulty' && walkTo('comment', fullA, 1) === 'course'
+    && walkTo('course', fullA, 3) === 'overall' && walkTo('course', listed, 3) === 'term'
+    && walkTo('thanks', fullA, 2) === 'thanks' && walkTo('who', { comment: '', professor: newProf }, 1) === 'newProfessor');
 
   console.log(fails.length ? `${fails.length} FAIL(s): ` + fails.join(', ') : 'ALL PASS');
   return fails.length ? 1 : 0;

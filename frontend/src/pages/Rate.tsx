@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom';
 import { fetchRateContext, fetchRateProfessor, startRating, submitRating } from '../api/api';
 import type { ProfessorPage, RatedCourse, RateStart, RateSubmission } from '../api/api';
 import { useTurnstile } from './rate/useTurnstile';
@@ -14,8 +14,8 @@ import { ProgressBar } from './rate/ProgressBar';
 import { useMediaQuery } from './rate/useMediaQuery';
 import type { ChoiceOption } from './rate/ChoiceGroup';
 import {
-  DIFFICULTY, GRADES, HOURS, OVERALL, answer, buildSubmission, contextTags, courseGroups, firstStep, formatCode,
-  lastName, nextStep, pickCourse, prefillCourse, prevStep, progressIndex, toRateCourse,
+  DIFFICULTY, GRADES, HOURS, OVERALL, answer, buildSubmission, contextTags, courseGroups, depth, firstStep, formatCode,
+  lastName, nextStep, pickCourse, prefillCourse, prevStep, progressIndex, toRateCourse, walkTo,
 } from './rate/rateFlow';
 import type { Answers, RateCourse, RateProfessor, StepId } from './rate/rateFlow';
 import { clearRateDraft, keepOpened, loadRateDraft, saveRateDraft } from './rate/rateDraft';
@@ -62,6 +62,13 @@ const toRateCourses = (page: ProfessorPage): RateCourse[] =>
 
 export default function Rate() {
   const [params] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const navType = useNavigationType();
+  // Each question past the first is its own history entry; the entry's depth rides in its state.
+  const entryDepth = (location.state as { rateDepth?: number } | null)?.rateDepth ?? 0;
+  const depthRef = useRef(entryDepth);
+  useLayoutEffect(() => { depthRef.current = entryDepth; }, [entryDepth, location.key]);
   // Read once at mount so later URL changes can't change it; "Rate another" resets it to direct.
   const [rateFrom, setRateFrom] = useState(() => parseFrom(params.get('from')));
   const startedTracked = useRef(false);
@@ -246,6 +253,9 @@ export default function Rate() {
         setCounter(res.counter);
         reset();
         clearRateDraft();
+        // Thanks sits on the form's first entry, so the next Back leaves /rate.
+        const n = depthRef.current;
+        if (n > 0) navigate(-n);
         setStep('thanks');
         setContextReload((n) => n + 1);
         return;
@@ -330,35 +340,53 @@ export default function Rate() {
     if (ready) panelRef.current?.querySelector<HTMLElement>('h1')?.focus({ preventScroll: true });
   }, [step, ready, coursesLoading]);
 
+  // Pushes one history entry per question between the current entry and the new step's depth.
+  const pushTo = (to: StepId, a: Answers) => {
+    const d = depth(to, a);
+    for (let n = depthRef.current + 1; n <= d; n++) navigate(`/rate${location.search}`, { state: { rateDepth: n } });
+    depthRef.current = Math.max(depthRef.current, d);
+  };
+
+  const moveTo = (to: StepId, a: Answers) => {
+    setStep(to);
+    pushTo(to, a);
+  };
+
   const go = (next: Answers, from: StepId) => {
     window.clearTimeout(pickTimer.current);
     setAnswers(next);
-    setStep(nextStep(from, next));
+    moveTo(nextStep(from, next), next);
   };
 
   // Shows the pick for a beat before the next step opens; a later tap replaces a pending one.
   const choose = (next: Answers, from: StepId) => {
     setAnswers(next);
     window.clearTimeout(pickTimer.current);
-    if (reduced) setStep(nextStep(from, next));
-    else pickTimer.current = window.setTimeout(() => setStep(nextStep(from, next)), PICK_DELAY_MS);
+    if (reduced) moveTo(nextStep(from, next), next);
+    else pickTimer.current = window.setTimeout(() => moveTo(nextStep(from, next), next), PICK_DELAY_MS);
   };
 
   // A direct move to a sub-screen also cancels a pick still waiting to advance.
   const open = (next: StepId) => {
     window.clearTimeout(pickTimer.current);
-    setStep(next);
+    moveTo(next, answers);
   };
 
   const pickProfessor = (p: RateProfessor, from: StepId) => {
     go(answer(answers, { professor: p }), from);
   };
 
+  const stepBack = () => {
+    const prev = prevStep(step, answers);
+    if (prev) setStep(prev);
+  };
+
   const back = () => {
     window.clearTimeout(pickTimer.current);
     setPending(null); // backing out of a submit that waits on Cloudflare's click box
-    const prev = prevStep(step, answers);
-    if (prev) setStep(prev);
+    // The entry is behind the step after a prefilled link or a restored draft, so Back steps in the form.
+    if (depthRef.current > 0 && depthRef.current === depth(step, answers)) navigate(-1);
+    else stepBack();
   };
 
   // In update mode a step with an earlier answer can be passed over without tapping a tile.
@@ -557,6 +585,28 @@ export default function Rate() {
   // back, which cancels the submit; solving the box first sends it as usual.
   const held = sending || (pending !== null && !interactive);
   const canBack = prevStep(step, answers) !== null;
+
+  // Browser or phone Back and Forward land on an entry; show the question at its depth. A resync
+  // is always navigate(delta), never a new entry, so the landed pop matches and is not ignored.
+  const lastKey = useRef(location.key);
+  useEffect(() => {
+    if (!ready || location.key === lastKey.current) return;
+    lastKey.current = location.key;
+    if (navType !== 'POP') return;
+    const target = entryDepth;
+    const to = held || step === 'thanks' ? step : walkTo(step, answers, target);
+    if (to !== step) { window.clearTimeout(pickTimer.current); setPending(null); setStep(to); }
+    const d = depth(to, answers);
+    if (d !== target) navigate(d - target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per history entry change
+  }, [location.key, ready]);
+
+  // A reload can leave the entry ahead of the step (the draft was dropped); step the entry back.
+  // An entry behind the step is fine: the first tap catches up through pushTo.
+  useEffect(() => {
+    if (ready && entryDepth > depth(step, answers)) navigate(depth(step, answers) - entryDepth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only once, when the form first becomes ready
+  }, [ready]);
 
   return (
     <div className="rate-page">
