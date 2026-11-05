@@ -42,6 +42,7 @@ function App() {
           <ScrollToTop />
           <Navbar />
           <ErrorBoundary>
+            {/* Adding a route? Add it to SPA_ROUTE_RE in frontend/spaRoutes.ts too, or crawlers get a 404 for it. */}
             <Routes>
               <Route path="/" element={<Homepage />} />
               <Route path="/professors" element={<ProfessorCatalog />} />
