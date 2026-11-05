@@ -93,6 +93,8 @@ export default function Rate() {
   const panelRef = useRef<HTMLDivElement>(null);
   const visitRef = useRef(0);
   const pickTimer = useRef<number | undefined>(undefined);
+  // The start as the server sent it, before any draft's fill start was carried over.
+  const freshStart = useRef<RateStart | null>(null);
   // The start the prefill already fetched the context with, so the context effect doesn't fetch it again.
   const prefetchedFor = useRef<RateStart | null>(null);
   const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
@@ -122,6 +124,7 @@ export default function Rate() {
       .then((s) => {
         if (visitRef.current !== visit) return null;
         writeMirror(s.deviceToken);
+        freshStart.current = s;
         const kept = keepOpened(s, saved);
         setStart(kept);
         return kept;
@@ -136,12 +139,14 @@ export default function Rate() {
   useEffect(() => {
     let cancelled = false;
     const saved = loadRateDraft(Date.now());
-    const visit = beginVisit(saved);
+    const profSlug = params.get('professor');
+    const savedProf = saved?.answers.professor;
+    // A followed link (PUSH) wins over the draft; a reload or Back/Forward return (POP) keeps the draft, since the URL may be stale.
+    const useDraft = !!(saved && savedProf && (!profSlug || profSlug === savedProf.slug || navType !== 'PUSH'));
+    const visit = beginVisit(useDraft ? saved : null);
 
     (async () => {
-      const profSlug = params.get('professor');
-      const savedProf = saved?.answers.professor;
-      if (saved && savedProf && (!profSlug || profSlug === savedProf.slug)) {
+      if (saved && savedProf && useDraft) {
         if (savedProf.slug === null) {
           if (cancelled) return;
           setAnswers(saved.answers);
@@ -156,6 +161,10 @@ export default function Rate() {
           setAnswers({ ...saved.answers, professor: { slug: identity.slug, name: identity.name, department: identity.department } });
           setStep(saved.step);
         } else if (res.status === 404) {
+          // The draft is dropped, so its fill start goes with it.
+          await visit;
+          if (cancelled) return;
+          if (freshStart.current) setStart(freshStart.current);
           clearRateDraft();
           setLostDraft(true);
           setAnswers({ comment: '' });
@@ -332,6 +341,13 @@ export default function Rate() {
   };
 
   useEffect(() => () => window.clearTimeout(pickTimer.current), []);
+
+  // A pick timer firing between a popstate and the router's commit would push from a stale depth.
+  useEffect(() => {
+    const onPop = () => window.clearTimeout(pickTimer.current);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   // /rate's URL never changes, so ScrollToTop never fires; every step opens at the top, as an instant jump.
   useLayoutEffect(() => { window.scrollTo(0, 0); }, [step]);
@@ -614,7 +630,7 @@ export default function Rate() {
         <div className="rate-panel" ref={panelRef}>
           {ready && <ProgressBar index={progressIndex(step)} done={step === 'thanks'} />}
           {startFailed && <p className="rate-hint" role="alert">We couldn't start the form. Please reload and try again.</p>}
-          {lostDraft && step === 'who' && <p className="rate-hint" role="status">We couldn't find the professor from your saved answers. Pick them again.</p>}
+          {lostDraft && step === 'who' && !answers.professor && <p className="rate-hint" role="status">We couldn't find the professor from your saved answers. Pick them again.</p>}
           {ready && step !== 'thanks' && (
             <div className="rate-top">
               <button type="button" className={`rate-back-top${canBack ? '' : ' is-hidden'}`} disabled={held} onClick={back}>
