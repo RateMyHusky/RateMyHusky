@@ -22,6 +22,7 @@ import RatePopup from '../components/RatePopup';
 import { defaultTab, filterByCourses, reportDescription, type ReviewTab } from './professor/studentReviews';
 import { rateHref, loadState, hasRated } from '../utils/ratePrompt';
 import { lastName } from './rate/rateFlow';
+import { useDialog } from '../utils/useDialog';
 import neuIcon from '../assets/neu-circle-icon.png';
 import './Professor.css';
 
@@ -252,6 +253,8 @@ const Professor = () => {
   const gradesRef = useRef<HTMLDivElement>(null);
   const reviewTabsRef = useRef<HTMLDivElement>(null);
   const rateCardRef = useRef<HTMLDivElement>(null);
+  const imageModalRef = useRef<HTMLDivElement>(null);
+  const imageCloseRef = useRef<HTMLButtonElement>(null);
 
   const [profile, setProfile] = useState<ProfessorPage | null>(null);
   const [loadError, setLoadError] = useState<'not_found' | 'failed' | null>(null);
@@ -629,19 +632,7 @@ const Professor = () => {
   // Reset visible reviews when course filter changes, but only if the filtered list got smaller
   useEffect(() => { setVisibleReviews(v => Math.min(v, Math.max(10, filteredRmpReviews.length))); }, [selectedCourses.size, filteredRmpReviews.length]);
 
-  useEffect(() => {
-    if (!isImageModalOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsImageModalOpen(false);
-    };
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [isImageModalOpen]);
+  useDialog(isImageModalOpen, () => setIsImageModalOpen(false), imageModalRef, imageCloseRef);
 
   if (loading) return (
     <div className="prof-page">
@@ -1039,8 +1030,17 @@ const Professor = () => {
 
       {isImageModalOpen && identity.imageUrl && (
         <div className="prof-image-modal-overlay" onClick={() => setIsImageModalOpen(false)}>
-          <div className="prof-image-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={imageModalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Photo of ${identity.name}`}
+            className="prof-image-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
+              ref={imageCloseRef}
+              type="button"
               className="prof-image-modal-close"
               onClick={() => setIsImageModalOpen(false)}
               aria-label="Close enlarged professor image"
