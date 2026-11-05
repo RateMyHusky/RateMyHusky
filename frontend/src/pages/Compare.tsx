@@ -9,6 +9,8 @@ import Seo from '../components/Seo';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
 import { useBookmarks } from '../context/BookmarksContext';
 import { stripPrefix } from '../utils/nameUtils';
+import { droppedSentence, joinNames, scoreProfessors, winnerSentence } from '../utils/compareScore';
+import type { MetricId } from '../utils/compareScore';
 
 import { COMPARE_SLOT_KEYS } from '../utils/compareLink';
 import './Compare.css';
@@ -38,9 +40,10 @@ interface SlotData {
 }
 
 interface MetricRow {
+	id: MetricId;
 	label: string;
 	hint: string; // which way is better, shown under the label
-	verdictLabel: string;
+	better: 'higher' | 'lower';
 	values: (number | null)[];
 	format: (value: number) => string;
 	scale: (value: number) => number; // 0..1 on a fixed scale for the bar; longer is better
@@ -106,11 +109,6 @@ const nameFromSlug = (slug: string) =>
 		.filter(Boolean)
 		.map((part) => part[0].toUpperCase() + part.slice(1))
 		.join(' ');
-
-const joinNames = (names: string[]) => {
-	if (names.length <= 2) return names.join(' and ');
-	return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
-};
 
 /* ---- One search box (replaces the duplicated left/right search code) ---- */
 interface SlotSearchProps {
@@ -425,9 +423,10 @@ function Compare() {
 	const outOfFive = (v: number) => v / 5;
 	const metricRows: MetricRow[] = [
 		{
+			id: 'rating',
 			label: 'Overall Rating',
 			hint: 'out of 5',
-			verdictLabel: 'overall rating',
+			better: 'higher',
 			values: rating,
 			format: (v) => v.toFixed(2),
 			scale: outOfFive,
@@ -436,9 +435,10 @@ function Compare() {
 			showCount: true,
 		},
 		{
+			id: 'difficulty',
 			label: 'Difficulty',
 			hint: 'lower is easier',
-			verdictLabel: 'difficulty',
+			better: 'lower',
 			values: difficulty,
 			format: (v) => v.toFixed(2),
 			// Inverted so a longer bar always means better: 1 (easiest) is full, 5 is empty
@@ -447,9 +447,10 @@ function Compare() {
 			weight: 1.5,
 		},
 		{
+			id: 'takeAgain',
 			label: 'Would Take Again',
 			hint: 'of raters',
-			verdictLabel: 'would-take-again rate',
+			better: 'higher',
 			values: takeAgain,
 			format: (v) => `${v.toFixed(0)}%`,
 			scale: (v) => v / 100,
@@ -476,26 +477,20 @@ function Compare() {
 			return { kind: 'lowSample' as const, names: flagged.map(displayName) };
 		}
 
-		const scores = slots.map(() => 0);
-		const keyWins: string[][] = slots.map(() => []);
+		const result = scoreProfessors(rankable.map((s) => s.index), metricRows);
+		if (!result) return null;
 
-		// Only an outright lead scores; a shared best is shown in the table but splits nothing here
-		for (const row of metricRows) {
-			if (row.winners.length !== 1) continue;
-			const [winner] = row.winners;
-			scores[winner] += row.weight;
-			if (row.weight >= 2) keyWins[winner].push(row.verdictLabel);
+		const notes = result.dropped.map((d) => droppedSentence(d, (slot) => displayName(slots[slot])));
+		if (result.kind === 'tie') {
+			return { kind: 'tie' as const, names: result.tied.map((i) => displayName(slots[i])), notes };
 		}
-
-		const contenders = selectedSlots.map((s) => s.index);
-		const best = Math.max(...contenders.map((i) => scores[i]));
-		if (best === 0) return null;
-
-		const top = contenders.filter((i) => scores[i] === best);
-		if (top.length > 1) {
-			return { kind: 'tie' as const, names: top.map((i) => displayName(slots[i])) };
-		}
-		return { kind: 'winner' as const, name: displayName(slots[top[0]]), keyWins: keyWins[top[0]] };
+		const lastName = (slot: number) => displayName(slots[slot]).split(/\s+/).pop() as string;
+		return {
+			kind: 'winner' as const,
+			name: displayName(slots[result.winner]),
+			sentence: winnerSentence(result, lastName),
+			notes,
+		};
 	})();
 
 	const heroSubtitle = (() => {
@@ -862,10 +857,19 @@ function Compare() {
 									<p className="compare-verdict-kicker">Our Recommendation</p>
 									<p className="compare-verdict-title">{recommendation.name}</p>
 									<p className="compare-verdict-body">
-										{recommendation.keyWins.length > 0
-											? `${recommendation.name} has the edge in ${joinNames(recommendation.keyWins)}, making them the stronger overall choice.`
-											: `${recommendation.name} comes out ahead based on the available data.`}
+										{recommendation.sentence}
 									</p>
+								</>
+							)}
+							{recommendation.kind !== 'lowSample' && (
+								<>
+									{recommendation.notes.map((note) => (
+										<p key={note} className="compare-verdict-note">{note}</p>
+									))}
+									<details className="compare-verdict-how">
+										<summary>How we pick</summary>
+										<p>Each professor gets a score out of 100 from their rating (weight 3), would-take-again rate (2) and difficulty (1.5). Under 2 points apart is a tie. Professors with fewer than {MIN_RATINGS} ratings aren't scored.</p>
+									</details>
 								</>
 							)}
 						</div>

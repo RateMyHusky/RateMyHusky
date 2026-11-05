@@ -676,6 +676,27 @@
 	line-height: 1.5;
 }
 
+.compare-verdict-note {
+	font-size: 0.82rem;
+	color: #666;
+	max-width: 600px;
+	margin: 8px auto 0;
+	line-height: 1.5;
+}
+
+.compare-verdict-how {
+	max-width: 600px;
+	margin: 12px auto 0;
+	font-size: 0.82rem;
+	color: #666;
+	line-height: 1.5;
+}
+
+.compare-verdict-how summary {
+	font-weight: 700;
+	cursor: pointer;
+}
+
 /* ---- Dark mode ---- */
 .dark .compare-page {
 	background: #1a1a1a;
@@ -807,7 +828,9 @@
 .dark .compare-metrics-header p,
 .dark .compare-cell small,
 .dark .compare-profile-card p,
-.dark .compare-verdict-body {
+.dark .compare-verdict-body,
+.dark .compare-verdict-note,
+.dark .compare-verdict-how {
 	color: #a1a7af;
 }
 
