@@ -1743,11 +1743,15 @@ def professors_catalog():
         page_rows = all_rows[offset:offset + limit]
     else:
         # No search - use SQL sorting. Every order ends in slug: tied rows have no fixed order in
-        # Postgres, so LIMIT/OFFSET pages could repeat professors and skip others.
+        # Postgres, so LIMIT/OFFSET pages could repeat professors and skip others. The two rating
+        # sorts use the board's shrunk score, so one 5.0 rating doesn't outrank 200 ratings at 4.8.
+        order_params = []
         if sort == "rating":
-            order = "avg_rating DESC NULLS LAST, slug ASC"
+            order = f"{RANKING_SCORE_SQL} DESC NULLS LAST, total_reviews DESC NULLS LAST, slug ASC"
+            order_params = [ranking_prior(query_one)]
         elif sort == "rating_asc":
-            order = "avg_rating ASC NULLS LAST, slug ASC"
+            order = f"{RANKING_SCORE_SQL} ASC NULLS LAST, total_reviews DESC NULLS LAST, slug ASC"
+            order_params = [ranking_prior(query_one)]
         elif sort == "alpha_desc":
             order = "lower(name) DESC, slug DESC"
         elif sort == "comments":
@@ -1766,7 +1770,7 @@ def professors_catalog():
 
         page_rows = query(
             f"SELECT * FROM professors_catalog WHERE {where} ORDER BY {order} LIMIT %s OFFSET %s",
-            params + [limit, offset]
+            params + order_params + [limit, offset]
         )
 
     professors = []

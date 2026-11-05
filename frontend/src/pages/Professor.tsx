@@ -597,9 +597,10 @@ const Professor = () => {
     return safeHttpUrl(url) ?? null;
   };
 
+  const ratedCourses = useMemo(() => courses.filter(c => c.numRatings > 0), [courses]);
   const courseOptions = useMemo(
-    () => [{ value: 'all', label: 'All courses' }, ...courses.map(c => ({ value: c.code, label: c.code }))],
-    [courses]);
+    () => [{ value: 'all', label: 'All courses' }, ...ratedCourses.map(c => ({ value: c.code, label: c.code }))],
+    [ratedCourses]);
 
   /* Filtering can drop the chart row above the courses, so the clicked row is put back where it was on screen.
      Safari has no native scroll anchoring, and Chrome's misses when its anchor was inside the dropped row. */
@@ -620,8 +621,7 @@ const Professor = () => {
          snap back to it so the stats match "All courses" and the next click filters instead
          of removing. Uncoded reviews make it a real filter, so it stays. Banner-only rows
          (taught, never rated) add nothing, so they don't count. */
-      const rated = courses.filter(c => c.numRatings > 0);
-      const coversAll = rated.length > 0 && rated.every(c => next.has(c.code))
+      const coversAll = ratedCourses.length > 0 && ratedCourses.every(c => next.has(c.code))
         && reviews.every(r => r.courseCode !== null && next.has(r.courseCode));
       return coversAll ? new Set() : next;
     });
@@ -713,8 +713,8 @@ const Professor = () => {
     return (
     <div
       key={c.code}
-      className={`prof-course-row ${!canFilter ? 'prof-course-row-static' : selectedCourses.has(c.code) ? 'selected' : ''}`}
-      onClick={canFilter ? (e) => toggleCourse(c.code, e.currentTarget) : undefined}
+      className={`prof-course-row ${!canFilter || unrated ? 'prof-course-row-static' : selectedCourses.has(c.code) ? 'selected' : ''}`}
+      onClick={canFilter && !unrated ? (e) => toggleCourse(c.code, e.currentTarget) : undefined}
     >
       <div className="prof-course-row-main">
         <span className="prof-course-code">{c.code}</span>
@@ -1058,7 +1058,7 @@ const Professor = () => {
             <h2 className="prof-section-title">Courses Taught</h2>
             <div className="prof-section-actions">
               {unfiltered
-                ? (canFilter && courses.length > 1 && <span className="prof-section-hint">Click a course to filter reviews</span>)
+                ? (canFilter && ratedCourses.length > 1 && <span className="prof-section-hint">Click a course to filter reviews</span>)
                 : <button className="prof-action-link" onClick={() => setSelectedCourses(new Set())}>Show all courses</button>}
             </div>
           </div>
@@ -1114,9 +1114,9 @@ const Professor = () => {
 
         {reviewTab === 'students' && (
           <>
-            {((canFilter && courses.length > 1) || showRateLink) && (
+            {((canFilter && ratedCourses.length > 1) || showRateLink) && (
               <div className="prof-reviews-filters">
-                {canFilter && courses.length > 1 && (
+                {canFilter && ratedCourses.length > 1 && (
                   <Dropdown
                     ariaLabel="Filter reviews by course"
                     className="feedback-dropdown"
@@ -1197,7 +1197,7 @@ const Professor = () => {
         {reviewTab === 'rmp' && (
           <>
             <div className="prof-reviews-filters">
-              {canFilter && courses.length > 1 && (
+              {canFilter && ratedCourses.length > 1 && (
                 <Dropdown
                   ariaLabel="Filter reviews by course"
                   className="feedback-dropdown"
