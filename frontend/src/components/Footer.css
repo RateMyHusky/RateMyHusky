@@ -70,6 +70,9 @@
 .footer-links a {
   color: #666;
   text-decoration: none;
+  padding-block: 4px;
+  margin-block: -4px;
+  white-space: nowrap;
 }
 
 .footer-links a:hover {

@@ -78,7 +78,7 @@
 	animation: courseSlideUp 0.5s 0.2s ease both;
 }
 
-.course-dept-link { color: inherit; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: color 0.15s, text-decoration-color 0.15s; }
+.course-dept-link { color: inherit; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: color 0.15s, text-decoration-color 0.15s; display: inline-block; padding-block: 4px; margin-block: -4px; }
 .course-dept-link:hover, .course-dept-link:focus-visible { color: #d6394c; text-decoration-color: currentColor; }
 
 
@@ -486,7 +486,8 @@
 .course-sort-btn {
 	background: none;
 	border: none;
-	padding: 0;
+	padding: 4px 0;
+	margin: -4px 0;
 	font: inherit;
 	color: inherit;
 	text-transform: inherit;
@@ -787,6 +788,12 @@
 		padding-top: 6px;
 		padding-bottom: 6px;
 		white-space: normal;
+	}
+
+	/* 10.56px header text: 5px each side keeps the button at 24px+ */
+	.course-sort-btn {
+		padding-block: 5px;
+		margin-block: -5px;
 	}
 }
 

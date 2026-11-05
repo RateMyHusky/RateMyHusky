@@ -1038,6 +1038,11 @@
 		line-height: 1;
 		padding: 6px 10px 6px 4px;
 		cursor: pointer;
+		min-width: 24px;
+		min-height: 24px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.compare-chip-add {
