@@ -13,6 +13,7 @@ from denylist import is_denied_key
 from teaching_history import COURSE_SUCCESSORS
 
 from .db import chunk_insert
+from .names import search_fold
 
 MIN_PROFESSORS = 3000
 MIN_COURSES = 5000
@@ -84,10 +85,10 @@ def course_search_text(code, search_text):
     """search_text with the code's spaced form added ("cs3500 ..." also holds "cs 3500"), so a
     search typed with a space matches at every prefix ("cs 3", "cs 35"), not only once the
     API joins a complete code."""
-    text = (search_text or "").lower()
+    text = search_fold(search_text)
     m = re.fullmatch(r"([a-z]+)(\d+)", (code or "").lower())
     spaced = f"{m.group(1)} {m.group(2)}" if m else ""
-    return f"{text} {spaced}".strip() if spaced and spaced not in text else text
+    return search_fold(f"{text} {spaced}") if spaced and spaced not in text else text
 
 
 def course_rows(catalog_courses, summary_rows):

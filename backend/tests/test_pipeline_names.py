@@ -1,5 +1,5 @@
 import pytest
-from pipeline.names import tidy_name
+from pipeline.names import search_fold, search_squash, tidy_name
 
 @pytest.mark.parametrize("raw, want", [
     ("David O&#39;Brien", "David O'Brien"),
@@ -32,3 +32,21 @@ def test_tidy_name_leaves_good_names_alone(name):
 def test_tidy_name_passes_empty_through():
     assert tidy_name(None) is None
     assert tidy_name("") == ""
+
+
+@pytest.mark.parametrize("raw, want", [
+    ("Object-Oriented Design", "objectoriented design"),
+    ("O’Brien", "obrien"),
+    ("Bouvé", "bouve"),
+    ("Master’s Project", "masters project"),
+    ("International Study—Argentina", "international studyargentina"),
+    ("  CS	3500 ", "cs 3500"),
+    ("%_'—", ""),
+    (None, ""),
+])
+def test_search_fold(raw, want):
+    assert search_fold(raw) == want
+
+
+def test_search_squash():
+    assert search_squash("Object-Oriented Design") == "objectorienteddesign"

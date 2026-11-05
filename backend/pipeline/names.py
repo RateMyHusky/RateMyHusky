@@ -16,6 +16,25 @@ def name_to_slug(name):
     return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
 
 
+_FOLD_PUNCTUATION = str.maketrans({
+    "’": "'", "‘": "'", "“": '"', "”": '"', "–": "-", "—": "-",
+})
+
+
+def search_fold(text):
+    """Search key: curly quotes and dashes mapped to ASCII, accents stripped, lowercased,
+    everything but letters, digits and single spaces removed."""
+    s = (text or "").translate(_FOLD_PUNCTUATION)
+    s = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode('ascii').lower()
+    s = re.sub(r'\s+', ' ', s)
+    s = re.sub(r'[^a-z0-9 ]', '', s)
+    return re.sub(r' +', ' ', s).strip()
+
+
+def search_squash(text):
+    return search_fold(text).replace(" ", "")
+
+
 _PARTICLES = {"van", "von", "der", "de", "da", "del", "di", "du", "la", "le"}
 
 
