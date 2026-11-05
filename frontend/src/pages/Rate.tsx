@@ -148,11 +148,15 @@ export default function Rate() {
           const { identity } = res.data;
           setAnswers({ ...saved.answers, professor: { slug: identity.slug, name: identity.name, department: identity.department } });
           setStep(saved.step);
-        } else {
+        } else if (res.status === 404) {
           clearRateDraft();
           setLostDraft(true);
           setAnswers({ comment: '' });
           setStep('who');
+        } else {
+          // Only a 404 means the professor is gone; a network error or 5xx keeps the answers as saved.
+          setAnswers(saved.answers);
+          setStep(saved.step);
         }
         setReady(true);
         return;
