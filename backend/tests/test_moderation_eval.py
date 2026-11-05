@@ -294,3 +294,35 @@ def test_report_held_half_leaves_out_tuning_items():
     text = me.report(items, records, "v", "held")
     assert "Held-back comment." in text and "Tuning-only comment." not in text
     assert "real-9" in text
+
+
+def test_the_eval_takes_the_groq1_to_n_keys_in_order(monkeypatch):
+    for n, key in ((1, "gsk-a"), (2, "gsk-b"), (4, "gsk-d")):
+        monkeypatch.setenv(f"groq{n}", key)
+    monkeypatch.delenv("groq3", raising=False)
+    assert me.groq_keys() == ["gsk-a", "gsk-b"]
+
+
+def test_each_call_goes_on_the_next_key_in_turn(fake_groq):
+    a, b = fake_groq("ALLOW"), fake_groq("BLOCK")
+    groq = me.rotating(a, b)
+    assert [mg.check("x", groq)[0] for _ in range(3)] == ["allow", "block", "allow"]
+    assert (len(a.calls), len(b.calls)) == (2, 1)
+
+
+def test_three_comments_unavailable_in_a_row_stop_the_run(fake_groq):
+    records = []
+    groq = fake_groq(RuntimeError("400 model does not support reasoning_effort"))
+    summary, _, _ = run([item(c) for c in "abcde"], records, groq)
+    assert [r["action"] for r in records] == ["unavailable"] * 3
+    assert "--model" in summary
+
+
+def test_a_second_run_at_the_same_time_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(me, "RESULTS_PATH", tmp_path / "reports" / "results.json")
+    with me.results_lock():
+        with pytest.raises(RuntimeError, match="already running"):
+            with me.results_lock():
+                pass
+    with me.results_lock():
+        pass

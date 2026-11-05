@@ -5,9 +5,10 @@ random sample of real approved comments through moderation_groq.check exactly as
 prod calls it, and writes a markdown report. The bar: at least 90% of the real
 sample gets ALLOW, and no clearly-bad `hold` comment gets ALLOW in any run.
 
-Quota: the model shares Groq's free plan with prod (3 requests and 2,000 tokens a
-minute, 200,000 tokens a day for the org), so calls go about 2 a minute and the run
-stops before 170,000 tokens in 24 hours. A stopped run resumes the next day without
+Keys: calls go on the groq1..groqN keys from backend/.env in turn, never on prod's
+GROQ_MODERATION_KEY. Quota: Groq's free plan gives this model 3 requests and 2,000
+tokens a minute, 200,000 tokens a day per org, so calls go about 2 a minute and the
+run stops before 170,000 tokens in 24 hours. A stopped run resumes the next day without
 redoing finished calls: results are saved after every call.
 
 It writes nothing to prod: a read-only session draws the real sample once, and no
@@ -20,12 +21,15 @@ slurs.
 """
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
 import sys
 import time
 from collections import Counter
+from itertools import cycle
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -41,6 +45,7 @@ SPACING_SECONDS = 30
 RETRY_WAIT_SECONDS = 60
 MAX_FAILURES = 3
 MAX_429S = 10
+MAX_UNAVAILABLE = 3  # comments in a row: a bad key, --model or --effort, not an outage
 REAL_SAMPLE = 60
 SAMPLE_SEED = "groq-eval-1"
 BAR = 0.90
@@ -100,6 +105,28 @@ def in_half(item, half):
     return half == "all" or item["half"] is None or item["half"] == half
 
 
+def groq_keys():
+    """The groq1, groq2, ... keys from the environment, stopping at the first gap."""
+    keys = []
+    while os.getenv(f"groq{len(keys) + 1}", "").strip():
+        keys.append(os.environ[f"groq{len(keys) + 1}"].strip())
+    return keys
+
+
+def rotating(*clients):
+    """A client that sends each call on the next of `clients` in turn."""
+    turn = cycle(clients)
+    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+        create=lambda **kw: next(turn).chat.completions.create(**kw))))
+
+
+def _client(key):
+    """Built like moderation_groq.client(): 3 s and no retries."""
+    from openai import OpenAI
+    return OpenAI(api_key=key, base_url=moderation_groq.BASE_URL,
+                  timeout=moderation_groq.TIMEOUT, max_retries=0)
+
+
 def _latest(records, variant):
     """{(id, run): action} from the variant's records, the latest record winning."""
     return {(r["id"], r["run"]): r["action"] for r in records if r["variant"] == variant}
@@ -140,7 +167,7 @@ def run(items, records, groq, variant, setup, save, token_cap=TOKEN_CAP, now=Non
                         "tokens": tokens, "at": clock().isoformat()})
         save(records)
 
-    made, tried, stopped = 0, set(), "nothing left"
+    made, tried, stopped, dead = 0, set(), "nothing left", 0
     for it, n in pending_calls(items, records, variant):
         if n == 1 and rule_block(it["text"]):
             add(it, 1, "rules", 0)
@@ -173,6 +200,11 @@ def run(items, records, groq, variant, setup, save, token_cap=TOKEN_CAP, now=Non
                 stopped = f"stopped after {MAX_429S} 429s in a row"
                 break
             add(it, n, action, tokens)
+            dead = dead + 1 if action == "unavailable" else 0
+            if dead >= MAX_UNAVAILABLE:
+                stopped = (f"stopped after {MAX_UNAVAILABLE} comments in a row failed every attempt; "
+                           "check the keys, --model and --effort")
+                break
         else:
             continue
         break
@@ -262,6 +294,22 @@ def _connect():
     return conn.cursor()
 
 
+@contextlib.contextmanager
+def results_lock():
+    """Refuses a second run while one is writing the results file, since each
+    would overwrite the other's records."""
+    lock = Path(str(RESULTS_PATH) + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:
+        raise RuntimeError(f"a run is already running ({lock}); delete the file if none is") from None
+    try:
+        yield
+    finally:
+        lock.unlink(missing_ok=True)
+
+
 def load_items(connect=True):
     """(written set + real sample, results). Draws and freezes the real sample on the
     first call that may connect; afterwards the results file's copy is used."""
@@ -284,7 +332,11 @@ def main(argv=None):
     p.add_argument("--effort", default=moderation_groq.EFFORT)
     p.add_argument("--token-cap", type=int, default=TOKEN_CAP)
     args = p.parse_args(argv)
+    with results_lock() if args.command == "run" else contextlib.nullcontext():
+        return _command(args)
 
+
+def _command(args):
     items, results = load_items(connect=args.command != "report")
     items = [it for it in items if in_half(it, args.half)]
     records = results["records"]
@@ -303,14 +355,15 @@ def main(argv=None):
     if args.command == "run":
         policy = Path(args.policy_file).read_text(encoding="utf-8") if args.policy_file else moderation_groq.POLICY
         apply_setup(policy, args.model, args.effort)
-        if not moderation_groq.enabled():
-            print("GROQ_MODERATION_KEY is not set in backend/.env.", file=sys.stderr)
+        keys = groq_keys()
+        if not keys:
+            print("No groq1..groqN keys in backend/.env.", file=sys.stderr)
             return 1
 
         def save(recs):
             results["records"] = recs
             save_results(results)
-        print(run(items, records, moderation_groq.client(), args.variant,
+        print(run(items, records, rotating(*map(_client, keys)), args.variant,
                   setup_of(policy, args.model, args.effort), save, token_cap=args.token_cap))
         return 0
 
