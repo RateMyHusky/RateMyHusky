@@ -20,7 +20,7 @@ def test_check_sends_the_policy_and_the_comment(fake_groq):
     groq = fake_groq("ALLOW")
     assert mg.check("Fair exams.", groq) == ("allow", None, 500)
     (call,) = groq.calls
-    assert call["model"] == mg.MODEL and call["temperature"] == 0 and call["reasoning_effort"] == "low"
+    assert call["model"] == mg.MODEL and call["temperature"] == 0 and call["reasoning_effort"] == mg.EFFORT == "low"
     assert call["messages"] == [{"role": "system", "content": mg.POLICY},
                                 {"role": "user", "content": "Fair exams."}]
 

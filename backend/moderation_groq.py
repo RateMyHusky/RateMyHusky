@@ -14,6 +14,7 @@ never holds the rating. Tests pass a fake client.
 import os
 
 MODEL = "openai/gpt-oss-safeguard-20b"
+EFFORT = "low"
 BASE_URL = "https://api.groq.com/openai/v1"
 TIMEOUT = 3
 
@@ -77,7 +78,7 @@ def check(comment, groq):
     None on a failure or a reply without usage. Never raises."""
     try:
         resp = groq.chat.completions.create(
-            model=MODEL, temperature=0, reasoning_effort="low",
+            model=MODEL, temperature=0, reasoning_effort=EFFORT,
             messages=[{"role": "system", "content": POLICY}, {"role": "user", "content": comment}])
         action = parse(resp.choices[0].message.content)
         tokens = getattr(getattr(resp, "usage", None), "total_tokens", None)
