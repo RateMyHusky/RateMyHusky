@@ -960,6 +960,7 @@
 
 /* Mobile-only pieces are hidden on larger screens */
 .compare-chips,
+.compare-mobile-status,
 .compare-name-short {
 	display: none;
 }
@@ -1052,6 +1053,38 @@
 	.compare-chip-avatar.tone-1 { background: #f5dcdf; color: var(--compare-tone-1); }
 	.compare-chip-avatar.tone-2 { background: #dbe5f6; color: var(--compare-tone-2); }
 	.compare-chip-avatar.tone-3 { background: #f3e8cf; color: var(--compare-tone-3); }
+
+	/* ---- Failed slot: error block under the chips ---- */
+	.compare-mobile-status {
+		display: grid;
+		gap: 8px;
+		margin: 12px var(--compare-gutter) 0;
+	}
+
+	.compare-mobile-status .compare-status {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 14px;
+		border-radius: 12px;
+		background: #fff;
+		border: 1px solid #f0c9c4;
+	}
+
+	.compare-mobile-status .compare-status p {
+		margin: 0;
+	}
+
+	.compare-chip.is-failed .compare-chip-avatar {
+		opacity: 0.35;
+		filter: grayscale(1);
+	}
+
+	.compare-chip.is-failed .compare-chip-name {
+		color: #999;
+		font-style: italic;
+	}
 
 	.compare-chip-remove {
 		border: none;
@@ -1263,6 +1296,11 @@
 		background: #fdf0df;
 		color: #b35a07;
 		font-weight: 700;
+	}
+
+	.dark .compare-mobile-status .compare-status {
+		background: #242628;
+		border-color: #5a2d2a;
 	}
 
 	.dark .compare-chip {

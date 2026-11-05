@@ -27,6 +27,7 @@ const MIN_RATINGS = 10; // below this a professor is flagged and can't be marked
 interface ProfileEntry {
 	status: 'loading' | 'ready' | 'error';
 	profile: ProfessorPage | null;
+	code: number | null; // status of a failed fetch (0 = network or maintenance), else null
 }
 
 interface SlotData {
@@ -36,6 +37,7 @@ interface SlotData {
 	profile: ProfessorPage | null;
 	loading: boolean;
 	failed: boolean;
+	notFound: boolean;
 	name: string;
 }
 
@@ -311,6 +313,26 @@ function Compare() {
 		setSearchParams(next, { replace: true });
 	}, [searchParams, setSearchParams]);
 
+	// Drop a slot whose slug repeats an earlier one, or is an alias of it (same professor under another spelling)
+	useEffect(() => {
+		const seen = new Set<string>();
+		const next = new URLSearchParams(searchParams);
+		let removed = false;
+		for (const key of SLOT_KEYS) {
+			const slug = searchParams.get(key)?.trim();
+			if (!slug) continue;
+			const canonical = entries[slug]?.profile?.identity.slug ?? slug;
+			if (seen.has(slug) || seen.has(canonical)) {
+				next.delete(key);
+				removed = true;
+			} else {
+				seen.add(slug);
+				seen.add(canonical);
+			}
+		}
+		if (removed) setSearchParams(next, { replace: true });
+	}, [searchParams, setSearchParams, entries]);
+
 	// If the URL already has c or d filled, keep those slots open
 	useEffect(() => {
 		setOpenCount((count) => Math.max(count, lastFilledIndex + 1));
@@ -324,7 +346,7 @@ function Compare() {
 		setEntries((prev) => {
 			const next: Record<string, ProfileEntry> = {};
 			for (const slug of active) {
-				next[slug] = prev[slug]?.status === 'ready' ? prev[slug] : { status: 'loading', profile: null };
+				next[slug] = prev[slug]?.status === 'ready' ? prev[slug] : { status: 'loading', profile: null, code: null };
 			}
 			return next;
 		});
@@ -334,7 +356,7 @@ function Compare() {
 			if (cancelled) return;
 			setEntries((prev) => ({
 				...prev,
-				[slug]: res.ok ? { status: 'ready', profile: res.data } : { status: 'error', profile: null },
+				[slug]: res.ok ? { status: 'ready', profile: res.data, code: null } : { status: 'error', profile: null, code: res.status },
 			}));
 		});
 
@@ -345,10 +367,12 @@ function Compare() {
 
 	// Refetch one profile after it failed. A result for a slug that was removed meanwhile is dropped.
 	const retryProfile = async (slug: string) => {
-		setEntries((prev) => ({ ...prev, [slug]: { status: 'loading', profile: null } }));
+		setEntries((prev) => ({ ...prev, [slug]: { status: 'loading', profile: null, code: null } }));
 		const res = await fetchProfessorFull(slug);
 		setEntries((prev) =>
-			prev[slug] ? { ...prev, [slug]: res.ok ? { status: 'ready', profile: res.data } : { status: 'error', profile: null } } : prev
+			prev[slug]
+				? { ...prev, [slug]: res.ok ? { status: 'ready', profile: res.data, code: null } : { status: 'error', profile: null, code: res.status } }
+				: prev
 		);
 	};
 
@@ -385,16 +409,20 @@ function Compare() {
 			profile,
 			loading: Boolean(slug) && (!entry || entry.status === 'loading'),
 			failed: entry?.status === 'error',
+			notFound: entry?.status === 'error' && entry.code === 404,
 			// Picked name first, so the name (and the search box synced to it) stays put when the profile arrives.
 			// A slot from a shared link has no picked name, so it shows one built from the slug until then.
 			name: pickedNames[slug] ?? profile?.identity.name ?? (slug ? nameFromSlug(slug) : ''),
 		};
 	});
 
+	// A slot gets a column and a chip photo only while it has a slug and hasn't failed
+	const shown = (slot: SlotData) => Boolean(slot.slug) && !slot.failed;
 	const isReady = (slot: SlotData) => Boolean(slot.slug) && !slot.loading;
 	const displayName = (slot: SlotData) => slot.name || `Professor ${slot.label}`;
 	// "Elena Strange" -> "Elena S." (mobile chips) and "Elena" (mobile table header)
 	const chipName = (slot: SlotData) => {
+		if (slot.failed) return slot.slug;
 		const parts = slot.name.trim().split(/\s+/).filter(Boolean);
 		if (parts.length === 0) return `Prof. ${slot.label}`;
 		if (parts.length === 1) return parts[0];
@@ -463,16 +491,18 @@ function Compare() {
 	// Mobile hides the search area once every open slot has a professor (chips take over)
 	const hasEmptyOpenSlot = slots.slice(0, visibleCount).some((s) => !s.slug);
 	const selectedCount = selectedSlots.length;
+	const loadedSlots = selectedSlots.filter((s) => s.profile);
+	const shownCount = slots.filter(shown).length;
 	const anyLoading = selectedSlots.some((s) => s.loading);
-	const allReady = selectedCount >= 2 && selectedSlots.every((s) => !s.loading && s.profile);
+	const allReady = !anyLoading && loadedSlots.length >= 2;
 
 	const recommendation = (() => {
 		if (!allReady) return null;
 
 		// Rows only rank professors with enough ratings; with fewer than two, say why there's no pick
-		const rankable = selectedSlots.filter((s) => eligible[s.index]);
+		const rankable = loadedSlots.filter((s) => eligible[s.index]);
 		if (rankable.length < 2) {
-			const flagged = selectedSlots.filter((s) => lowSample[s.index]);
+			const flagged = loadedSlots.filter((s) => lowSample[s.index]);
 			if (flagged.length === 0) return null;
 			return { kind: 'lowSample' as const, names: flagged.map(displayName) };
 		}
@@ -501,18 +531,29 @@ function Compare() {
 		return `Comparing ${selectedCount} professors side-by-side.`;
 	})();
 
-	const renderProfileCard = (slot: SlotData) => {
-		if (slot.loading) return <p className="compare-status">Loading profile...</p>;
-		if (slot.failed) {
-			return (
-				<div className="compare-status">
+	const renderSlotError = (slot: SlotData) => (
+		<div className="compare-status" key={slot.label}>
+			{slot.notFound ? (
+				<>
+					<p className="compare-status-error">No professor matches this link.</p>
+					<button type="button" className="compare-retry" onClick={() => updateSlot(slot.index, '')}>
+						Remove
+					</button>
+				</>
+			) : (
+				<>
 					<p className="compare-status-error">Could not load {displayName(slot)}'s profile.</p>
 					<button type="button" className="compare-retry" onClick={() => retryProfile(slot.slug)}>
 						Try again
 					</button>
-				</div>
-			);
-		}
+				</>
+			)}
+		</div>
+	);
+
+	const renderProfileCard = (slot: SlotData) => {
+		if (slot.loading) return <p className="compare-status">Loading profile...</p>;
+		if (slot.failed) return renderSlotError(slot);
 		if (!slot.slug || !slot.profile) {
 			return <p className="compare-status">Pick a professor for slot {slot.label}.</p>;
 		}
@@ -592,7 +633,7 @@ function Compare() {
 		return (
 			<div
 				key={SLOT_LABELS[i]}
-				className={`compare-cell ${slots[i].slug ? '' : 'is-empty-col'} ${rankClass} ${unranked ? 'is-low-sample' : ''}`}
+				className={`compare-cell ${shown(slots[i]) ? '' : 'is-empty-col'} ${rankClass} ${unranked ? 'is-low-sample' : ''}`}
 				role="cell"
 			>
 				<span className="compare-value">
@@ -663,7 +704,7 @@ function Compare() {
 							.map((slot) => {
 								const imgUrl = slot.profile?.identity.imageUrl ?? null;
 								return (
-									<div className="compare-chip" key={slot.label}>
+									<div className={`compare-chip ${slot.failed ? 'is-failed' : ''}`} key={slot.label}>
 										<Link
 											className="compare-chip-main"
 											to={`/professors/${slot.profile?.identity.slug ?? slot.slug}`}
@@ -697,6 +738,12 @@ function Compare() {
 								{selectedCount === 0 ? '+ Add professor' : '+ Add'}
 							</button>
 						)}
+					</section>
+				)}
+
+				{slots.some((s) => s.failed) && (
+					<section className="compare-mobile-status" aria-live="polite">
+						{slots.filter((s) => s.failed).map(renderSlotError)}
 					</section>
 				)}
 
@@ -762,7 +809,7 @@ function Compare() {
 					)}
 				</section>
 
-				{selectedCount > 0 && <section className="compare-metrics">
+				{shownCount > 0 && <section className="compare-metrics">
 					<div className="compare-table-card">
 						<header className="compare-metrics-header">
 							<h2>Key Comparison Metrics</h2>
@@ -772,7 +819,7 @@ function Compare() {
 						<div className="compare-table-scroll">
 							<div
 								className="compare-table has-selection"
-								style={{ '--cols': selectedCount } as React.CSSProperties}
+								style={{ '--cols': shownCount } as React.CSSProperties}
 								role="table"
 								aria-label="Professor metrics comparison table"
 							>
@@ -783,7 +830,7 @@ function Compare() {
 									{slots.map((slot) => (
 										<div
 											key={slot.label}
-											className={`compare-cell compare-col-head ${slot.slug ? '' : 'is-empty is-empty-col'}`}
+											className={`compare-cell compare-col-head ${shown(slot) ? '' : 'is-empty is-empty-col'}`}
 											role="columnheader"
 										>
 											<span className="compare-col-name">
@@ -800,7 +847,7 @@ function Compare() {
 										Department
 									</div>
 									{departments.map((value, i) => (
-										<div key={SLOT_LABELS[i]} className={`compare-cell ${slots[i].slug ? '' : 'is-empty-col'}`} role="cell">
+										<div key={SLOT_LABELS[i]} className={`compare-cell ${shown(slots[i]) ? '' : 'is-empty-col'}`} role="cell">
 											<span>{value}</span>
 										</div>
 									))}
