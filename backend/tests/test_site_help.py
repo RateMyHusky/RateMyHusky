@@ -27,7 +27,7 @@ SHOULD_MATCH = {
                        "why isn't a class listed on the page", "a course is missing from the list"],
     "offerings": ["where does last taught come from", "what is when it's offered",
                   "how do I know when a course is offered"],
-    "awards": ["where do the teaching award badges come from", "what do the badges on professor pages mean",
+    "awards": ["where do the teaching award badges come from", "what do the award badges mean",
                "where does award information come from"],
     "report": ["how do I report wrong data", "where is the feedback button",
                "something on the site is wrong"],
@@ -50,6 +50,17 @@ SHOULD_NOT_MATCH = [
     "should I bookmark Prof Lee's class", "rate Guha's teaching", "how do I sign up for classes",
     "is professor Lieberherr good at explaining compare and contrast", "who teaches DS 3000",
     "how do I get an A", "is Dr. Wu goated", "is professor Lee's sentiment bar positive",
+    "what do you know about Guha", "what do you know about algorithms",
+    "i need help choosing a class", "can you help me with a schedule",
+    "how is Guha ranked among CS professors",
+    "what kind of questions does Guha ask on exams",
+    "does Guha have a teaching award badge",
+    "why does Guha have no reviews", "something is wrong with Guha's grading",
+    "what's the theme of Guha's class", "is Guha official",
+    "where does Guha get good reviews from", "how often does Guha update the syllabus",
+    "can I write a review for Guha", "is Guha on the goated list",
+    "where can I review Guha's syllabus", "is Guha affiliated with the CS department",
+    "where does Guha search for funding",
 ]
 
 def test_registry_has_every_entry():
