@@ -62,6 +62,15 @@ SHOULD_NOT_MATCH = [
     "can I write a review for Guha", "is Guha on the goated list",
     "where can I review Guha's syllabus", "is Guha affiliated with the CS department",
     "where does Guha search for funding",
+    # Course and professor questions that share a word with a site-help topic.
+    "is this class part of the NUpath requirements", "is the algorithms class part of the major",
+    "are the reviews for Guha official",
+    "is the privacy course hard", "who teaches data privacy",
+    "is the Ethics and Privacy course a lot of work",
+    "when was Algorithms last taught", "who last taught OOD",
+    "how does Lieberherr rank on the goated list",
+    "how is the reddit sentiment for Guha calculated",
+    "does Guha make you log in to Khoury handins",
 ]
 
 def test_registry_has_every_entry():
@@ -96,6 +105,15 @@ def test_payload_shapes():
     assert p["links"] and set(p["links"][0]) == {"label", "href"}
     m = site_help.payload(site_help.get("menu"))
     assert [i["id"] for i in m["menu"]] == [e.id for e in site_help.ENTRIES if e.id != "menu"]
+
+def test_answers_follow_the_faq():
+    # Feedback sits in the phone menu now that the round bottom-right button is the Ask widget.
+    assert "in the menu on phones" in site_help.get("report").answer
+    assert "round button" not in site_help.get("report").answer
+    # The FAQ has no Ask entry under #students.
+    assert site_help.get("ask_help").links == (("FAQ", "/faq"),)
+    rate = site_help.get("rate").answer
+    assert "needs our review first" in rate and "Comments aren't shown on the site yet" in rate
 
 def test_get_unknown_is_none():
     assert site_help.get("nope") is None

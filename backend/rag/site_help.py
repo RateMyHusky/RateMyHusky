@@ -36,7 +36,7 @@ ENTRIES: tuple[Entry, ...] = (
         "Ask answers questions about one Northeastern professor or course at a time, using their "
         "ratings, reviews, and Reddit comments. Questions about reviews need you to sign in with "
         "your Husky Google account.",
-        (("FAQ", "/faq#students"),),
+        (("FAQ", "/faq"),),
         _p(r"what (kinds?|types?|sorts?) of questions (can|could) (i|you) (ask|answer)",
            r"what (can|could) ask (answer|do|handle)",
            r"how (does|do) (the )?ask( feature| widget| assistant| box)? work",
@@ -67,10 +67,13 @@ ENTRIES: tuple[Entry, ...] = (
         "who taught it, to read alongside the reviews. For seats, meeting times, and "
         "registration, use Northeastern's registration system or SearchNEU.",
         (("FAQ: Last Taught", "/faq#students"),),
-        _p(r"\blast taught\b",
-           r"\bwhen (a |the |this )?(course|class)(es)? (is|are|gets?) (offered|run|taught)\b",
-           r"\bwhen it'?s offered\b",
-           r"\bwhen (is|are|do|does) (a |the |this )?(course|class)(es)? (get |being )?(offered|run|taught)")),
+        # Only the labels themselves: "when was Algorithms last taught" is a course question.
+        _p(r"\b(what|where|how) (is|are|does|do) (the )?['\"‘’“”]?(last taught|when it'?s offered)['\"‘’“”]?"
+           r"( (label|section|column|field|data|info|information|dates?))?"
+           r"( (mean|come from|get (filled|worked out|calculated)|work|calculated|determined))?$",
+           r"\b(last taught|when it'?s offered) (label|section|column|field)s?\b",
+           r"\bhow (do|can) i (know|find out|see|tell) when (a )?(course|class)(es)? (is|are|gets?) (offered|run|taught)$",
+           r"^(last taught|when it'?s offered)$")),
     Entry(
         "missing_course", "Missing course",
         "A professor's course list combines the courses students have rated them in with the "
@@ -95,9 +98,10 @@ ENTRIES: tuple[Entry, ...] = (
         "person, and it scores each comment on its own, so sarcasm can be misread. Read the "
         "comment itself before you rely on the label.",
         (("FAQ: sentiment bar", "/faq#students"),),
-        _p(r"\bsentiment (bar|label|score|colou?r|meaning)s?\b",
-           r"\b(reddit|comment) sentiment\b.*\b(mean|work|calculated|determined|generated|decided)",
-           r"\b(mean|work|calculated|determined|generated)\b.*\bsentiment (bar|label)")),
+        # No free gap between the trigger words: "the reddit sentiment for Guha" is about Guha.
+        _p(r"(^|\b(the|a|an|this|that|each) )(reddit |comment )?sentiment (bar|label|score|colou?r|meaning)s?\b",
+           r"\b(how|what) (is|are|does|do) (the )?(reddit |comment )?sentiment( (bar|label|score|colou?r)s?)? "
+           r"(mean|calculated|determined|generated|decided|work)")),
     Entry(
         "goated", "GOATED Professors",
         "GOATED Professors are ranked by rating and by how many students rated them, so a "
@@ -105,8 +109,13 @@ ENTRIES: tuple[Entry, ...] = (
         "from many. The ranking compares every professor on the same scale and doesn't adjust "
         "for how hard their department is.",
         (("GOATED Professors", "/#goated"), ("FAQ: ranking", "/faq#students")),
-        _p(r"\b(what|how)\b.*\bgoated\b.*\b(rank|list|mean|calculat|work|chosen|picked|sorted|order|score|decided)",
-           r"\b(what|how)\b.*\b(rank|mean|calculat|work|chosen|picked|sorted|order)\w*\b.*\bgoated\b")),
+        # No free gap between the trigger words: "how does Lieberherr rank on the goated list"
+        # is about Lieberherr.
+        _p(r"\b(what|how) (is|are|does|do) (the )?goated( (professors?|list|ranking|rankings|section|page))? "
+           r"(ranked|rank|mean|calculated|work|chosen|picked|sorted|ordered|scored|decided|determined)\b",
+           r"\bhow (is|are) (the )?(professors|list) (on|in) (the )?goated (list|section|page) "
+           r"(ranked|sorted|ordered|chosen|picked|calculated)\b",
+           r"^what('?s| is) (the )?goated( (professors?|list|ranking))?$")),
     Entry(
         "compare", "Compare professors",
         "Compare puts professors side by side and, for each row, marks the one with the best "
@@ -121,7 +130,9 @@ ENTRIES: tuple[Entry, ...] = (
         "rate", "Rate a professor",
         "Yes. Use the rating form to rate a professor and course you took: you answer a few "
         "questions, add an optional comment, and no sign-in is needed. Once accepted, your "
-        "rating shows up here after the next weekly refresh.",
+        "rating shows up here after the next weekly refresh; a rating that is held, or that "
+        "names a new professor or course, needs our review first. Comments aren't shown on the "
+        "site yet.",
         (("Rate a professor", "/rate"), ("FAQ: writing a review", "/faq#students")),
         _p(r"\b(can|how do|how can|where do|where can) i (write|leave|submit|post|add) (a |an |my )?(review|rating)( here| on (the )?(site|website)| on ratemyhusky)?$",
            r"\brating form\b",
@@ -132,8 +143,11 @@ ENTRIES: tuple[Entry, ...] = (
         "No. RateMyHusky is an independent student project. It is not affiliated with, "
         "endorsed by, or officially connected to Northeastern University or RateMyProfessors.",
         (("FAQ", "/faq#students"),),
-        _p(r"\b(is|are) (this|the|it|ratemyhusky)\b.*\b(affiliat|endorse|official|run by|owned by|made by|part of|connected (to|with))",
-           r"\b(ratemyhusky|this (site|website))\b.*\b(run|owned|made|created|operated|built) by",
+        # The site must be the subject, right before the predicate: "is this class part of
+        # the major" and "are the reviews for Guha official" are course and professor questions.
+        _p(r"\b(is|are) (this (site|website)|ratemyhusky|this|it) (an? )?(officially |actually )?"
+           r"(affiliated|endorsed|official|run by|owned by|made by|connected (to|with))",
+           r"\b(ratemyhusky|this (site|website)) (is |was )?(run|owned|made|created|operated|built) by",
            r"\bwho (runs|made|built|owns|created) (this (site|website)|ratemyhusky|the (site|website))\b")),
     Entry(
         "professors", "Professors: corrections and removal",
@@ -150,14 +164,18 @@ ENTRIES: tuple[Entry, ...] = (
         "The Privacy Policy lists what the site collects and publishes, and the Terms of "
         "Service cover how you can use it.",
         (("Privacy Policy", "/privacy"), ("Terms of Service", "/terms")),
-        _p(r"\bprivacy\b",
+        # Not a bare "privacy": "is the privacy course hard" is a course question.
+        _p(r"^privacy$",
+           r"\bprivacy (policy|policies|notice|statement)\b",
+           r"\b(my|your) privacy\b",
+           r"\b(site|website|ratemyhusky)('?s)? privacy\b",
+           r"\bprivacy (on|of|at) (this |the )?(site|website|ratemyhusky)\b",
            r"\bterms (of (service|use)|and conditions)\b",
            r"\bwhat (data|information) do you (collect|store|keep|track)")),
     Entry(
         "report", "Report wrong or missing data",
-        "Use the Feedback tab on the left edge of any page (a round button in the bottom-right "
-        "corner on phones) and choose Wrong or Missing Data. A link to the page in question "
-        "helps.",
+        "Use the Feedback tab on the left edge of any page (in the menu on phones) and choose "
+        "Wrong or Missing Data. A link to the page in question helps.",
         (("FAQ: reporting problems", "/faq#students"),),
         _p(r"\bfeedback (tab|button|form|link)\b",
            r"\breport (a |an )?(bug|problem|issue|error|mistake|wrong|incorrect|missing|data)",
@@ -185,7 +203,16 @@ ENTRIES: tuple[Entry, ...] = (
         "Sign in with your Husky Google account. Signing in lets you bookmark professors and "
         "courses and ask Ask questions about reviews; browsing and rating need no sign-in.",
         (("Your bookmarks", "/bookmarks"),),
-        _p(r"\b(sign|log)[ -]?in\b",
+        # Not a bare "log in": "does Guha make you log in to Khoury handins" is about Guha.
+        _p(r"^(sign|log)[ -]?(in|on)$",
+           r"\b(how|where) (do|can|should) i (sign|log)[ -]?(in|on)\b",
+           r"\b(do|why do|when do|must) (i|you|we) (need|have) to (sign|log)[ -]?(in|on)\b",
+           r"\bwhy (should|would) i (sign|log)[ -]?in\b",
+           r"\b(can'?t|cannot|unable to) (sign|log)[ -]?(in|on)\b",
+           r"\btrouble (signing|logging) (in|on)\b",
+           r"\b(sign|log)[ -]?in (button|page|link|options?|problems?|issues?)\b",
+           r"\b(is )?(signing|logging|sign|log)[ -]?in (required|needed|necessary)\b",
+           r"\bwhat (does|do) (signing|logging) in (do|give|get)",
            r"\bhusky (google )?account\b",
            r"\bgoogle account\b")),
     Entry(
