@@ -16,6 +16,8 @@ const Navbar = () => {
   const [signInReason, setSignInReason] = useState<string | undefined>();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [pillStyle, setPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
   const [isReady, setIsReady] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -102,6 +104,28 @@ const Navbar = () => {
   }, [updatePill]);
 
 
+  // Esc closes the mobile menu and returns focus to the hamburger; an Esc a nested widget
+  // already handled (defaultPrevented) is left alone.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) {
+        setMenuOpen(false);
+        hamburgerRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
+
+  // Focus leaving both the hamburger and the menu closes the menu.
+  const handleMenuBlur = (e: React.FocusEvent) => {
+    const next = e.relatedTarget as Node | null;
+    if (menuOpen && next && !menuRef.current?.contains(next) && !hamburgerRef.current?.contains(next)) {
+      setMenuOpen(false);
+    }
+  };
+
   // Close user dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -131,9 +155,13 @@ const Navbar = () => {
 
       {/* Hamburger button — mobile only */}
       <button
+        ref={hamburgerRef}
         className={`hamburger ${menuOpen ? 'open' : ''}`}
         onClick={() => { if (!menuOpen) window.dispatchEvent(new CustomEvent('close-filter-sidebar')); setMenuOpen(!menuOpen); }}
         aria-label="Toggle menu"
+        aria-expanded={menuOpen}
+        aria-controls="navbar-menu"
+        onBlur={handleMenuBlur}
       >
         <span />
         <span />
@@ -141,7 +169,7 @@ const Navbar = () => {
       </button>
 
       {/* Nav links — slides in on mobile */}
-      <div className={`navbar-right ${menuOpen ? 'show' : ''}`}>
+      <div id="navbar-menu" ref={menuRef} onBlur={handleMenuBlur} className={`navbar-right ${menuOpen ? 'show' : ''}`}>
         <div className="nav-links-container" ref={containerRef}>
           <div 
             className={`nav-pill-background ${isReady ? 'animate' : ''}`}
