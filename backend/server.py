@@ -14,7 +14,7 @@ from psycopg2.extras import RealDictCursor
 from functools import lru_cache
 from dotenv import load_dotenv
 from prof_aliases import ALIAS_MAP
-from pipeline.names import COLLEGE_MAP
+from pipeline.names import COLLEGE_MAP, search_squash
 from flask import Flask, g, jsonify, request, redirect, make_response
 from flask.json.provider import DefaultJSONProvider
 from flask_cors import CORS
@@ -145,11 +145,10 @@ def search_text(raw):
 
 
 def course_search_text(raw):
-    """search_text for a course search, with a spaced code joined: "cs 3100" -> "cs3100".
-    course_catalog.search_text holds the code unspaced, plus the spaced form from the read
-    model (pipeline/read_models.course_search_text) once a pipeline run has rebuilt it; that
-    covers partial codes ("cs 31"), this keeps a complete one matching until then."""
-    return re.sub(r"\b([a-z]{2,5}) (\d{4})\b", r"\1\2", search_text(raw))
+    """search_text for a course search, squashed (folded, no spaces) to match
+    replace(course_catalog.search_text, ' ', ''): "cs 3100", "object-oriented" and
+    "master’s" all hit however the catalog spaces or punctuates them."""
+    return search_squash(search_text(raw))
 
 
 def course_relevance(q):
@@ -158,11 +157,12 @@ def course_relevance(q):
     it: a code match ranks first, then a title that starts with q, then one that contains it,
     then description-only matches. The code is compared unspaced, so a partial "cs 35" still
     lands on CS35xx rather than on courses listing "CS 3500" as a prerequisite."""
-    return ("""CASE WHEN lower(course_catalog.code) LIKE %s THEN 0
-                    WHEN lower(course_catalog.name) LIKE %s THEN 1
-                    WHEN lower(course_catalog.name) LIKE %s THEN 2
+    name = "regexp_replace(lower(course_catalog.name), '[^a-z0-9]', '', 'g')"
+    return (f"""CASE WHEN lower(course_catalog.code) LIKE %s THEN 0
+                    WHEN {name} LIKE %s THEN 1
+                    WHEN {name} LIKE %s THEN 2
                     ELSE 3 END""",
-            [f"{q.replace(' ', '')}%", f"{q}%", f"%{q}%"])
+            [f"{q}%", f"{q}%", f"%{q}%"])
 
 
 # Build a word-level mapping so partial/typeahead queries also resolve.
@@ -1256,10 +1256,12 @@ def search():
         # Course search
         q = course_search_text(request.args.get("q", ""))
         # Best match first (course_relevance), the most-rated course leading within a tier.
+        if not q:
+            return jsonify([])
         tier, tier_params = course_relevance(q)
         rows = query(f"""
             SELECT code, name, department FROM course_catalog
-            WHERE search_text LIKE %s
+            WHERE replace(search_text, ' ', '') LIKE %s
             ORDER BY {tier}, num_ratings DESC NULLS LAST, code
             LIMIT %s
         """, [f"%{q}%", *tier_params, limit])
@@ -1851,7 +1853,7 @@ def courses_catalog():
             conditions.append("department IN (" + ",".join(["%s"] * len(dept_list)) + ")")
             params.extend(dept_list)
     if q:
-        conditions.append("search_text LIKE %s")
+        conditions.append("replace(search_text, ' ', '') LIKE %s")
         params.append(f"%{q}%")
     if min_rating > 0:
         conditions.append("avg_rating >= %s")

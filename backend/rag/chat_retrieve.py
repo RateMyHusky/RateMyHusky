@@ -44,16 +44,15 @@ def wants_ratings(text):
 def fetch_courses_by_topic(topic, query_fn, limit=8, with_ratings=False):
     """Catalog courses whose search_text matches the topic. Reuses the /api/search course
     query. Per-course rating lookups happen ONLY when with_ratings is True."""
-    # search_text is stored lowercased (precompute builds code.lower()+" "+name.lower()), and
-    # LIKE is case-sensitive — so the term MUST be lowercased or a capitalized hint like
-    # "Discrete Structures" matches nothing.
-    topic = re.sub(r"[%_]", " ", str(topic or "")).strip().lower()
+    # search_text is stored folded (lowercase, no punctuation) and LIKE is case-sensitive, so
+    # the term is squashed to match replace(search_text, ' ', '').
+    topic = search_squash(str(topic or ""))
     if len(topic) < 2:
         return []
     like = f"%{topic}%"
     rows = query_fn("""
         SELECT code, name, department, avg_rating FROM course_catalog
-        WHERE search_text LIKE %s
+        WHERE replace(search_text, ' ', '') LIKE %s
         ORDER BY CASE WHEN lower(code) LIKE %s THEN 0 ELSE 1 END, code
         LIMIT %s
     """, (like, f"{topic}%", limit))
@@ -673,7 +672,7 @@ def selftest():
     def topic_query(sql, params):
         topic_calls.append(sql)
         if "course_catalog" in sql:
-            check("topic search uses search_text LIKE", "search_text LIKE %s" in sql)
+            check("topic search uses search_text LIKE", "replace(search_text, ' ', '') LIKE %s" in sql)
             check("topic search orders code-prefix first", "lower(code) LIKE %s" in sql)
             return [{"code": "CS3200", "name": "Database Design", "department": "Khoury"},
                     {"code": "DS3000", "name": "Foundations of Data Science", "department": "Khoury"}]
@@ -696,7 +695,7 @@ def selftest():
 
     # retrieve() returns a course_list block on a topic query (hint is None — gate found no entity)
     def topic_retrieve_query(sql, params):
-        if "course_catalog" in sql and "search_text LIKE" in sql:
+        if "course_catalog" in sql and "replace(search_text, ' ', '') LIKE" in sql:
             return [{"code": "CS3200", "name": "Database Design", "department": "Khoury"}]
         return []
     rb = retrieve("what database courses are there", None, topic_retrieve_query,
@@ -728,7 +727,7 @@ def selftest():
     check("wildcard-only topic returns empty", fetch_courses_by_topic("%", must_not_query) == [])
     # a normal topic still works and wildcards inside are neutralized
     def topic_q(sql, params):
-        check("neutralized topic has no % or _ wildcard", "%_" not in params[0] and params[0] == "%data science%")
+        check("neutralized topic has no % or _ wildcard", "%_" not in params[0] and params[0] == "%datascience%")
         return [{"code": "DS3000", "name": "Foundations of Data Science", "department": "Khoury"}]
     got = fetch_courses_by_topic("data_science", topic_q)
     check("underscore in topic neutralized to space", got[0]["code"] == "DS3000")
@@ -740,7 +739,7 @@ def selftest():
         cap["like"] = params[0]
         return [{"code": "CS1800", "name": "Discrete Structures", "department": "Computer Science"}]
     fetch_courses_by_topic("Discrete Structures", case_q)
-    check("topic search lowercases the LIKE term", cap["like"] == "%discrete structures%")
+    check("topic search lowercases the LIKE term", cap["like"] == "%discretestructures%")
 
     # ── course-by-NAME resolution ──
     # single clear match by title -> resolves to that course (facts + comments), like the code path

@@ -1,5 +1,7 @@
 """Flask endpoints, bookmarks and usage alerts through the real pool."""
 
+import urllib.parse
+
 import psycopg2.extras
 import pytest
 
@@ -99,6 +101,43 @@ def test_course_search_ranks_code_and_title_matches_above_descriptions(live_serv
     body = resp.get_json()
     rows = body["courses"] if isinstance(body, dict) else body
     assert rows[0][key] == ("CS3500" if "cs" in path else "MATH1341"), rows
+
+
+@pytest.mark.parametrize("endpoint", ["/api/search?type=Course&q=", "/api/courses-catalog?q="])
+@pytest.mark.parametrize("q, code", [
+    ("object oriented", "CS3500"),
+    ("object-oriented", "CS3500"),
+    ("objectoriented", "CS3500"),
+    ("study argentina", "ABRD5140"),
+    ("bouve", "HSCI2000"),
+    ("bouvé", "HSCI2000"),
+    ("master’s", "CHME7945"),
+    ("masters", "CHME7945"),
+])
+def test_course_search_folds_punctuation_spacing_and_accents(live_server, pg, endpoint, q, code):
+    rows = [
+        ("CS3500", "Object-Oriented Design", ""),
+        ("CSYE7200", "Big Data Systems", "object oriented programming"),
+        ("ABRD5140", "International Study—Argentina", ""),
+        ("HSCI2000", "Co-op for Bouvé Students", ""),
+        ("CHME7945", "Master’s Project", ""),
+    ]
+    courses = [_course(c, n, read_models.course_search_text(c, f"{c.lower()} {n.lower()} {d}"), 10)
+               for c, n, d in rows]
+    truncate(pg, "professors_catalog", "course_catalog", "source_summary", "stats_cache")
+    read_models.write(pg, CATALOG, courses, SUMMARIES, COUNTS)
+    resp = live_server.app.test_client().get(endpoint + urllib.parse.quote(q), headers={"User-Agent": "Mozilla/5.0"})
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:500]
+    body = resp.get_json()
+    found = body["courses"] if isinstance(body, dict) else body
+    assert found[0]["code"] == code, found
+
+
+def test_course_search_with_an_empty_fold_returns_nothing(live_server, seeded):
+    resp = live_server.app.test_client().get("/api/search?type=Course&q=%27%E2%80%94",
+                                             headers={"User-Agent": "Mozilla/5.0"})
+    assert resp.status_code == 200
+    assert resp.get_json() == []
 
 
 def test_search_finds_an_approved_alias_only(live_server, seeded, pg):
