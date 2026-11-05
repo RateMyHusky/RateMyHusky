@@ -312,6 +312,7 @@ const FeedbackTab = () => {
                 <button className="feedback-submit" onClick={handleSubmit} disabled={loading || !turnstileToken || (feedbackType === 'datadeletion' && authLoading)}>
                   {loading ? 'Sending...' : 'Submit'}
                 </button>
+                <span tabIndex={0} data-dialog-wrap />
               </>
             )}
           </div>

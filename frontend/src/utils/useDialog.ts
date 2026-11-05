@@ -57,20 +57,23 @@ export function useDialog(
         first.focus();
       } else if (e.shiftKey && active === first) {
         e.preventDefault();
-        last.focus();
+        items.filter(el => !el.hasAttribute('data-dialog-wrap')).pop()?.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
       }
-      // Forward Tab from the last item is left to the browser: Turnstile's iframe sits in a
-      // closed shadow root, so it is not in `items` but must stay reachable. onFocusIn wraps.
     };
+    // A [data-dialog-wrap] element at the end of a dialog catches native Tab leaving a widget
+    // the hook can't see into (Turnstile's iframe is in a closed shadow root) and wraps to the first item.
     const onFocusIn = (e: FocusEvent) => {
-      if (!container.contains(e.target as Node)) focusableIn(container)[0]?.focus();
+      if ((e.target as HTMLElement).hasAttribute('data-dialog-wrap')) focusableIn(container)[0]?.focus();
     };
     document.addEventListener('keydown', onKeyDown);
-    document.addEventListener('focusin', onFocusIn);
+    container.addEventListener('focusin', onFocusIn);
 
     return () => {
       document.removeEventListener('keydown', onKeyDown);
-      document.removeEventListener('focusin', onFocusIn);
+      container.removeEventListener('focusin', onFocusIn);
       document.body.style.overflow = prevOverflow;
       if (opener instanceof HTMLElement && document.contains(opener)) opener.focus();
     };
