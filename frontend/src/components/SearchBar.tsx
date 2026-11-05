@@ -560,6 +560,9 @@ function AskResult({ result, askedAt }: { result: ChatResponse; askedAt: number 
     );
   }
 
+  // site_help is only produced for the Ask widget's menu; the search bar never requests it.
+  if (result.mode === 'site_help') return null;
+
   // out_of_scope | thin_data | keyword — banner/message + any keyword comments
   type KeywordComment = {
     snippet?: string;
