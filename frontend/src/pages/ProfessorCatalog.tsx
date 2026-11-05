@@ -147,10 +147,20 @@ export default function ProfessorCatalog() {
         setSidebarOpen(false);
       }
     };
+    // Both elements are always mounted, so capture them for the cleanup.
+    const sidebar = sidebarRef.current;
+    const filterToggle = filterToggleRef.current;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) setSidebarOpen(false);
+    };
     document.addEventListener('touchmove', handler, { passive: true });
+    document.addEventListener('keydown', onKey);
+    sidebarCloseRef.current?.focus();
     return () => {
       document.body.style.overflow = '';
       document.removeEventListener('touchmove', handler);
+      document.removeEventListener('keydown', onKey);
+      if (sidebar?.contains(document.activeElement)) filterToggle?.focus();
     };
   }, [sidebarOpen]);
 
@@ -176,6 +186,8 @@ export default function ProfessorCatalog() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sidebarRef = useRef<HTMLElement>(null);
+  const sidebarCloseRef = useRef<HTMLButtonElement>(null);
+  const filterToggleRef = useRef<HTMLButtonElement>(null);
 
   const [numCols, setNumCols] = useState(4);
   const [isMeasured, setIsMeasured] = useState(false);
@@ -518,6 +530,12 @@ export default function ProfessorCatalog() {
                   Clear all
                 </button>
               )}
+              <button type="button" className="sidebar-close" aria-label="Close filters" ref={sidebarCloseRef} onClick={() => setSidebarOpen(false)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
             </div>
 
             {/* Sort */}
@@ -530,6 +548,7 @@ export default function ProfessorCatalog() {
                 onChange={v => updateFilter('sort', v)}
                 onOpenChange={setSortOpen}
               />
+              {(filters.sort === 'rating' || filters.sort === 'rating_asc') && <p className="filter-hint">Weighted by number of ratings</p>}
             </div>
 
             {/* College */}
@@ -684,6 +703,7 @@ export default function ProfessorCatalog() {
                 />
               </div>
             </div>
+            <div className="sidebar-results"><button type="button" className="sidebar-results-btn" onClick={() => setSidebarOpen(false)}>{loading ? 'Show results' : total === 1 ? 'Show 1 result' : `Show ${total.toLocaleString()} results`}</button></div>
           </div>
         </aside>
 
@@ -743,6 +763,7 @@ export default function ProfessorCatalog() {
               )}
             </div>
           <button
+            ref={filterToggleRef}
             className={`catalog-filter-toggle${sidebarOpen ? ' open' : ''}`}
             onClick={() => setSidebarOpen(o => !o)}
             aria-label="Toggle filters"
@@ -1034,7 +1055,7 @@ function ChecklistFilter({
       ref={ref}
       // Escape closes, and so does tabbing out (the mousedown listener only catches clicks).
       onKeyDown={e => {
-        if (e.key === 'Escape' && open) { toggle(false); toggleRef.current?.focus(); }
+        if (e.key === 'Escape' && open) { e.preventDefault(); toggle(false); toggleRef.current?.focus(); }
       }}
       onBlur={e => {
         if (open && e.relatedTarget && !ref.current?.contains(e.relatedTarget as Node)) toggle(false);
