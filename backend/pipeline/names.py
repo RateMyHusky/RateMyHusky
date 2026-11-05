@@ -40,7 +40,7 @@ def tidy_name(name):
             elif 0 < i < last and w.lower() in _PARTICLES:
                 out.append(w.lower())
             else:
-                out.append(re.sub(r"(^|[-'’])([a-z])", lambda m: m.group(1) + m.group(2).upper(), w.lower()))
+                out.append(re.sub(r"(^|[-'’])([^\W\d_])", lambda m: m.group(1) + m.group(2).upper(), w.lower()))
         s = ' '.join(out)
     return re.sub(r'\bMc([a-z])', lambda m: "Mc" + m.group(1).upper(), s)
 

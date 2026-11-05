@@ -16,6 +16,8 @@ from pipeline.names import tidy_name
     ("JOHN R. SMITH JR.", "John R. Smith Jr."),
     ("HENRY FORD III", "Henry Ford III"),
     ("  Ada   Park ", "Ada Park"),
+    ("&#201;MILE ZOLA", "Émile Zola"),
+    ("ÖZGE ÇELIK", "Özge Çelik"),
 ])
 def test_tidy_name_fixes(raw, want):
     assert tidy_name(raw) == want
