@@ -40,7 +40,10 @@ export function useDialog(
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (!e.defaultPrevented) onCloseRef.current();
+        if (!e.defaultPrevented) {
+          e.preventDefault();
+          onCloseRef.current();
+        }
         return;
       }
       if (e.key !== 'Tab') return;
@@ -55,15 +58,19 @@ export function useDialog(
       } else if (e.shiftKey && active === first) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
       }
+      // Forward Tab from the last item is left to the browser: Turnstile's iframe sits in a
+      // closed shadow root, so it is not in `items` but must stay reachable. onFocusIn wraps.
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      if (!container.contains(e.target as Node)) focusableIn(container)[0]?.focus();
     };
     document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('focusin', onFocusIn);
 
     return () => {
       document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('focusin', onFocusIn);
       document.body.style.overflow = prevOverflow;
       if (opener instanceof HTMLElement && document.contains(opener)) opener.focus();
     };

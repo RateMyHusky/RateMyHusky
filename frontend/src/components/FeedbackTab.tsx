@@ -182,7 +182,7 @@ const FeedbackTab = () => {
   const handleClose = () => {
     setIsOpen(false);
     setError('');
-    if (submitted) setTimeout(resetForm, 300);
+    if (submitted) resetForm();
   };
 
   // A Report link prefills the type, so first focus goes to the description; otherwise the type picker.

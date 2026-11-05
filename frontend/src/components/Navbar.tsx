@@ -234,13 +234,13 @@ const Navbar = () => {
             )}
           </div>
         ) : (
-          <button className="signin-btn" onClick={() => { clearPendingBookmark(); setSignInReason(undefined); setShowSignIn(true); setMenuOpen(false); }}>Sign In</button>
+          <button className="signin-btn" onClick={() => { if (menuOpen) hamburgerRef.current?.focus(); clearPendingBookmark(); setSignInReason(undefined); setShowSignIn(true); setMenuOpen(false); }}>Sign In</button>
         )}
 
         <div className="navbar-util-spacer" />
 
         <div className="navbar-utilities">
-          <button className="navbar-utility-item" onClick={() => { window.dispatchEvent(new CustomEvent('open-feedback')); setMenuOpen(false); }}>
+          <button className="navbar-utility-item" onClick={() => { if (menuOpen) hamburgerRef.current?.focus(); window.dispatchEvent(new CustomEvent('open-feedback')); setMenuOpen(false); }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
             </svg>
