@@ -22,7 +22,7 @@ import Navbar from './components/Navbar';
 import FeedbackTab from './components/FeedbackTab';
 import AskWidget from './components/AskWidget';
 import ErrorBoundary from './components/ErrorBoundary';
-import { RATE_ENABLED } from './config';
+import { ASK_ENABLED, RATE_ENABLED } from './config';
 import './App.css';
 
 function ScrollToTop() {
@@ -62,7 +62,7 @@ function App() {
             </Routes>
           </ErrorBoundary>
           <FeedbackTab />
-          <AskWidget />
+          {ASK_ENABLED && <AskWidget />}
         </Router>
         <Analytics />
         <SpeedInsights />
