@@ -3,8 +3,8 @@
 // logs each question with the account id and hashed IP (ask_log, deleted after 30 days:
 // ASK_LOG_RETENTION_DAYS in server.py) and sends questions to Groq, which isn't in either
 // document's third-party list. While Ask is off, nothing is logged.
-// Flipping this back to true restores the search-bar Ask mode, the homepage "Try Now"
-// bubble, and Ask session restore — no other code changes needed.
+// This flag gates the floating Ask widget, the homepage "Try Now" bubble and the
+// ban-appeal feedback option.
 export const ASK_ENABLED = false;
 
 // Hours per week and comment counts come from the student questionnaire, which does not

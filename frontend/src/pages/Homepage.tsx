@@ -226,7 +226,6 @@ const Homepage = () => {
   const rankHelpRef = useRef<HTMLButtonElement>(null);
   const rankSheetBtnRef = useRef<HTMLButtonElement>(null);
   const [showAskTip, setShowAskTip] = useState(() => localStorage.getItem('home_ask_tip_dismissed') !== '1');
-  const [askTrigger, setAskTrigger] = useState<number | undefined>(undefined);
   const tabsRef = useRef<HTMLDivElement>(null);
   const [tabsAtEnd, setTabsAtEnd] = useState(false);
   const [tabsAtStart, setTabsAtStart] = useState(true);
@@ -507,7 +506,7 @@ const Homepage = () => {
                 type="button"
                 className="home-ask-bubble-trynow"
                 onClick={() => {
-                  setAskTrigger(Date.now());
+                  window.dispatchEvent(new CustomEvent('open-ask'));
                   localStorage.setItem('home_ask_tip_dismissed', '1');
                   setShowAskTip(false);
                 }}
@@ -544,7 +543,7 @@ const Homepage = () => {
           RateMyProfessor ratings and Reddit discussion, all in one place.
         </p>
 
-        <SearchBar forceAsk={askTrigger} restoreAsk={(location.state as { restoreAsk?: boolean } | null)?.restoreAsk} />
+        <SearchBar />
         {RATE_ENABLED && (
           <Link to="/rate" className="hero-rate-link">Took a class this term? Rate your professor →</Link>
         )}

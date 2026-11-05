@@ -1,0 +1,91 @@
+/* Answer renderer. It sits inside the widget's bot bubble (white text on a
+   translucent tint over #d6394c), so text inherits and accents are white
+   rather than the site's usual red. */
+.ask-answer {
+  margin: 0 0 10px;
+  font-size: inherit;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.ask-sources,
+.ask-help-links {
+  margin: 0 0 10px;
+  padding-left: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ask-sources li,
+.ask-help-links li {
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.ask-source-link {
+  color: #fff;
+  font-weight: 800;
+  text-decoration: underline;
+  margin-right: 6px;
+}
+
+a.ask-source-link:hover {
+  text-decoration-thickness: 2px;
+}
+
+.ask-source-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #a8243a;
+  background: #fff;
+  border-radius: 6px;
+  padding: 1px 6px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.ask-source-snippet {
+  opacity: 0.92;
+}
+
+.ask-disclaimer {
+  margin: 0;
+  font-size: 0.72rem;
+  opacity: 0.8;
+}
+
+/* Tappable follow-ups: professor name picks and help-menu topics. */
+.ask-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 4px;
+}
+
+.ask-chip {
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.ask-chip:hover,
+.ask-chip:focus-visible {
+  background: #fff;
+  color: #a8243a;
+}
+
+.ask-chip:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
