@@ -904,11 +904,6 @@ const Professor = () => {
       </header>
 
       <section className="prof-stats">
-        {noRatings ? (
-          <div className="prof-stat-card">
-            <span className="prof-stat-value prof-stat-value-text">No ratings yet</span>
-          </div>
-        ) : (<>
         <div className={`prof-stat-card${stats.breakdown.length > 1 ? ' prof-stat-clickable' : ''}`}>
           <span className="prof-stat-value">{stats.rating !== null ? <AnimatedNumber value={stats.rating} /> : '—'}</span>
           <span className="prof-stat-label" style={{ display: 'block', textAlign: 'center', position: 'relative' }}>
@@ -917,7 +912,9 @@ const Professor = () => {
               <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', marginLeft: '4px', opacity: 0.6 }}><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
             )}
           </span>
-          <div className="prof-stat-extra"><StarRating rating={stats.rating ?? 0} size="lg" /></div>
+          <div className="prof-stat-extra">
+            {noRatings ? <span className="prof-stat-hint">No ratings yet</span> : <StarRating rating={stats.rating ?? 0} size="lg" />}
+          </div>
           {/* One source's score is the overall score, so the breakdown only shows for two or more. */}
           {stats.breakdown.length > 1 && (
             <div className="prof-stat-breakdown">
@@ -953,26 +950,38 @@ const Professor = () => {
             ) : <span className="prof-stat-hint">All courses</span>}
           </div>
         </div>
-        {SHOW_SURVEY_STATS && (
+        <div className="prof-stat-card">
+          <span className="prof-stat-value">
+            {summary.hoursPerWeek !== null ? <AnimatedNumber value={summary.hoursPerWeek} decimals={1} suffix="h" /> : '—'}
+          </span>
+          <span className="prof-stat-label">Avg Hrs / Week</span>
+          {/* Like Would Take Again, the value isn't split by course. */}
+          <div className="prof-stat-extra">{!unfiltered && <span className="prof-stat-hint">All courses</span>}</div>
+        </div>
+        {noRatings ? (
           <div className="prof-stat-card">
-            <span className="prof-stat-value">
-              {summary.hoursPerWeek !== null ? <AnimatedNumber value={summary.hoursPerWeek} decimals={1} suffix="h" /> : '—'}
-            </span>
-            <span className="prof-stat-label">Hrs / Week</span>
+            <span className="prof-stat-value">{stats.numRatings.toLocaleString()}</span>
+            <span className="prof-stat-label">Total Ratings</span>
             <div className="prof-stat-extra" />
           </div>
+        ) : (
+          <div className="prof-stat-card prof-stat-clickable" onClick={() => chartsRef.current?.scrollIntoView({ behavior: 'smooth' })}>
+            <span className="prof-stat-value">{stats.numRatings.toLocaleString()}</span>
+            <span className="prof-stat-label">Total Ratings</span>
+            <div className="prof-stat-extra"><span className="prof-stat-hint">View distribution ↓</span></div>
+          </div>
         )}
-        <div className="prof-stat-card prof-stat-clickable" onClick={() => chartsRef.current?.scrollIntoView({ behavior: 'smooth' })}>
-          <span className="prof-stat-value">{stats.numRatings ? stats.numRatings.toLocaleString() : '—'}</span>
-          <span className="prof-stat-label">Total Ratings</span>
-          <div className="prof-stat-extra"><span className="prof-stat-hint">View distribution ↓</span></div>
-        </div>
-        </>)}
-        {profile.lastTaught && (
+        {profile.lastTaught ? (
           <div className="prof-stat-card">
             <span className="prof-stat-value prof-stat-value-text"><FitText>{seasonYear(profile.lastTaught)}</FitText></span>
             <span className="prof-stat-label">Last Taught</span>
             <div className="prof-stat-extra"><span className="prof-stat-hint">{relativeTerm(profile.lastTaught)}</span></div>
+          </div>
+        ) : (
+          <div className="prof-stat-card">
+            <span className="prof-stat-value">—</span>
+            <span className="prof-stat-label">Last Taught</span>
+            <div className="prof-stat-extra" />
           </div>
         )}
         {SHOW_SURVEY_STATS && (
