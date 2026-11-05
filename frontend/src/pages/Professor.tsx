@@ -1282,6 +1282,7 @@ const Professor = () => {
                 <input
                   type="text"
                   className="reddit-search-input"
+                  aria-label="Search Reddit mentions"
                   placeholder="Search Reddit mentions..."
                   value={redditSearch}
                   onChange={e => { setRedditSearch(e.target.value); setVisibleRedditMentions(10); }}

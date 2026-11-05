@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useMediaQuery } from './rate/useMediaQuery';
 import {
 	FILTER_SEPARATOR,
 	fetchCourseDepartments,
@@ -121,6 +122,7 @@ export default function Courses() {
 	const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
 	const [isSearchFocused, setIsSearchFocused] = useState(false);
 	const [searchPlaceholder, setSearchPlaceholder] = useState('');
+	const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
 
 	const courseExamples = useMemo(() => [
 		"CS 2500", "CS 3500", "CS 4500", "ECON 1115", "MATH 1341",
@@ -292,7 +294,7 @@ export default function Courses() {
 	}, []);
 
 	useEffect(() => {
-		if (isSearchFocused || filters.q) {
+		if (isSearchFocused || filters.q || reduced) {
 			setSearchPlaceholder('Search course code or title...');
 			return;
 		}
@@ -326,7 +328,7 @@ export default function Courses() {
 
 		let timeoutId = setTimeout(type, typingSpeed);
 		return () => clearTimeout(timeoutId);
-	}, [isSearchFocused, filters.q, courseExamples]);
+	}, [isSearchFocused, filters.q, reduced, courseExamples]);
 
 	const hasActiveFilters = !!filters.q || !!filters.dept || filters.minRating > 0 || filters.maxRating < 5;
 	// Same count as the professor catalog's Filters badge: search, each department, the rating range.
@@ -397,6 +399,8 @@ export default function Courses() {
 								valueHigh={maxRatingDraft}
 								onChangeLow={(v) => setMinRatingDraft(v)}
 								onChangeHigh={(v) => setMaxRatingDraft(v)}
+								labelLow="Minimum rating"
+								labelHigh="Maximum rating"
 							/>
 							<div className="slider-tick-marks">
 								{Array.from({ length: 11 }, (_, i) => {
@@ -422,6 +426,7 @@ export default function Courses() {
 								ref={searchInputRef}
 								type="text"
 								className="catalog-search"
+								aria-label="Search courses"
 								placeholder={searchPlaceholder}
 								value={filters.q}
 								onChange={(e) => updateFilter('q', e.target.value)}
@@ -554,6 +559,8 @@ function DualRangeSlider({
 	valueHigh,
 	onChangeLow,
 	onChangeHigh,
+	labelLow,
+	labelHigh,
 }: {
 	min: number;
 	max: number;
@@ -562,6 +569,8 @@ function DualRangeSlider({
 	valueHigh: number;
 	onChangeLow: (v: number) => void;
 	onChangeHigh: (v: number) => void;
+	labelLow: string;
+	labelHigh: string;
 }) {
 	const [lastActive, setLastActive] = useState<'low' | 'high'>('low');
 	const range = max - min;
@@ -576,6 +585,7 @@ function DualRangeSlider({
 			<input
 				type="range"
 				className="dual-range-input"
+				aria-label={labelLow}
 				style={{ zIndex: lastActive === 'low' ? 4 : 3 }}
 				min={min}
 				max={max}
@@ -590,6 +600,7 @@ function DualRangeSlider({
 			<input
 				type="range"
 				className="dual-range-input"
+				aria-label={labelHigh}
 				style={{ zIndex: lastActive === 'high' ? 4 : 3 }}
 				min={min}
 				max={max}

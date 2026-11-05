@@ -5,6 +5,7 @@ import { fetchSearchSuggestions, askChat } from '../api/api';
 import type { SearchSuggestion, ChatResponse } from '../api/api';
 import { saveAskSession, loadAskSession, clearAskSession } from '../utils/askSession';
 import { ASK_ENABLED } from '../config';
+import { useMediaQuery } from '../pages/rate/useMediaQuery';
 import './SearchBar.css';
 
 // Navigation state a clicked citation carries so the destination breadcrumb reads "← Ask" and
@@ -150,9 +151,11 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
     "What do students think of Schedlbauer's lectures?"
   ], []);
 
+  const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
+
   // Typing animation logic
   useEffect(() => {
-    if (isFocused || query) {
+    if (isFocused || query || reduced) {
       setPlaceholder(
         isAsk ? 'Ask about a professor or course...'
         : searchType === 'Professor' ? 'Search by professor name...'
@@ -197,7 +200,7 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
 
     let timeoutId = setTimeout(type, typingSpeed);
     return () => clearTimeout(timeoutId);
-  }, [isFocused, query, searchType, isAsk, professorExamples, courseExamples, askExamples]);
+  }, [isFocused, query, reduced, searchType, isAsk, professorExamples, courseExamples, askExamples]);
 
   const handleSearchTypeChange = (newType: string) => {
     askReqSeq.current++; // invalidate any in-flight Ask request
@@ -395,6 +398,7 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
         <input
           ref={inputRef}
           className="search-input"
+          aria-label={isAsk ? 'Ask a question' : searchType === 'Professor' ? 'Search professors' : 'Search courses'}
           type="text"
           placeholder={placeholder}
           value={query}
