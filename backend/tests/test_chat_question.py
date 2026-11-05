@@ -10,6 +10,8 @@ def q_client(monkeypatch):
     import server
     monkeypatch.setattr(server, "_get_pool",
         lambda: (_ for _ in ()).throw(AssertionError("no DB in test")), raising=False)
+    # the route checks the kill switch before anything else, so these tests need Ask on
+    monkeypatch.setattr(server, "CHAT_ENABLED", True)
     return server.app.test_client()
 
 def _auth_headers():
@@ -99,3 +101,46 @@ def test_ask_log_purge_starts_off_the_request_thread_on_railway(monkeypatch):
         server.purge_ask_log_in_background()
         server.purge_ask_log_in_background()   # claimed by the first: no second thread
     assert started == [server._purge_ask_log_job]
+
+
+def _disambiguation_deps(**over):
+    import types
+    base = dict(
+        chat_enabled=True, log_fn=lambda sql, params: None,
+        query_one_fn=lambda sql, params=(): None,
+        gate_fn=lambda q: {"ok": True, "status": "ok", "professors_or_courses": ["Lee"],
+                           "professor_or_course": "Lee", "message": None},
+        prof_search_fn=lambda hint, limit=None: [
+            {"name": "Ann Lee", "department": "Khoury"},
+            {"name": "Bo Lee", "department": "Physics"}],
+    )
+    base.update(over)
+    return types.SimpleNamespace(**base)
+
+
+def test_disambiguation_payload_names_the_ambiguous_hint():
+    from rag.chat_question import handle_question
+    payload, code = handle_question("is Lee hard", "user-123", "iphash", _disambiguation_deps())
+    assert code == 200 and payload["mode"] == "disambiguation"
+    assert payload["ambiguous"] == "Lee"
+    assert [m["pick"] for m in payload["matches"]] == ["Ann Lee", "Bo Lee"]
+    assert all(m["pick"] == m["name"] for m in payload["matches"])
+
+
+def test_course_disambiguation_payload_picks_the_course_code():
+    from rag.chat_question import handle_question
+    deps = _disambiguation_deps(
+        gate_fn=lambda q: {"ok": True, "status": "ok", "professors_or_courses": ["Data Science"],
+                           "professor_or_course": "Data Science", "message": None},
+        cache_get_fn=lambda key: None,
+        retrieve_fn=lambda q, hint: {
+            "kind": "course_disambiguation",
+            "matches": [{"code": "DS2000", "name": "Intro to Data Science", "department": "Khoury"},
+                        {"code": "DS3000", "name": "Foundations of Data Science", "department": "Khoury"}],
+            "entity_key": None, "course_code": None, "professor_slug": None,
+            "facts": {}, "comments": [], "comment_count": 0},
+        num_keys=1)
+    payload, code = handle_question("is data science hard", "user-123", "iphash", deps)
+    assert code == 200 and payload["mode"] == "disambiguation"
+    assert payload["ambiguous"] == "Data Science"
+    assert [m["pick"] for m in payload["matches"]] == ["DS2000", "DS3000"]

@@ -29,7 +29,8 @@ from datetime import datetime, timedelta, timezone
 from threading import Lock, Thread
 import time
 from rag.chat_search import keyword_search
-from rag.chat_question import handle_question
+from rag.chat_question import handle_question, log_ask
+from rag import site_help
 from rag.llm_adapter import GroqAdapter
 from rag.key_pool import KeyPool
 from rag.chat_gate import gate
@@ -1287,7 +1288,16 @@ def chat():
         body = request.get_json(silent=True)
         q = body.get("q") if isinstance(body, dict) else None
         q = q.strip() if isinstance(q, str) else ""
+        help_id = body.get("help_id") if isinstance(body, dict) else None
         mode = "question"
+        # Kill switch, ahead of site help: with Ask off, nothing a user sends is stored.
+        if not CHAT_ENABLED:
+            return jsonify({"mode": "error", "message": "The question feature is temporarily disabled."}), 503
+        if help_id is not None:
+            entry = site_help.get(help_id) if isinstance(help_id, str) else None
+            if entry is None:
+                return jsonify({"mode": "error", "message": "Unknown help topic."}), 404
+            return jsonify(site_help.payload(entry))
     else:
         q = (request.args.get("q") or "").strip()
         mode = request.args.get("mode", "keyword")
@@ -1303,6 +1313,16 @@ def chat():
         data = keyword_search(q, query, _professor_search, limit=limit,
                               mod_filter=moderation.sql_filter("t"))
         return jsonify({"mode": "keyword", "results": data["comments"], "professors": data["professors"]})
+    # Site questions ("how do bookmarks work") are answered from the registry for everyone,
+    # signed in or not, with no LLM call. Logged without ever raising an abuse strike.
+    t0 = time.monotonic()
+    entry = site_help.match(q)
+    if entry is not None:
+        log_ask(_chat_write, q, "site_help", None, "site_help", 0, entry.id, 0,
+                int((time.monotonic() - t0) * 1000),
+                (decode_session_token(_get_auth_token()) or {}).get("sub"),
+                _hash_ip(get_real_ip()), False)
+        return jsonify(site_help.payload(entry))
     # 'question' mode is account-gated: identity comes from the verified JWT (not a spoofable
     # header), so the abuse ladder keys on a server-trusted user id that can't be forged or omitted.
     _claims = decode_session_token(_get_auth_token())
@@ -1316,7 +1336,8 @@ def chat():
         prof_search_fn=_professor_search,
         cache_get_fn=cache_get,
         cache_set_fn=cache_set,
-        keyword_search_fn=lambda qq: keyword_search(qq, query, _professor_search),
+        keyword_search_fn=lambda qq: keyword_search(qq, query, _professor_search,
+                                                    mod_filter=moderation.sql_filter("t")),
         gate_fn=lambda qq: gate(qq, _chat_adapter),
         retrieve_fn=lambda qq, hint: retrieve(qq, hint, query, query_one, _professor_search,
                                              embed_query_fn=embed_query, rmp_mod=moderation.sql_filter),

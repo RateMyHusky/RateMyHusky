@@ -236,7 +236,9 @@ def handle_question(q, session_token, ip_hash, deps):
                     "mode": "disambiguation",
                     "message": (f"Several professors named {hint} have reviews: {listed}. "
                                 "Ask again using the full name."),
-                    "matches": [{"name": m["name"], "department": m.get("department", "")} for m in matches],
+                    "ambiguous": hint,
+                    "matches": [{"name": m["name"], "department": m.get("department", ""), "pick": m["name"]}
+                                for m in matches],
                 }, 200
 
     # 5. No entity named — first try a topic-course listing ("what database courses are there"),
@@ -297,7 +299,9 @@ def handle_question(q, session_token, ip_hash, deps):
                     "mode": "disambiguation",
                     "message": (f"Several courses match \"{hint}\": {listed}. "
                                 "Ask again using the course code."),
-                    "matches": [{"name": f"{m['code']} {m['name']}", "department": m.get("department", "")}
+                    "ambiguous": hint,
+                    "matches": [{"name": f"{m['code']} {m['name']}", "department": m.get("department", ""),
+                                 "pick": m["code"]}
                                 for m in matches],
                 }, 200
             if r.get("entity_key") or r.get("professor_slug"):
