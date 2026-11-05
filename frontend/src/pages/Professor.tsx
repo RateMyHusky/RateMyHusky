@@ -1118,6 +1118,7 @@ const Professor = () => {
               <div className="prof-reviews-filters">
                 {canFilter && courses.length > 1 && (
                   <Dropdown
+                    ariaLabel="Filter reviews by course"
                     className="feedback-dropdown"
                     options={courseOptions}
                     value={unfiltered ? 'all' : selectedCourses.size === 1 ? [...selectedCourses][0] : ''}
@@ -1198,6 +1199,7 @@ const Professor = () => {
             <div className="prof-reviews-filters">
               {canFilter && courses.length > 1 && (
                 <Dropdown
+                  ariaLabel="Filter reviews by course"
                   className="feedback-dropdown"
                   options={courseOptions}
                   value={unfiltered ? 'all' : selectedCourses.size === 1 ? [...selectedCourses][0] : ''}
@@ -1205,7 +1207,7 @@ const Professor = () => {
                   placeholder={`${selectedCourses.size} courses`}
                 />
               )}
-              <Dropdown className="feedback-dropdown" options={sortOptions} value={sortBy} onChange={setSortBy} placeholder="Sort by…" />
+              <Dropdown ariaLabel="Sort reviews" className="feedback-dropdown" options={sortOptions} value={sortBy} onChange={setSortBy} placeholder="Sort by…" />
             </div>
             {(!unfiltered || activeTag) && (
               <div className="prof-active-filter">
@@ -1278,7 +1280,7 @@ const Professor = () => {
                   onChange={e => { setRedditSearch(e.target.value); setVisibleRedditMentions(10); }}
                 />
               </div>
-              <Dropdown className="reddit-sort-dropdown" options={redditSentimentOptions} value={redditSentiment} onChange={(v) => { setRedditSentiment(v); setVisibleRedditMentions(10); }} />
+              <Dropdown ariaLabel="Filter mentions by sentiment" className="reddit-sort-dropdown" options={redditSentimentOptions} value={redditSentiment} onChange={(v) => { setRedditSentiment(v); setVisibleRedditMentions(10); }} />
             </div>
             <div className="prof-reddit-list">
               {filteredRedditMentions.length === 0 ? (

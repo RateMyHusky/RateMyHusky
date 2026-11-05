@@ -495,8 +495,9 @@ export default function ProfessorCatalog() {
 
             {/* Sort */}
             <div className="filter-section">
-              <p className="filter-label">Sort by</p>
+              <p className="filter-label" id="professor-sort-label">Sort by</p>
               <Dropdown
+                ariaLabelledBy="professor-sort-label"
                 options={SORT_OPTIONS}
                 value={filters.sort}
                 onChange={v => updateFilter('sort', v)}

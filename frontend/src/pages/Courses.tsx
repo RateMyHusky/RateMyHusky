@@ -362,8 +362,8 @@ export default function Courses() {
 						</div>
 
 						<div className="filter-section">
-							<p className="filter-label">Sort by</p>
-							<Dropdown options={SORT_OPTIONS} value={filters.sort} onChange={(v) => updateFilter('sort', v as Filters['sort'])} onOpenChange={setSortOpen} />
+							<p className="filter-label" id="course-sort-label">Sort by</p>
+							<Dropdown ariaLabelledBy="course-sort-label" options={SORT_OPTIONS} value={filters.sort} onChange={(v) => updateFilter('sort', v as Filters['sort'])} onOpenChange={setSortOpen} />
 						</div>
 
 						<div className="filter-section">
