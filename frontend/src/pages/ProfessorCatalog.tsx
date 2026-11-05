@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { ProfessorTag } from '../api/api';
 import { tagLabel } from '../utils/tagLabels';
 import { fetchPopularTags } from '../api/api';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigationType, useSearchParams } from 'react-router-dom';
+import { useCatalogScroll } from '../utils/useCatalogScroll';
 import {
   FILTER_SEPARATOR,
   fetchProfessorsCatalog,
@@ -105,8 +106,15 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
 }
 
 
+// Discrete picks add a history entry; typing and slider drags replace the current one.
+const PUSH_KEYS = new Set<keyof Filters>(['page', 'sort', 'college', 'dept', 'tags']);
+
 export default function ProfessorCatalog() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navType = useNavigationType();
+  const { key: locationKey } = useLocation();
+  const pushNext = useRef(false);
+  const poppedKey = useRef<string | null>(null);   // the Back/Forward entry already loaded into filters
   const [filters, setFilters]       = useState<Filters>(() => getFiltersFromSearchParams(searchParams));
   const [colleges]     = useState<string[]>([
     'Business', 'CAMD', 'CSSH', 'Engineering',
@@ -119,6 +127,7 @@ export default function ProfessorCatalog() {
   const [total, setTotal]           = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading]       = useState(true);
+  const [shownFor, setShownFor]     = useState('');   // the URL query the shown results belong to
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [deptOpen, setDeptOpen] = useState(false);
   const [collegeOpen, setCollegeOpen] = useState(false);
@@ -211,6 +220,7 @@ export default function ProfessorCatalog() {
   useEffect(() => {
     if (viewMode === 'grid' && !isMeasured) return;
     let cancelled = false;   // a slower, older response must not overwrite a newer one
+    const viewKey = buildSearchParamsFromFilters({ ...filters, q: debouncedQ }).toString();
     setLoading(true);
     fetchProfessorsCatalog({
       q:          debouncedQ         || undefined,
@@ -232,20 +242,31 @@ export default function ProfessorCatalog() {
         setTotalPages(data.totalPages);
       })
       .catch(console.error)
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { if (!cancelled) { setLoading(false); setShownFor(viewKey); } });
     return () => { cancelled = true; };
   }, [debouncedQ, filters.college, filters.dept, filters.tags, filters.minRating, filters.maxRating, filters.minReviews, filters.maxReviews, filters.sort, filters.page, pageSize, isMeasured, viewMode]);
 
-  // Keep filters in the URL so the catalog view is shareable/bookmarkable.
+  // Restore only once the shown results are the ones this URL describes; on Back they are still the old page's.
+  useCatalogScroll(!loading && shownFor === buildSearchParamsFromFilters(getFiltersFromSearchParams(searchParams)).toString());
+
+  // Keep filters in the URL so the catalog view is shareable/bookmarkable. On Back/Forward the URL wins:
+  // until the effect below has loaded it, `filters` still describes the page being left, and writing it
+  // would undo the Back. The first page load is a POP too, so an odd URL such as ?sort=bogus is left as
+  // typed until the first change.
   useEffect(() => {
+    const push = pushNext.current;
+    pushNext.current = false;
+    if (navType !== 'POP') poppedKey.current = null;   // a push or replace moved on; a later return to an old entry must reload it
+    if (navType === 'POP' && poppedKey.current !== locationKey) return;
     const next = buildSearchParamsFromFilters(filters);
     if (next.toString() !== searchParams.toString()) {
-      setSearchParams(next, { replace: true });
+      setSearchParams(next, { replace: !push });
     }
-  }, [filters, searchParams, setSearchParams]);
+  }, [filters, searchParams, setSearchParams, navType, locationKey]);
 
   // Keep in-memory filters synced when URL changes externally (back/forward/share links).
   useEffect(() => {
+    if (navType === 'POP') poppedKey.current = locationKey;
     const fromUrl = getFiltersFromSearchParams(searchParams);
     setFilters(prev => {
       if (
@@ -264,7 +285,7 @@ export default function ProfessorCatalog() {
       }
       return fromUrl;
     });
-  }, [searchParams]);
+  }, [searchParams, navType, locationKey]);
 
   useEffect(() => {
     setMinRatingDraft(filters.minRating);
@@ -284,6 +305,7 @@ export default function ProfessorCatalog() {
 
   const updateFilter = useCallback(
     <K extends keyof Filters>(key: K, value: Filters[K]) => {
+      if (PUSH_KEYS.has(key)) pushNext.current = true;
       setFilters(f => ({
         ...f,
         [key]: value,
@@ -335,12 +357,17 @@ export default function ProfessorCatalog() {
   }, [maxReviewsDraft, filters.maxReviews, updateFilter]);
 
   const setCollege = useCallback((college: string) => {
+    pushNext.current = true;
     setFilters(f => ({ ...f, college, page: 1 }));
   }, []);
 
-  const clearFilters = () => setFilters(DEFAULT_FILTERS);
+  const clearFilters = () => {
+    pushNext.current = true;
+    setFilters(DEFAULT_FILTERS);
+  };
 
   const handleSearchSelect = useCallback((suggestion: ProfessorSuggestion) => {
+    pushNext.current = true;
     updateFilter('q', suggestion.name);
     setShowSearchSuggestions(false);
     setActiveSearchIndex(-1);

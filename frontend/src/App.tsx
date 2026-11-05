@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigationType } from 'react-router-dom';
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 import { AuthProvider } from './context/AuthContext';
@@ -27,9 +27,16 @@ import './App.css';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
+  const navType = useNavigationType();
+  const lastPath = useRef<string | null>(null);
   useEffect(() => {
+    if (lastPath.current === pathname) return;
+    lastPath.current = pathname;
+    const path = pathname.replace(/\/$/, '');
+    // Back onto a catalog: useCatalogScroll restores the saved position instead
+    if (navType === 'POP' && (path === '/professors' || path === '/courses')) return;
     window.scrollTo(0, 0);
-  }, [pathname]);
+  }, [pathname, navType]);
   return null;
 }
 
