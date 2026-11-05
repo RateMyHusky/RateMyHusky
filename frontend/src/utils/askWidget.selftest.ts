@@ -2,7 +2,7 @@
 // Run: cd frontend && npx tsx src/utils/askWidget.selftest.ts
 import { argv } from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { withName, loadTranscript, saveTranscript, TRANSCRIPT_MAX } from './askWidget';
+import { withName, loadTranscript, saveTranscript, clearTranscript, chatBodyOrError, TRANSCRIPT_KEY, TRANSCRIPT_MAX } from './askWidget';
 import type { WidgetMsg } from './askWidget';
 
 function fakeStorage(init: Record<string, string>): Storage {
@@ -51,6 +51,39 @@ function selftest(): number {
   check('save keeps last 30', (() => { const s = fakeStorage({}); saveTranscript(msgs(40), s); const r = loadTranscript(s)!; return r.length === TRANSCRIPT_MAX && r[0].id === 10; })());
   check('save on throwing storage does not throw', (() => { saveTranscript(msgs(1), throwingStorage()); return true; })());
   check('default storage absent (node) does not throw', (() => { saveTranscript(msgs(1)); return loadTranscript() === null; })());
+
+  // A saved result the widget can't render must not be replayed into it after a reload.
+  check('load: result with a mode -> kept', (() => { const r = loadTranscript(fakeStorage({ ask_widget_v1: '[{"id":1,"from":"bot","result":{"mode":"error","message":"x"}}]' })); return !!r && r.length === 1; })());
+  check('load: result without a mode -> null', loadTranscript(fakeStorage({ ask_widget_v1: '[{"id":1,"from":"bot","result":{"error":"x"}}]' })) === null);
+  check('load: result with a non-string mode -> null', loadTranscript(fakeStorage({ ask_widget_v1: '[{"id":1,"from":"bot","result":{"mode":3}}]' })) === null);
+  check('load: result that is not an object -> null', loadTranscript(fakeStorage({ ask_widget_v1: '[{"id":1,"from":"bot","result":"answer"}]' })) === null);
+  check('load: null result -> null', loadTranscript(fakeStorage({ ask_widget_v1: '[{"id":1,"from":"bot","result":null}]' })) === null);
+
+  check('clearTranscript removes the saved transcript', (() => { const s = fakeStorage({}); saveTranscript(msgs(2), s); clearTranscript(s); return s.getItem(TRANSCRIPT_KEY) === null; })());
+  check('clearTranscript on throwing storage does not throw', (() => { clearTranscript(throwingStorage()); return true; })());
+  check('clearTranscript with no default storage (node) does not throw', (() => { clearTranscript(); return true; })());
+
+  // 429 and 500 bodies are {"error": ...}: they must become an error bubble, never an empty one.
+  const fallback = 'Something went wrong — try again.';
+  const asErr = (b: unknown, msg: string) => { const r = chatBodyOrError(b); return r.mode === 'error' && r.message === msg; };
+  check('chatBody: {error} -> error with its message', asErr({ error: 'Internal server error' }, 'Internal server error'));
+  check('chatBody: {} -> error with the fallback', asErr({}, fallback));
+  check('chatBody: non-string error -> fallback', asErr({ error: 42 }, fallback));
+  check('chatBody: null -> fallback', asErr(null, fallback));
+  check('chatBody: array -> fallback', asErr([], fallback));
+  check('chatBody: non-string mode -> fallback', asErr({ mode: 7 }, fallback));
+  check('chatBody: a body with a mode passes through', (() => { const b = { mode: 'error', message: 'Sign in to use Ask mode.' }; return chatBodyOrError(b) === b; })());
+
+  // Old Safari has no lookbehind: building the RegExp throws there, and the pick is prefixed.
+  check('withName falls back when RegExp construction throws', (() => {
+    const RealRegExp = globalThis.RegExp;
+    globalThis.RegExp = function () { throw new SyntaxError('Invalid regular expression: invalid group specifier name'); } as unknown as RegExpConstructor;
+    try {
+      return withName('is lee hard?', 'Lee', 'Wei Lee') === 'Wei Lee: is lee hard?';
+    } finally {
+      globalThis.RegExp = RealRegExp;
+    }
+  })());
 
   console.log(fails.length ? `${fails.length} FAIL(s): ` + fails.join(', ') : 'ALL PASS');
   return fails.length ? 1 : 0;

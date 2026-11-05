@@ -1,3 +1,5 @@
+import { chatBodyOrError } from '../utils/askWidget';
+
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
 /* ---- Types ---- */
@@ -312,7 +314,7 @@ async function postChat(payload: Record<string, string>): Promise<{ status: numb
       cache: 'no-cache',
     });
     if (maintenanceGuard(res)) throw new Error('Site is under maintenance');
-    const body = (await res.json()) as ChatResponse;
+    const body = chatBodyOrError(await res.json());
     return { status: res.status, body };
   } catch {
     return { status: 0, body: { mode: 'error', message: 'Something went wrong — try again.' } };

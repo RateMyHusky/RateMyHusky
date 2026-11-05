@@ -103,7 +103,8 @@ const AskWidget = () => {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const text = draft.trim();
-    if (!text || pending) return;
+    // The server answers a one-character question with an empty result: don't send it.
+    if (text.length < 2 || pending) return;
     setDraft('');
     void send(text);
   };
@@ -169,7 +170,8 @@ const AskWidget = () => {
         </svg>
       </button>
 
-      <div className="ask-panel" aria-hidden={!open}>
+      {/* inert while closed: links and chips in the hidden log stay out of the tab order. */}
+      <div className="ask-panel" aria-hidden={!open} inert={!open}>
         <header className="ask-panel-head">
           <span className="ask-panel-title">Ask RateMyHusky</span>
         </header>

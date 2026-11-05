@@ -23,11 +23,24 @@ export function loadTranscript(storage?: Storage): WidgetMsg[] | null {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return null;
     const valid = parsed.every(
-      (m) => m && typeof m === 'object' && typeof m.id === 'number' && (m.from === 'bot' || m.from === 'user'),
+      (m) =>
+        m && typeof m === 'object' && typeof m.id === 'number' && (m.from === 'bot' || m.from === 'user') &&
+        // A result the widget can't render would crash it again on every reload.
+        (!('result' in m) || (!!m.result && typeof m.result === 'object' && typeof m.result.mode === 'string')),
     );
     return valid ? (parsed as WidgetMsg[]) : null;
   } catch {
     return null;
+  }
+}
+
+/** Forgets the saved transcript (on sign-out); storage failures are ignored. */
+export function clearTranscript(storage?: Storage): void {
+  try {
+    const store = storage ?? window.sessionStorage;
+    store.removeItem(TRANSCRIPT_KEY);
+  } catch {
+    /* ignore */
   }
 }
 
@@ -41,13 +54,28 @@ export function saveTranscript(msgs: WidgetMsg[], storage?: Storage): void {
   }
 }
 
+/** A /api/chat JSON body without a string `mode` (the {"error": ...} bodies of a 429 or a
+    500) becomes an error reply, so the widget never shows an empty bubble. */
+export function chatBodyOrError(body: unknown): ChatResponse {
+  if (body && typeof body === 'object' && !Array.isArray(body) && typeof (body as { mode?: unknown }).mode === 'string') {
+    return body as ChatResponse;
+  }
+  const error = body && typeof body === 'object' ? (body as { error?: unknown }).error : undefined;
+  return { mode: 'error', message: typeof error === 'string' && error ? error : 'Something went wrong — try again.' };
+}
+
 /** Replaces the ambiguous name in the question with the picked full name (whole-word,
     case-insensitive); falls back to prefixing the pick when the name is not found. */
 export function withName(question: string, ambiguous: string | undefined, pick: string): string {
   if (ambiguous) {
     const escaped = ambiguous.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re = new RegExp(`(?<![\\w])${escaped}(?![\\w])`, 'i');
-    if (re.test(question)) return question.replace(re, () => pick);
+    let re: RegExp | null = null;
+    try {
+      re = new RegExp(`(?<![\\w])${escaped}(?![\\w])`, 'i');
+    } catch {
+      // Old Safari has no lookbehind and throws here; the prefix form still works.
+    }
+    if (re && re.test(question)) return question.replace(re, () => pick);
   }
   return `${pick}: ${question}`;
 }

@@ -62,7 +62,12 @@ function App() {
             </Routes>
           </ErrorBoundary>
           <FeedbackTab />
-          {ASK_ENABLED && <AskWidget />}
+          {ASK_ENABLED && (
+            // A widget crash removes the widget, not the page.
+            <ErrorBoundary fallback={null}>
+              <AskWidget />
+            </ErrorBoundary>
+          )}
         </Router>
         <Analytics />
         <SpeedInsights />

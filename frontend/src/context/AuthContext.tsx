@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { maintenanceGuard } from '../api/api';
+import { clearTranscript } from '../utils/askWidget';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const TOKEN_KEY = 'auth_token';
@@ -202,6 +203,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     clearToken();
+    // The Ask transcript holds this account's questions: don't leave it for the next person.
+    clearTranscript();
     setUser(null);
     maintenanceGuard(res);
   }, []);
