@@ -4,7 +4,7 @@
 import { argv } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import {
-  answer, buildSubmission, contextTags, courseGroups, displayTerm, firstStep, formatCode,
+  answer, buildSubmission, commentCountLabel, contextTags, courseGroups, displayTerm, firstStep, formatCode,
   inTermWindow, lastName, nextStep, ownMatches, pickCourse, prefillCourse, prevStep, progressIndex, replacedLine,
   splitTerm, termYears, toRateCourse,
   SEASONS,
@@ -244,6 +244,11 @@ function selftest(): number {
     && replacedLine({ ...prior, term: null }) === 'Your new answers replaced your earlier ones.');
   const subU = buildSubmission(u, start, 't', '');
   check('buildSubmission ignores updating', !('updating' in subU) && subU.comment === 'Projects take time.');
+
+  check('commentCountLabel hidden below 1800', commentCountLabel(0) === null && commentCountLabel(1799) === null);
+  check('commentCountLabel at 1800', commentCountLabel(1800) === '200 characters left');
+  check('commentCountLabel singular', commentCountLabel(1999) === '1 character left');
+  check('commentCountLabel at the cap', commentCountLabel(2000) === 'No characters left');
 
   console.log(fails.length ? `${fails.length} FAIL(s): ` + fails.join(', ') : 'ALL PASS');
   return fails.length ? 1 : 0;

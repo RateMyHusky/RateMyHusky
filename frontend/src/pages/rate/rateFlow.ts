@@ -61,6 +61,16 @@ type MainStep = typeof MAIN_ORDER[number];
 
 export const QUESTION_COUNT = MAIN_ORDER.length;
 
+export const COMMENT_MAX = 2000;
+export const COMMENT_COUNT_FROM = 1800;
+
+export function commentCountLabel(length: number): string | null {
+  if (length < COMMENT_COUNT_FROM) return null;
+  const left = COMMENT_MAX - length;
+  if (left <= 0) return 'No characters left';
+  return left === 1 ? '1 character left' : `${left} characters left`;
+}
+
 function mainOf(step: StepId): MainStep | null {
   switch (step) {
     case 'newProfessor': return 'who';

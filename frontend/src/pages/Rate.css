@@ -261,6 +261,8 @@
 .rate-opt:has(.rate-n) { justify-content: flex-start; }
 
 .rate-textarea { min-height: 9em; max-height: 35dvh; resize: none; overflow-y: auto; }
+.rate-count { margin: 6px 0 0; text-align: right; color: #888; font-size: 0.9rem; }
+.rate-count.is-out { color: #d6394c; }
 
 /* Season and year tiles share one equal-width grid. Five seasons don't fit a phone row, so Fall and Spring take halves and the three summers take thirds. */
 .rate-row { display: grid; gap: 8px; }
@@ -438,6 +440,7 @@
 .dark .rate-ghost,
 .dark .rate-back,
 .dark .rate-back-top,
+.dark .rate-count,
 .dark .rate-opt.dash { color: #999; }
 .dark .rate-ghost.on { color: #f06a7a; }
 .dark .rate-opt { border-color: #3a3a3a; }
@@ -461,6 +464,7 @@
 .dark .rate-sugg small { color: #888; }
 .dark .rate-sugg.add { color: #f06a7a; }
 .dark .rate-error { color: #f06a7a; }
+.dark .rate-count.is-out { color: #f06a7a; }
 .dark .rate-verify-lead { color: #aaa; }
 .dark .rate-verify.is-on .rate-turnstile { border-color: #444; background: #232323; }
 
