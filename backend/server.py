@@ -1130,6 +1130,17 @@ def ranking_prior(query_one):
     return float(prior) if prior is not None else FALLBACK_PRIOR
 
 
+def cached_ranking_prior():
+    """ranking_prior, cached so each uncached board or rating-sorted catalog page skips
+    a full-table AVG. The prior only changes when the catalog is reloaded, which bumps
+    data_version and so drops this entry with the pages ranked by it."""
+    prior = cache_get("ranking_prior")
+    if prior is None:
+        prior = ranking_prior(query_one)
+        cache_set("ranking_prior", prior)
+    return prior
+
+
 def shrunk_score(avg_rating, total_reviews, prior_mean, m=SHRINKAGE_M):
     """Python mirror of RANKING_SCORE_SQL (for tests and any Python-side ranking)."""
     if avg_rating is None:
@@ -1164,7 +1175,7 @@ def goat_professors():
     if cached is not None:
         return jsonify(cached)
 
-    prior = ranking_prior(query_one)
+    prior = cached_ranking_prior()
     # `name` breaks ties last. Without it, professors equal on both score and
     # review count come back in whatever order the scan produces, so the board
     # could reshuffle between requests. Measured on the current corpus:
@@ -1743,11 +1754,15 @@ def professors_catalog():
         page_rows = all_rows[offset:offset + limit]
     else:
         # No search - use SQL sorting. Every order ends in slug: tied rows have no fixed order in
-        # Postgres, so LIMIT/OFFSET pages could repeat professors and skip others.
+        # Postgres, so LIMIT/OFFSET pages could repeat professors and skip others. The two rating
+        # sorts use the board's shrunk score, so one 5.0 rating doesn't outrank 200 ratings at 4.8.
+        order_params = []
         if sort == "rating":
-            order = "avg_rating DESC NULLS LAST, slug ASC"
+            order = f"{RANKING_SCORE_SQL} DESC NULLS LAST, total_reviews DESC NULLS LAST, slug ASC"
+            order_params = [cached_ranking_prior()]
         elif sort == "rating_asc":
-            order = "avg_rating ASC NULLS LAST, slug ASC"
+            order = f"{RANKING_SCORE_SQL} ASC NULLS LAST, total_reviews DESC NULLS LAST, slug ASC"
+            order_params = [cached_ranking_prior()]
         elif sort == "alpha_desc":
             order = "lower(name) DESC, slug DESC"
         elif sort == "comments":
@@ -1766,7 +1781,7 @@ def professors_catalog():
 
         page_rows = query(
             f"SELECT * FROM professors_catalog WHERE {where} ORDER BY {order} LIMIT %s OFFSET %s",
-            params + [limit, offset]
+            params + order_params + [limit, offset]
         )
 
     professors = []

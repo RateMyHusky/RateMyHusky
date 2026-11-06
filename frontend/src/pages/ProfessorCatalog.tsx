@@ -2,7 +2,11 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { ProfessorTag } from '../api/api';
 import { tagLabel } from '../utils/tagLabels';
 import { fetchPopularTags } from '../api/api';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import { useCatalogScroll } from '../utils/useCatalogScroll';
+import { useUrlFilters } from '../utils/useUrlFilters';
+import { useDialog } from '../utils/useDialog';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import {
   FILTER_SEPARATOR,
   fetchProfessorsCatalog,
@@ -105,9 +109,11 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
 }
 
 
+// Discrete picks add a history entry; typing and slider drags replace the current one.
+const PUSH_KEYS = new Set<keyof Filters>(['page', 'sort', 'college', 'dept', 'tags']);
+
 export default function ProfessorCatalog() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [filters, setFilters]       = useState<Filters>(() => getFiltersFromSearchParams(searchParams));
+  const { filters, setFilters, searchParams } = useUrlFilters(getFiltersFromSearchParams, buildSearchParamsFromFilters);
   const [colleges]     = useState<string[]>([
     'Business', 'CAMD', 'CSSH', 'Engineering',
     'Health Sciences', 'Khoury', 'Law', 'Professional Studies', 'Science',
@@ -119,6 +125,7 @@ export default function ProfessorCatalog() {
   const [total, setTotal]           = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading]       = useState(true);
+  const [shownFor, setShownFor]     = useState('');   // the URL query the shown results belong to
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [deptOpen, setDeptOpen] = useState(false);
   const [collegeOpen, setCollegeOpen] = useState(false);
@@ -130,19 +137,16 @@ export default function ProfessorCatalog() {
     return () => window.removeEventListener('close-filter-sidebar', close);
   }, []);
 
+  // A touch-scroll outside the drawer closes it.
   useEffect(() => {
-    document.body.style.overflow = sidebarOpen ? 'hidden' : '';
-    if (!sidebarOpen) return () => { document.body.style.overflow = ''; };
+    if (!sidebarOpen) return;
     const handler = (e: TouchEvent) => {
       if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
         setSidebarOpen(false);
       }
     };
     document.addEventListener('touchmove', handler, { passive: true });
-    return () => {
-      document.body.style.overflow = '';
-      document.removeEventListener('touchmove', handler);
-    };
+    return () => document.removeEventListener('touchmove', handler);
   }, [sidebarOpen]);
 
 
@@ -167,6 +171,11 @@ export default function ProfessorCatalog() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sidebarRef = useRef<HTMLElement>(null);
+  const sidebarCloseRef = useRef<HTMLButtonElement>(null);
+  const isDrawer = useMediaQuery('(max-width: 900px)');
+  // At 900px and below the sidebar is a modal drawer: focus moves to its × and back to Filters,
+  // and it gets the Tab trap, Esc and scroll lock.
+  useDialog(sidebarOpen && isDrawer, () => setSidebarOpen(false), sidebarRef, sidebarCloseRef);
 
   const [numCols, setNumCols] = useState(4);
   const [isMeasured, setIsMeasured] = useState(false);
@@ -211,6 +220,7 @@ export default function ProfessorCatalog() {
   useEffect(() => {
     if (viewMode === 'grid' && !isMeasured) return;
     let cancelled = false;   // a slower, older response must not overwrite a newer one
+    const viewKey = buildSearchParamsFromFilters({ ...filters, q: debouncedQ }).toString();
     setLoading(true);
     fetchProfessorsCatalog({
       q:          debouncedQ         || undefined,
@@ -232,39 +242,13 @@ export default function ProfessorCatalog() {
         setTotalPages(data.totalPages);
       })
       .catch(console.error)
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { if (!cancelled) { setLoading(false); setShownFor(viewKey); } });
     return () => { cancelled = true; };
   }, [debouncedQ, filters.college, filters.dept, filters.tags, filters.minRating, filters.maxRating, filters.minReviews, filters.maxReviews, filters.sort, filters.page, pageSize, isMeasured, viewMode]);
 
-  // Keep filters in the URL so the catalog view is shareable/bookmarkable.
-  useEffect(() => {
-    const next = buildSearchParamsFromFilters(filters);
-    if (next.toString() !== searchParams.toString()) {
-      setSearchParams(next, { replace: true });
-    }
-  }, [filters, searchParams, setSearchParams]);
+  // Restore only once the shown results are the ones this URL describes; on Back they are still the old page's.
+  useCatalogScroll(!loading && shownFor === buildSearchParamsFromFilters(getFiltersFromSearchParams(searchParams)).toString());
 
-  // Keep in-memory filters synced when URL changes externally (back/forward/share links).
-  useEffect(() => {
-    const fromUrl = getFiltersFromSearchParams(searchParams);
-    setFilters(prev => {
-      if (
-        prev.q === fromUrl.q &&
-        prev.tags === fromUrl.tags &&
-        prev.college === fromUrl.college &&
-        prev.dept === fromUrl.dept &&
-        prev.minRating === fromUrl.minRating &&
-        prev.maxRating === fromUrl.maxRating &&
-        prev.minReviews === fromUrl.minReviews &&
-        prev.maxReviews === fromUrl.maxReviews &&
-        prev.sort === fromUrl.sort &&
-        prev.page === fromUrl.page
-      ) {
-        return prev;
-      }
-      return fromUrl;
-    });
-  }, [searchParams]);
 
   useEffect(() => {
     setMinRatingDraft(filters.minRating);
@@ -283,14 +267,14 @@ export default function ProfessorCatalog() {
   }, [filters.maxReviews]);
 
   const updateFilter = useCallback(
-    <K extends keyof Filters>(key: K, value: Filters[K]) => {
+    <K extends keyof Filters>(key: K, value: Filters[K], push = PUSH_KEYS.has(key)) => {
       setFilters(f => ({
         ...f,
         [key]: value,
         page: key !== 'page' ? 1 : (value as number),
-      }));
+      }), push);
     },
-    []
+    [setFilters]
   );
 
   // Debounce slider-based filter commits so the catalog doesn't reload on every drag step.
@@ -335,13 +319,15 @@ export default function ProfessorCatalog() {
   }, [maxReviewsDraft, filters.maxReviews, updateFilter]);
 
   const setCollege = useCallback((college: string) => {
-    setFilters(f => ({ ...f, college, page: 1 }));
-  }, []);
+    setFilters(f => ({ ...f, college, page: 1 }), true);
+  }, [setFilters]);
 
-  const clearFilters = () => setFilters(DEFAULT_FILTERS);
+  const clearFilters = () => {
+    setFilters(DEFAULT_FILTERS, true);
+  };
 
   const handleSearchSelect = useCallback((suggestion: ProfessorSuggestion) => {
-    updateFilter('q', suggestion.name);
+    updateFilter('q', suggestion.name, true);
     setShowSearchSuggestions(false);
     setActiveSearchIndex(-1);
   }, [updateFilter]);
@@ -491,17 +477,25 @@ export default function ProfessorCatalog() {
                   Clear all
                 </button>
               )}
+              <button type="button" className="sidebar-close" aria-label="Close filters" ref={sidebarCloseRef} onClick={() => setSidebarOpen(false)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
             </div>
 
             {/* Sort */}
             <div className="filter-section">
-              <p className="filter-label">Sort by</p>
+              <p className="filter-label" id="professor-sort-label">Sort by</p>
               <Dropdown
+                ariaLabelledBy="professor-sort-label"
                 options={SORT_OPTIONS}
                 value={filters.sort}
                 onChange={v => updateFilter('sort', v)}
                 onOpenChange={setSortOpen}
               />
+              {(filters.sort === 'rating' || filters.sort === 'rating_asc') && <p className="filter-hint">Weighted by number of ratings</p>}
             </div>
 
             {/* College */}
@@ -656,6 +650,7 @@ export default function ProfessorCatalog() {
                 />
               </div>
             </div>
+            <div className="sidebar-results"><button type="button" className="sidebar-results-btn" onClick={() => setSidebarOpen(false)}>{loading ? 'Show results' : total === 1 ? 'Show 1 result' : `Show ${total.toLocaleString()} results`}</button></div>
           </div>
         </aside>
 
@@ -1006,7 +1001,7 @@ function ChecklistFilter({
       ref={ref}
       // Escape closes, and so does tabbing out (the mousedown listener only catches clicks).
       onKeyDown={e => {
-        if (e.key === 'Escape' && open) { toggle(false); toggleRef.current?.focus(); }
+        if (e.key === 'Escape' && open) { e.preventDefault(); toggle(false); toggleRef.current?.focus(); }
       }}
       onBlur={e => {
         if (open && e.relatedTarget && !ref.current?.contains(e.relatedTarget as Node)) toggle(false);

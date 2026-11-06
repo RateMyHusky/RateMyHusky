@@ -21,6 +21,12 @@
   transition: color 0.2s;
 }
 
+.dropdown-trigger:focus-visible {
+  outline: 2px solid #d6394c;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 .dropdown-trigger:hover {
   color: #d6394c;
 }
@@ -106,7 +112,8 @@
   }
 }
 
-.dropdown-item:hover {
+.dropdown-item:hover,
+.dropdown-item.focused {
   background: #fef0f0;
   color: #d6394c;
 }
@@ -212,7 +219,8 @@
   color: #ccc;
 }
 
-.dark .dropdown-item:hover {
+.dark .dropdown-item:hover,
+.dark .dropdown-item.focused {
   background: #3a2020;
   color: #d6394c;
 }
