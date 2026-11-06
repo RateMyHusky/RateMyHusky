@@ -1,5 +1,5 @@
 // Runnable self-check for compareScore (no unit-test framework is installed).
-// Run: cd frontend && npx tsx src/utils/compareScore.selftest.ts
+// Run: cd frontend && npm run test:compare (CI runs it too)
 // Prints PASS/FAIL per check and exits non-zero on any failure.
 import { argv } from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -77,6 +77,15 @@ function selftest(): number {
   const withC = scoreProfessors([0, 1, 2], pairM);
   check('a third professor with missing data does not reorder the other two',
     pair?.kind === 'winner' && pair.winner === 1 && withC?.kind === 'winner' && withC.winner === 1 && withC.runnerUp === 0);
+
+  // A leader scored on fewer metrics can win with nothing to be ahead on
+  const ab = (s: number) => ['Alpha', 'Beta'][s];
+  const noAhead = scoreProfessors([0, 1], [ratingMetric([4.0, 4.0]), difficultyMetric([null, 3.0]), takeAgainMetric([null, 50])]);
+  check('no shared metric ahead drops the "Ahead on" clause',
+    noAhead?.kind === 'winner' && winnerSentence(noAhead, ab) === "Alpha scores 80 to Beta's 64.");
+  const onlyBehind = scoreProfessors([0, 1], [ratingMetric([4.5, 4.6]), difficultyMetric([null, 4.0]), takeAgainMetric([null, 30])]);
+  check('only behind on shared metrics reads "despite"',
+    onlyBehind?.kind === 'winner' && winnerSentence(onlyBehind, ab) === "Alpha scores 90 to Beta's 57, despite Beta's higher overall rating.");
 
   check('droppedSentence, one name',
     droppedSentence({ id: 'takeAgain', missing: [2] }, () => 'Mark Fontenot') ===

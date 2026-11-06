@@ -96,9 +96,13 @@ export function scoreProfessors(contenders: number[], metrics: ScoreMetric[]): S
 export function winnerSentence(r: Extract<ScoreResult, { kind: 'winner' }>, lastName: (slot: number) => string): string {
 	const w = lastName(r.winner);
 	const ru = lastName(r.runnerUp);
-	const lead = `${w} scores ${Math.round(r.scores[r.winner])} to ${ru}'s ${Math.round(r.scores[r.runnerUp])}. Ahead on ${joinNames(r.ahead.map((id) => COPY[id].ahead))}`;
+	const score = `${w} scores ${Math.round(r.scores[r.winner])} to ${ru}'s ${Math.round(r.scores[r.runnerUp])}`;
+	const behind = joinNames(r.behind.map((id) => COPY[id].behind));
+	// Empty when the winner leads only because it isn't scored on metrics it has no data for
+	if (r.ahead.length === 0) return r.behind.length === 0 ? `${score}.` : `${score}, despite ${ru}'s ${behind}.`;
+	const lead = `${score}. Ahead on ${joinNames(r.ahead.map((id) => COPY[id].ahead))}`;
 	if (r.behind.length === 0) return `${lead}.`;
-	return `${lead}, which outweighs ${ru}'s ${joinNames(r.behind.map((id) => COPY[id].behind))}.`;
+	return `${lead}, which outweighs ${ru}'s ${behind}.`;
 }
 
 export function droppedSentence(d: DroppedMetric, name: (slot: number) => string): string {
