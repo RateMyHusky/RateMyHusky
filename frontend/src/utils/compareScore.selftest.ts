@@ -3,18 +3,14 @@
 // Prints PASS/FAIL per check and exits non-zero on any failure.
 import { argv } from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { scoreProfessors, winnerSentence, droppedSentence } from './compareScore';
+import { METRICS, scoreProfessors, winnerSentence, droppedSentence, weightsText } from './compareScore';
 import type { ScoreMetric } from './compareScore';
+import { nameParts } from './nameUtils';
 
-const ratingMetric = (values: (number | null)[]): ScoreMetric => ({
-  id: 'rating', weight: 3, better: 'higher', scale: (v) => v / 5, values,
-});
-const difficultyMetric = (values: (number | null)[]): ScoreMetric => ({
-  id: 'difficulty', weight: 1.5, better: 'lower', scale: (v) => (5 - v) / 4, values,
-});
-const takeAgainMetric = (values: (number | null)[]): ScoreMetric => ({
-  id: 'takeAgain', weight: 2, better: 'higher', scale: (v) => v / 100, values,
-});
+// The page's own metric config, so retuning a weight or scale is caught here
+const ratingMetric = (values: (number | null)[]): ScoreMetric => ({ id: 'rating', ...METRICS.rating, values });
+const difficultyMetric = (values: (number | null)[]): ScoreMetric => ({ id: 'difficulty', ...METRICS.difficulty, values });
+const takeAgainMetric = (values: (number | null)[]): ScoreMetric => ({ id: 'takeAgain', ...METRICS.takeAgain, values });
 
 function selftest(): number {
   const fails: string[] = [];
@@ -70,15 +66,24 @@ function selftest(): number {
   ]);
   check('missing would-take-again is dropped and reported',
     !!missing && JSON.stringify(missing.dropped) === JSON.stringify([{ id: 'takeAgain', missing: [2] }]));
-  check('scores use only the counted metrics',
-    !!missing && near(missing.scores[0], (100 * (3 * 0.722 + 1.5 * 0.175)) / 4.5));
+  check('a professor missing a metric is scored on the rest',
+    !!missing && near(missing.scores[2], (100 * (3 * 0.564 + 1.5 * 0.425)) / 4.5));
+  check('professors with every metric keep their full score',
+    !!missing && near(missing.scores[0], 56.1) && near(missing.scores[1], 59.6));
+
+  // Adding a professor with no would-take-again data must not flip the other two
+  const pairM = [ratingMetric([4.0, 3.5, 3.0]), difficultyMetric([3, 3, 3]), takeAgainMetric([50, 90, null])];
+  const pair = scoreProfessors([0, 1], pairM);
+  const withC = scoreProfessors([0, 1, 2], pairM);
+  check('a third professor with missing data does not reorder the other two',
+    pair?.kind === 'winner' && pair.winner === 1 && withC?.kind === 'winner' && withC.winner === 1 && withC.runnerUp === 0);
 
   check('droppedSentence, one name',
     droppedSentence({ id: 'takeAgain', missing: [2] }, () => 'Mark Fontenot') ===
-      "Would take again isn't counted: Mark Fontenot has no data for it.");
+      "Would take again isn't counted for Mark Fontenot, who has no data for it.");
   check('droppedSentence, two names',
     droppedSentence({ id: 'takeAgain', missing: [2, 1] }, (s) => (s === 2 ? 'Mark Fontenot' : 'Lucia Nunez')) ===
-      "Would take again isn't counted: Mark Fontenot and Lucia Nunez have no data for it.");
+      "Would take again isn't counted for Mark Fontenot and Lucia Nunez, who have no data for it.");
 
   const outside = scoreProfessors([0, 1], [
     ratingMetric([3.61, 3.54, null]), difficultyMetric([4.3, 3.9, 3.3]), takeAgainMetric([61, 67, 48]),
@@ -86,8 +91,15 @@ function selftest(): number {
   check('a missing value outside the contenders drops nothing', !!outside && outside.dropped.length === 0);
 
   check('one contender returns null', scoreProfessors([0], m) === null);
-  check('every metric dropped returns null',
-    scoreProfessors([0, 1], [ratingMetric([null, 3.5]), takeAgainMetric([60, null])]) === null);
+  check('a contender with no data at all is not scored',
+    scoreProfessors([0, 1], [ratingMetric([null, 3.5]), takeAgainMetric([null, 60])]) === null);
+
+  check('weightsText lists metrics by weight',
+    weightsText() === 'overall rating (weight 3), would-take-again rate (2), and difficulty (1.5)');
+
+  check('nameParts drops a comma suffix', nameParts('John Smith, Jr.').join(' ') === 'John Smith');
+  check('nameParts drops PhD and V', nameParts('Ann Lee PhD').join(' ') === 'Ann Lee' && nameParts('Hal Moe V').join(' ') === 'Hal Moe');
+  check('nameParts keeps a single word', nameParts('Cher').join(' ') === 'Cher');
 
   console.log(fails.length ? `${fails.length} FAIL(s): ` + fails.join(', ') : 'ALL PASS');
   return fails.length ? 1 : 0;

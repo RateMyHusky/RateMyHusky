@@ -8,9 +8,9 @@ import Footer from '../components/Footer';
 import Seo from '../components/Seo';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
 import { useBookmarks } from '../context/BookmarksContext';
-import { stripPrefix } from '../utils/nameUtils';
-import { droppedSentence, joinNames, scoreProfessors, winnerSentence } from '../utils/compareScore';
-import type { MetricId } from '../utils/compareScore';
+import { nameParts, stripPrefix } from '../utils/nameUtils';
+import { METRICS, TIE_POINTS, droppedSentence, joinNames, scoreProfessors, weightsText, winnerSentence } from '../utils/compareScore';
+import type { ScoreMetric } from '../utils/compareScore';
 
 import { COMPARE_SLOT_KEYS } from '../utils/compareLink';
 import './Compare.css';
@@ -41,18 +41,13 @@ interface SlotData {
 	name: string;
 }
 
-interface MetricRow {
-	id: MetricId;
+interface MetricRow extends ScoreMetric {
 	label: string;
 	hint: string; // which way is better, shown under the label
-	better: 'higher' | 'lower';
-	values: (number | null)[];
 	format: (value: number) => string;
-	scale: (value: number) => number; // 0..1 on a fixed scale for the bar; longer is better
 	winners: number[]; // slot indexes sharing the best value; empty for no best
 	runnersUp: number[]; // slot indexes sharing the second-best value; empty for none
 	ranked: number; // how many slots were ranked (eligible and with a value)
-	weight: number;
 	showCount?: boolean;
 }
 
@@ -301,36 +296,28 @@ function Compare() {
 	const lastFilledIndex = slugs.reduce((last, slug, i) => (slug ? i : last), -1);
 	const visibleCount = Math.max(openCount, MIN_OPEN_SLOTS, lastFilledIndex + 1);
 
-	// Old links used ?prof=slug. Move it to ?a=slug.
+	/* Normalize the URL in one write: move an old ?prof=slug to ?a=slug, rewrite a loaded alias
+	   (same professor under another spelling) to its canonical slug, and drop a slot that repeats an earlier one */
 	useEffect(() => {
-		const oldParam = searchParams.get('prof')?.trim();
-		const existingA = searchParams.get('a')?.trim();
-		if (!oldParam || existingA) return;
-
 		const next = new URLSearchParams(searchParams);
-		next.set('a', oldParam);
-		next.delete('prof');
-		setSearchParams(next, { replace: true });
-	}, [searchParams, setSearchParams]);
+		const oldParam = next.get('prof')?.trim();
+		if (oldParam && !next.get('a')?.trim()) {
+			next.set('a', oldParam);
+			next.delete('prof');
+		}
 
-	// Drop a slot whose slug repeats an earlier one, or is an alias of it (same professor under another spelling)
-	useEffect(() => {
 		const seen = new Set<string>();
-		const next = new URLSearchParams(searchParams);
-		let removed = false;
 		for (const key of SLOT_KEYS) {
-			const slug = searchParams.get(key)?.trim();
-			if (!slug) continue;
-			const canonical = entries[slug]?.profile?.identity.slug ?? slug;
-			if (seen.has(slug) || seen.has(canonical)) {
-				next.delete(key);
-				removed = true;
-			} else {
+			const raw = next.get(key)?.trim();
+			if (!raw) continue;
+			const slug = entries[raw]?.profile?.identity.slug ?? raw;
+			if (seen.has(slug)) next.delete(key);
+			else {
 				seen.add(slug);
-				seen.add(canonical);
+				if (slug !== raw) next.set(key, slug);
 			}
 		}
-		if (removed) setSearchParams(next, { replace: true });
+		if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true });
 	}, [searchParams, setSearchParams, entries]);
 
 	// If the URL already has c or d filled, keep those slots open
@@ -346,7 +333,9 @@ function Compare() {
 		setEntries((prev) => {
 			const next: Record<string, ProfileEntry> = {};
 			for (const slug of active) {
-				next[slug] = prev[slug]?.status === 'ready' ? prev[slug] : { status: 'loading', profile: null, code: null };
+				// A slug just rewritten from an alias reuses the alias's loaded profile
+				const loaded = prev[slug]?.status === 'ready' ? prev[slug] : Object.values(prev).find((e) => e.profile?.identity.slug === slug);
+				next[slug] = loaded ?? { status: 'loading', profile: null, code: null };
 			}
 			return next;
 		});
@@ -420,15 +409,10 @@ function Compare() {
 	const shown = (slot: SlotData) => Boolean(slot.slug) && !slot.failed;
 	const isReady = (slot: SlotData) => Boolean(slot.slug) && !slot.loading;
 	const displayName = (slot: SlotData) => slot.name || `Professor ${slot.label}`;
-	// Name words without a trailing generational suffix ("Olin Shivers III" -> ["Olin", "Shivers"])
-	const nameParts = (name: string) => {
-		const parts = name.trim().split(/\s+/).filter(Boolean);
-		if (parts.length > 1 && /^(jr\.?|sr\.?|ii|iii|iv)$/i.test(parts[parts.length - 1])) parts.pop();
-		return parts;
-	};
 	// "Elena Strange" -> "Elena S." (mobile chips and mobile table header)
 	const chipName = (slot: SlotData) => {
-		if (slot.failed) return slot.slug;
+		// A failed slot from a link has only a name guessed from the slug, so it shows the slug itself
+		if (slot.failed && !pickedNames[slot.slug]) return slot.slug;
 		const parts = nameParts(slot.name);
 		if (parts.length === 0) return `Prof. ${slot.label}`;
 		if (parts.length === 1) return parts[0];
@@ -453,42 +437,34 @@ function Compare() {
 		return identity.college ? `${identity.department} (${identity.college})` : identity.department;
 	});
 
-	const outOfFive = (v: number) => v / 5;
 	const metricRows: MetricRow[] = [
 		{
 			id: 'rating',
+			...METRICS.rating,
 			label: 'Overall Rating',
 			hint: 'out of 5',
-			better: 'higher',
 			values: rating,
 			format: (v) => v.toFixed(2),
-			scale: outOfFive,
 			...pickRanks(rating, eligible),
-			weight: 3,
 			showCount: true,
 		},
 		{
 			id: 'difficulty',
+			...METRICS.difficulty,
 			label: 'Difficulty',
 			hint: 'lower is easier',
-			better: 'lower',
 			values: difficulty,
 			format: (v) => v.toFixed(2),
-			// Inverted so a longer bar always means better: 1 (easiest) is full, 5 is empty
-			scale: (v) => (5 - v) / 4,
 			...pickRanks(difficulty, eligible, 'lower'),
-			weight: 1.5,
 		},
 		{
 			id: 'takeAgain',
+			...METRICS.takeAgain,
 			label: 'Would Take Again',
 			hint: 'of raters',
-			better: 'higher',
 			values: takeAgain,
 			format: (v) => `${v.toFixed(0)}%`,
-			scale: (v) => v / 100,
 			...pickRanks(takeAgain, eligible, 'higher', 0),
-			weight: 2,
 		},
 	];
 
@@ -535,6 +511,12 @@ function Compare() {
 			return `Pick up to ${MAX_SLOTS} professors and compare ratings, difficulty, and how many students would take them again.`;
 		}
 		const count = anyLoading ? selectedCount : loadedSlots.length;
+		const failedCount = selectedSlots.filter((s) => s.failed).length;
+		if (count < 2 && failedCount > 0) {
+			return failedCount === 1
+				? "A professor couldn't be loaded. Try again or remove it below."
+				: `${failedCount} professors couldn't be loaded. Try again or remove them below.`;
+		}
 		if (count < 2) return 'Add at least one more professor to start comparing.';
 		return `Comparing ${count} professors side-by-side.`;
 	})();
@@ -711,25 +693,35 @@ function Compare() {
 							.filter((slot) => slot.slug)
 							.map((slot) => {
 								const imgUrl = slot.profile?.identity.imageUrl ?? null;
+								const chipContent = (
+									<>
+										<span className={`compare-chip-avatar tone-${slot.index}`}>
+											{imgUrl ? (
+												<img key={imgUrl} src={photoThumb(imgUrl)} alt="" onError={thumbOnError(imgUrl, (img) => (img.style.display = 'none'))} />
+											) : (
+												<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+													<circle cx="12" cy="9" r="4" />
+													<path d="M4 21a8 8 0 0 1 16 0z" />
+												</svg>
+											)}
+										</span>
+										<span className="compare-chip-name">{chipName(slot)}</span>
+									</>
+								);
 								return (
 									<div className={`compare-chip ${slot.failed ? 'is-failed' : ''}`} key={slot.label}>
-										<Link
-											className="compare-chip-main"
-											to={`/professors/${slot.profile?.identity.slug ?? slot.slug}`}
-											state={{ fromPage: { label: 'Compare', url: `/compare?${searchParams.toString()}` } }}
-										>
-											<span className={`compare-chip-avatar tone-${slot.index}`}>
-												{imgUrl ? (
-													<img key={imgUrl} src={photoThumb(imgUrl)} alt="" onError={thumbOnError(imgUrl, (img) => (img.style.display = 'none'))} />
-												) : (
-													<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-														<circle cx="12" cy="9" r="4" />
-														<path d="M4 21a8 8 0 0 1 16 0z" />
-													</svg>
-												)}
-											</span>
-											<span className="compare-chip-name">{chipName(slot)}</span>
-										</Link>
+										{/* A failed slot has no profile to link to */}
+										{slot.failed ? (
+											<span className="compare-chip-main">{chipContent}</span>
+										) : (
+											<Link
+												className="compare-chip-main"
+												to={`/professors/${slot.profile?.identity.slug ?? slot.slug}`}
+												state={{ fromPage: { label: 'Compare', url: `/compare?${searchParams.toString()}` } }}
+											>
+												{chipContent}
+											</Link>
+										)}
 										<button
 											type="button"
 											className="compare-chip-remove"
@@ -923,7 +915,7 @@ function Compare() {
 									))}
 									<details className="compare-verdict-how">
 										<summary>How we pick</summary>
-										<p>Each professor gets a score out of 100 from their rating (weight 3), would-take-again rate (2) and difficulty (1.5). Under 2 points apart is a tie. Professors with fewer than {MIN_RATINGS} ratings aren't scored.</p>
+										<p>Each professor gets a score out of 100 from their {weightsText()}. Under {TIE_POINTS} points apart is a tie. Professors with fewer than {MIN_RATINGS} ratings aren't scored.</p>
 									</details>
 								</>
 							)}
