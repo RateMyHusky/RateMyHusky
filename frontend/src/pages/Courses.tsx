@@ -18,7 +18,7 @@ import { useDebouncedValue } from '../utils/useDebouncedValue';
 import { useCatalogScroll } from '../utils/useCatalogScroll';
 import { useUrlFilters } from '../utils/useUrlFilters';
 import { useDialog } from '../utils/useDialog';
-import { useMediaQuery } from './rate/useMediaQuery';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import './ProfessorCatalog.css';
 import './Courses.css';
 

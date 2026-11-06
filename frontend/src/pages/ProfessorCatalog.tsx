@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { useCatalogScroll } from '../utils/useCatalogScroll';
 import { useUrlFilters } from '../utils/useUrlFilters';
 import { useDialog } from '../utils/useDialog';
-import { useMediaQuery } from './rate/useMediaQuery';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import {
   FILTER_SEPARATOR,
   fetchProfessorsCatalog,

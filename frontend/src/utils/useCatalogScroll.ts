@@ -24,7 +24,9 @@ function writeScroll(key: string, y: number): void {
 
 // Remembers the scroll position per history entry and restores it on Back/Forward once the catalog has loaded.
 export function useCatalogScroll(ready: boolean): void {
-  const { key } = useLocation();
+  const location = useLocation();
+  // A document's first entry is "default" in every document, so it uses the id main.tsx gave it.
+  const key = location.key === 'default' ? (window.history.state?.entryId ?? location.key) : location.key;
   const navType = useNavigationType();
   const restored = useRef<string | null>(null);   // the entry whose scroll was already restored
   const readyNow = useRef(ready);

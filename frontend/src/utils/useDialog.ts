@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
+import { lockScroll, unlockScroll } from './useScrollLock';
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])';
 
@@ -8,9 +9,8 @@ function focusableIn(container: HTMLElement): HTMLElement[] {
 }
 
 // Open dialogs, oldest first. Only the last one handles keys, so a dialog opened over the filter drawer
-// takes Esc and Tab alone. The scroll lock is lifted when the last one closes, in whatever order they close.
+// takes Esc and Tab alone. Each one holds the shared scroll lock, so the page scrolls again only once all have closed.
 const openDialogs: object[] = [];
-let overflowBeforeDialogs = '';
 
 /** Whether any dialog is open, for page-level Esc handlers that must leave Esc to it. */
 export const dialogOpen = (): boolean => openDialogs.length > 0;
@@ -41,12 +41,12 @@ export function useDialog(
     if (!container) return;
 
     const opener = document.activeElement;
-    (initialFocusLatest.current?.current ?? focusableIn(container)[0])?.focus();
+    // preventScroll: a drawer still sliding in from offscreen would otherwise scroll the page to the top.
+    (initialFocusLatest.current?.current ?? focusableIn(container)[0])?.focus({ preventScroll: true });
 
     const token = {};
-    if (openDialogs.length === 0) overflowBeforeDialogs = document.body.style.overflow;
     openDialogs.push(token);
-    document.body.style.overflow = 'hidden';
+    lockScroll();
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (openDialogs[openDialogs.length - 1] !== token) return;
@@ -86,7 +86,7 @@ export function useDialog(
       document.removeEventListener('keydown', onKeyDown);
       container.removeEventListener('focusin', onFocusIn);
       openDialogs.splice(openDialogs.indexOf(token), 1);
-      if (openDialogs.length === 0) document.body.style.overflow = overflowBeforeDialogs;
+      unlockScroll();
       if (opener instanceof HTMLElement && document.contains(opener)) opener.focus();
     };
   }, [open, containerRef]);
