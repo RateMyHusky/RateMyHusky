@@ -20,7 +20,7 @@
 //   PROXY_SECRET      — shared secret the backend checks; also set on Railway
 
 import maintenance from './maintenance.config.json';
-import { isUnknownRoute, notFoundPage } from './spaRoutes';
+import { DETAIL_RE, isUnknownRoute, notFoundPage } from './spaRoutes';
 
 // Share of CSP violation reports forwarded to the backend's /api/csp-report.
 const CSP_REPORT_SAMPLE = 0.1;
@@ -170,9 +170,6 @@ function isCrawler(ua: string): boolean {
   const lc = ua.toLowerCase();
   return CRAWLER_UAS.some((bot) => lc.includes(bot));
 }
-
-// Matches /professors/<slug>, /courses/<code>, and /departments/<slug> (single trailing segment).
-const DETAIL_RE = /^\/(professors|courses|departments)\/([^/]+)\/?$/;
 
 // Exact non-detail paths that get a server-rendered snapshot for crawlers.
 const STATIC_RENDER: Record<string, string> = {

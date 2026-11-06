@@ -1,10 +1,19 @@
 // Route knowledge for the middleware's crawler 404 (pure, so it can be selftested).
-// Run the selftest: cd frontend && npx tsx spaRoutes.selftest.ts
+// Run the selftest: cd frontend && npm run test:routes
 
-// Keep in sync with the routes in src/App.tsx.
-const SPA_ROUTE_RE = /^\/(professors|courses|departments|compare|bookmarks|rate|account|account\/bookmarks|terms|privacy|faq)?\/?$/i;
-// Case-insensitive like the router (middleware's DETAIL_RE is case-sensitive, for snapshots).
-const ANY_DETAIL_RE = /^\/(professors|courses|departments)\/[^/]+\/?$/i;
+import { RATE_ENABLED } from './src/config';
+
+// Top-level paths of the routes in src/App.tsx. The selftest fails if App.tsx has a route
+// this list doesn't cover.
+const SPA_ROUTES = ['professors', 'courses', 'departments', 'compare', 'bookmarks',
+  ...(RATE_ENABLED ? ['rate'] : []), 'account', 'account/bookmarks', 'terms', 'privacy', 'faq'];
+const SPA_ROUTE_RE = new RegExp(`^/(${SPA_ROUTES.join('|')})?/?$`, 'i');
+
+// Matches /professors/<slug>, /courses/<code>, and /departments/<slug> (single trailing segment).
+// Case-sensitive: the middleware uses it to pick backend snapshots.
+export const DETAIL_RE = /^\/(professors|courses|departments)\/([^/]+)\/?$/;
+// Case-insensitive like the router.
+const ANY_DETAIL_RE = new RegExp(DETAIL_RE.source, 'i');
 
 export function isUnknownRoute(pathname: string): boolean {
   if (SPA_ROUTE_RE.test(pathname) || ANY_DETAIL_RE.test(pathname)) return false;
@@ -30,8 +39,9 @@ export function notFoundPage(): Response {
     status: 404,
     headers: {
       'content-type': 'text/html; charset=utf-8',
-      'cache-control': 'public, max-age=3600',
-      'x-prerendered': '1',
+      // Only crawlers get this page, so no shared cache may hand it to a browser.
+      'cache-control': 'private, max-age=3600',
+      'x-crawler-404': '1',
     },
   });
 }
