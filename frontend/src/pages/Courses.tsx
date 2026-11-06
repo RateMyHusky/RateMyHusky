@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Link, useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
 	FILTER_SEPARATOR,
 	fetchCourseDepartments,
@@ -16,6 +16,7 @@ import BookmarkButton from '../components/BookmarkButton';
 import Seo from '../components/Seo';
 import { useDebouncedValue } from '../utils/useDebouncedValue';
 import { useCatalogScroll } from '../utils/useCatalogScroll';
+import { useUrlFilters } from '../utils/useUrlFilters';
 import './ProfessorCatalog.css';
 import './Courses.css';
 
@@ -84,13 +85,7 @@ const PUSH_KEYS = new Set<keyof Filters>(['page', 'sort', 'dept']);
 
 export default function Courses() {
 	const navigate = useNavigate();
-	const [searchParams, setSearchParams] = useSearchParams();
-	const navType = useNavigationType();
-	const { key: locationKey } = useLocation();
-	const pushNext = useRef(false);
-	const poppedKey = useRef<string | null>(null); // the Back/Forward entry already loaded into filters
-
-	const [filters, setFilters] = useState<Filters>(() => getFiltersFromSearchParams(searchParams));
+	const { filters, setFilters, searchParams } = useUrlFilters(getFiltersFromSearchParams, buildSearchParamsFromFilters);
 	const [departments, setDepartments] = useState<string[]>([]);
 	const [courses, setCourses] = useState<CatalogCourse[]>([]);
 	const [total, setTotal] = useState(0);
@@ -217,49 +212,17 @@ export default function Courses() {
 	// Restore only once the shown results are the ones this URL describes; on Back they are still the old page's.
 	useCatalogScroll(!loading && shownFor === buildSearchParamsFromFilters(getFiltersFromSearchParams(searchParams)).toString());
 
-	// Keep filters in the URL. On Back/Forward the URL wins: until the effect below has loaded it,
-	// `filters` still describes the page being left, and writing it would undo the Back. The first page
-	// load is a POP too, so an odd URL such as ?sort=bogus is left as typed until the first change.
-	useEffect(() => {
-		const push = pushNext.current;
-		pushNext.current = false;
-		if (navType !== 'POP') poppedKey.current = null;   // a push or replace moved on; a later return to an old entry must reload it
-		if (navType === 'POP' && poppedKey.current !== locationKey) return;
-		const next = buildSearchParamsFromFilters(filters);
-		if (next.toString() !== searchParams.toString()) {
-			setSearchParams(next, { replace: !push });
-		}
-	}, [filters, searchParams, setSearchParams, navType, locationKey]);
-
-	useEffect(() => {
-		if (navType === 'POP') poppedKey.current = locationKey;
-		const fromUrl = getFiltersFromSearchParams(searchParams);
-		setFilters((prev) => {
-			if (
-				prev.q === fromUrl.q &&
-				prev.dept === fromUrl.dept &&
-				prev.minRating === fromUrl.minRating &&
-				prev.maxRating === fromUrl.maxRating &&
-				prev.sort === fromUrl.sort &&
-				prev.page === fromUrl.page
-			) {
-				return prev;
-			}
-			return fromUrl;
-		});
-	}, [searchParams, navType, locationKey]);
 
 	useEffect(() => setMinRatingDraft(filters.minRating), [filters.minRating]);
 	useEffect(() => setMaxRatingDraft(filters.maxRating), [filters.maxRating]);
 
 	const updateFilter = useCallback(<K extends keyof Filters>(key: K, value: Filters[K]) => {
-		if (PUSH_KEYS.has(key)) pushNext.current = true;
 		setFilters((f) => ({
 			...f,
 			[key]: value,
 			page: key !== 'page' ? 1 : (value as number),
-		}));
-	}, []);
+		}), PUSH_KEYS.has(key));
+	}, [setFilters]);
 
 	useEffect(() => {
 		const timeoutId = setTimeout(() => {
@@ -276,8 +239,7 @@ export default function Courses() {
 	}, [maxRatingDraft, filters.maxRating, updateFilter]);
 
 	const clearFilters = () => {
-		pushNext.current = true;
-		setFilters(DEFAULT_FILTERS);
+		setFilters(DEFAULT_FILTERS, true);
 	};
 
 	const handleSearchSelect = useCallback(

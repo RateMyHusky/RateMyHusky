@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { ProfessorTag } from '../api/api';
 import { tagLabel } from '../utils/tagLabels';
 import { fetchPopularTags } from '../api/api';
-import { Link, useLocation, useNavigationType, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useCatalogScroll } from '../utils/useCatalogScroll';
+import { useUrlFilters } from '../utils/useUrlFilters';
 import {
   FILTER_SEPARATOR,
   fetchProfessorsCatalog,
@@ -110,12 +111,7 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
 const PUSH_KEYS = new Set<keyof Filters>(['page', 'sort', 'college', 'dept', 'tags']);
 
 export default function ProfessorCatalog() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const navType = useNavigationType();
-  const { key: locationKey } = useLocation();
-  const pushNext = useRef(false);
-  const poppedKey = useRef<string | null>(null);   // the Back/Forward entry already loaded into filters
-  const [filters, setFilters]       = useState<Filters>(() => getFiltersFromSearchParams(searchParams));
+  const { filters, setFilters, searchParams } = useUrlFilters(getFiltersFromSearchParams, buildSearchParamsFromFilters);
   const [colleges]     = useState<string[]>([
     'Business', 'CAMD', 'CSSH', 'Engineering',
     'Health Sciences', 'Khoury', 'Law', 'Professional Studies', 'Science',
@@ -261,43 +257,6 @@ export default function ProfessorCatalog() {
   // Restore only once the shown results are the ones this URL describes; on Back they are still the old page's.
   useCatalogScroll(!loading && shownFor === buildSearchParamsFromFilters(getFiltersFromSearchParams(searchParams)).toString());
 
-  // Keep filters in the URL so the catalog view is shareable/bookmarkable. On Back/Forward the URL wins:
-  // until the effect below has loaded it, `filters` still describes the page being left, and writing it
-  // would undo the Back. The first page load is a POP too, so an odd URL such as ?sort=bogus is left as
-  // typed until the first change.
-  useEffect(() => {
-    const push = pushNext.current;
-    pushNext.current = false;
-    if (navType !== 'POP') poppedKey.current = null;   // a push or replace moved on; a later return to an old entry must reload it
-    if (navType === 'POP' && poppedKey.current !== locationKey) return;
-    const next = buildSearchParamsFromFilters(filters);
-    if (next.toString() !== searchParams.toString()) {
-      setSearchParams(next, { replace: !push });
-    }
-  }, [filters, searchParams, setSearchParams, navType, locationKey]);
-
-  // Keep in-memory filters synced when URL changes externally (back/forward/share links).
-  useEffect(() => {
-    if (navType === 'POP') poppedKey.current = locationKey;
-    const fromUrl = getFiltersFromSearchParams(searchParams);
-    setFilters(prev => {
-      if (
-        prev.q === fromUrl.q &&
-        prev.tags === fromUrl.tags &&
-        prev.college === fromUrl.college &&
-        prev.dept === fromUrl.dept &&
-        prev.minRating === fromUrl.minRating &&
-        prev.maxRating === fromUrl.maxRating &&
-        prev.minReviews === fromUrl.minReviews &&
-        prev.maxReviews === fromUrl.maxReviews &&
-        prev.sort === fromUrl.sort &&
-        prev.page === fromUrl.page
-      ) {
-        return prev;
-      }
-      return fromUrl;
-    });
-  }, [searchParams, navType, locationKey]);
 
   useEffect(() => {
     setMinRatingDraft(filters.minRating);
@@ -316,15 +275,14 @@ export default function ProfessorCatalog() {
   }, [filters.maxReviews]);
 
   const updateFilter = useCallback(
-    <K extends keyof Filters>(key: K, value: Filters[K]) => {
-      if (PUSH_KEYS.has(key)) pushNext.current = true;
+    <K extends keyof Filters>(key: K, value: Filters[K], push = PUSH_KEYS.has(key)) => {
       setFilters(f => ({
         ...f,
         [key]: value,
         page: key !== 'page' ? 1 : (value as number),
-      }));
+      }), push);
     },
-    []
+    [setFilters]
   );
 
   // Debounce slider-based filter commits so the catalog doesn't reload on every drag step.
@@ -369,18 +327,15 @@ export default function ProfessorCatalog() {
   }, [maxReviewsDraft, filters.maxReviews, updateFilter]);
 
   const setCollege = useCallback((college: string) => {
-    pushNext.current = true;
-    setFilters(f => ({ ...f, college, page: 1 }));
-  }, []);
+    setFilters(f => ({ ...f, college, page: 1 }), true);
+  }, [setFilters]);
 
   const clearFilters = () => {
-    pushNext.current = true;
-    setFilters(DEFAULT_FILTERS);
+    setFilters(DEFAULT_FILTERS, true);
   };
 
   const handleSearchSelect = useCallback((suggestion: ProfessorSuggestion) => {
-    pushNext.current = true;
-    updateFilter('q', suggestion.name);
+    updateFilter('q', suggestion.name, true);
     setShowSearchSuggestions(false);
     setActiveSearchIndex(-1);
   }, [updateFilter]);

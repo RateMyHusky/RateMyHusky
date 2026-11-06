@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useLocation, useNavigationType } from 'react-router-dom';
 
 const storageKey = (key: string) => `catalog-scroll:${key}`;
@@ -22,24 +22,18 @@ function writeScroll(key: string, y: number): void {
   }
 }
 
-// React Router gives the first entry of every full page load the key "default", and sessionStorage outlives
-// same-tab navigations, so a fresh load (typed URL, link) must not inherit the previous page's saved scroll.
-// Reload and Back from another site keep theirs.
-try {
-  const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
-  if (nav?.type === 'navigate') sessionStorage.removeItem(storageKey('default'));
-} catch {
-  // storage blocked
-}
-
 // Remembers the scroll position per history entry and restores it on Back/Forward once the catalog has loaded.
 export function useCatalogScroll(ready: boolean): void {
   const { key } = useLocation();
   const navType = useNavigationType();
   const restored = useRef<string | null>(null);   // the entry whose scroll was already restored
+  const readyNow = useRef(ready);
+  useLayoutEffect(() => { readyNow.current = ready; });
 
   useEffect(() => {
-    if (navType !== 'POP' || !ready || restored.current === key) return;
+    // A push or replace moved on, so a later Back to an entry restored before must restore again.
+    if (navType !== 'POP') { restored.current = null; return; }
+    if (!ready || restored.current === key) return;
     restored.current = key;
     const saved = readScroll(key);
     if (saved !== null) window.scrollTo(0, saved);
@@ -54,6 +48,9 @@ export function useCatalogScroll(ready: boolean): void {
       frame = requestAnimationFrame(() => {
         frame = 0;
         if (navType === 'POP' && restored.current !== key) return;   // restore still pending
+        // A page change shrinks the page while it loads, and the router switches entries only after
+        // that render, so this entry would record the clamped position instead of where the user was.
+        if (!readyNow.current) return;
         writeScroll(key, window.scrollY);
       });
     };
