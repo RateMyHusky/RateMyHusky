@@ -16,9 +16,7 @@ const Footer = () => {
           </span>
           <div className="footer-links">
             <Link to="/faq">FAQ</Link>
-            <span className="footer-divider">·</span>
             <Link to="/terms">Terms &amp; Conditions</Link>
-            <span className="footer-divider">·</span>
             <Link to="/privacy">Privacy Policy</Link>
           </div>
         </div>

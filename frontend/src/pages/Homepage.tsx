@@ -11,7 +11,7 @@ import { fetchGoatProfessors, fetchProfessorsCatalog } from '../api/api';
 import type { CatalogProfessor, Professor } from '../api/api';
 import neuIcon from '../assets/neu-circle-icon.png';
 import { ASK_ENABLED, RATE_ENABLED } from '../config';
-import { useMediaQuery } from './rate/useMediaQuery';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import './Homepage.css';
 
 const STATS = [

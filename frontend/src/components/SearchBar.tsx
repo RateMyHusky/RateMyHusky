@@ -5,6 +5,7 @@ import { fetchSearchSuggestions, askChat } from '../api/api';
 import type { SearchSuggestion, ChatResponse } from '../api/api';
 import { saveAskSession, loadAskSession, clearAskSession } from '../utils/askSession';
 import { ASK_ENABLED } from '../config';
+import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
 import './SearchBar.css';
 
 // Navigation state a clicked citation carries so the destination breadcrumb reads "← Ask" and
@@ -51,7 +52,6 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
   const [showSuggestions, setShowSuggestions] = useState(!!restored.current);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [isFocused, setIsFocused] = useState(false);
-  const [placeholder, setPlaceholder] = useState('');
   const [askLoading, setAskLoading] = useState(false);
   const [askResult, setAskResult] = useState<ChatResponse | null>(restored.current?.result ?? null);
   const [askedAt, setAskedAt] = useState<number>(restored.current?.askedAt ?? 0);
@@ -150,54 +150,14 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
     "What do students think of Schedlbauer's lectures?"
   ], []);
 
-  // Typing animation logic
-  useEffect(() => {
-    if (isFocused || query) {
-      setPlaceholder(
-        isAsk ? 'Ask about a professor or course...'
-        : searchType === 'Professor' ? 'Search by professor name...'
-        : 'Search by course name or code...'
-      );
-      return;
-    }
-
-    const examples = isAsk ? askExamples : searchType === 'Professor' ? professorExamples : courseExamples;
-    let currentExampleIndex = Math.floor(Math.random() * examples.length);
-    let currentText = "";
-    let isDeleting = false;
-    let typingSpeed = 100;
-
-    const type = () => {
-      const fullText = examples[currentExampleIndex];
-
-      if (isDeleting) {
-        currentText = fullText.substring(0, currentText.length - 1);
-        typingSpeed = 50;
-      } else {
-        currentText = fullText.substring(0, currentText.length + 1);
-        typingSpeed = 100;
-      }
-
-      // Between examples the text is empty: show the plain prompt, not `Search for ""`.
-      setPlaceholder(isAsk ? currentText
-        : currentText ? `Search for "${currentText}"`
-        : searchType === 'Professor' ? 'Search by professor name...' : 'Search by course name or code...');
-
-      if (!isDeleting && currentText === fullText) {
-        isDeleting = true;
-        typingSpeed = 2000; // Pause at end
-      } else if (isDeleting && currentText === "") {
-        isDeleting = false;
-        currentExampleIndex = (currentExampleIndex + 1) % examples.length;
-        typingSpeed = 500; // Pause before next
-      }
-
-      timeoutId = setTimeout(type, typingSpeed);
-    };
-
-    let timeoutId = setTimeout(type, typingSpeed);
-    return () => clearTimeout(timeoutId);
-  }, [isFocused, query, searchType, isAsk, professorExamples, courseExamples, askExamples]);
+  const placeholder = useTypingPlaceholder(
+    isAsk ? askExamples : searchType === 'Professor' ? professorExamples : courseExamples,
+    isAsk ? 'Ask about a professor or course...'
+    : searchType === 'Professor' ? 'Search by professor name...'
+    : 'Search by course name or code...',
+    isFocused || !!query,
+    !isAsk,
+  );
 
   const handleSearchTypeChange = (newType: string) => {
     askReqSeq.current++; // invalidate any in-flight Ask request
@@ -395,6 +355,7 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
         <input
           ref={inputRef}
           className="search-input"
+          aria-label={isAsk ? 'Ask a question' : searchType === 'Professor' ? 'Search professors' : 'Search courses'}
           type="text"
           placeholder={placeholder}
           value={query}
@@ -549,7 +510,7 @@ function AskResult({ result, askedAt }: { result: ChatResponse; askedAt: number 
               <li key={c.code}>
                 <Link className="ask-source-link" to={`/courses/${c.code.toLowerCase()}`} state={ASK_FROM_STATE}>{c.code}</Link>
                 <span className="ask-source-snippet">
-                  {c.name}{c.rating != null ? ` · ${c.rating.toFixed(1)}★` : ''}
+                  {c.name}{c.rating != null ? ` (${c.rating.toFixed(1)}★)` : ''}
                 </span>
               </li>
             ))}

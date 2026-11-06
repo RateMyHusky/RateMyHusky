@@ -3,6 +3,8 @@ import type { ProfessorTag } from '../api/api';
 import { tagLabel } from '../utils/tagLabels';
 import { fetchPopularTags } from '../api/api';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
+import DualRangeSlider from '../components/DualRangeSlider';
 import {
   FILTER_SEPARATOR,
   fetchProfessorsCatalog,
@@ -155,13 +157,13 @@ export default function ProfessorCatalog() {
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const [searchPlaceholder, setSearchPlaceholder] = useState('');
 
   const professorExamples = useMemo(() => [
     "Alan Mislove", "Ravi Sundaram", "Dan Felushko",
     "Cristina Nita-Rotaru", "Stacy Marsella", "Kathleen Durant",
     "Gene Cooperman", "Benjamin Yelle", "Peter Topalov"
   ], []);
+  const searchPlaceholder = useTypingPlaceholder(professorExamples, 'Search professor name…', isSearchFocused || !!filters.q);
 
   const searchWrapperRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -391,43 +393,6 @@ export default function ProfessorCatalog() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  useEffect(() => {
-    if (isSearchFocused || filters.q) {
-      setSearchPlaceholder('Search professor name…');
-      return;
-    }
-
-    let currentExampleIndex = Math.floor(Math.random() * professorExamples.length);
-    let currentText = '';
-    let isDeleting = false;
-    let typingSpeed = 100;
-
-    const type = () => {
-      const fullText = professorExamples[currentExampleIndex];
-      if (isDeleting) {
-        currentText = fullText.substring(0, currentText.length - 1);
-        typingSpeed = 50;
-      } else {
-        currentText = fullText.substring(0, currentText.length + 1);
-        typingSpeed = 100;
-      }
-      // Between examples the text is empty: show the plain prompt, not `Search for ""`.
-      setSearchPlaceholder(currentText ? `Search for "${currentText}"` : 'Search professor name…');
-      if (!isDeleting && currentText === fullText) {
-        isDeleting = true;
-        typingSpeed = 2000;
-      } else if (isDeleting && currentText === '') {
-        isDeleting = false;
-        currentExampleIndex = (currentExampleIndex + 1) % professorExamples.length;
-        typingSpeed = 500;
-      }
-      timeoutId = setTimeout(type, typingSpeed);
-    };
-
-    let timeoutId = setTimeout(type, typingSpeed);
-    return () => clearTimeout(timeoutId);
-  }, [isSearchFocused, filters.q, professorExamples]);
-
   const hasActiveFilters =
     !!filters.q || !!filters.college || !!filters.dept || filters.minRating > 0 || filters.maxRating < 5 || filters.minReviews > 1 || filters.maxReviews !== null || !!filters.tags;
 
@@ -580,6 +545,8 @@ export default function ProfessorCatalog() {
                 valueHigh={maxRatingDraft}
                 onChangeLow={v => setMinRatingDraft(v)}
                 onChangeHigh={v => setMaxRatingDraft(v)}
+                labelLow="Minimum rating"
+                labelHigh="Maximum rating"
               />
               <div className="slider-tick-marks">
                 {Array.from({ length: 11 }, (_, i) => {
@@ -618,6 +585,8 @@ export default function ProfessorCatalog() {
                 valueHigh={Math.min(maxReviewsDraft ?? REVIEW_SLIDER_MAX, REVIEW_SLIDER_MAX)}
                 onChangeLow={v => setMinReviewsDraft(v)}
                 onChangeHigh={v => setMaxReviewsDraft(v >= REVIEW_SLIDER_MAX ? null : v)}
+                labelLow="Minimum number of ratings"
+                labelHigh="Maximum number of ratings"
               />
               <div className="reviews-input-row">
                 <input
@@ -626,6 +595,7 @@ export default function ProfessorCatalog() {
                   min="0"
                   value={minReviewsDraft === 0 ? '' : minReviewsDraft}
                   placeholder="Min"
+                  aria-label="Minimum number of ratings"
                   onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }}
                   onChange={e => {
                     const v = parseInt(e.target.value, 10);
@@ -643,6 +613,7 @@ export default function ProfessorCatalog() {
                   min="0"
                   value={maxReviewsDraft ?? ''}
                   placeholder="Max"
+                  aria-label="Maximum number of ratings"
                   onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }}
                   onChange={e => {
                     const v = parseInt(e.target.value, 10);
@@ -667,6 +638,7 @@ export default function ProfessorCatalog() {
                 ref={searchInputRef}
                 type="text"
                 className="catalog-search"
+                aria-label="Search professors"
                 placeholder={searchPlaceholder}
                 value={filters.q}
                 onChange={e => updateFilter('q', e.target.value)}
@@ -870,70 +842,6 @@ export default function ProfessorCatalog() {
         </main>
       </div>
       <Footer />
-    </div>
-  );
-}
-
-// ── Dual-range slider sub-component ─────────────────────────────────────────
-
-function DualRangeSlider({
-  min,
-  max,
-  step,
-  valueLow,
-  valueHigh,
-  onChangeLow,
-  onChangeHigh,
-}: {
-  min: number;
-  max: number;
-  step: number;
-  valueLow: number;
-  valueHigh: number;
-  onChangeLow: (v: number) => void;
-  onChangeHigh: (v: number) => void;
-}) {
-  const [lastActive, setLastActive] = useState<'low' | 'high'>('low');
-  const range = max - min;
-  const lowPct = ((valueLow - min) / range) * 100;
-  const highPct = ((valueHigh - min) / range) * 100;
-
-  return (
-    <div className="dual-range">
-      <div className="dual-range-track">
-        <div
-          className="dual-range-fill"
-          style={{ left: `${lowPct}%`, width: `${highPct - lowPct}%` }}
-        />
-      </div>
-      <input
-        type="range"
-        className="dual-range-input"
-        style={{ zIndex: lastActive === 'low' ? 4 : 3 }}
-        min={min}
-        max={max}
-        step={step}
-        value={valueLow}
-        onPointerDown={() => setLastActive('low')}
-        onChange={e => {
-          const v = parseFloat(e.target.value);
-          onChangeLow(Math.min(v, valueHigh));
-        }}
-      />
-      <input
-        type="range"
-        className="dual-range-input"
-        style={{ zIndex: lastActive === 'high' ? 4 : 3 }}
-        min={min}
-        max={max}
-        step={step}
-        value={valueHigh}
-        onPointerDown={() => setLastActive('high')}
-        onChange={e => {
-          const v = parseFloat(e.target.value);
-          onChangeHigh(Math.max(v, valueLow));
-        }}
-      />
     </div>
   );
 }
