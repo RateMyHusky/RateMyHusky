@@ -25,9 +25,12 @@ check(`/rate known iff RATE_ENABLED (${RATE_ENABLED})`, isUnknownRoute('/rate') 
 
 // Every route in App.tsx must be known, or crawlers get a 404 for it. Flag-gated routes
 // count only while their flag is on.
-const appRoutes = [...readFileSync(new URL('./src/App.tsx', import.meta.url), 'utf8')
-  .matchAll(/^.*<Route path="([^"]+)".*$/gm)];
+const appSrc = readFileSync(new URL('./src/App.tsx', import.meta.url), 'utf8');
+const appRoutes = [...appSrc.matchAll(/^.*<Route path="([^"]+)".*$/gm)];
 check('App.tsx routes found', appRoutes.length >= 10);
+// A <Route> split across lines or written as path={...} would be skipped by the scrape above.
+check('every App.tsx <Route> is one line with path="..."',
+  appRoutes.length === (appSrc.match(/<Route\b/g) ?? []).length);
 for (const [line, path] of appRoutes) {
   if (path === '*') continue;
   const live = !line.includes('RATE_ENABLED &&') || RATE_ENABLED;
