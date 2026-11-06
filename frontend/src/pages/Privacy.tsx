@@ -29,7 +29,7 @@ const Privacy = () => {
               </p>
               <p>
                 If you are a professor or instructor whose information appears on the site,
-                see <em>Information About Professors &amp; Instructors</em> (Section 8) — that
+                see <em>Information About Professors &amp; Instructors</em> (Section 8). That
                 section covers what we publish about you and how to ask us to remove it.
               </p>
             </section>
@@ -44,7 +44,7 @@ const Privacy = () => {
                   address, profile photo, and Google account id. Your name, email, and photo
                   are encoded in a JWT token stored in your browser and are never written to a
                   server-side database. Your Google account id is stored server-side if you
-                  bookmark a professor or course — see the Bookmarks item below.
+                  bookmark a professor or course (see the Bookmarks item below).
                 </li>
                 <li>
                   <strong>Browser preferences:</strong> your selected theme (dark/light), your
@@ -84,8 +84,8 @@ const Privacy = () => {
                   <strong>Bookmarks:</strong> when you are signed in and bookmark a professor or
                   course, we store your Google account id, the item type (professor or course),
                   the professor or course identifier, and a timestamp in our database. Each
-                  account is capped at 200 bookmarks. These records are retained on our servers
-                  — see <em>How We Store Your Information</em> below.
+                  account is capped at 200 bookmarks. These records are retained on our servers,
+                  as described in <em>How We Store Your Information</em> below.
                 </li>
                 {RATE_ENABLED && (
                 <li>
@@ -169,8 +169,8 @@ const Privacy = () => {
                 If you bookmark a professor or course, that bookmark is stored
                 server-side in our database, keyed to your Google account id, along with the
                 item type, the professor or course identifier, and a timestamp. Bookmarks
-                persist across sign-ins until you remove them or request deletion — see{' '}
-                <em>Your Rights &amp; Choices</em>.
+                persist across sign-ins until you remove them or request deletion (see{' '}
+                <em>Your Rights &amp; Choices</em>).
               </p>
               {RATE_ENABLED && (<>
               <p>
@@ -451,7 +451,7 @@ const Privacy = () => {
                   {' '}({RATE_ENABLED ? 'For everything else you' : 'You'} may also email{' '}
                   <a href="mailto:support@ratemyhusky.com">support@ratemyhusky.com</a>, though
                   because we never store your email address, we can only act on a request we can
-                  tie to your account — submitting the form while signed in is the reliable path.)
+                  tie to your account, so submitting the form while signed in is the reliable path.)
                 </li>
                 <li>
                   <strong>Right to correction:</strong> your name, email, and photo come
@@ -527,10 +527,9 @@ const Privacy = () => {
                 Northeastern email address cannot be verified or answered. We honor confirmed
                 requests. Once processed, your name is added to a
                 removal list that every data loader checks before writing, so a weekly refresh
-                cannot reinstate you, and the rows already loaded — your page, your imported ratings and
-                comments, your course-schedule history, your Reddit mentions, and the evidence
-                corpus built from them — are
-                deleted.
+                cannot reinstate you, and the rows already loaded are deleted. Those rows are your
+                page, your imported ratings and comments, your course-schedule history, your Reddit
+                mentions, and the evidence corpus built from them.
                 {RATE_ENABLED ? ' Ratings that students submitted through our own rating form about you are deleted on request; our team handles those by hand.' : ''} Two limits are worth being straight about: we cannot remove your data
                 from RateMyProfessors or Reddit themselves, and our own private source
                 files can still contain your rows until the upstream source stops publishing

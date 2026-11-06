@@ -15,6 +15,7 @@ import StarRating from '../components/StarRating';
 import BookmarkButton from '../components/BookmarkButton';
 import Seo from '../components/Seo';
 import { useDebouncedValue } from '../utils/useDebouncedValue';
+import { useScrollLock } from '../utils/useScrollLock';
 import './ProfessorCatalog.css';
 import './Courses.css';
 
@@ -99,8 +100,7 @@ export default function Courses() {
 	}, []);
 
 	useEffect(() => {
-		document.body.style.overflow = sidebarOpen ? 'hidden' : '';
-		if (!sidebarOpen) return () => { document.body.style.overflow = ''; };
+		if (!sidebarOpen) return;
 		const handler = (e: TouchEvent) => {
 			if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
 				setSidebarOpen(false);
@@ -108,10 +108,10 @@ export default function Courses() {
 		};
 		document.addEventListener('touchmove', handler, { passive: true });
 		return () => {
-			document.body.style.overflow = '';
 			document.removeEventListener('touchmove', handler);
 		};
 	}, [sidebarOpen]);
+	useScrollLock(sidebarOpen);
 
 	const [minRatingDraft, setMinRatingDraft] = useState(() => getFiltersFromSearchParams(searchParams).minRating);
 	const [maxRatingDraft, setMaxRatingDraft] = useState(() => getFiltersFromSearchParams(searchParams).maxRating);

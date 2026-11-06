@@ -16,6 +16,7 @@ import { RATE_ENABLED, SHOW_SURVEY_STATS } from '../config';
 import { relativeTerm, seasonYear, termSortKey } from '../utils/termUtils';
 import { isPinned, pinnedFirst } from '../utils/askPinMatch';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
+import { useScrollLock } from '../utils/useScrollLock';
 import BookmarkButton from '../components/BookmarkButton';
 import FitText from '../components/FitText';
 import RatePopup from '../components/RatePopup';
@@ -634,14 +635,12 @@ const Professor = () => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setIsImageModalOpen(false);
     };
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', onKeyDown);
     return () => {
-      document.body.style.overflow = prevOverflow;
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [isImageModalOpen]);
+  useScrollLock(isImageModalOpen);
 
   if (loading) return (
     <div className="prof-page">
