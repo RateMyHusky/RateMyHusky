@@ -263,7 +263,9 @@ const Course = () => {
 								<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', marginLeft: '4px', opacity: 0.6 }}><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
 							)}
 						</span>
-						<div className="course-stat-extra"><StarRating rating={summary.rating ?? 0} size="lg" /></div>
+						<div className="course-stat-extra">
+							{summary.numRatings ? <StarRating rating={summary.rating ?? 0} size="lg" /> : <span className="course-stat-hint course-stat-note">No ratings yet</span>}
+						</div>
 						{/* One source's score is the overall score, so the breakdown only shows for two or more. */}
 						{breakdown.length > 1 && (
 							<div className="course-stat-breakdown">
@@ -276,7 +278,7 @@ const Course = () => {
 					<DifficultyStatCard value={summary.difficulty} />
 					<StatCard
 						label="Ratings"
-						value={summary.numRatings ? summary.numRatings.toLocaleString() : '—'}
+						value={summary.numRatings.toLocaleString()}
 						hint={breakdown.length > 0 ? `from ${breakdown.map(([source]) => sourceLabel(source)).join(' + ')}` : undefined}
 					/>
 					<StatCard label="Avg Hrs / Week" value={summary.hoursPerWeek != null ? `${summary.hoursPerWeek.toFixed(1)}h` : '—'} />

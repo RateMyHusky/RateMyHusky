@@ -667,6 +667,7 @@ const Professor = () => {
   const rmp = profile.sources.rmp;
   // A selection of courses no one has rated has nothing to chart either.
   const noRatings = stats.numRatings === 0;
+  const scrollToCharts = () => chartsRef.current?.scrollIntoView({ behavior: 'smooth' });
   const rmpUrl = safeHttpUrl(rmp.professorUrl);
   // `?? []`: a payload cached before awards shipped has no key.
   const awards = profile.awards ?? [];
@@ -913,7 +914,7 @@ const Professor = () => {
             )}
           </span>
           <div className="prof-stat-extra">
-            {noRatings ? <span className="prof-stat-hint">No ratings yet</span> : <StarRating rating={stats.rating ?? 0} size="lg" />}
+            {noRatings ? <span className="prof-stat-hint prof-stat-note">No ratings yet</span> : <StarRating rating={stats.rating ?? 0} size="lg" />}
           </div>
           {/* One source's score is the overall score, so the breakdown only shows for two or more. */}
           {stats.breakdown.length > 1 && (
@@ -958,32 +959,27 @@ const Professor = () => {
           {/* Like Would Take Again, the value isn't split by course. */}
           <div className="prof-stat-extra">{!unfiltered && <span className="prof-stat-hint">All courses</span>}</div>
         </div>
-        {noRatings ? (
-          <div className="prof-stat-card">
-            <span className="prof-stat-value">{stats.numRatings.toLocaleString()}</span>
-            <span className="prof-stat-label">Total Ratings</span>
-            <div className="prof-stat-extra" />
-          </div>
-        ) : (
-          <div className="prof-stat-card prof-stat-clickable" onClick={() => chartsRef.current?.scrollIntoView({ behavior: 'smooth' })}>
-            <span className="prof-stat-value">{stats.numRatings.toLocaleString()}</span>
-            <span className="prof-stat-label">Total Ratings</span>
-            <div className="prof-stat-extra"><span className="prof-stat-hint">View distribution ↓</span></div>
-          </div>
-        )}
-        {profile.lastTaught ? (
-          <div className="prof-stat-card">
-            <span className="prof-stat-value prof-stat-value-text"><FitText>{seasonYear(profile.lastTaught)}</FitText></span>
-            <span className="prof-stat-label">Last Taught</span>
-            <div className="prof-stat-extra"><span className="prof-stat-hint">{relativeTerm(profile.lastTaught)}</span></div>
-          </div>
-        ) : (
-          <div className="prof-stat-card">
-            <span className="prof-stat-value">—</span>
-            <span className="prof-stat-label">Last Taught</span>
-            <div className="prof-stat-extra" />
-          </div>
-        )}
+        <div
+          className={`prof-stat-card${noRatings ? '' : ' prof-stat-clickable'}`}
+          role={noRatings ? undefined : 'button'}
+          tabIndex={noRatings ? undefined : 0}
+          onClick={noRatings ? undefined : scrollToCharts}
+          onKeyDown={noRatings ? undefined : e => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scrollToCharts(); }
+          }}
+        >
+          <span className="prof-stat-value">{stats.numRatings.toLocaleString()}</span>
+          <span className="prof-stat-label">Total Ratings</span>
+          <div className="prof-stat-extra">{!noRatings && <span className="prof-stat-hint">View distribution ↓</span>}</div>
+        </div>
+        <div className="prof-stat-card">
+          {profile.lastTaught
+            ? <span className="prof-stat-value prof-stat-value-text"><FitText>{seasonYear(profile.lastTaught)}</FitText></span>
+            : <span className="prof-stat-value">—</span>}
+          <span className="prof-stat-label">Last Taught</span>
+          <div className="prof-stat-extra">{profile.lastTaught && <span className="prof-stat-hint">{relativeTerm(profile.lastTaught)}</span>}</div>
+        </div>
+        {/* A 7th card would sit alone on a row at every width: give it a layout before turning this on. */}
         {SHOW_SURVEY_STATS && (
           <div className="prof-stat-card prof-stat-clickable" onClick={() => reviewsRef.current?.scrollIntoView({ behavior: 'smooth' })}>
             <span className="prof-stat-value">{summary.numComments.toLocaleString()}</span>

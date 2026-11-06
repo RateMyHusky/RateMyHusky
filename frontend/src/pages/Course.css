@@ -154,6 +154,11 @@
 	transition: color 0.2s;
 }
 
+/* The no-ratings note is content, not a decorative hint, so it gets AA contrast. */
+.course-stat-note {
+	color: #666;
+}
+
 .course-stat-breakdown {
 	position: absolute;
 	bottom: 0;
@@ -826,6 +831,10 @@
 
 .dark .course-stat-hint {
 	color: #555;
+}
+
+.dark .course-stat-note {
+	color: #999;
 }
 
 .dark .course-difficulty-bar {
