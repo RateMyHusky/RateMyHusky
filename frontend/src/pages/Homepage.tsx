@@ -12,6 +12,7 @@ import type { CatalogProfessor, Professor } from '../api/api';
 import neuIcon from '../assets/neu-circle-icon.png';
 import { ASK_ENABLED, RATE_ENABLED } from '../config';
 import { useMediaQuery } from './rate/useMediaQuery';
+import { useScrollLock } from '../utils/useScrollLock';
 import './Homepage.css';
 
 const STATS = [
@@ -261,18 +262,13 @@ const Homepage = () => {
       if (e.key === 'Escape') setRankSheetOpen(false);
       if (e.key === 'Tab') e.preventDefault();
     };
-    // Locks <html>, not <body>: html has overflow-x: clip, so a hidden body becomes its own
-    // scroll box at 100% height and the page jumps to the top.
-    const root = document.documentElement;
-    const prevOverflow = root.style.overflow;
-    root.style.overflow = 'hidden';
     document.addEventListener('keydown', onKey);
     return () => {
-      root.style.overflow = prevOverflow;
       document.removeEventListener('keydown', onKey);
       help?.focus();
     };
   }, [rankSheetOpen, isMobile]);
+  useScrollLock(rankSheetOpen && isMobile);
 
   // Pill animation state
   const [pillStyle, setPillStyle] = useState({ left: 0, width: 0, opacity: 0 });

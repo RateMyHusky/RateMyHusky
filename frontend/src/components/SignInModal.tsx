@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { clearPendingBookmark } from '../utils/pendingBookmark';
+import { useScrollLock } from '../utils/useScrollLock';
 import neuIcon from '../assets/neu-circle-icon.png';
 import './SignInModal.css';
 
@@ -39,14 +40,7 @@ export default function SignInModal({ open, onClose, reason }: Props) {
     }
   }, [user, open, onClose]);
 
-  useEffect(() => {
-    if (open) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [open]);
+  useScrollLock(open);
 
   if (!open) return null;
 
