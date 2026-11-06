@@ -137,6 +137,25 @@ def test_course_search_folds_punctuation_spacing_and_accents(live_server, pg, en
     assert found[0]["code"] == code, found
 
 
+@pytest.mark.parametrize("q", ["bouve", "bouvé"])
+def test_an_accented_title_ranks_above_a_description_match(live_server, pg, q):
+    courses = [_course(c, n, read_models.course_search_text(c, f"{c.lower()} {n.lower()} {d}"), r)
+               for c, n, d, r in [("HSCI2000", "Co-op for Bouvé Students", "", 1),
+                                  ("HSCI1000", "College: An Introduction", "for bouve students", 50)]]
+    truncate(pg, "professors_catalog", "course_catalog", "source_summary", "stats_cache")
+    read_models.write(pg, CATALOG, courses, SUMMARIES, COUNTS)
+    found = live_server.app.test_client().get("/api/search?type=Course&q=" + urllib.parse.quote(q),
+                                              headers={"User-Agent": "Mozilla/5.0"}).get_json()
+    assert [r["code"] for r in found] == ["HSCI2000", "HSCI1000"]
+
+
+def test_courses_catalog_ignores_a_single_folded_character(live_server, seeded):
+    # "x'" folds to "x", which CS2500's search text doesn't contain: no filter lists it.
+    body = live_server.app.test_client().get("/api/courses-catalog?q=x%27",
+                                             headers={"User-Agent": "Mozilla/5.0"}).get_json()
+    assert [c["code"] for c in body["courses"]] == ["CS2500"]
+
+
 @pytest.mark.parametrize("path", ["/api/search?type=Course&q=a%27", "/api/search?q=a%27"])
 def test_search_of_a_single_folded_character_returns_nothing(live_server, seeded, path):
     resp = live_server.app.test_client().get(path, headers={"User-Agent": "Mozilla/5.0"})

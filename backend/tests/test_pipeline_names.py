@@ -11,8 +11,13 @@ from pipeline.names import search_fold, search_squash, tidy_name
     ("MATTHEW MCDONALD", "Matthew McDonald"),
     ("Amy Mcgreevy", "Amy McGreevy"),
     ("Jean Mcmillan Lang", "Jean McMillan Lang"),
-    ("PETER VAN DER BERG", "Peter van der Berg"),
+    ("PETER VAN DER BERG", "Peter Van Der Berg"),
     ("THANH LE", "Thanh Le"),
+    ("NGUYEN LE MINH", "Nguyen Le Minh"),
+    ("WANG DA WEI", "Wang Da Wei"),
+    ("A.J. SMITH", "A.J. Smith"),
+    ("JOHN J.R. SMITH", "John J.R. Smith"),
+    ("MCEBISI NDLOVU", "Mcebisi Ndlovu"),
     ("JOHN R. SMITH JR.", "John R. Smith Jr."),
     ("HENRY FORD III", "Henry Ford III"),
     ("  Ada   Park ", "Ada Park"),
@@ -25,6 +30,7 @@ def test_tidy_name_fixes(raw, want):
 @pytest.mark.parametrize("name", [
     "Jaime d'Almeida", "Sha'Day Hart", "Tim Op't Holt", "Benjamin Machlin",
     "Emanuele Macri", "Meredith O'Brien-Weiss", "Kevin McDonald", "Anna DeMarco",
+    "Mcebisi Ndlovu",
 ])
 def test_tidy_name_leaves_good_names_alone(name):
     assert tidy_name(name) == name

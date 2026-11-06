@@ -156,8 +156,9 @@ def course_relevance(q):
     search_text holds the description too, so "calculus" matches every course that mentions
     it: a code match ranks first, then a title that starts with q, then one that contains it,
     then description-only matches. The code is compared unspaced, so a partial "cs 35" still
-    lands on CS35xx rather than on courses listing "CS 3500" as a prerequisite."""
-    name = "regexp_replace(lower(course_catalog.name), '[^a-z0-9+#]', '', 'g')"
+    lands on CS35xx rather than on courses listing "CS 3500" as a prerequisite. NFKD splits
+    an accent off its letter before the regex drops it, as search_squash does ("Bouvé" -> "bouve")."""
+    name = "regexp_replace(lower(normalize(course_catalog.name, NFKD)), '[^a-z0-9+#]', '', 'g')"
     return (f"""CASE WHEN lower(course_catalog.code) LIKE %s THEN 0
                     WHEN {name} LIKE %s THEN 1
                     WHEN {name} LIKE %s THEN 2
@@ -910,13 +911,6 @@ def _professor_search(q, limit=5, rated_only=False):
     words = q_resolved.split()
     if not words:
         return []
-
-    # Expand individual words through the word-level alias map so partial
-    # typeahead queries like "virgiliu" also match "virgil pavlu".
-    expanded_words = set(words)
-    for w in words:
-        if w in _WORD_ALIAS:
-            expanded_words.update(_WORD_ALIAS[w])
 
     # Build WHERE: each *original* word must match, OR its alias expansion must
     conditions = []
@@ -1831,6 +1825,8 @@ def course_departments():
 @app.route("/api/courses-catalog")
 def courses_catalog():
     q = course_search_text(request.args.get("q", ""))
+    if len(q) < 2:   # like professors_catalog: one folded character ("a'") is no filter, not LIKE '%a%'
+        q = ""
     dept = request.args.get("dept", "")
     sort = sort_arg(COURSE_SORTS)
     page = int_arg("page", 1, 1, 100000)

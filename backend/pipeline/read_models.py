@@ -88,7 +88,7 @@ def course_search_text(code, search_text):
     text = search_fold(search_text)
     m = re.fullmatch(r"([a-z]+)(\d+)", (code or "").lower())
     spaced = f"{m.group(1)} {m.group(2)}" if m else ""
-    return search_fold(f"{text} {spaced}") if spaced and spaced not in text else text
+    return f"{text} {spaced}".strip() if spaced and spaced not in text else text
 
 
 def course_rows(catalog_courses, summary_rows):

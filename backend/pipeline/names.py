@@ -36,33 +36,30 @@ def search_squash(text):
     return search_fold(text).replace(" ", "")
 
 
-_PARTICLES = {"van", "von", "der", "de", "da", "del", "di", "du", "la", "le"}
-
-
 def tidy_name(name):
     """Display-name cleanup: unescape, collapse whitespace, and fix casing only
-    when the whole name is lowercase or uppercase (or "Mc" + lowercase).
-    Never feeds slugs, name_key or rmp_name."""
+    when the whole name is lowercase or uppercase (or "Mc" + lowercase after the
+    first word). Never feeds slugs, name_key or rmp_name."""
     if not name:
         return name
     s = re.sub(r'\s+', ' ', html.unescape(name)).strip()
     letters = [c for c in s if c.isalpha()]
     if letters and (all(c.islower() for c in letters) or all(c.isupper() for c in letters)):
-        words = s.split(' ')
-        last = len(words) - 1
         out = []
-        for i, w in enumerate(words):
+        for w in s.split(' '):
             bare = w.rstrip('.,')
             if bare.upper() in {"II", "III", "IV"}:
                 out.append(bare.upper() + w[len(bare):])
             elif bare.lower() == "jr":
                 out.append("Jr" + w[len(bare):])
-            elif 0 < i < last and w.lower() in _PARTICLES:
-                out.append(w.lower())
             else:
-                out.append(re.sub(r"(^|[-'’])([^\W\d_])", lambda m: m.group(1) + m.group(2).upper(), w.lower()))
+                out.append(re.sub(r"(^|[-'’.])([^\W\d_])", lambda m: m.group(1) + m.group(2).upper(), w.lower()))
         s = ' '.join(out)
-    return re.sub(r'\bMc([a-z])', lambda m: "Mc" + m.group(1).upper(), s)
+    # Past the first word "Mc" + lowercase is a surname (Mcgreevy); a given name can
+    # just start with it (Mcebisi).
+    first, _, rest = s.partition(' ')
+    rest = re.sub(r'\bMc([a-z])', lambda m: "Mc" + m.group(1).upper(), rest)
+    return f"{first} {rest}" if rest else first
 
 
 def upgrade_image_url(url):

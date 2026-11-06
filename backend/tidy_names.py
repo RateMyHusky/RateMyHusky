@@ -21,8 +21,8 @@ def tidy(conn, dry_run=False):
     """Rewrite names that tidy_name changes. Returns (slug, old, new), sorted by slug."""
     cur = conn.cursor()
     cur.execute("SELECT slug, name FROM professors ORDER BY slug")
-    changes = [(slug, name, tidy_name(name)) for slug, name in cur.fetchall()
-               if tidy_name(name) != name]
+    changes = [(slug, name, new) for slug, name in cur.fetchall()
+               for new in [tidy_name(name)] if new != name]
     for slug, old, new in changes:
         print(f"{slug}: {old} -> {new}")
     print(f"{len(changes)} names {'would change' if dry_run else 'changed'}")
