@@ -5,6 +5,8 @@ import { fetchPopularTags } from '../api/api';
 import { Link } from 'react-router-dom';
 import { useCatalogScroll } from '../utils/useCatalogScroll';
 import { useUrlFilters } from '../utils/useUrlFilters';
+import { useDialog } from '../utils/useDialog';
+import { useMediaQuery } from './rate/useMediaQuery';
 import {
   FILTER_SEPARATOR,
   fetchProfessorsCatalog,
@@ -135,29 +137,16 @@ export default function ProfessorCatalog() {
     return () => window.removeEventListener('close-filter-sidebar', close);
   }, []);
 
+  // A touch-scroll outside the drawer closes it.
   useEffect(() => {
-    document.body.style.overflow = sidebarOpen ? 'hidden' : '';
-    if (!sidebarOpen) return () => { document.body.style.overflow = ''; };
+    if (!sidebarOpen) return;
     const handler = (e: TouchEvent) => {
       if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
         setSidebarOpen(false);
       }
     };
-    // Both elements are always mounted, so capture them for the cleanup.
-    const sidebar = sidebarRef.current;
-    const filterToggle = filterToggleRef.current;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) setSidebarOpen(false);
-    };
     document.addEventListener('touchmove', handler, { passive: true });
-    document.addEventListener('keydown', onKey);
-    sidebarCloseRef.current?.focus();
-    return () => {
-      document.body.style.overflow = '';
-      document.removeEventListener('touchmove', handler);
-      document.removeEventListener('keydown', onKey);
-      if (sidebar?.contains(document.activeElement)) filterToggle?.focus();
-    };
+    return () => document.removeEventListener('touchmove', handler);
   }, [sidebarOpen]);
 
 
@@ -183,7 +172,10 @@ export default function ProfessorCatalog() {
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarCloseRef = useRef<HTMLButtonElement>(null);
-  const filterToggleRef = useRef<HTMLButtonElement>(null);
+  const isDrawer = useMediaQuery('(max-width: 900px)');
+  // At 900px and below the sidebar is a modal drawer: focus moves to its × and back to Filters,
+  // and it gets the Tab trap, Esc and scroll lock.
+  useDialog(sidebarOpen && isDrawer, () => setSidebarOpen(false), sidebarRef, sidebarCloseRef);
 
   const [numCols, setNumCols] = useState(4);
   const [isMeasured, setIsMeasured] = useState(false);
@@ -718,7 +710,6 @@ export default function ProfessorCatalog() {
               )}
             </div>
           <button
-            ref={filterToggleRef}
             className={`catalog-filter-toggle${sidebarOpen ? ' open' : ''}`}
             onClick={() => setSidebarOpen(o => !o)}
             aria-label="Toggle filters"

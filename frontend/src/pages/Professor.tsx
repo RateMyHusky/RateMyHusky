@@ -344,9 +344,9 @@ const Professor = () => {
       if (res.ok) {
         setProfile(res.data);
         // ?course=CS3100 (the course page's professor table) opens on that course's reviews,
-        // when they have rated reviews for it; anything else starts unfiltered.
+        // when they have rated reviews for it (the ratedCourses test); anything else starts unfiltered.
         const wanted = new URLSearchParams(location.search).get('course')?.toUpperCase();
-        const rated = wanted && res.data.courses.some(c => c.code === wanted && c.rating !== null);
+        const rated = wanted && res.data.courses.some(c => c.code === wanted && c.numRatings > 0);
         setSelectedCourses(rated ? new Set([wanted]) : new Set());
         setActiveTag(null);
         // An Ask citation picks its own tab (the pins effect); otherwise open on the first with entries.

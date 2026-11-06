@@ -23,6 +23,7 @@ const Dropdown = ({ options, value, onChange, placeholder, className = '', onOpe
   const [activeIndex, setActiveIndex] = useState(-1);
   const setIsOpen = (o: boolean) => { setOpenState(o); if (!o) setActiveIndex(-1); onOpenChange?.(o); };
   const ref = useRef<HTMLDivElement>(null);
+  const byKeyboard = useRef(false);   // the last open or move came from a key, not the mouse
   const listId = useId();
 
   const selected = options.find((o) => o.value === value);
@@ -42,9 +43,10 @@ const Dropdown = ({ options, value, onChange, placeholder, className = '', onOpe
     return () => document.removeEventListener('mousedown', handler);
   }, [onOpenChange]);
 
-  /* keep the highlighted option visible in long lists */
+  /* Focus stays on the trigger, so the page doesn't follow a keyboard move down a list that runs off
+     screen: scroll the option into view. Never for the mouse, or the page jumps under the cursor. */
   useEffect(() => {
-    if (isOpen) document.getElementById(`${listId}-${activeIndex}`)?.scrollIntoView({ block: 'nearest' });
+    if (isOpen && byKeyboard.current) document.getElementById(`${listId}-${activeIndex}`)?.scrollIntoView({ block: 'nearest' });
   }, [isOpen, activeIndex, listId]);
 
   const handleSelect = (val: string) => {
@@ -58,6 +60,7 @@ const Dropdown = ({ options, value, onChange, placeholder, className = '', onOpe
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    byKeyboard.current = true;
     const last = options.length - 1;
     const from = isOpen ? activeIndex : selectedIndex;
     if (e.key === 'Escape') {
@@ -97,7 +100,7 @@ const Dropdown = ({ options, value, onChange, placeholder, className = '', onOpe
     >
       <button
         className={`dropdown-trigger ${isOpen ? 'open' : ''} ${!selected ? 'placeholder' : ''}`}
-        onClick={() => (isOpen ? setIsOpen(false) : openAt(Math.max(selectedIndex, 0)))}
+        onClick={(e) => { byKeyboard.current = e.detail === 0; if (isOpen) setIsOpen(false); else openAt(Math.max(selectedIndex, 0)); }}
         onKeyDown={handleKeyDown}
         onKeyUp={(e) => { if (e.key === ' ') e.preventDefault(); }}
         ref={triggerRef}
@@ -126,7 +129,7 @@ const Dropdown = ({ options, value, onChange, placeholder, className = '', onOpe
       </button>
 
       {isOpen && (
-        <ul className="dropdown-menu" role="listbox" id={listId} onAnimationEnd={(e) => { if (e.target === e.currentTarget) document.getElementById(`${listId}-${activeIndex}`)?.scrollIntoView({ block: 'nearest' }); }} onMouseDown={(e) => { if (e.target === e.currentTarget) setIsOpen(false); }}>
+        <ul className="dropdown-menu" role="listbox" id={listId} onAnimationEnd={(e) => { if (e.target === e.currentTarget && byKeyboard.current) document.getElementById(`${listId}-${activeIndex}`)?.scrollIntoView({ block: 'nearest' }); }} onMouseDown={(e) => { if (e.target === e.currentTarget) setIsOpen(false); }}>
           {options.map((opt, i) => (
             <li
               key={opt.value}
@@ -135,7 +138,7 @@ const Dropdown = ({ options, value, onChange, placeholder, className = '', onOpe
               aria-selected={opt.value === value}
               className={`dropdown-item ${opt.value === value ? 'active' : ''} ${i === activeIndex ? 'focused' : ''}`}
               onMouseDown={(e) => e.preventDefault()}
-              onMouseEnter={() => setActiveIndex(i)}
+              onMouseEnter={() => { byKeyboard.current = false; setActiveIndex(i); }}
               onClick={() => handleSelect(opt.value)}
               style={{ animationDelay: `${i * 0.04}s` }}
             >

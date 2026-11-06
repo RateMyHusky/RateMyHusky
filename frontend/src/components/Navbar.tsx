@@ -5,6 +5,7 @@ import { Link, NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { RATE_ENABLED } from '../config';
 import SignInModal from './SignInModal';
+import { dialogOpen } from '../utils/useDialog';
 import { clearPendingBookmark } from '../utils/pendingBookmark';
 import './Navbar.css';
 
@@ -105,11 +106,11 @@ const Navbar = () => {
 
 
   // Esc closes the mobile menu and returns focus to the hamburger; an Esc a nested widget
-  // already handled (defaultPrevented) is left alone.
+  // already handled (defaultPrevented), or one meant for an open dialog, is left alone.
   useEffect(() => {
     if (!menuOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) {
+      if (e.key === 'Escape' && !e.defaultPrevented && !dialogOpen()) {
         setMenuOpen(false);
         hamburgerRef.current?.focus();
       }

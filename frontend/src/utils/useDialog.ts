@@ -7,6 +7,14 @@ function focusableIn(container: HTMLElement): HTMLElement[] {
     .filter(el => el.getClientRects().length > 0);
 }
 
+// Open dialogs, oldest first. Only the last one handles keys, so a dialog opened over the filter drawer
+// takes Esc and Tab alone. The scroll lock is lifted when the last one closes, in whatever order they close.
+const openDialogs: object[] = [];
+let overflowBeforeDialogs = '';
+
+/** Whether any dialog is open, for page-level Esc handlers that must leave Esc to it. */
+export const dialogOpen = (): boolean => openDialogs.length > 0;
+
 /**
  * Focus, Tab trap, Esc and scroll lock for a modal dialog. Focus moves in when it opens
  * (initialFocusRef, else the first focusable) and returns to the opener when it closes.
@@ -35,10 +43,13 @@ export function useDialog(
     const opener = document.activeElement;
     (initialFocusLatest.current?.current ?? focusableIn(container)[0])?.focus();
 
-    const prevOverflow = document.body.style.overflow;
+    const token = {};
+    if (openDialogs.length === 0) overflowBeforeDialogs = document.body.style.overflow;
+    openDialogs.push(token);
     document.body.style.overflow = 'hidden';
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (openDialogs[openDialogs.length - 1] !== token) return;
       if (e.key === 'Escape') {
         if (!e.defaultPrevented) {
           e.preventDefault();
@@ -74,7 +85,8 @@ export function useDialog(
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       container.removeEventListener('focusin', onFocusIn);
-      document.body.style.overflow = prevOverflow;
+      openDialogs.splice(openDialogs.indexOf(token), 1);
+      if (openDialogs.length === 0) document.body.style.overflow = overflowBeforeDialogs;
       if (opener instanceof HTMLElement && document.contains(opener)) opener.focus();
     };
   }, [open, containerRef]);

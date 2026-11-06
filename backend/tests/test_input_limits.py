@@ -71,7 +71,8 @@ def test_every_catalog_page_served_is_cached(monkeypatch, endpoint):
     for _ in range(2):
         client.get(f"/api/{endpoint}?limit=10000&sort=rating")
         client.get(f"/api/{endpoint}?limit=10000")
-    assert len(limits) == 2 and len(server._cache) == 2
+    pages = [k for k in server._cache if not k.endswith(":ranking_prior")]   # the rating sort's shared prior
+    assert len(limits) == 2 and len(pages) == 2
     server._cache.clear()
 
 
