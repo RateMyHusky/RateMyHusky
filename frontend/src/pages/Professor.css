@@ -233,9 +233,7 @@
 }
 
 .prof-stat-clickable { cursor: pointer; }
-.prof-stat-hint { font-size: 0.72rem; color: #bbb; font-weight: 600; margin-top: 2px; transition: color 0.2s; }
-/* The no-ratings note is content, not a decorative hint, so it gets AA contrast. */
-.prof-stat-note { color: #666; }
+.prof-stat-hint { font-size: 0.72rem; color: #666; font-weight: 600; margin-top: 2px; transition: color 0.2s; }
 .prof-stat-clickable:hover .prof-stat-hint { color: #d6394c; }
 
 .prof-difficulty-bar { width: 100%; height: 8px; background: #eee; border-radius: 3px; overflow: hidden; margin-top: 4px; }
@@ -698,8 +696,7 @@
 .dark .prof-stat-value { color: #e0e0e0; }
 .dark .prof-stat-value.green { color: #27ae60; }
 .dark .prof-stat-label { color: #777; }
-.dark .prof-stat-hint { color: #555; }
-.dark .prof-stat-note { color: #999; }
+.dark .prof-stat-hint { color: #999; }
 .dark .prof-stat-clickable:hover .prof-stat-hint { color: #d6394c; }
 .dark .prof-difficulty-bar { background: #333; }
 

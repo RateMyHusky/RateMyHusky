@@ -264,7 +264,7 @@ const Course = () => {
 							)}
 						</span>
 						<div className="course-stat-extra">
-							{summary.numRatings ? <StarRating rating={summary.rating ?? 0} size="lg" /> : <span className="course-stat-hint course-stat-note">No ratings yet</span>}
+							{summary.numRatings ? <StarRating rating={summary.rating ?? 0} size="lg" /> : <span className="course-stat-hint">No ratings yet</span>}
 						</div>
 						{/* One source's score is the overall score, so the breakdown only shows for two or more. */}
 						{breakdown.length > 1 && (

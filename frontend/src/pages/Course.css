@@ -149,14 +149,9 @@
 
 .course-stat-hint {
 	font-size: 0.72rem;
-	color: #bbb;
+	color: #666;
 	font-weight: 600;
 	transition: color 0.2s;
-}
-
-/* The no-ratings note is content, not a decorative hint, so it gets AA contrast. */
-.course-stat-note {
-	color: #666;
 }
 
 .course-stat-breakdown {
@@ -830,10 +825,6 @@
 }
 
 .dark .course-stat-hint {
-	color: #555;
-}
-
-.dark .course-stat-note {
 	color: #999;
 }
 

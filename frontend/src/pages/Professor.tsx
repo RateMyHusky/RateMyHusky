@@ -914,7 +914,7 @@ const Professor = () => {
             )}
           </span>
           <div className="prof-stat-extra">
-            {noRatings ? <span className="prof-stat-hint prof-stat-note">No ratings yet</span> : <StarRating rating={stats.rating ?? 0} size="lg" />}
+            {noRatings ? <span className="prof-stat-hint">No ratings yet</span> : <StarRating rating={stats.rating ?? 0} size="lg" />}
           </div>
           {/* One source's score is the overall score, so the breakdown only shows for two or more. */}
           {stats.breakdown.length > 1 && (
