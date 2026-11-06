@@ -54,7 +54,7 @@ const Privacy = () => {
                   {RATE_ENABLED ? ' The one exception is the rating device ID, described under Ratings below. We also keep when you last saw or skipped a prompt to rate a professor, how often you skipped one, which professors you rated from this browser and when, and the last day you visited, so prompts are not repeated too often.' : ''} While
                   you sign in, <code>sessionStorage</code> holds a marker that sign-in is
                   underway and any bookmark you clicked before signing in, so it can be saved
-                  once you are back; both are dropped when sign-in finishes or you close the tab.
+                  once you are back; both are dropped when sign-in finishes or you close the tab.{RATE_ENABLED ? ' The rating form also keeps your unsent answers there, comment included, along with a copy of its device ID, until you submit them or close the tab.' : ''}
                 </li>
                 <li>
                   <strong>IP address:</strong> your IP address is used in the moment a request
@@ -394,7 +394,7 @@ const Privacy = () => {
                 (<code>auth_token</code>), your theme, your catalog view mode, and flags for
                 on-page tips you have dismissed{RATE_ENABLED && (<>, plus your rate-prompt history (<code>rmh_rate_prompt</code>)</>)}.
                 While you sign in, <code>sessionStorage</code> holds a sign-in marker and any
-                bookmark you clicked before signing in, and is cleared when you close the tab. None of this data is
+                bookmark you clicked before signing in, and is cleared when you close the tab.{RATE_ENABLED && (<> The rating form also keeps your unsent answers there (<code>rmh_rate_draft</code>), comment included, along with a copy of its device ID, until you submit them or close the tab.</>)} None of this data is
                 synced to our servers{RATE_ENABLED ? (<>, with one exception: the rating form also keeps a copy of
                 its device ID (<code>rmh_device</code>) in <code>localStorage</code>, and that
                 copy is sent to our servers when you use the rating form</>) : ''}.
