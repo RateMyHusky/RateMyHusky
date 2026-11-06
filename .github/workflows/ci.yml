@@ -1,5 +1,5 @@
 # CI for every push and PR. Mirrors what the real deploys gate:
-#   frontend  -> tsc + vite build (what fails a Vercel deploy)
+#   frontend  -> tsc + vite build (what fails a Vercel deploy) + crawler route selftest
 #   backend   -> pip install + pytest (deps + "does server.py import")
 #   backend-pg -> pytest tests/pg against PostgreSQL 16 + pgvector (SSL on)
 #   scraper   -> pytest scraper/tests (offline fixtures + in-memory sqlite)
