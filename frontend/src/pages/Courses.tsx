@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useMediaQuery } from './rate/useMediaQuery';
+import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
+import DualRangeSlider from '../components/DualRangeSlider';
 import {
 	FILTER_SEPARATOR,
 	fetchCourseDepartments,
@@ -121,13 +122,12 @@ export default function Courses() {
 	const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
 	const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
 	const [isSearchFocused, setIsSearchFocused] = useState(false);
-	const [searchPlaceholder, setSearchPlaceholder] = useState('');
-	const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
 
 	const courseExamples = useMemo(() => [
 		"CS 2500", "CS 3500", "CS 4500", "ECON 1115", "MATH 1341",
 		"CY 2550", "PHYS 1161", "ACCT 1201", "MKTG 2101", "BIOL 1111"
 	], []);
+	const searchPlaceholder = useTypingPlaceholder(courseExamples, 'Search course code or title...', isSearchFocused || !!filters.q);
 
 	const searchWrapperRef = useRef<HTMLDivElement>(null);
 	const searchInputRef = useRef<HTMLInputElement>(null);
@@ -292,43 +292,6 @@ export default function Courses() {
 		document.addEventListener('mousedown', handler);
 		return () => document.removeEventListener('mousedown', handler);
 	}, []);
-
-	useEffect(() => {
-		if (isSearchFocused || filters.q || reduced) {
-			setSearchPlaceholder('Search course code or title...');
-			return;
-		}
-
-		let currentExampleIndex = Math.floor(Math.random() * courseExamples.length);
-		let currentText = '';
-		let isDeleting = false;
-		let typingSpeed = 100;
-
-		const type = () => {
-			const fullText = courseExamples[currentExampleIndex];
-			if (isDeleting) {
-				currentText = fullText.substring(0, currentText.length - 1);
-				typingSpeed = 50;
-			} else {
-				currentText = fullText.substring(0, currentText.length + 1);
-				typingSpeed = 100;
-			}
-			// Between examples the text is empty: show the plain prompt, not `Search for ""`.
-			setSearchPlaceholder(currentText ? `Search for "${currentText}"` : 'Search course code or title...');
-			if (!isDeleting && currentText === fullText) {
-				isDeleting = true;
-				typingSpeed = 2000;
-			} else if (isDeleting && currentText === '') {
-				isDeleting = false;
-				currentExampleIndex = (currentExampleIndex + 1) % courseExamples.length;
-				typingSpeed = 500;
-			}
-			timeoutId = setTimeout(type, typingSpeed);
-		};
-
-		let timeoutId = setTimeout(type, typingSpeed);
-		return () => clearTimeout(timeoutId);
-	}, [isSearchFocused, filters.q, reduced, courseExamples]);
 
 	const hasActiveFilters = !!filters.q || !!filters.dept || filters.minRating > 0 || filters.maxRating < 5;
 	// Same count as the professor catalog's Filters badge: search, each department, the rating range.
@@ -547,71 +510,6 @@ export default function Courses() {
 				</main>
 			</div>
 			<Footer />
-		</div>
-	);
-}
-
-function DualRangeSlider({
-	min,
-	max,
-	step,
-	valueLow,
-	valueHigh,
-	onChangeLow,
-	onChangeHigh,
-	labelLow,
-	labelHigh,
-}: {
-	min: number;
-	max: number;
-	step: number;
-	valueLow: number;
-	valueHigh: number;
-	onChangeLow: (v: number) => void;
-	onChangeHigh: (v: number) => void;
-	labelLow: string;
-	labelHigh: string;
-}) {
-	const [lastActive, setLastActive] = useState<'low' | 'high'>('low');
-	const range = max - min;
-	const lowPct = ((valueLow - min) / range) * 100;
-	const highPct = ((valueHigh - min) / range) * 100;
-
-	return (
-		<div className="dual-range">
-			<div className="dual-range-track">
-				<div className="dual-range-fill" style={{ left: `${lowPct}%`, width: `${highPct - lowPct}%` }} />
-			</div>
-			<input
-				type="range"
-				className="dual-range-input"
-				aria-label={labelLow}
-				style={{ zIndex: lastActive === 'low' ? 4 : 3 }}
-				min={min}
-				max={max}
-				step={step}
-				value={valueLow}
-				onPointerDown={() => setLastActive('low')}
-				onChange={(e) => {
-					const v = parseFloat(e.target.value);
-					onChangeLow(Math.min(v, valueHigh));
-				}}
-			/>
-			<input
-				type="range"
-				className="dual-range-input"
-				aria-label={labelHigh}
-				style={{ zIndex: lastActive === 'high' ? 4 : 3 }}
-				min={min}
-				max={max}
-				step={step}
-				value={valueHigh}
-				onPointerDown={() => setLastActive('high')}
-				onChange={(e) => {
-					const v = parseFloat(e.target.value);
-					onChangeHigh(Math.max(v, valueLow));
-				}}
-			/>
 		</div>
 	);
 }
