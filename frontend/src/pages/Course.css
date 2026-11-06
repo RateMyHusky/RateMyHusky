@@ -749,26 +749,74 @@
 		scrollbar-width: none;
 	}
 
-	.instructor-scroll-wrap::before,
+	/* Only the right fade, narrow enough to leave # Rated readable: on the left the pinned
+	   name column and its shadow say "scrolled". */
 	.instructor-scroll-wrap::after {
 		display: block;
+		width: 24px;
 	}
 
-	/* The four columns a student decides on fit without sideways scroll; Last Taught and
-	   Avg Class (in the stat cards above) step aside, as in the sections table. */
+	/* Every column stays; fixed widths make the row wider than the phone so it scrolls
+	   sideways. The four a student decides on (name to # Rated) fit before the first swipe,
+	   and Hrs/Wk, Last Taught and Avg Class are a swipe away. */
 	.instructor-header-row,
 	.instructor-row {
-		gap: 10px;
+		gap: 8px;
+		width: max-content;
+		min-width: 100%;
+		box-sizing: border-box;
 	}
 
-	.instructor-header-row span:nth-child(n+5),
-	.instructor-row span:nth-child(n+5) {
-		display: none;
+	.instructor-row {
+		height: auto;
+		min-height: 48px;
 	}
 
+	.instructor-header-row span,
+	.instructor-row span {
+		flex: 0 0 56px;
+	}
+
+	.instructor-header-row span:nth-child(3),
+	.instructor-row span:nth-child(3),
+	.instructor-header-row span:nth-child(7),
+	.instructor-row span:nth-child(7) {
+		flex-basis: 64px;
+	}
+
+	.instructor-header-row span:nth-child(6),
+	.instructor-row span:nth-child(6) {
+		flex-basis: 100px;
+	}
+
+	/* The name stays put while the numbers scroll under it, so every row keeps its professor. */
 	.instructor-header-row span:first-child,
 	.instructor-row span:first-child {
-		flex: 2;
+		flex: 0 0 104px;
+		position: sticky;
+		left: 0;
+		z-index: 2;
+		align-self: stretch;
+		display: flex;
+		align-items: center;
+		padding-right: 6px;
+		background: #fff;
+		transition: box-shadow 0.2s;
+	}
+
+	.instructor-scroll-wrap.fade-left .instructor-header-row span:first-child,
+	.instructor-scroll-wrap.fade-left .instructor-row span:first-child {
+		box-shadow: 6px 0 8px -6px rgba(0, 0, 0, 0.18);
+	}
+
+	.dark .instructor-header-row span:first-child,
+	.dark .instructor-row span:first-child {
+		background: #232323;
+	}
+
+	.dark .instructor-scroll-wrap.fade-left .instructor-header-row span:first-child,
+	.dark .instructor-scroll-wrap.fade-left .instructor-row span:first-child {
+		box-shadow: 6px 0 8px -6px rgba(0, 0, 0, 0.6);
 	}
 
 	.instructor-header-row {

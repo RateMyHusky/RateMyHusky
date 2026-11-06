@@ -28,61 +28,96 @@ def build_catalog(course):
 
 def recent_cutoff(terms):
     """banner_terms rows -> the Recent Professors cutoff in the label_code
-    scheme, or None when no label is readable. The current term is the
-    earliest open one (Banner opens next term for registration months before
-    it starts), else the newest; labels that don't parse are skipped."""
-    readable = [(t["view_only"], teaching_history.label_code(t["label"])) for t in terms]
-    readable = [(closed, c) for closed, c in readable if c]
-    open_codes = [c for closed, c in readable if not closed]
-    current = min(open_codes) if open_codes else max((c for _, c in readable), default=None)
+    scheme (a year before the term in progress), or None when no label is
+    readable."""
+    current = teaching_history.current_term_code(terms)
     return current - RECENT_SPAN if current else None
 
 
-def build_recent(instructors, professors, cutoff):
-    """Instructors who taught the course at or after `cutoff`, newest first
-    (instructors' order), one card per professor, with this course's rating
-    and rating count, their catalog-wide would-take-again, and
-    only their in-window terms; with none, they're left out. Unreadable
-    labels (label_code None) never count as in-window.
+def next_term(terms, current):
+    """The first semester after the term in progress, as its label, or None. A
+    CPS quarter (Winter) between the two is no semester and is skipped."""
+    later = [(teaching_history.label_code(t["label"]), t["label"]) for t in terms
+             if "Quarter" not in (t.get("track") or "")]
+    later = [(c, label) for c, label in later if c and c > current]
+    return min(later)[1] if later else None
+
+
+def _card(i, rating, num_ratings):
+    """One professor card: this course's rating and rating count (0 for a
+    professor with no reviews of it, None unmatched), their catalog-wide
+    would-take-again."""
+    return {
+        "slug": i["slug"], "name": i["name"], "imageUrl": i["imageUrl"],
+        "focusX": i["focusX"], "focusY": i["focusY"],
+        "rating": rating.get(i["slug"]),
+        "numRatings": num_ratings.get(i["slug"], 0) if i["slug"] else None,
+        "wouldTakeAgainPct": i["wouldTakeAgainPct"],
+    }
+
+
+def build_recent(instructors, professors, cutoff, current=None):
+    """Instructors who taught the course from `cutoff` through `current` (the
+    term in progress; None for no upper bound), newest first (instructors'
+    order), one card per professor with only their in-window terms; with none,
+    they're left out. Unreadable labels (label_code None) never count as
+    in-window.
     An unmatched instructor has no slug, so is one card per name, which is
     also how the page keys them."""
     rating = {p["slug"]: p["rating"] for p in professors}
     num_ratings = {p["slug"]: p["numRatings"] for p in professors}
     recent, seen = [], set()
     for i in instructors:
-        terms = [t for t in i["recentTerms"] if (teaching_history.label_code(t) or 0) >= cutoff]
+        terms = [t for t in i["recentTerms"]
+                 if cutoff <= (teaching_history.label_code(t) or 0) <= (current or float("inf"))]
         key = i["slug"] or ("unmatched", i["name"])
         if not terms or key in seen:
             continue
         seen.add(key)
-        recent.append({
-            "slug": i["slug"], "name": i["name"], "imageUrl": i["imageUrl"],
-            "focusX": i["focusX"], "focusY": i["focusY"],
-            "rating": rating.get(i["slug"]),
-            "terms": terms,
-            # 0 for a professor with no reviews of this course; None unmatched.
-            "numRatings": num_ratings.get(i["slug"], 0) if i["slug"] else None,
-            "wouldTakeAgainPct": i["wouldTakeAgainPct"],
-        })
+        recent.append({**_card(i, rating, num_ratings), "terms": terms})
     return recent[:RECENT_MAX]
 
 
+def build_next(instructors, professors, label):
+    """Instructors Banner has teaching the course in `label`, one card each, in
+    instructors' order."""
+    rating = {p["slug"]: p["rating"] for p in professors}
+    num_ratings = {p["slug"]: p["numRatings"] for p in professors}
+    out, seen = [], set()
+    for i in instructors:
+        key = i["slug"] or ("unmatched", i["name"])
+        if label in i["recentTerms"] and key not in seen:
+            seen.add(key)
+            out.append(_card(i, rating, num_ratings))
+    return out
+
+
 def _history(code, query, query_one, history_for, professors):
-    """(history, failed): course_history plus recentInstructors, or None. Banner
-    decorates the page and never fails it, so any error reads as "no history"
-    with failed True, which keeps the caller from caching the page.
+    """(history, failed): course_history plus recentInstructors and next
+    semester's (nextTerm, nextInstructors: None and [] when Banner lists no one
+    for it yet), or None. lastOffered never names a term that hasn't started.
+    Banner decorates the page and never fails it, so any error reads as "no
+    history" with failed True, which keeps the caller from caching the page.
     The cutoff and the instructors' terms are both in the label_code scheme:
     labels, not codes, which may be CPS/Law ones."""
     try:
         history = history_for(code, query, query_one)
         if history is None:
-            return None, False
-        cutoff = recent_cutoff(query("SELECT term_label AS label, view_only FROM banner_terms"))
-        recent = build_recent(history["instructors"], professors, cutoff) if cutoff else []
-        return {**history, "recentInstructors": recent}, False
+            return None, False, None
+        terms = query(teaching_history.TERMS_SQL)
+        current = teaching_history.current_term_code(terms)
+        instructors = history["instructors"]
+        recent = build_recent(instructors, professors, current - RECENT_SPAN, current) if current else []
+        label = next_term(terms, current) if current else None
+        upcoming = build_next(instructors, professors, label) if label else []
+        last = history["lastOffered"]
+        if current and (teaching_history.label_code(last) or 0) > current:
+            last = teaching_history.latest_started([t for i in instructors for t in i["recentTerms"]], current)
+        return {**history, "lastOffered": last, "recentInstructors": recent,
+                "nextTerm": label if upcoming else None, "nextInstructors": upcoming}, False, current
     except Exception:
         log.exception("teaching history failed for course %s", code)
-        return None, True
+        return None, True, None
 
 
 def build_course(code, query, query_one, history_for=teaching_history.course_history):
@@ -111,17 +146,18 @@ def build_course(code, query, query_one, history_for=teaching_history.course_his
         "focusX": r["focus_x"] if r["focus_x"] is not None else 50.0,
         "focusY": r["focus_y"] if r["focus_y"] is not None else 30.0,
         "rating": rmp.stat(r["rating"], 2), "difficulty": rmp.stat(r["difficulty"], 2),
-        "numRatings": int(r["num_ratings"] or 0),
+        "numRatings": int(r["num_ratings"] or 0), "hoursPerWeek": rmp.stat(r["hours_per_week"], 1),
     } for r in rows if r["professor_slug"] and r["source"] == "blend" and r["name"] is not None]
     professors.sort(key=lambda p: (-p["numRatings"], p["name"]))
-    history, history_failed = _history(code, query, query_one, history_for, professors)
+    history, history_failed, current = _history(code, query, query_one, history_for, professors)
     banner = {}
     for i in (history or {}).get("instructors", []):
         if i["slug"]:
             banner.setdefault(i["slug"], i)   # newest first: keep the first
     for p in professors:
         i = banner.get(p["slug"], {})
-        p["lastTerm"], p["avgClassSize"] = i.get("lastTerm"), i.get("avgClassSize")
+        p["lastTerm"] = teaching_history.latest_started(i.get("recentTerms", []), current) if i else None
+        p["avgClassSize"] = i.get("avgClassSize")
     payload = {
         "code": course["code"], "name": course["name"], "department": course["department"] or "",
         "catalog": build_catalog(course),

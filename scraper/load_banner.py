@@ -319,7 +319,9 @@ def write_term(cur, term_code, parsed, desc_raw, scrape):
     scraped_closed, so the next finalize pass tries it again.
 
     A term whose last meeting has passed (scrape["ended"]) is stored as closed
-    even though Banner has not marked it View Only yet.
+    even though Banner has not marked it View Only yet. A View Only term that
+    has not started (scrape["upcoming"]) keeps view_only but is not
+    scraped_closed: no one has enrolled yet, so this is no final headcount.
 
     Returns (sections written, instructor rows written).
     """
@@ -331,7 +333,8 @@ def write_term(cur, term_code, parsed, desc_raw, scrape):
     if first_seen is None and not parsed["view_only"]:
         first_seen = datetime.now(timezone.utc).isoformat()
 
-    closed = bool(parsed["view_only"] or scrape.get("ended"))
+    view_only = bool(parsed["view_only"] or scrape.get("ended"))
+    closed = view_only and not scrape.get("upcoming")
     failed = list(scrape.get("failed_crns") or [])
     sections_only = scrape["instructors"] is None
     if not sections_only:
@@ -367,7 +370,7 @@ def write_term(cur, term_code, parsed, desc_raw, scrape):
         "season_group": parsed["season_group"],
         "year": parsed["year"],
         "track": parsed["track"],
-        "view_only": closed,
+        "view_only": view_only,
         "scraped_closed": closed and not failed,
         "instructors_source": source,
         "first_seen_at": first_seen,

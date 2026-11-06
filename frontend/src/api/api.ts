@@ -11,6 +11,8 @@ export interface Professor {
   name: string;
   dept: string;
   rmpRating: number | null;
+  /** The RateMyHusky rating avgRating blends in; null without RateMyHusky ratings. */
+  rmhRating?: number | null;
   avgRating: number;
   /** Ratings behind avgRating: what the leaderboard's floor gates on and the ranking weights by. */
   totalReviews?: number;
@@ -81,6 +83,8 @@ export interface SurveyData {
   /** Accepted /rate comments, newest first, at most 200. Never carries the grade.
    *  Missing from a /full cached before it shipped. */
   reviews?: SurveyReview[];
+  /** Signed out only: how many comments the API held back (reviews is then []). */
+  lockedReviews?: number;
 }
 
 export interface SurveyReview {
@@ -234,15 +238,17 @@ export const fetchPopularTags = () =>
   get<ProfessorTag[]>('/api/tags/popular').catch(() => [] as ProfessorTag[]);
 
 /* ---- Professor page fetchers ---- */
-/* The Professor page's single round-trip. Every visitor gets the same payload, so the
-   cache is keyed by slug alone; failures are not cached. */
+/* The Professor page's single round-trip. A signed-out visitor gets RateMyHusky comments
+   held back, so the cache is keyed by slug and whether a token went with it; failures are
+   not cached. */
 export async function fetchProfessorFull(slug: string, signal?: AbortSignal): Promise<Fetched<ProfessorPage>> {
-  const cached = _profPageCache.get(slug);
+  const key = `${slug}|${localStorage.getItem('auth_token') ? 'in' : 'out'}`;
+  const cached = _profPageCache.get(key);
   if (cached) return { ok: true, data: cached };
   const fresh = _ratedProfPages.has(slug);
   const res = await fetchWithStatus<ProfessorPage>(`/api/professors/${encodeURIComponent(slug)}/full`, signal, fresh);
   if (res.ok) {
-    _profPageCache.set(slug, res.data);
+    _profPageCache.set(key, res.data);
     _ratedProfPages.delete(slug);
   }
   return res;
@@ -374,7 +380,10 @@ export interface CourseProfessor {
   rating: number | null;
   difficulty: number | null;
   numRatings: number;
-  /** The newest term Banner has them teaching this course; null without a Banner record. */
+  /** Hours a week from their RateMyHusky ratings of this course; null without any. */
+  hoursPerWeek: number | null;
+  /** The newest term Banner has them teaching this course, never one that hasn't started;
+   *  null without a Banner record. */
   lastTerm: string | null;
   avgClassSize: number | null;
 }
@@ -434,8 +443,13 @@ export interface CourseHistory {
   offeredNow: string[];
   creditHours: string | null;
   typicalClassSize: number | null;
-  /** Taught it in the 12 months up to the newest term, newest first, at most 10. */
+  /** Taught it in the 12 months up to the term in progress, newest first, at most 10. */
   recentInstructors: RecentInstructor[];
+  /** The next semester ("Spring 2027") when Banner already lists who teaches it; null otherwise.
+   *  Missing from a payload cached before it shipped. */
+  nextTerm?: string | null;
+  /** Who Banner has teaching it in nextTerm; [] when nextTerm is null. */
+  nextInstructors?: Omit<RecentInstructor, 'terms'>[];
   replacedBy: HistoryCourseLink | null;
   replaces: HistoryCourseLink | null;
 }
@@ -630,7 +644,8 @@ export async function submitRating(body: RateSubmission): Promise<RateSubmitResu
   const data = await res.json().catch(() => ({}));
   if (!res.ok) return { ok: false, status: res.status, error: typeof data.error === "string" ? data.error : "" };
   if ("slug" in body.professor) {
-    _profPageCache.delete(body.professor.slug);
+    _profPageCache.delete(`${body.professor.slug}|in`);
+    _profPageCache.delete(`${body.professor.slug}|out`);
     _ratedProfPages.add(body.professor.slug);
   }
   return { ok: true, counter: typeof data.counter === "number" ? data.counter : null };

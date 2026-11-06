@@ -82,6 +82,35 @@ def label_code(label):
     return (int(m.group(2)) + year_offset) * 100 + suffix
 
 
+# What current_term reads. track tells a semester from a CPS quarter.
+TERMS_SQL = "SELECT term_label AS label, view_only, track FROM banner_terms"
+
+
+def current_term_code(terms):
+    """banner_terms rows -> the term in progress in the label_code scheme, or
+    None when no label is readable. It is the earliest open one (Banner opens
+    next term for registration months before it starts), else the newest;
+    labels that don't parse are skipped."""
+    readable = [(t["view_only"], label_code(t["label"])) for t in terms]
+    readable = [(closed, c) for closed, c in readable if c]
+    open_codes = [c for closed, c in readable if not closed]
+    return min(open_codes) if open_codes else max((c for _, c in readable), default=None)
+
+
+def current_term(query):
+    """The term in progress (label_code scheme), or None: see current_term_code."""
+    return current_term_code(query(TERMS_SQL))
+
+
+def latest_started(labels, current):
+    """The newest of `labels` that is not after the term in progress, or None.
+    Banner lists next term's sections months ahead, so "last taught" would
+    otherwise name a term that hasn't started. current None leaves labels as is."""
+    codes = [(label_code(t), t) for t in labels]
+    codes = [(c, t) for c, t in codes if c and (current is None or c <= current)]
+    return max(codes)[1] if codes else None
+
+
 def _newest_first(rows):
     """Rows re-sorted on the last term's label, most recent first. The SQL
     orders by last_term_code, but from 2026 Summer 1 and Summer 2 share one

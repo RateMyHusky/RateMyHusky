@@ -66,9 +66,9 @@ def srow(**kw):
 class FakeDB:
     """`survey`: the survey_ratings rows, or an exception the read raises."""
 
-    def __init__(self, catalog=CATALOG, reviews=REVIEWS, summaries=SUMMARY_ROWS, survey=()):
+    def __init__(self, catalog=CATALOG, reviews=REVIEWS, summaries=SUMMARY_ROWS, survey=(), terms=()):
         self.catalog, self.reviews, self.summaries = catalog, reviews, summaries
-        self.survey = survey
+        self.survey, self.terms = survey, terms
         self.calls = []
 
     def query(self, sql, params=None):
@@ -84,6 +84,8 @@ class FakeDB:
             return [dict(r) for r in self.survey]
         if "from banner_course_instructors" in s:
             return []
+        if "from banner_terms" in s:
+            return [dict(t) for t in self.terms]
         raise AssertionError(f"unexpected query: {sql}")
 
     def query_one(self, sql, params=None):
@@ -493,3 +495,20 @@ def test_at_most_six_statements_and_only_live_tables():
     for table in ("professors_catalog", "rmp_reviews", "source_summary", "banner_course_instructors",
                   "survey_ratings"):
         assert table in tables
+
+
+def test_last_taught_is_never_a_term_that_has_not_started():
+    # Banner lists Spring 2027's sections while Fall 2026 is in progress.
+    terms = [{"label": "Spring 2027", "view_only": True, "track": "Semester"},
+             {"label": "Fall 2026", "view_only": False, "track": "Semester"}]
+    history = [{**HISTORY[0], "lastTerm": "Spring 2027", "recentTerms": ["Spring 2027", "Fall 2026", "Spring 2026"]},
+               *HISTORY[1:]]
+    data, _ = _with_history(history, db=FakeDB(terms=terms))
+    assert data["lastTaught"] == "Fall 2026"
+
+
+def test_only_upcoming_teaching_means_no_last_taught():
+    terms = [{"label": "Fall 2026", "view_only": False, "track": "Semester"}]
+    history = [{**HISTORY[0], "lastTerm": "Spring 2027", "recentTerms": ["Spring 2027"]}]
+    data, _ = _with_history(history, db=FakeDB(terms=terms))
+    assert data["lastTaught"] is None
