@@ -223,7 +223,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.7px;
-  color: #aaa;
+  color: #666;
   text-align: center;
   display: flex;
   align-items: center;
@@ -695,7 +695,7 @@
 .dark .prof-stat-breakdown::before { border-color: transparent transparent #444 transparent; }
 .dark .prof-stat-value { color: #e0e0e0; }
 .dark .prof-stat-value.green { color: #27ae60; }
-.dark .prof-stat-label { color: #777; }
+.dark .prof-stat-label { color: #999; }
 .dark .prof-stat-hint { color: #999; }
 .dark .prof-stat-clickable:hover .prof-stat-hint { color: #d6394c; }
 .dark .prof-difficulty-bar { background: #333; }
