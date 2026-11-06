@@ -24,19 +24,21 @@ const PROFESSORS_VISIBLE_STEP = 5;
 // so more cards would only repeat it.
 const TOP_PROFESSORS = 3;
 
-type TableSortKey = 'name' | 'rating' | 'difficulty' | 'numRatings' | 'lastTerm' | 'avgClassSize';
+type TableSortKey = 'name' | 'rating' | 'difficulty' | 'numRatings' | 'hoursPerWeek' | 'lastTerm' | 'avgClassSize';
 const TABLE_COLUMNS: { key: TableSortKey; label: string }[] = [
 	{ key: 'name', label: 'Professor Name' },
 	{ key: 'rating', label: 'Rating' },
 	{ key: 'difficulty', label: 'Difficulty' },
-	{ key: 'numRatings', label: 'Ratings' },
+	// "# Rated", as on the GOATED board: "Rating" and "Ratings" side by side read alike.
+	{ key: 'numRatings', label: '# Rated' },
+	{ key: 'hoursPerWeek', label: 'Hrs/Wk' },
 	{ key: 'lastTerm', label: 'Last Taught' },
 	{ key: 'avgClassSize', label: 'Avg Class' },
 ];
 
 /* The table's rows in the chosen order. Missing values sort last either way, and ties keep
    professors[]'s order (most ratings first), so the sort is stable across clicks. */
-function sortProfessors<T extends { name: string; rating: number | null; difficulty: number | null; numRatings: number; lastTerm: string | null; avgClassSize: number | null }>(
+function sortProfessors<T extends { name: string; rating: number | null; difficulty: number | null; numRatings: number; hoursPerWeek: number | null; lastTerm: string | null; avgClassSize: number | null }>(
 	rows: T[], key: TableSortKey, dir: 'asc' | 'desc',
 ): T[] {
 	const value = (p: T): number | string | null =>
@@ -159,6 +161,8 @@ const Course = () => {
 	const tableSlugs = new Set(professors.map((p) => p.slug));
 	const recentInstructors = (history?.recentInstructors ?? [])
 		.filter((r, i) => i < TOP_PROFESSORS || !r.slug || !tableSlugs.has(r.slug));
+	/* Shown only once Banner lists next semester's instructors; `?? []`: a payload cached before it shipped. */
+	const nextInstructors = history?.nextTerm ? history.nextInstructors ?? [] : [];
 	const fromPage = { label: `${course.code} – ${course.name}`, url: `/courses/${code}` };
 	const toCompare = compareSlugs(professors);
 
@@ -301,6 +305,30 @@ const Course = () => {
 
 				{history && <OfferingPanel history={history} />}
 
+				{nextInstructors.length > 0 && (
+					<section className="course-panel">
+						<div className="course-panel-header">
+							<h2>{history?.nextTerm} Professors</h2>
+						</div>
+						<div className="course-top-prof-grid">
+							{nextInstructors.map((r) => (
+								<ProfCard
+									key={r.slug ?? `unmatched-${r.name}`}
+									name={r.name}
+									imageUrl={r.imageUrl}
+									focusX={r.focusX}
+									focusY={r.focusY}
+									rating={r.rating}
+									footerLeft={r.numRatings != null ? `${r.numRatings.toLocaleString()} rating${r.numRatings === 1 ? '' : 's'}` : '—'}
+									footerRight={r.wouldTakeAgainPct != null ? `${Math.round(r.wouldTakeAgainPct)}% again` : '—'}
+									to={r.slug ? `/professors/${r.slug}` : undefined}
+									fromPage={fromPage}
+								/>
+							))}
+						</div>
+					</section>
+				)}
+
 				{recentInstructors.length > 0 ? (
 					<section className="course-panel">
 						<div className="course-panel-header">
@@ -391,6 +419,7 @@ const Course = () => {
 										<span>{p.rating != null ? p.rating.toFixed(2) : '—'}</span>
 										<span>{p.difficulty != null ? p.difficulty.toFixed(2) : '—'}</span>
 										<span>{p.numRatings.toLocaleString()}</span>
+										<span>{p.hoursPerWeek != null ? `${p.hoursPerWeek.toFixed(1)}h` : '—'}</span>
 										<span>{p.lastTerm ?? '—'}</span>
 										<span>{p.avgClassSize != null ? p.avgClassSize.toLocaleString() : '—'}</span>
 									</div>

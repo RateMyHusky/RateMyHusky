@@ -380,7 +380,10 @@ export interface CourseProfessor {
   rating: number | null;
   difficulty: number | null;
   numRatings: number;
-  /** The newest term Banner has them teaching this course; null without a Banner record. */
+  /** Hours a week from their RateMyHusky ratings of this course; null without any. */
+  hoursPerWeek: number | null;
+  /** The newest term Banner has them teaching this course, never one that hasn't started;
+   *  null without a Banner record. */
   lastTerm: string | null;
   avgClassSize: number | null;
 }
@@ -440,8 +443,13 @@ export interface CourseHistory {
   offeredNow: string[];
   creditHours: string | null;
   typicalClassSize: number | null;
-  /** Taught it in the 12 months up to the newest term, newest first, at most 10. */
+  /** Taught it in the 12 months up to the term in progress, newest first, at most 10. */
   recentInstructors: RecentInstructor[];
+  /** The next semester ("Spring 2027") when Banner already lists who teaches it; null otherwise.
+   *  Missing from a payload cached before it shipped. */
+  nextTerm?: string | null;
+  /** Who Banner has teaching it in nextTerm; [] when nextTerm is null. */
+  nextInstructors?: Omit<RecentInstructor, 'terms'>[];
   replacedBy: HistoryCourseLink | null;
   replaces: HistoryCourseLink | null;
 }
