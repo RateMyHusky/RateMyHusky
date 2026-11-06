@@ -1,4 +1,5 @@
 // Unsent /rate answers for this tab, dropped on submit, on "Rate another", or after 2 hours.
+import { STEP_IDS } from './rateFlow';
 import type { Answers, StepId } from './rateFlow';
 import type { RateStart } from '../../api/api';
 
@@ -13,9 +14,6 @@ export interface RateDraft {
   opened: string | null;
   deviceToken: string | null;
 }
-
-const STEPS: StepId[] = ['who', 'newProfessor', 'course', 'otherCourse', 'term', 'otherTerm',
-  'overall', 'difficulty', 'workload', 'grade', 'comment'];
 
 export function saveRateDraft(d: Pick<RateDraft, 'step' | 'answers' | 'opened' | 'deviceToken'>, now: number): void {
   try {
@@ -36,7 +34,7 @@ export function loadRateDraft(now: number): RateDraft | null {
     const d = JSON.parse(raw) as Partial<RateDraft> | null;
     const a = d?.answers;
     if (d && d.v === 1 && typeof d.savedAt === 'number' && now - d.savedAt <= DRAFT_MAX_AGE_MS
-      && d.step !== undefined && STEPS.includes(d.step)
+      && d.step !== undefined && d.step !== 'thanks' && STEP_IDS.includes(d.step)
       && a && typeof a === 'object' && typeof a.comment === 'string'
       && a.professor && typeof a.professor === 'object') {
       return d as RateDraft;
@@ -48,6 +46,12 @@ export function loadRateDraft(now: number): RateDraft | null {
   }
 }
 
-export function keepOpened(start: RateStart, draft: RateDraft | null): RateStart {
-  return draft?.opened && draft.deviceToken === start.deviceToken ? { ...start, opened: draft.opened } : start;
+// The signed fill start, in server seconds, is the token's first field.
+const signedAt = (opened: string) => Number(opened.split('.')[0]);
+
+// The server holds a fill over 2 hours as stale, so a kept start that old gives way to the new one.
+export function keepOpened(start: RateStart, draft: Pick<RateDraft, 'opened' | 'deviceToken'> | null): RateStart {
+  return draft?.opened && draft.deviceToken === start.deviceToken
+    && signedAt(start.opened) - signedAt(draft.opened) <= DRAFT_MAX_AGE_MS / 1000
+    ? { ...start, opened: draft.opened } : start;
 }

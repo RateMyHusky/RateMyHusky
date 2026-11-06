@@ -1,8 +1,9 @@
 // Step logic and pure helpers for the /rate form. No React, no runtime imports from api.ts.
 import type { ProfessorCourse, RateStart, RateSubmission, RatedCourse } from '../../api/api';
 
-export type StepId = 'who' | 'newProfessor' | 'course' | 'otherCourse' | 'term' | 'otherTerm'
-  | 'overall' | 'difficulty' | 'workload' | 'grade' | 'comment' | 'thanks';
+export const STEP_IDS = ['who', 'newProfessor', 'course', 'otherCourse', 'term', 'otherTerm',
+  'overall', 'difficulty', 'workload', 'grade', 'comment', 'thanks'] as const;
+export type StepId = typeof STEP_IDS[number];
 
 export interface RateProfessor { slug: string | null; name: string; department: string | null }
 export interface RateCourse { code: string; name: string | null; isNew: boolean; terms: string[] }

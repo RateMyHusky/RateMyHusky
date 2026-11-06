@@ -68,7 +68,9 @@ export default function Rate() {
   // Each question past the first is its own history entry; the entry's depth rides in its state.
   const entryDepth = (location.state as { rateDepth?: number } | null)?.rateDepth ?? 0;
   const depthRef = useRef(entryDepth);
-  useLayoutEffect(() => { depthRef.current = entryDepth; }, [entryDepth, location.key]);
+  // A pop lands after the tap that asked for it; until then depthRef is stale, so taps wait.
+  const popping = useRef(false);
+  useLayoutEffect(() => { depthRef.current = entryDepth; popping.current = false; }, [entryDepth, location.key]);
   // Read once at mount so later URL changes can't change it; "Rate another" resets it to direct.
   const [rateFrom, setRateFrom] = useState(() => parseFrom(params.get('from')));
   const startedTracked = useRef(false);
@@ -76,6 +78,8 @@ export default function Rate() {
   const [answers, setAnswers] = useState<Answers>({ comment: '' });
   const [step, setStep] = useState<StepId>('who');
   const [start, setStart] = useState<RateStart | null>(null);
+  // A restored draft's fill start, sent in place of the new one so a quick submit isn't held as too fast.
+  const [kept, setKept] = useState<Pick<RateDraft, 'opened' | 'deviceToken'> | null>(null);
   const [startFailed, setStartFailed] = useState(false);
   const [lostDraft, setLostDraft] = useState(false);
   // recent: the list is Banner's newest-first order; without Banner history it is most-rated first.
@@ -93,21 +97,11 @@ export default function Rate() {
   const panelRef = useRef<HTMLDivElement>(null);
   const visitRef = useRef(0);
   const pickTimer = useRef<number | undefined>(undefined);
-  // The start as the server sent it, before any draft's fill start was carried over.
-  const freshStart = useRef<RateStart | null>(null);
   // The start the prefill already fetched the context with, so the context effect doesn't fetch it again.
   const prefetchedFor = useRef<RateStart | null>(null);
   const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
   // The check runs on the comment step, while the student writes; only the submit waits for its token.
   const { containerRef, token, failed, scriptFailed, interactive, shown, errorCode, reset } = useTurnstile();
-
-  // Once per mount; the ref keeps StrictMode's second run from counting twice.
-  useEffect(() => {
-    if (startedTracked.current) return;
-    startedTracked.current = true;
-    track('rate_started', { from: rateFrom });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- "Rate another" tracks its own start
-  }, []);
 
   const slug = answers.professor?.slug ?? null;
   // null while the professor's courses load; a new professor has none to load.
@@ -117,17 +111,15 @@ export default function Rate() {
   const coursesLoading = courses === null || rated === null;
 
   // Only the latest visit's start lands, so a slow earlier one can't overwrite it.
-  const beginVisit = (saved: RateDraft | null = null): Promise<RateStart | null> => {
+  const beginVisit = (): Promise<RateStart | null> => {
     const visit = ++visitRef.current;
     setStartFailed(false);
     return startRating(readMirror())
       .then((s) => {
         if (visitRef.current !== visit) return null;
         writeMirror(s.deviceToken);
-        freshStart.current = s;
-        const kept = keepOpened(s, saved);
-        setStart(kept);
-        return kept;
+        setStart(s);
+        return s;
       })
       .catch(() => {
         if (visitRef.current === visit) setStartFailed(true);
@@ -140,13 +132,26 @@ export default function Rate() {
     let cancelled = false;
     const saved = loadRateDraft(Date.now());
     const profSlug = params.get('professor');
+    const code = (params.get('course') ?? '').replace(/\s+/g, '').toUpperCase() || null;
     const savedProf = saved?.answers.professor;
-    // A followed link (PUSH) wins over the draft; a reload or Back/Forward return (POP) keeps the draft, since the URL may be stale.
-    const useDraft = !!(saved && savedProf && (!profSlug || profSlug === savedProf.slug || navType !== 'PUSH'));
-    const visit = beginVisit(useDraft ? saved : null);
+    // React Router calls a page load POP too, so the browser's navigation type tells a typed URL, bookmark
+    // or outside link (a navigate, on the page's first entry) from a reload or a Back return.
+    const loadedFresh = location.key === 'default'
+      && (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type === 'navigate';
+    // A followed link to another professor or course wins over the draft; a reload or Back/Forward
+    // return keeps the draft, since the URL may be stale.
+    const sameLink = !profSlug || (profSlug === savedProf?.slug && (!code || code === saved?.answers.course?.code));
+    const useDraft = !!(saved && savedProf && (sameLink || (navType !== 'PUSH' && !loadedFresh)));
+    // A restored draft continues a fill already counted as started. The ref keeps StrictMode's second run from counting twice.
+    if (!startedTracked.current) {
+      startedTracked.current = true;
+      if (!useDraft) track('rate_started', { from: rateFrom });
+    }
+    const visit = beginVisit();
 
     (async () => {
       if (saved && savedProf && useDraft) {
+        setKept(saved);
         if (savedProf.slug === null) {
           if (cancelled) return;
           setAnswers(saved.answers);
@@ -162,9 +167,7 @@ export default function Rate() {
           setStep(saved.step);
         } else if (res.status === 404) {
           // The draft is dropped, so its fill start goes with it.
-          await visit;
-          if (cancelled) return;
-          if (freshStart.current) setStart(freshStart.current);
+          setKept(null);
           clearRateDraft();
           setLostDraft(true);
           setAnswers({ comment: '' });
@@ -186,7 +189,6 @@ export default function Rate() {
         if (res.ok) {
           const { identity } = res.data;
           const professor: RateProfessor = { slug: identity.slug, name: identity.name, department: identity.department };
-          const code = (params.get('course') ?? '').replace(/\s+/g, '').toUpperCase() || null;
           initial = answer(initial, { professor });
           if (code) {
             // A prefilled rated course opens in update mode, so wait for the context before the first screen.
@@ -212,10 +214,13 @@ export default function Rate() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the prefill is read once, on mount
   }, []);
 
+  // The fill start to send and save; a kept one stays saved while the new start is still on its way.
+  const fill = start ? keepOpened(start, kept) : kept;
+
   useEffect(() => {
     if (!answers.professor || step === 'thanks') return;
-    saveRateDraft({ step, answers, opened: start?.opened ?? null, deviceToken: start?.deviceToken ?? null }, Date.now());
-  }, [answers, step, start]);
+    saveRateDraft({ step, answers, opened: fill?.opened ?? null, deviceToken: fill?.deviceToken ?? null }, Date.now());
+  }, [answers, step, fill?.opened, fill?.deviceToken]);
 
   useEffect(() => {
     if (!slug) return;
@@ -245,9 +250,13 @@ export default function Rate() {
     if (!start) return;
     let body: RateSubmission;
     try {
-      body = buildSubmission({ ...answers, comment: skip ? '' : answers.comment }, start, turnstileToken, honeypot);
+      body = buildSubmission({ ...answers, comment: skip ? '' : answers.comment }, keepOpened(start, kept), turnstileToken, honeypot);
     } catch {
-      setStep(firstStep(answers));
+      // Back to the first unanswered question, with the history entry stepped back to match it.
+      const to = firstStep(answers);
+      const d = depth(to, answers);
+      setStep(to);
+      if (depthRef.current > d) pop(d - depthRef.current);
       return;
     }
     setSending(true);
@@ -324,6 +333,7 @@ export default function Rate() {
 
   const rateAnother = () => {
     clearRateDraft();
+    setKept(null);
     setLostDraft(false);
     window.clearTimeout(pickTimer.current);
     setAnswers({ comment: '' });
@@ -363,12 +373,18 @@ export default function Rate() {
     depthRef.current = Math.max(depthRef.current, d);
   };
 
+  const pop = (delta: number) => {
+    popping.current = true;
+    navigate(delta);
+  };
+
   const moveTo = (to: StepId, a: Answers) => {
     setStep(to);
     pushTo(to, a);
   };
 
   const go = (next: Answers, from: StepId) => {
+    if (popping.current) return;
     window.clearTimeout(pickTimer.current);
     setAnswers(next);
     moveTo(nextStep(from, next), next);
@@ -376,6 +392,7 @@ export default function Rate() {
 
   // Shows the pick for a beat before the next step opens; a later tap replaces a pending one.
   const choose = (next: Answers, from: StepId) => {
+    if (popping.current) return;
     setAnswers(next);
     window.clearTimeout(pickTimer.current);
     if (reduced) moveTo(nextStep(from, next), next);
@@ -384,6 +401,7 @@ export default function Rate() {
 
   // A direct move to a sub-screen also cancels a pick still waiting to advance.
   const open = (next: StepId) => {
+    if (popping.current) return;
     window.clearTimeout(pickTimer.current);
     moveTo(next, answers);
   };
@@ -398,10 +416,11 @@ export default function Rate() {
   };
 
   const back = () => {
+    if (popping.current) return;
     window.clearTimeout(pickTimer.current);
     setPending(null); // backing out of a submit that waits on Cloudflare's click box
     // The entry is behind the step after a prefilled link or a restored draft, so Back steps in the form.
-    if (depthRef.current > 0 && depthRef.current === depth(step, answers)) navigate(-1);
+    if (depthRef.current > 0 && depthRef.current === depth(step, answers)) pop(-1);
     else stepBack();
   };
 

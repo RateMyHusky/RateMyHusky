@@ -6,20 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { RATE_DRAFT_KEY, DRAFT_MAX_AGE_MS, saveRateDraft, loadRateDraft, clearRateDraft, keepOpened } from './rateDraft';
 import type { RateDraft } from './rateDraft';
 import type { RateStart, RatedCourse } from '../../api/api';
-
-// Minimal in-memory sessionStorage stand-in (Node has no DOM Storage).
-function installStorage(): Record<string, string> {
-  const store: Record<string, string> = {};
-  (globalThis as unknown as { sessionStorage: Storage }).sessionStorage = {
-    getItem: (k: string) => (k in store ? store[k] : null),
-    setItem: (k: string, v: string) => { store[k] = String(v); },
-    removeItem: (k: string) => { delete store[k]; },
-    clear: () => { for (const k of Object.keys(store)) delete store[k]; },
-    key: (i: number) => Object.keys(store)[i] ?? null,
-    get length() { return Object.keys(store).length; },
-  };
-  return store;
-}
+import { installStorage } from '../../utils/selftestStorage';
 
 function selftest(): number {
   const fails: string[] = [];
@@ -93,11 +80,14 @@ function selftest(): number {
   try { saveRateDraft(input, now); clearRateDraft(); r = loadRateDraft(now); } catch { threw = true; }
   check('throwing storage never throws and loads null', !threw && r === null);
 
-  const start: RateStart = { opened: 'new', deviceToken: 'dev', counter: 3 };
+  const start: RateStart = { opened: '20000.0.h.s', deviceToken: 'dev', counter: 3 };
   const d = (over: Partial<RateDraft>): RateDraft => ({ ...valid, v: 1, ...over }) as RateDraft;
-  const kept = keepOpened(start, d({ deviceToken: 'dev', opened: 'old' }));
-  check('keepOpened keeps the old opened for the same device', kept.opened === 'old' && kept.deviceToken === 'dev' && kept.counter === 3);
-  check('keepOpened ignores another device', keepOpened(start, d({ deviceToken: 'other', opened: 'old' })) === start);
+  const kept = keepOpened(start, d({ deviceToken: 'dev', opened: '19000.0.h.s' }));
+  check('keepOpened keeps the old opened for the same device', kept.opened === '19000.0.h.s' && kept.deviceToken === 'dev' && kept.counter === 3);
+  check('keepOpened ignores another device', keepOpened(start, d({ deviceToken: 'other', opened: '19000.0.h.s' })) === start);
+  check('keepOpened keeps an opened exactly 2 hours old', keepOpened(start, d({ opened: '12800.0.h.s' })).opened === '12800.0.h.s');
+  check('keepOpened drops an opened over 2 hours old', keepOpened(start, d({ opened: '12799.0.h.s' })) === start);
+  check('keepOpened drops an opened it cannot read', keepOpened(start, d({ opened: 'old' })) === start);
   check('keepOpened ignores a null draft', keepOpened(start, null) === start);
   check('keepOpened ignores a null opened', keepOpened(start, d({ opened: null })) === start);
 
