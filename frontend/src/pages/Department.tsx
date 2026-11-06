@@ -83,7 +83,7 @@ export default function Department() {
     );
   }
 
-  if (loadError === 'not_found') return <NotFound />;
+  if (loadError === 'not_found') return <NotFound kind="department" />;
   if (loadError || !department) return <div className="course-page"><LoadError /></div>;
 
   const { name, professorCount, avgRating } = department;

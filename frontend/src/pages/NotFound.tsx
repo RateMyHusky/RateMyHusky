@@ -5,8 +5,8 @@ import huskyIcon from '../assets/neu-husky-icon.png';
 import './NotFound.css';
 
 interface NotFoundProps {
-  /** A dead professor or course link: say so, and point at that catalog. */
-  kind?: 'professor' | 'course';
+  /** A dead professor, course or department link: say so, and point at that catalog. */
+  kind?: 'professor' | 'course' | 'department';
 }
 
 const COPY = {
@@ -19,6 +19,11 @@ const COPY = {
     title: "We don't have that course.",
     body: 'It may have been renumbered, or the link has a typo. Browse the course catalog to find it.',
     catalog: '/courses', browse: 'Browse courses',
+  },
+  department: {
+    title: "We don't have that department.",
+    body: 'It may have been renamed, or the link has a typo. Browse the department list to find it.',
+    catalog: '/departments', browse: 'Browse departments',
   },
 } as const;
 
