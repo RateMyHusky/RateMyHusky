@@ -20,7 +20,7 @@ from banner_scrape import (DEFAULT_INSTRUCTORS_FROM, SanityGateFailed,  # noqa: 
 
 
 def section(crn, subject_course="ACCT1201", schedule_type="Lecture",
-            campus="Boston", end="12/20/2026", term=None):
+            campus="Boston", end="12/20/2026", term=None, start="09/03/2026"):
     # No "term" unless a test sets one: FakeClient serves these rows for any
     # term code, and scrape_term refuses rows that name a different term.
     row = {} if term is None else {"term": term}
@@ -31,7 +31,7 @@ def section(crn, subject_course="ACCT1201", schedule_type="Lecture",
         "sequenceNumber": "01", "courseTitle": "T", "campusDescription": campus,
         "instructionalMethodDescription": "Traditional",
         "scheduleTypeDescription": schedule_type,
-        "meetingsFaculty": [{"meetingTime": {"endDate": end}}],
+        "meetingsFaculty": [{"meetingTime": {"startDate": start, "endDate": end}}],
     }
 
 
@@ -396,6 +396,24 @@ def test_roster_duplicates_are_carried_into_the_result():
     assert scrape_term(client, "202710", today=TODAY)["roster_duplicates"] == ["annie witte"]
 
 
+def test_a_view_only_term_that_has_not_started_is_upcoming():
+    """Banner lists next term View Only until registration opens. Its sections
+    have no one enrolled yet, so it must not be stored as a finished term."""
+    client = FakeClient({"202730": [section("1", start="01/07/2027", end="04/20/2027")]}, {"1": ANNIE})
+    assert scrape_term(client, "202730", today=TODAY, view_only=True)["upcoming"] is True
+
+
+def test_a_view_only_term_that_has_started_is_not_upcoming():
+    client = FakeClient({"201910": [section("1", start="09/04/2018", end="12/05/2018")]}, {"1": ANNIE})
+    assert scrape_term(client, "201910", today=TODAY, view_only=True)["upcoming"] is False
+
+
+def test_an_open_term_is_never_upcoming():
+    """Open is already not closed; upcoming only overrides View Only."""
+    client = FakeClient({"202730": [section("1", start="01/07/2027", end="04/20/2027")]}, {"1": ANNIE})
+    assert scrape_term(client, "202730", today=TODAY)["upcoming"] is False
+
+
 def test_end_date_gate_is_skipped_for_a_closed_term():
     """A View Only term ended long ago by definition — that's what backfill is for."""
     client = FakeClient({"201910": [section("1", end="12/05/2018")]}, {"1": ANNIE})
@@ -545,6 +563,17 @@ def test_plan_rescrape_forces_a_finished_banner_term():
     assert [c for c, _ in got] == ["202650"]
     got = plan_terms(TERMS, {}, "current", rescrape=["202650"])
     assert [c for c, _ in got] == ["202710", "202650"]
+
+
+def test_plan_backfill_replans_a_view_only_term_newer_than_the_open_one():
+    """Next term is View Only before registration and was stored closed on its
+    first scrape; newer than the term in progress, it cannot have happened, so
+    it is scraped again each week until it opens."""
+    terms = [{"code": "202730", "description": "Spring 2027 Semester (View Only)"}] + TERMS
+    known = {"202730": True, **ALL_CLOSED}
+    sources = {c: "banner" for c in known}
+    got = plan_terms(terms, known, "backfill", "201610", instructors_from="202615", sources=sources)
+    assert [c for c, _ in got] == ["202730"]
 
 
 def test_plan_rescrape_refuses_a_code_getterms_does_not_list():

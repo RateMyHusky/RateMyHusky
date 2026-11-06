@@ -179,6 +179,15 @@ def test_an_ended_term_is_stored_closed(cur):
     assert cur.execute("SELECT view_only, scraped_closed FROM banner_terms").fetchone() == (1, 1)
 
 
+def test_an_upcoming_term_is_stored_view_only_but_not_finished(cur):
+    """View Only as Banner says, but its scrape is no final headcount: the
+    backfill keeps re-scraping it and history treats it as open."""
+    upcoming = scrape([sec("1", enrollment=0)], [ins("202730", "1")])
+    upcoming["upcoming"] = True
+    write_term(cur, "202730", {**SPRING, "label": "Spring 2027", "view_only": True}, None, upcoming)
+    assert cur.execute("SELECT view_only, scraped_closed FROM banner_terms").fetchone() == (1, 0)
+
+
 def test_sections_only_write_keeps_the_terms_instructor_counts(cur):
     write_term(cur, "202510", SPRING, None,
                scrape([sec("1"), sec("2")], [ins("202510", "1"), ins("202510", "2", "pat hurley")]))

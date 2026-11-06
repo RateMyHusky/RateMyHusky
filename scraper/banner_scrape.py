@@ -78,7 +78,9 @@ def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM,
     last scraped while still open, or are at or after `instructors_from` with
     instructors that aren't Banner's (the one-off import, or a sections-only
     scrape). Newest first, so an interrupted backfill has already covered the
-    terms students are likeliest to ask about.
+    terms students are likeliest to ask about. A View Only term newer than
+    every open term is next term before registration opens: it is planned
+    every run, whatever is stored, since it cannot have finished.
 
     `rescrape` codes are planned whatever their state, in either mode. One
     that getTerms doesn't list is refused rather than silently skipped.
@@ -88,6 +90,9 @@ def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM,
     """
     rescrape = {str(c) for c in rescrape}
     sources = sources or {}
+    parsed_terms = [(t.get("code"), parse_term(t.get("description"))) for t in terms]
+    newest_open = max((int(c) for c, p in parsed_terms if c is not None and p and not p["view_only"]),
+                      default=None)
     picked = []
     for t in terms:
         code = t.get("code")
@@ -106,7 +111,8 @@ def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM,
             needs_instructors = (instructors_from is not None
                                  and int(code) >= int(instructors_from)
                                  and sources.get(code) != "banner")
-            if known.get(code) is True and not needs_instructors:   # already finished
+            upcoming = newest_open is not None and int(code) > newest_open
+            if known.get(code) is True and not needs_instructors and not upcoming:   # already finished
                 continue
             picked.append((code, parsed))
         else:
@@ -146,6 +152,8 @@ def scrape_term(client, term_code, previous_count=None, today=None,
 
     The result's "ended" is True when an open term's last meeting has already
     passed: its enrollment is final, so the caller stores it as closed.
+    "upcoming" is True when a View Only term has not had its first meeting
+    yet: next term before registration opens, which is not finished.
     "failed_crns" are the teaching sections whose faculty lookup failed even
     after the retry pass; write_term keeps their previous instructor rows.
     """
@@ -176,6 +184,13 @@ def scrape_term(client, term_code, previous_count=None, today=None,
             ended = True
             print(f"{term_code}: last meeting was {max(end_dates)} but Banner has "
                   f"not marked it View Only; storing this scrape as closed")
+    # The other way round: Banner also marks next term View Only until its
+    # registration opens. Before its first meeting no one is enrolled, so the
+    # scrape is no final headcount and the caller must not store it as closed.
+    upcoming = False
+    if view_only:
+        start_dates = section_end_dates(raw_rows, field="startDate")
+        upcoming = bool(start_dates) and min(start_dates) > today
 
     sections = {}
     for raw in raw_rows:
@@ -194,7 +209,7 @@ def scrape_term(client, term_code, previous_count=None, today=None,
 
     if not with_instructors:
         return {"sections": list(sections.values()), "instructors": None,
-                "ended": ended, "failed_crns": [], "roster_duplicates": [],
+                "ended": ended, "upcoming": upcoming, "failed_crns": [], "roster_duplicates": [],
                 "stats": {"section_count": len(sections),
                           "attributed_sections": 0, "instructor_count": 0}}
 
@@ -273,6 +288,7 @@ def scrape_term(client, term_code, previous_count=None, today=None,
         "sections": list(sections.values()),
         "instructors": instructors,
         "ended": ended,
+        "upcoming": upcoming,
         "failed_crns": sorted(crn for crn in to_fetch if fetched.get(crn) is None),
         # Two roster rows that normalize to one name may be two people. Stored,
         # so the matcher can refuse to credit that name to a profile.
