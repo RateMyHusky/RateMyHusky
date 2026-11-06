@@ -1,5 +1,5 @@
 # CI for every push and PR. Mirrors what the real deploys gate:
-#   frontend  -> tsc + vite build (what fails a Vercel deploy)
+#   frontend  -> tsc + vite build (what fails a Vercel deploy) + crawler route selftest
 #   backend   -> pip install + pytest (deps + "does server.py import")
 #   backend-pg -> pytest tests/pg against PostgreSQL 16 + pgvector (SSL on)
 #   scraper   -> pytest scraper/tests (offline fixtures + in-memory sqlite)
@@ -46,6 +46,8 @@ jobs:
           SITEMAP_API_URL: http://127.0.0.1:9
       # Inline script hashes match the CSP; GA tags survive the build.
       - run: node scripts/check-inline-scripts.mjs
+      # The middleware's crawler 404 knows every App.tsx route.
+      - run: npm run test:routes
 
   extension:
     name: Extension build
