@@ -178,9 +178,10 @@ def test_cache_key_was_versioned():
     # A stale entry would serve the previous ordering after deploy — bumped for
     # the shrunk score, again when the prior changed, again for the single review
     # floor plus the name tiebreak, again for the Law/Professional Studies floor,
-    # again when rows gained a slug (a cached v6 row has none, so its link breaks).
+    # again when rows gained a slug (a cached v6 row has none, so its link breaks),
+    # again when rows gained rmhRating.
     import inspect
-    assert 'goat:v7:' in inspect.getsource(server.goat_professors)
+    assert 'goat:v8:' in inspect.getsource(server.goat_professors)
 
 
 # ── the review floor ────────────────────────────────────────────────────────
@@ -314,7 +315,7 @@ def test_board_reads_the_stored_comment_count(monkeypatch):
 
 def test_board_row_has_exactly_these_keys(monkeypatch):
     out, _ = _run_leaderboard(monkeypatch, [ROW])
-    assert set(out["Olin Guha"]) == {"slug", "name", "dept", "rmpRating", "avgRating",
+    assert set(out["Olin Guha"]) == {"slug", "name", "dept", "rmpRating", "rmhRating", "avgRating",
                                      "totalReviews", "totalComments"}
 
 
@@ -358,5 +359,16 @@ def test_the_limit_is_clamped_and_the_floor_is_not_a_parameter(monkeypatch, args
     monkeypatch.setattr(server, "cache_set", lambda key, val: None)
     with server.app.test_request_context(f"/api/goat-professors?college=Khoury&{args}&min_reviews=1"):
         server.goat_professors()
-    assert seen == [f"goat:v7:Khoury:{limit}",
+    assert seen == [f"goat:v8:Khoury:{limit}",
                     ("Khoury", server.BOARD_FILL_MIN_REVIEWS, C, server.BOARD_MIN_REVIEWS, C, limit)]
+
+
+def test_board_row_carries_the_rmh_rating_its_average_blends(monkeypatch):
+    out, seen = _run_leaderboard(monkeypatch, [{**ROW, "rmh_rating": 4.333}])
+    assert out["Olin Guha"]["rmhRating"] == 4.33
+    assert "source = 'survey'" in seen[0]
+
+
+def test_board_row_without_rmh_ratings_has_none(monkeypatch):
+    out, _ = _run_leaderboard(monkeypatch, [ROW])
+    assert out["Olin Guha"]["rmhRating"] is None

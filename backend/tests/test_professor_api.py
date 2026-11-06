@@ -153,3 +153,28 @@ def test_clean_payload_is_cached(client, monkeypatch):
     assert resp.status_code == 200
     assert sets == ["prof_full:olin-guha"]
     assert resp.headers["Cache-Control"] == "public, max-age=3600"
+
+
+def _with_rmh_comments(monkeypatch):
+    survey = {"available": True, "rating": 4.0, "numRatings": 3,
+              "reviews": [{"id": "a1", "course": "CS3500", "when": "", "rating": 4, "comment": "Loved it"},
+                          {"id": "b2", "course": None, "when": "", "rating": 3, "comment": "Fine"}]}
+    _spy_cache(monkeypatch, {"version": 2, "identity": {"slug": "olin-guha"},
+                             "sources": {"rmp": {"reviews": []}, "survey": survey}})
+
+
+def test_signed_out_full_hides_rmh_comments_but_counts_them(client, monkeypatch):
+    _with_rmh_comments(monkeypatch)
+    survey = client.get("/api/professors/olin-guha/full").get_json()["sources"]["survey"]
+    assert survey["reviews"] == []
+    assert survey["lockedReviews"] == 2
+    assert survey["numRatings"] == 3   # the numbers stay public; only the comments are gated
+
+
+def test_signed_in_full_gets_rmh_comments(client, monkeypatch):
+    _with_rmh_comments(monkeypatch)
+    resp = client.get("/api/professors/olin-guha/full", headers={"Authorization": f"Bearer {_token()}"})
+    survey = resp.get_json()["sources"]["survey"]
+    assert [r["comment"] for r in survey["reviews"]] == ["Loved it", "Fine"]
+    assert "lockedReviews" not in survey
+    assert resp.headers["Cache-Control"] == "private, max-age=3600"

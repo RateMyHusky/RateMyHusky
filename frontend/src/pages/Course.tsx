@@ -71,7 +71,7 @@ function compareSlugs(professors: { slug: string; numRatings: number; lastTerm: 
 }
 
 /* Display names for summary.bySource keys; an unlisted source shows its key. */
-const SOURCE_LABELS: Record<string, string> = { rmp: 'RMP' };
+const SOURCE_LABELS: Record<string, string> = { rmp: 'RMP', survey: 'RMH' };
 const sourceLabel = (source: string) => SOURCE_LABELS[source] ?? source.toUpperCase();
 
 const Course = () => {
