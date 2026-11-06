@@ -55,6 +55,11 @@ const BLOCKED_MESSAGE = "We couldn't verify your browser. Try turning off a VPN 
 const TOKEN_WAIT_MS = 15000;
 const NETWORK_MESSAGE = "Couldn't send. Check your connection and try again.";
 
+// A typed URL, bookmark or outside link loads the page as a navigate; a reload or a cross-document
+// Back/Forward doesn't. Only the form's first mount in this document can be that load, so the first
+// mount takes the flag and every later one (an in-app Back to /rate, say) sees false.
+let freshLoad = (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type === 'navigate';
+
 const gradeAria = (g: string) => `Grade ${g.replace('+', ' plus').replace('-', ' minus')}`;
 
 const toRateCourses = (page: ProfessorPage): RateCourse[] =>
@@ -74,6 +79,8 @@ export default function Rate() {
   // Read once at mount so later URL changes can't change it; "Rate another" resets it to direct.
   const [rateFrom, setRateFrom] = useState(() => parseFrom(params.get('from')));
   const startedTracked = useRef(false);
+  // Read in the initializer, so StrictMode's second mount-effect run sees the same value.
+  const [loadedFresh] = useState(() => freshLoad);
   const [ready, setReady] = useState(false);
   const [answers, setAnswers] = useState<Answers>({ comment: '' });
   const [step, setStep] = useState<StepId>('who');
@@ -134,10 +141,7 @@ export default function Rate() {
     const profSlug = params.get('professor');
     const code = (params.get('course') ?? '').replace(/\s+/g, '').toUpperCase() || null;
     const savedProf = saved?.answers.professor;
-    // React Router calls a page load POP too, so the browser's navigation type tells a typed URL, bookmark
-    // or outside link (a navigate, on the page's first entry) from a reload or a Back return.
-    const loadedFresh = location.key === 'default'
-      && (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type === 'navigate';
+    freshLoad = false;
     // A followed link to another professor or course wins over the draft; a reload or Back/Forward
     // return keeps the draft, since the URL may be stale.
     const sameLink = !profSlug || (profSlug === savedProf?.slug && (!code || code === saved?.answers.course?.code));
