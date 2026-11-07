@@ -31,10 +31,10 @@ const Faq = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Frequently Asked Questions</h1>
-            <p className="terms-meta faq-jump">
-              For students: <a href="#students">using the site</a> &middot; For
-              professors: <a href="#professors">your page</a>
-            </p>
+            <ul className="terms-meta faq-jump">
+              <li>For students: <a href="#students">using the site</a></li>
+              <li>For professors: <a href="#professors">your page</a></li>
+            </ul>
           </header>
 
           <div className="terms-body">

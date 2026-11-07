@@ -554,6 +554,13 @@
   transition: border-color 0.15s, color 0.15s;
 }
 
+.goat-rank-help::after {
+  content: '';
+  position: absolute;
+  inset: -4.5px;
+  border-radius: 50%;
+}
+
 .goat-rank-help:hover,
 .goat-rank-help:focus-visible {
   border-color: #d6394c;

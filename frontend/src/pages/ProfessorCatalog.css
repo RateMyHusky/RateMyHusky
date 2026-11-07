@@ -79,6 +79,11 @@
   padding: 0;
 }
 
+.sidebar-header .clear-btn {
+  padding-block: 4px;
+  margin-block: -4px;
+}
+
 .clear-btn:hover {
   text-decoration: underline;
 }
@@ -159,7 +164,8 @@
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
-  padding: 0;
+  padding: 4px 0;
+  margin-block: -4px;
 }
 .dept-clear-btn:hover {
   text-decoration: underline;

@@ -9,7 +9,7 @@ const Privacy = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Privacy Policy</h1>
-            <p className="terms-meta">Effective November 2, 2026 &middot; RateMyHusky</p>
+            <p className="terms-meta">Effective November 2, 2026</p>
           </header>
 
           <div className="terms-body">
