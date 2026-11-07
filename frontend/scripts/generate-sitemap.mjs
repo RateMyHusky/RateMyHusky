@@ -37,11 +37,12 @@ async function fetchAll(endpoint, key) {
   return Array.isArray(data[key]) ? data[key] : [];
 }
 
-function xmlUrl({ loc, changefreq, priority, lastmod }) {
+// No <lastmod>: the API has no per-page update time, and a build date on every URL
+// teaches search engines to ignore the field.
+function xmlUrl({ loc, changefreq, priority }) {
   return [
     '  <url>',
     `    <loc>${loc}</loc>`,
-    lastmod ? `    <lastmod>${lastmod}</lastmod>` : null,
     changefreq ? `    <changefreq>${changefreq}</changefreq>` : null,
     priority ? `    <priority>${priority}</priority>` : null,
     '  </url>',
@@ -54,9 +55,8 @@ function esc(s) {
 }
 
 async function main() {
-  const today = new Date().toISOString().slice(0, 10);
   const urls = STATIC_ROUTES.map((r) =>
-    xmlUrl({ loc: `${SITE}${r.path}`, changefreq: r.changefreq, priority: r.priority, lastmod: today }));
+    xmlUrl({ loc: `${SITE}${r.path}`, changefreq: r.changefreq, priority: r.priority }));
 
   let profCount = 0;
   let courseCount = 0;
@@ -65,7 +65,7 @@ async function main() {
     const professors = await fetchAll('professors-catalog', 'professors');
     for (const p of professors) {
       if (!p.slug) continue;
-      urls.push(xmlUrl({ loc: `${SITE}/professors/${esc(p.slug)}`, changefreq: 'weekly', priority: '0.7', lastmod: today }));
+      urls.push(xmlUrl({ loc: `${SITE}/professors/${esc(p.slug)}`, changefreq: 'weekly', priority: '0.7' }));
       profCount++;
     }
   } catch (e) {
@@ -76,7 +76,7 @@ async function main() {
     const courses = await fetchAll('courses-catalog', 'courses');
     for (const c of courses) {
       if (!c.code) continue;
-      urls.push(xmlUrl({ loc: `${SITE}/courses/${esc(c.code)}`, changefreq: 'weekly', priority: '0.6', lastmod: today }));
+      urls.push(xmlUrl({ loc: `${SITE}/courses/${esc(c.code)}`, changefreq: 'weekly', priority: '0.6' }));
       courseCount++;
     }
   } catch (e) {
@@ -87,7 +87,7 @@ async function main() {
     const departments = await fetchAll('departments/hub', 'departments');
     for (const d of departments) {
       if (!d.slug) continue;
-      urls.push(xmlUrl({ loc: `${SITE}/departments/${esc(d.slug)}`, changefreq: 'weekly', priority: '0.6', lastmod: today }));
+      urls.push(xmlUrl({ loc: `${SITE}/departments/${esc(d.slug)}`, changefreq: 'weekly', priority: '0.6' }));
     }
   } catch (e) {
     console.warn(`[sitemap] could not fetch departments: ${e.message}`);
