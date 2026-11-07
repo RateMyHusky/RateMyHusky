@@ -80,7 +80,11 @@ def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM,
     scrape). Newest first, so an interrupted backfill has already covered the
     terms students are likeliest to ask about. A View Only term newer than
     every open term is next term before registration opens: it is planned
-    every run, whatever is stored, since it cannot have finished.
+    every run, whatever is stored, since it cannot have finished, but after
+    the rest, so a term that just closed gets its final scrape first.
+
+    Each parsed term carries "upcoming", True for such a term: write_term
+    stores it View Only but not finished.
 
     `rescrape` codes are planned whatever their state, in either mode. One
     that getTerms doesn't list is refused rather than silently skipped.
@@ -100,6 +104,8 @@ def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM,
         if code is None or parsed is None:
             continue
         code = str(code)
+        upcoming = parsed["view_only"] and newest_open is not None and int(code) > newest_open
+        parsed = {**parsed, "upcoming": upcoming}
         if code in rescrape:
             picked.append((code, parsed))
         elif mode == "current":
@@ -111,7 +117,6 @@ def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM,
             needs_instructors = (instructors_from is not None
                                  and int(code) >= int(instructors_from)
                                  and sources.get(code) != "banner")
-            upcoming = newest_open is not None and int(code) > newest_open
             if known.get(code) is True and not needs_instructors and not upcoming:   # already finished
                 continue
             picked.append((code, parsed))
@@ -121,7 +126,7 @@ def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM,
     if missing:
         raise ValueError(f"--rescrape {', '.join(sorted(missing))}: not a term in "
                          f"getTerms that this scraper can read")
-    return sorted(picked, key=lambda p: int(p[0]), reverse=True)
+    return sorted(picked, key=lambda p: (p[1]["upcoming"], -int(p[0])))
 
 
 def _fetch_faculty(client, term_code, crns):
@@ -152,8 +157,6 @@ def scrape_term(client, term_code, previous_count=None, today=None,
 
     The result's "ended" is True when an open term's last meeting has already
     passed: its enrollment is final, so the caller stores it as closed.
-    "upcoming" is True when a View Only term has not had its first meeting
-    yet: next term before registration opens, which is not finished.
     "failed_crns" are the teaching sections whose faculty lookup failed even
     after the retry pass; write_term keeps their previous instructor rows.
     """
@@ -184,13 +187,6 @@ def scrape_term(client, term_code, previous_count=None, today=None,
             ended = True
             print(f"{term_code}: last meeting was {max(end_dates)} but Banner has "
                   f"not marked it View Only; storing this scrape as closed")
-    # The other way round: Banner also marks next term View Only until its
-    # registration opens. Before its first meeting no one is enrolled, so the
-    # scrape is no final headcount and the caller must not store it as closed.
-    upcoming = False
-    if view_only:
-        start_dates = section_end_dates(raw_rows, field="startDate")
-        upcoming = bool(start_dates) and min(start_dates) > today
 
     sections = {}
     for raw in raw_rows:
@@ -209,7 +205,7 @@ def scrape_term(client, term_code, previous_count=None, today=None,
 
     if not with_instructors:
         return {"sections": list(sections.values()), "instructors": None,
-                "ended": ended, "upcoming": upcoming, "failed_crns": [], "roster_duplicates": [],
+                "ended": ended, "failed_crns": [], "roster_duplicates": [],
                 "stats": {"section_count": len(sections),
                           "attributed_sections": 0, "instructor_count": 0}}
 
@@ -288,7 +284,6 @@ def scrape_term(client, term_code, previous_count=None, today=None,
         "sections": list(sections.values()),
         "instructors": instructors,
         "ended": ended,
-        "upcoming": upcoming,
         "failed_crns": sorted(crn for crn in to_fetch if fetched.get(crn) is None),
         # Two roster rows that normalize to one name may be two people. Stored,
         # so the matcher can refuse to credit that name to a profile.

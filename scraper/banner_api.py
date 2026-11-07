@@ -277,16 +277,17 @@ def parse_faculty(payload):
     return list(seen.values())
 
 
-def section_end_dates(rows, field="endDate"):
-    """Every meetingTime.endDate (or `field`, e.g. startDate) on these rows, as dates.
+def section_end_dates(rows):
+    """Every meetingTime.endDate on these rows, as dates.
 
     searchResults carries real term boundaries, so "is this term actually in the
-    future" is observable rather than guessed.
+    future" is observable rather than guessed. Used only to validate the term
+    picker's choice.
     """
     out = []
     for row in rows:
         for meeting in row.get("meetingsFaculty") or []:
-            raw = (meeting.get("meetingTime") or {}).get(field)
+            raw = (meeting.get("meetingTime") or {}).get("endDate")
             if raw:
                 try:
                     out.append(datetime.strptime(raw, "%m/%d/%Y").date())
