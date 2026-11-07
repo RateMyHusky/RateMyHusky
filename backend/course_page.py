@@ -26,14 +26,6 @@ def build_catalog(course):
             "nupath": list(course["nupath"] or [])}
 
 
-def recent_cutoff(terms):
-    """banner_terms rows -> the Recent Professors cutoff in the label_code
-    scheme (a year before the term in progress), or None when no label is
-    readable."""
-    current = teaching_history.current_term_code(terms)
-    return current - RECENT_SPAN if current else None
-
-
 def next_term(terms, current):
     """The first semester after the term in progress, as its label, or None. A
     CPS quarter (Winter) between the two is no semester and is skipped."""
@@ -43,20 +35,21 @@ def next_term(terms, current):
     return min(later)[1] if later else None
 
 
-def _card(i, rating, num_ratings):
+def _card(i, by_slug):
     """One professor card: this course's rating and rating count (0 for a
     professor with no reviews of it, None unmatched), their catalog-wide
-    would-take-again."""
+    would-take-again. `by_slug` is the course's professors keyed by slug."""
+    p = by_slug.get(i["slug"], {})
     return {
         "slug": i["slug"], "name": i["name"], "imageUrl": i["imageUrl"],
         "focusX": i["focusX"], "focusY": i["focusY"],
-        "rating": rating.get(i["slug"]),
-        "numRatings": num_ratings.get(i["slug"], 0) if i["slug"] else None,
+        "rating": p.get("rating"),
+        "numRatings": p.get("numRatings", 0) if i["slug"] else None,
         "wouldTakeAgainPct": i["wouldTakeAgainPct"],
     }
 
 
-def build_recent(instructors, professors, cutoff, current=None):
+def build_recent(instructors, by_slug, cutoff, current=None):
     """Instructors who taught the course from `cutoff` through `current` (the
     term in progress; None for no upper bound), newest first (instructors'
     order), one card per professor with only their in-window terms; with none,
@@ -64,8 +57,6 @@ def build_recent(instructors, professors, cutoff, current=None):
     in-window.
     An unmatched instructor has no slug, so is one card per name, which is
     also how the page keys them."""
-    rating = {p["slug"]: p["rating"] for p in professors}
-    num_ratings = {p["slug"]: p["numRatings"] for p in professors}
     recent, seen = [], set()
     for i in instructors:
         terms = [t for t in i["recentTerms"]
@@ -74,21 +65,19 @@ def build_recent(instructors, professors, cutoff, current=None):
         if not terms or key in seen:
             continue
         seen.add(key)
-        recent.append({**_card(i, rating, num_ratings), "terms": terms})
+        recent.append({**_card(i, by_slug), "terms": terms})
     return recent[:RECENT_MAX]
 
 
-def build_next(instructors, professors, label):
+def build_next(instructors, by_slug, label):
     """Instructors Banner has teaching the course in `label`, one card each, in
     instructors' order."""
-    rating = {p["slug"]: p["rating"] for p in professors}
-    num_ratings = {p["slug"]: p["numRatings"] for p in professors}
     out, seen = [], set()
     for i in instructors:
         key = i["slug"] or ("unmatched", i["name"])
         if label in i["recentTerms"] and key not in seen:
             seen.add(key)
-            out.append(_card(i, rating, num_ratings))
+            out.append(_card(i, by_slug))
     return out
 
 
@@ -107,9 +96,10 @@ def _history(code, query, query_one, history_for, professors):
         terms = query(teaching_history.TERMS_SQL)
         current = teaching_history.current_term_code(terms)
         instructors = history["instructors"]
-        recent = build_recent(instructors, professors, current - RECENT_SPAN, current) if current else []
+        by_slug = {p["slug"]: p for p in professors}
+        recent = build_recent(instructors, by_slug, current - RECENT_SPAN, current) if current else []
         label = next_term(terms, current) if current else None
-        upcoming = build_next(instructors, professors, label) if label else []
+        upcoming = build_next(instructors, by_slug, label) if label else []
         last = history["lastOffered"]
         if current and (teaching_history.label_code(last) or 0) > current:
             last = teaching_history.latest_started([t for i in instructors for t in i["recentTerms"]], current)

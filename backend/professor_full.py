@@ -138,13 +138,20 @@ def _course_history(slug, query, course_history_for):
     when they can't be read: history decorates the page and never fails it, and
     failed True keeps the caller from caching the page. `current` is the term in
     progress (teaching_history.current_term), read only when there are courses;
-    it keeps lastTaught off a term that hasn't started."""
+    it keeps lastTaught off a term that hasn't started. A failed read of it
+    keeps the courses, with current None and failed True."""
     try:
         courses = course_history_for(slug, query)
-        return courses, teaching_history.current_term(query) if courses else None, False
     except Exception:
         log.exception("teaching history failed for professor %s", slug)
         return [], None, True
+    if not courses:
+        return courses, None, False
+    try:
+        return courses, teaching_history.current_term(query), False
+    except Exception:
+        log.exception("term in progress failed for professor %s", slug)
+        return courses, None, True
 
 
 def _survey(slug, query):

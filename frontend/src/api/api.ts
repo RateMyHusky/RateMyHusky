@@ -240,7 +240,8 @@ export const fetchPopularTags = () =>
 /* ---- Professor page fetchers ---- */
 /* The Professor page's single round-trip. A signed-out visitor gets RateMyHusky comments
    held back, so the cache is keyed by slug and whether a token went with it; failures are
-   not cached. */
+   not cached. A token the server rejected (expired) gets the signed-out page, which is cached
+   as signed out, so signing in again fetches the comments. */
 export async function fetchProfessorFull(slug: string, signal?: AbortSignal): Promise<Fetched<ProfessorPage>> {
   const key = `${slug}|${localStorage.getItem('auth_token') ? 'in' : 'out'}`;
   const cached = _profPageCache.get(key);
@@ -248,7 +249,7 @@ export async function fetchProfessorFull(slug: string, signal?: AbortSignal): Pr
   const fresh = _ratedProfPages.has(slug);
   const res = await fetchWithStatus<ProfessorPage>(`/api/professors/${encodeURIComponent(slug)}/full`, signal, fresh);
   if (res.ok) {
-    _profPageCache.set(key, res.data);
+    _profPageCache.set(res.data.sources.survey.lockedReviews ? `${slug}|out` : key, res.data);
     _ratedProfPages.delete(slug);
   }
   return res;

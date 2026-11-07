@@ -373,15 +373,17 @@ const Professor = () => {
     return () => { cancelled = true; };
   }, [slug]);
 
-  /* ── signing in on this page: refetch once so the held-back RateMyHusky comments appear ── */
-  const { user } = useAuth();
+  /* ── signing in or out on this page: refetch once, so the held-back RateMyHusky comments
+     appear on sign-in and leave the page on sign-out ── */
+  const { user, loading: authLoading } = useAuth();
   const locked = (profile?.sources.survey.lockedReviews ?? 0) > 0;
+  const hasRmhComments = (profile?.sources.survey.reviews?.length ?? 0) > 0;
   useEffect(() => {
-    if (!user || !slug || !locked) return;
+    if (!slug || authLoading || (user ? !locked : !hasRmhComments)) return;
     let cancelled = false;
     fetchProfessorFull(slug).then((res) => { if (!cancelled && res.ok) setProfile(res.data); });
     return () => { cancelled = true; };
-  }, [user, slug, locked]);
+  }, [user, authLoading, slug, locked, hasRmhComments]);
 
   const reviews = useMemo(() => profile?.sources.rmp.reviews ?? [], [profile]);
   const redditMentions = useMemo(() => profile?.redditMentions ?? [], [profile]);

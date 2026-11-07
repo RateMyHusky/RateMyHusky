@@ -88,13 +88,16 @@ TERMS_SQL = "SELECT term_label AS label, view_only, track FROM banner_terms"
 
 def current_term_code(terms):
     """banner_terms rows -> the term in progress in the label_code scheme, or
-    None when no label is readable. It is the earliest open one (Banner opens
-    next term for registration months before it starts), else the newest;
-    labels that don't parse are skipped."""
-    readable = [(t["view_only"], label_code(t["label"])) for t in terms]
-    readable = [(closed, c) for closed, c in readable if c]
-    open_codes = [c for closed, c in readable if not closed]
-    return min(open_codes) if open_codes else max((c for _, c in readable), default=None)
+    None when no label is readable. It is the earliest open semester (Banner
+    opens next term for registration months before it starts), else the
+    earliest open term, else the newest; labels that don't parse are skipped.
+    A CPS quarter overlaps the semesters (Winter runs inside Spring, Spring's
+    quarter into Summer), so an open one beside an open semester is not it."""
+    readable = [(t["view_only"], "Quarter" in (t.get("track") or ""), label_code(t["label"])) for t in terms]
+    readable = [r for r in readable if r[2]]
+    open_codes = [c for closed, quarter, c in readable if not closed and not quarter] \
+        or [c for closed, _, c in readable if not closed]
+    return min(open_codes) if open_codes else max((c for *_, c in readable), default=None)
 
 
 def current_term(query):

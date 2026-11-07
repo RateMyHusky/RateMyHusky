@@ -293,6 +293,33 @@ def test_label_code_is_none_for_a_label_it_cannot_read(label):
     assert th.label_code(label) is None
 
 
+def test_current_term_skips_unreadable_labels_and_falls_back_to_the_newest_term():
+    assert th.current_term_code([{"label": "Fall A 2026", "view_only": False},
+                                 {"label": "Fall 2026", "view_only": False}]) == 202710
+    assert th.current_term_code([{"label": "Fall 2025", "view_only": True},
+                                 {"label": "Spring 2026", "view_only": True}]) == 202630
+    assert th.current_term_code([{"label": "Fall A 2026", "view_only": False}]) is None
+
+
+def test_an_open_cps_quarter_is_not_the_term_in_progress_beside_an_open_semester():
+    # January: Fall has closed, Winter 2027 CPS Quarter (202725) and the Spring
+    # 2027 semester (202730) are both open, and it is Spring that is running.
+    terms = [{"label": "Spring 2027", "view_only": False, "track": "Semester"},
+             {"label": "Winter 2027", "view_only": False, "track": "CPS Quarter"},
+             {"label": "Fall 2026", "view_only": True, "track": "Semester"}]
+    assert th.current_term_code(terms) == 202730
+    # Spring 2026 CPS Quarter runs into June, beside the Summer 2026 semester.
+    terms = [{"label": "Summer 2026", "view_only": False, "track": "Semester"},
+             {"label": "Spring 2026", "view_only": False, "track": "CPS Quarter"}]
+    assert th.current_term_code(terms) == 202650
+
+
+def test_an_open_quarter_counts_when_no_semester_is_open():
+    terms = [{"label": "Winter 2027", "view_only": False, "track": "CPS Quarter"},
+             {"label": "Spring 2027", "view_only": True, "track": "Semester"}]
+    assert th.current_term_code(terms) == 202725
+
+
 # ── names ───────────────────────────────────────────────────────────────
 
 def test_display_name_flips_banner_order():

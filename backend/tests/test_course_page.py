@@ -198,15 +198,6 @@ def test_a_future_term_open_for_registration_does_not_shift_the_cutoff():
     assert recent[0]["terms"] == ["Fall 2026", "Summer 1 2026", "Spring 2026", "Fall 2025"]
 
 
-def test_cutoff_skips_unreadable_labels_and_falls_back_to_the_newest_term():
-    from course_page import recent_cutoff
-    assert recent_cutoff([{"label": "Fall A 2026", "view_only": False},
-                          {"label": "Fall 2026", "view_only": False}]) == 202610
-    assert recent_cutoff([{"label": "Fall 2025", "view_only": True},
-                          {"label": "Spring 2026", "view_only": True}]) == 202530
-    assert recent_cutoff([{"label": "Fall A 2026", "view_only": False}]) is None
-
-
 def test_unmatched_instructors_with_one_name_get_one_card():
     history = {**HISTORY, "instructors": [
         _inst(None, "Jane Q Doe", ["Fall 2026"]), _inst(None, "Jane Q Doe", ["Spring 2026"]),
@@ -523,6 +514,20 @@ def test_last_taught_is_never_a_term_that_has_not_started():
     assert data["history"]["lastOffered"] == "Fall 2026"
     olin = next(p for p in data["professors"] if p["slug"] == "olin-guha")
     assert olin["lastTerm"] == "Fall 2026"
+
+
+def test_spring_is_in_progress_while_the_cps_winter_quarter_is_open():
+    # January: Fall is View Only, and Winter 2027 (202725) sorts before the
+    # Spring 2027 semester that is running. Spring is no "next semester".
+    terms = [{"label": "Spring 2027", "view_only": False, "track": "Semester"},
+             {"label": "Winter 2027", "view_only": False, "track": "CPS Quarter"},
+             {"label": "Fall 2026", "view_only": True, "track": "Semester"}]
+    data = _with_history(NEXT_HISTORY, terms=terms)
+    h = data["history"]
+    assert (h["lastOffered"], h["nextTerm"], h["nextInstructors"]) == ("Spring 2027", None, [])
+    assert h["recentInstructors"][0]["name"] == "New Prof"
+    olin = next(p for p in data["professors"] if p["slug"] == "olin-guha")
+    assert olin["lastTerm"] == "Spring 2027"
 
 
 def test_professor_rows_carry_this_courses_hours_per_week():
