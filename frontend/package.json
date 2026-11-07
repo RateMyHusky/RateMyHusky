@@ -9,6 +9,7 @@
     "prebuild": "node scripts/generate-sitemap.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test:routes": "tsx spaRoutes.selftest.ts",
     "test:compare": "tsx src/utils/compareScore.selftest.ts",
     "test:rate": "tsx src/pages/rate/rateFlow.selftest.ts && tsx src/pages/rate/rateDraft.selftest.ts",
     "preview": "vite preview"
