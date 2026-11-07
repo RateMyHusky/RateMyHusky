@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { StepFoot } from './ChoiceGroup';
+import { COMMENT_MAX, commentCountLabel } from './rateFlow';
 
 // Measuring collapses the box for a moment, which can pull a page scrolled to the bottom up, so the scroll is put back.
 function fit(t: HTMLTextAreaElement) {
@@ -31,6 +32,8 @@ export function CommentStep({ value, onChange, onSubmit, onBack, submitting, edi
   const [honeypot, setHoneypot] = useState('');
   const checkError = errorAtCheck ? error : '';
   const ref = useRef<HTMLTextAreaElement>(null);
+  const countId = useId();
+  const count = commentCountLabel(value.length);
 
   // Grows with the text; the CSS max-height caps it and the box scrolls inside past that.
   useLayoutEffect(() => {
@@ -59,13 +62,15 @@ export function CommentStep({ value, onChange, onSubmit, onBack, submitting, edi
         ref={ref}
         className="rate-input rate-textarea"
         aria-label="Anything other students should know?"
-        maxLength={2000}
+        maxLength={COMMENT_MAX}
+        aria-describedby={count ? countId : undefined}
         rows={5}
         placeholder="Optional"
         value={value}
         readOnly={editLocked}
         onChange={(e) => onChange(e.target.value)}
       />
+      {count && <p className={`rate-count${value.length >= COMMENT_MAX ? ' is-out' : ''}`} id={countId}>{count}</p>}
       <input
         type="text"
         name="website"
@@ -92,7 +97,7 @@ export function CommentStep({ value, onChange, onSubmit, onBack, submitting, edi
         </button>
         {!updating && (
           <button type="button" className="rate-ghost" disabled={submitting} onClick={() => onSubmit(true, honeypot)}>
-            Skip and submit
+            {value.trim() ? 'Submit without comment' : 'Skip and submit'}
           </button>
         )}
       </StepFoot>
