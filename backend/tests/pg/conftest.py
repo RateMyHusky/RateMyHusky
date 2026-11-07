@@ -73,6 +73,9 @@ def live_server(pg_url, monkeypatch):
     monkeypatch.setattr(server, "_pool", None)
     monkeypatch.setattr(server, "cache_get", lambda key: None)
     monkeypatch.setattr(server, "cache_set", lambda key, data: None)
+    # Fresh buckets per test: on a fast runner the parametrized searches put over
+    # 20 requests into one second, and the default "20 per second" 429s the rest.
+    server.limiter.reset()
     yield server
     if server._pool is not None:
         server._pool.closeall()

@@ -19,6 +19,7 @@ history" so a page never fails over a decoration.
 import json
 import re
 from datetime import datetime, timedelta, timezone
+from pipeline.names import tidy_name
 
 # Courses replaced by a redesigned one, not renumbered: the content changed,
 # so reviews stay on the old code and the two pages link to each other
@@ -58,11 +59,11 @@ _SEASON_CODES = {"Fall": (1, 10), "Winter": (0, 25), "Spring": (0, 30), "Summer 
 
 
 def display_name(banner_name):
-    """Banner's "Last, First Middle" -> "First Middle Last"."""
+    """Banner's "Last, First Middle" -> "First Middle Last", then unescaped and recased by tidy_name."""
     if not banner_name:
         return banner_name
     last, sep, first = banner_name.partition(",")
-    return f"{first.strip()} {last.strip()}" if sep and first.strip() else banner_name.strip()
+    return tidy_name(f"{first.strip()} {last.strip()}" if sep and first.strip() else banner_name.strip())
 
 
 def _terms(joined):
