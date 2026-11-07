@@ -31,8 +31,8 @@ const Terms = () => {
                 (NUBanner), faculty directory pages, and teaching award announcements, and from
                 publicly available discussion
                 on Reddit{RATE_ENABLED ? ', and it also includes ratings that students submit through the rating form on this site' : ''}.
-                Alongside that source data we show figures we compute from it — averages, blended
-                ratings, department comparisons, and sentiment labels derived from Reddit text.
+                Alongside that source data we show figures we compute from it, such as averages,
+                blended ratings, department comparisons, and sentiment labels derived from Reddit text.
                 Those are our estimates, not numbers published by any source.
               </p>
               <p>
@@ -266,7 +266,7 @@ const Terms = () => {
                   feedback{RATE_ENABLED ? ' and rating forms' : ' form'}, or a maintenance page
                 </li>
                 <li>
-                  Use data from this platform — including review text and Reddit excerpts — to
+                  Use data from this platform, including review text and Reddit excerpts, to
                   harass, target, defame, or harm any individual professor or instructor
                 </li>
                 <li>Attempt to reverse-engineer, overload, or otherwise disrupt the service</li>
@@ -323,7 +323,7 @@ const Terms = () => {
                 page, imported ratings and comments, and Reddit mentions are deleted,
                 {RATE_ENABLED ? ' ratings submitted through our own rating form about you are deleted on request,' : ''} and your name is added to a removal list that every data
                 loader checks, so a later refresh does not bring them back. We cannot remove your
-                data from RateMyProfessors or Reddit themselves — contact those sources
+                data from RateMyProfessors or Reddit themselves; please contact those sources
                 directly. Our <a href="/privacy">Privacy Policy</a> describes what we publish and
                 the limits of what removal covers.
               </p>
@@ -339,8 +339,8 @@ const Terms = () => {
               <p>
                 Professor ratings and review comments are sourced from external
                 systems{RATE_ENABLED ? ' and from students' : ''}, and may be
-                incomplete, outdated, or inaccurate. Figures we compute — blended ratings,
-                averages, and Reddit sentiment labels — depend
+                incomplete, outdated, or inaccurate. Figures we compute (blended ratings,
+                averages, and Reddit sentiment labels) depend
                 on that source data and on matching a professor's name across systems that spell
                 it differently, so they can be wrong even when the sources are right. RateMyHusky
                 makes no guarantees about the accuracy, completeness, or timeliness of anything

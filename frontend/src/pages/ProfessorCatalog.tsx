@@ -19,6 +19,7 @@ import BookmarkButton from '../components/BookmarkButton';
 import Seo from '../components/Seo';
 import { getInitials, splitProfName, stripPrefix } from '../utils/nameUtils';
 import { useDebouncedValue } from '../utils/useDebouncedValue';
+import { useScrollLock } from '../utils/useScrollLock';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
 
 import './ProfessorCatalog.css';
@@ -131,8 +132,7 @@ export default function ProfessorCatalog() {
   }, []);
 
   useEffect(() => {
-    document.body.style.overflow = sidebarOpen ? 'hidden' : '';
-    if (!sidebarOpen) return () => { document.body.style.overflow = ''; };
+    if (!sidebarOpen) return;
     const handler = (e: TouchEvent) => {
       if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
         setSidebarOpen(false);
@@ -140,10 +140,10 @@ export default function ProfessorCatalog() {
     };
     document.addEventListener('touchmove', handler, { passive: true });
     return () => {
-      document.body.style.overflow = '';
       document.removeEventListener('touchmove', handler);
     };
   }, [sidebarOpen]);
+  useScrollLock(sidebarOpen);
 
 
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => (localStorage.getItem('catalog-view') as 'grid' | 'list') || 'grid');
