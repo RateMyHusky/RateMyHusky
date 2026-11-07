@@ -1,5 +1,5 @@
 # CI for every push and PR. Mirrors what the real deploys gate:
-#   frontend  -> tsc + vite build (what fails a Vercel deploy) + rate form selftests
+#   frontend  -> tsc + vite build (what fails a Vercel deploy) + compare score and rate form selftests
 #   backend   -> pip install + pytest (deps + "does server.py import")
 #   backend-pg -> pytest tests/pg against PostgreSQL 16 + pgvector (SSL on)
 #   scraper   -> pytest scraper/tests (offline fixtures + in-memory sqlite)
@@ -46,6 +46,8 @@ jobs:
           SITEMAP_API_URL: http://127.0.0.1:9
       # Inline script hashes match the CSP; GA tags survive the build.
       - run: node scripts/check-inline-scripts.mjs
+      # The /compare scoring and verdict sentences.
+      - run: npm run test:compare
       # The rate form's step flow and draft storage selftests.
       - run: npm run test:rate
 
