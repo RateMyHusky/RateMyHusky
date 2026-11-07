@@ -300,6 +300,7 @@
 .prof-course-row:hover { background: #fef8f8; }
 .prof-course-row.selected { background: #fff5f5; border-left: 4px solid #d6394c; padding-left: 24px; }
 .prof-course-row-static { cursor: default; }
+.prof-course-row-static:hover { background: transparent; }
 .prof-course-row-main { display: flex; align-items: center; gap: 12px; }
 .prof-course-code { font-weight: 800; font-size: 0.95rem; color: #d6394c; min-width: 100px; flex-shrink: 0; }
 .prof-course-title { flex: 1; font-size: 0.95rem; font-weight: 600; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -711,6 +712,7 @@
 .dark .prof-courses-compact { background: #242424; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
 .dark .prof-course-row { border-bottom-color: #333; }
 .dark .prof-course-row:hover { background: #2e2020; }
+.dark .prof-course-row-static:hover { background: transparent; }
 .dark .prof-course-row.selected { background: #2e2020; border-left-color: #d6394c; }
 .dark .prof-course-title { color: #ccc; }
 .dark .prof-course-terms { color: #777; }

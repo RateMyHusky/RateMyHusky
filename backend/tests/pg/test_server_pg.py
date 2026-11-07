@@ -232,6 +232,23 @@ def test_catalog_pages_show_each_professor_once_when_sort_values_tie(live_server
     truncate(pg, "professors_catalog")
 
 
+def test_catalog_rating_sorts_weight_by_number_of_ratings(live_server, pg):
+    # Prior = mean of rows with >= 30 reviews = (4.8 + 2.0) / 2 = 3.4. With m = 50:
+    # many-high 4.52, one-five 3.43, one-one 3.35, many-low 2.28.
+    truncate(pg, "professors_catalog")
+    rows = [("many-high", 4.8, 200), ("one-five", 5.0, 1), ("one-one", 1.0, 1), ("many-low", 2.0, 200)]
+    with pg.cursor() as cur:
+        for slug, avg, n in rows:
+            cur.execute("INSERT INTO professors_catalog (slug, name, name_key, total_reviews, avg_rating, total_comments) "
+                        "VALUES (%s, %s, %s, %s, %s, 0)", (slug, slug, slug.replace("-", " "), n, avg))
+    pg.commit()
+    client = live_server.app.test_client()
+    order = lambda sort: [p["slug"] for p in client.get(f"/api/professors-catalog?sort={sort}&limit=10").get_json()["professors"]]
+    assert order("rating") == ["many-high", "one-five", "one-one", "many-low"]
+    assert order("rating_asc") == ["many-low", "one-one", "one-five", "many-high"]
+    truncate(pg, "professors_catalog")
+
+
 @pytest.mark.parametrize("q, slug", [
     ("obrien", "david-o-brien"),
     ("o’brien", "david-o-brien"),

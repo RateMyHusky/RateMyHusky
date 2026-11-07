@@ -11,7 +11,7 @@ import { ThanksStep } from './rate/ThanksStep';
 import { Celebration } from './rate/Celebration';
 import { ChoiceGroup, StepFoot } from './rate/ChoiceGroup';
 import { ProgressBar } from './rate/ProgressBar';
-import { useMediaQuery } from './rate/useMediaQuery';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import type { ChoiceOption } from './rate/ChoiceGroup';
 import {
   DIFFICULTY, GRADES, HOURS, OVERALL, answer, buildSubmission, contextTags, courseGroups, depth, firstStep, formatCode,

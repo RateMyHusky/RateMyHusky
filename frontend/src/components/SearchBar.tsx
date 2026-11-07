@@ -368,6 +368,7 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
       <div className="search-bar">
         <div onMouseDown={() => setShowSuggestions(false)}>
           <Dropdown
+            ariaLabel="Search type"
             className="search-dropdown"
             options={searchOptions}
             value={searchType}
