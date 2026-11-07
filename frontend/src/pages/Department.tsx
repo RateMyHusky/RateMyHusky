@@ -4,6 +4,7 @@ import { fetchDepartmentDetail, type DepartmentDetail, type DepartmentProfessor 
 import Footer from '../components/Footer';
 import Breadcrumbs from '../components/Breadcrumbs';
 import Seo from '../components/Seo';
+import LoadError from '../components/LoadError';
 import NotFound from './NotFound';
 import './Course.css';
 import './Department.css';
@@ -23,21 +24,20 @@ export default function Department() {
   const { slug = '' } = useParams<{ slug: string }>();
   const [department, setDepartment] = useState<DepartmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<'not_found' | 'failed' | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('avgRating');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    setNotFound(false);
-    fetchDepartmentDetail(slug).then(data => {
+    setLoadError(null);
+    fetchDepartmentDetail(slug).then(res => {
       if (cancelled) return;
-      if (!data) {
+      if (res.ok) setDepartment(res.data);
+      else {
         setDepartment(null);
-        setNotFound(true);
-      } else {
-        setDepartment(data);
+        setLoadError(res.status === 404 ? 'not_found' : 'failed');
       }
       setLoading(false);
     });
@@ -83,9 +83,8 @@ export default function Department() {
     );
   }
 
-  if (notFound || !department) {
-    return <NotFound />;
-  }
+  if (loadError === 'not_found') return <NotFound kind="department" />;
+  if (loadError || !department) return <div className="course-page"><LoadError /></div>;
 
   const { name, professorCount, avgRating } = department;
   const top = linkedProfessors.length ? [...linkedProfessors].sort((a, b) => (b.avgRating ?? -1) - (a.avgRating ?? -1))[0] : null;

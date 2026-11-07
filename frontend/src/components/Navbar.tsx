@@ -5,6 +5,7 @@ import { Link, NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { RATE_ENABLED } from '../config';
 import SignInModal from './SignInModal';
+import { dialogOpen } from '../utils/useDialog';
 import { clearPendingBookmark } from '../utils/pendingBookmark';
 import './Navbar.css';
 
@@ -16,6 +17,8 @@ const Navbar = () => {
   const [signInReason, setSignInReason] = useState<string | undefined>();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [pillStyle, setPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
   const [isReady, setIsReady] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -102,6 +105,28 @@ const Navbar = () => {
   }, [updatePill]);
 
 
+  // Esc closes the mobile menu and returns focus to the hamburger; an Esc a nested widget
+  // already handled (defaultPrevented), or one meant for an open dialog, is left alone.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented && !dialogOpen()) {
+        setMenuOpen(false);
+        hamburgerRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
+
+  // Focus leaving both the hamburger and the menu closes the menu.
+  const handleMenuBlur = (e: React.FocusEvent) => {
+    const next = e.relatedTarget as Node | null;
+    if (menuOpen && next && !menuRef.current?.contains(next) && !hamburgerRef.current?.contains(next)) {
+      setMenuOpen(false);
+    }
+  };
+
   // Close user dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -131,9 +156,13 @@ const Navbar = () => {
 
       {/* Hamburger button — mobile only */}
       <button
+        ref={hamburgerRef}
         className={`hamburger ${menuOpen ? 'open' : ''}`}
         onClick={() => { if (!menuOpen) window.dispatchEvent(new CustomEvent('close-filter-sidebar')); setMenuOpen(!menuOpen); }}
         aria-label="Toggle menu"
+        aria-expanded={menuOpen}
+        aria-controls="navbar-menu"
+        onBlur={handleMenuBlur}
       >
         <span />
         <span />
@@ -141,7 +170,7 @@ const Navbar = () => {
       </button>
 
       {/* Nav links — slides in on mobile */}
-      <div className={`navbar-right ${menuOpen ? 'show' : ''}`}>
+      <div id="navbar-menu" ref={menuRef} onBlur={handleMenuBlur} className={`navbar-right ${menuOpen ? 'show' : ''}`}>
         <div className="nav-links-container" ref={containerRef}>
           <div 
             className={`nav-pill-background ${isReady ? 'animate' : ''}`}
@@ -206,13 +235,13 @@ const Navbar = () => {
             )}
           </div>
         ) : (
-          <button className="signin-btn" onClick={() => { clearPendingBookmark(); setSignInReason(undefined); setShowSignIn(true); setMenuOpen(false); }}>Sign In</button>
+          <button className="signin-btn" onClick={() => { if (menuOpen) hamburgerRef.current?.focus(); clearPendingBookmark(); setSignInReason(undefined); setShowSignIn(true); setMenuOpen(false); }}>Sign In</button>
         )}
 
         <div className="navbar-util-spacer" />
 
         <div className="navbar-utilities">
-          <button className="navbar-utility-item" onClick={() => { window.dispatchEvent(new CustomEvent('open-feedback')); setMenuOpen(false); }}>
+          <button className="navbar-utility-item" onClick={() => { if (menuOpen) hamburgerRef.current?.focus(); window.dispatchEvent(new CustomEvent('open-feedback')); setMenuOpen(false); }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
             </svg>

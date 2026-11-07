@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
 import DualRangeSlider from '../components/DualRangeSlider';
 import {
@@ -17,6 +17,10 @@ import StarRating from '../components/StarRating';
 import BookmarkButton from '../components/BookmarkButton';
 import Seo from '../components/Seo';
 import { useDebouncedValue } from '../utils/useDebouncedValue';
+import { useCatalogScroll } from '../utils/useCatalogScroll';
+import { useUrlFilters } from '../utils/useUrlFilters';
+import { useDialog } from '../utils/useDialog';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import './ProfessorCatalog.css';
 import './Courses.css';
 
@@ -80,16 +84,18 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
 	return next;
 }
 
+// Discrete picks add a history entry; typing and slider drags replace the current one.
+const PUSH_KEYS = new Set<keyof Filters>(['page', 'sort', 'dept']);
+
 export default function Courses() {
 	const navigate = useNavigate();
-	const [searchParams, setSearchParams] = useSearchParams();
-
-	const [filters, setFilters] = useState<Filters>(() => getFiltersFromSearchParams(searchParams));
+	const { filters, setFilters, searchParams } = useUrlFilters(getFiltersFromSearchParams, buildSearchParamsFromFilters);
 	const [departments, setDepartments] = useState<string[]>([]);
 	const [courses, setCourses] = useState<CatalogCourse[]>([]);
 	const [total, setTotal] = useState(0);
 	const [totalPages, setTotalPages] = useState(1);
 	const [loading, setLoading] = useState(true);
+	const [shownFor, setShownFor] = useState(''); // the URL query the shown results belong to
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const [deptOpen, setDeptOpen] = useState(false);
 	const [sortOpen, setSortOpen] = useState(false);
@@ -100,19 +106,16 @@ export default function Courses() {
 		return () => window.removeEventListener('close-filter-sidebar', close);
 	}, []);
 
+	// A touch-scroll outside the drawer closes it.
 	useEffect(() => {
-		document.body.style.overflow = sidebarOpen ? 'hidden' : '';
-		if (!sidebarOpen) return () => { document.body.style.overflow = ''; };
+		if (!sidebarOpen) return;
 		const handler = (e: TouchEvent) => {
 			if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
 				setSidebarOpen(false);
 			}
 		};
 		document.addEventListener('touchmove', handler, { passive: true });
-		return () => {
-			document.body.style.overflow = '';
-			document.removeEventListener('touchmove', handler);
-		};
+		return () => document.removeEventListener('touchmove', handler);
 	}, [sidebarOpen]);
 
 	const [minRatingDraft, setMinRatingDraft] = useState(() => getFiltersFromSearchParams(searchParams).minRating);
@@ -133,6 +136,11 @@ export default function Courses() {
 	const searchInputRef = useRef<HTMLInputElement>(null);
 	const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const sidebarRef = useRef<HTMLElement>(null);
+	const sidebarCloseRef = useRef<HTMLButtonElement>(null);
+	const isDrawer = useMediaQuery('(max-width: 900px)');
+	// At 900px and below the sidebar is a modal drawer: focus moves to its × and back to Filters,
+	// and it gets the Tab trap, Esc and scroll lock.
+	useDialog(sidebarOpen && isDrawer, () => setSidebarOpen(false), sidebarRef, sidebarCloseRef);
 
 	const [numCols, setNumCols] = useState(4);
 	const [isMeasured, setIsMeasured] = useState(false);
@@ -165,6 +173,7 @@ export default function Courses() {
 	useEffect(() => {
 		if (!isMeasured) return;
 		let cancelled = false; // a slower, older response must not overwrite a newer one
+		const viewKey = buildSearchParamsFromFilters({ ...filters, q: debouncedQ }).toString();
 		setLoading(true);
 		fetchCoursesCatalog({
 			q: debouncedQ || undefined,
@@ -184,36 +193,19 @@ export default function Courses() {
 			})
 			.catch(console.error)
 			.finally(() => {
-				if (!cancelled) setLoading(false);
+				if (!cancelled) {
+					setLoading(false);
+					setShownFor(viewKey);
+				}
 			});
 		return () => {
 			cancelled = true;
 		};
 	}, [debouncedQ, filters.dept, filters.minRating, filters.maxRating, filters.sort, filters.page, pageSize, isMeasured]);
 
-	useEffect(() => {
-		const next = buildSearchParamsFromFilters(filters);
-		if (next.toString() !== searchParams.toString()) {
-			setSearchParams(next, { replace: true });
-		}
-	}, [filters, searchParams, setSearchParams]);
+	// Restore only once the shown results are the ones this URL describes; on Back they are still the old page's.
+	useCatalogScroll(!loading && shownFor === buildSearchParamsFromFilters(getFiltersFromSearchParams(searchParams)).toString());
 
-	useEffect(() => {
-		const fromUrl = getFiltersFromSearchParams(searchParams);
-		setFilters((prev) => {
-			if (
-				prev.q === fromUrl.q &&
-				prev.dept === fromUrl.dept &&
-				prev.minRating === fromUrl.minRating &&
-				prev.maxRating === fromUrl.maxRating &&
-				prev.sort === fromUrl.sort &&
-				prev.page === fromUrl.page
-			) {
-				return prev;
-			}
-			return fromUrl;
-		});
-	}, [searchParams]);
 
 	useEffect(() => setMinRatingDraft(filters.minRating), [filters.minRating]);
 	useEffect(() => setMaxRatingDraft(filters.maxRating), [filters.maxRating]);
@@ -223,8 +215,8 @@ export default function Courses() {
 			...f,
 			[key]: value,
 			page: key !== 'page' ? 1 : (value as number),
-		}));
-	}, []);
+		}), PUSH_KEYS.has(key));
+	}, [setFilters]);
 
 	useEffect(() => {
 		const timeoutId = setTimeout(() => {
@@ -240,7 +232,9 @@ export default function Courses() {
 		return () => clearTimeout(timeoutId);
 	}, [maxRatingDraft, filters.maxRating, updateFilter]);
 
-	const clearFilters = () => setFilters(DEFAULT_FILTERS);
+	const clearFilters = () => {
+		setFilters(DEFAULT_FILTERS, true);
+	};
 
 	const handleSearchSelect = useCallback(
 		(suggestion: CourseSuggestion) => {
@@ -324,11 +318,17 @@ export default function Courses() {
 									Clear all
 								</button>
 							)}
+							<button type="button" className="sidebar-close" aria-label="Close filters" ref={sidebarCloseRef} onClick={() => setSidebarOpen(false)}>
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+									<line x1="18" y1="6" x2="6" y2="18" />
+									<line x1="6" y1="6" x2="18" y2="18" />
+								</svg>
+							</button>
 						</div>
 
 						<div className="filter-section">
-							<p className="filter-label">Sort by</p>
-							<Dropdown options={SORT_OPTIONS} value={filters.sort} onChange={(v) => updateFilter('sort', v as Filters['sort'])} onOpenChange={setSortOpen} />
+							<p className="filter-label" id="course-sort-label">Sort by</p>
+							<Dropdown ariaLabelledBy="course-sort-label" options={SORT_OPTIONS} value={filters.sort} onChange={(v) => updateFilter('sort', v as Filters['sort'])} onOpenChange={setSortOpen} />
 						</div>
 
 						<div className="filter-section">
@@ -379,6 +379,7 @@ export default function Courses() {
 								})}
 							</div>
 						</div>
+						<div className="sidebar-results"><button type="button" className="sidebar-results-btn" onClick={() => setSidebarOpen(false)}>{loading ? 'Show results' : total === 1 ? 'Show 1 result' : `Show ${total.toLocaleString()} results`}</button></div>
 					</div>
 				</aside>
 
@@ -529,6 +530,7 @@ function DepartmentFilter({
 	const toggle = (o: boolean) => { setOpen(o); onOpenChange?.(o); };
 	const [search, setSearch] = useState('');
 	const ref = useRef<HTMLDivElement>(null);
+	const toggleRef = useRef<HTMLButtonElement>(null);
 	const filtered = departments.filter((d) => d.toLowerCase().includes(search.toLowerCase()));
 	const selectedSet = useMemo(() => new Set(selected ? selected.split(FILTER_SEPARATOR) : []), [selected]);
 
@@ -567,8 +569,19 @@ function DepartmentFilter({
 				: `${selectedSet.size} departments`;
 
 	return (
-		<div className="dept-filter" ref={ref}>
+		<div
+			className="dept-filter"
+			ref={ref}
+			// Escape closes, and so does tabbing out (the mousedown listener only catches clicks).
+			onKeyDown={(e) => {
+				if (e.key === 'Escape' && open) { e.preventDefault(); toggle(false); toggleRef.current?.focus(); }
+			}}
+			onBlur={(e) => {
+				if (open && e.relatedTarget && !ref.current?.contains(e.relatedTarget as Node)) toggle(false);
+			}}
+		>
 			<button
+				ref={toggleRef}
 				className={`dept-toggle ${open ? 'open' : ''}`}
 				onClick={() => toggle(!open)}
 				aria-expanded={open}
