@@ -457,7 +457,8 @@ def test_courses_catalog_recent_without_banner_tables_sorts_by_rating(monkeypatc
     ("/api/courses-catalog?sort=alpha_desc", "ORDER BY lower(code) DESC"),
     ("/api/courses-catalog?sort=rating_asc", "ORDER BY avg_rating ASC NULLS LAST, lower(code) ASC"),
     ("/api/professors-catalog?sort=alpha_desc", "ORDER BY lower(name) DESC, slug DESC"),
-    ("/api/professors-catalog?sort=rating_asc", "ORDER BY avg_rating ASC NULLS LAST, slug ASC"),
+    ("/api/professors-catalog?sort=rating_asc",
+     f"ORDER BY {server.RANKING_SCORE_SQL} ASC NULLS LAST, total_reviews DESC NULLS LAST, slug ASC"),
 ])
 def test_catalogs_sort_in_reverse(monkeypatch, path, order):
     seen = []

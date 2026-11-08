@@ -151,6 +151,25 @@ def test_prior_falls_back_when_nothing_is_well_evidenced():
         pytest.approx(server.FALLBACK_PRIOR)
 
 
+def test_cached_prior_is_measured_once_per_data_version(monkeypatch):
+    # The board and both rating sorts share one measurement; a catalog reload
+    # bumps data_version and the next request measures again.
+    version = {"v": 1}
+    calls = []
+    monkeypatch.setattr(server, "data_version", lambda: version["v"])
+    monkeypatch.setattr(server, "query_one", lambda sql, params: calls.append(1) or {"prior": 4.2})
+    server._cache.clear()
+    try:
+        assert server.cached_ranking_prior() == pytest.approx(4.2)
+        assert server.cached_ranking_prior() == pytest.approx(4.2)
+        assert len(calls) == 1
+        version["v"] = 2
+        server.cached_ranking_prior()
+        assert len(calls) == 2
+    finally:
+        server._cache.clear()
+
+
 def test_prior_is_not_college_specific():
     # A per-college prior ranks professors against their own college, which is
     # department-relative ranking under another name — considered and rejected;
@@ -359,7 +378,7 @@ def test_the_limit_is_clamped_and_the_floor_is_not_a_parameter(monkeypatch, args
     monkeypatch.setattr(server, "cache_set", lambda key, val: None)
     with server.app.test_request_context(f"/api/goat-professors?college=Khoury&{args}&min_reviews=1"):
         server.goat_professors()
-    assert seen == [f"goat:v8:Khoury:{limit}",
+    assert seen == [f"goat:v8:Khoury:{limit}", "ranking_prior",
                     ("Khoury", server.BOARD_FILL_MIN_REVIEWS, C, server.BOARD_MIN_REVIEWS, C, limit)]
 
 

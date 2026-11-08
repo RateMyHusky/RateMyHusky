@@ -324,5 +324,6 @@ def test_an_open_quarter_counts_when_no_semester_is_open():
 
 def test_display_name_flips_banner_order():
     assert th.display_name("Nunez, Lucia") == "Lucia Nunez"
+    assert th.display_name("O&#39;ROURKE, MATTHEW") == "Matthew O'Rourke"
     assert th.display_name("Madonna") == "Madonna"
     assert th.display_name(None) is None

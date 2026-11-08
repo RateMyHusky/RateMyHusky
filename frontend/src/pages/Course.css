@@ -78,7 +78,7 @@
 	animation: courseSlideUp 0.5s 0.2s ease both;
 }
 
-.course-dept-link { color: inherit; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: color 0.15s, text-decoration-color 0.15s; }
+.course-dept-link { color: inherit; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: color 0.15s, text-decoration-color 0.15s; display: inline-block; padding-block: 4px; margin-block: -4px; }
 .course-dept-link:hover, .course-dept-link:focus-visible { color: #d6394c; text-decoration-color: currentColor; }
 
 
@@ -100,6 +100,16 @@
 		grid-auto-flow: column;
 		grid-auto-columns: 1fr;
 	}
+}
+
+/* 541-1279px: 6 tracks, cards span 2. 6 cards: 3 + 3. 5 cards: 3 over 2 halves. 4 cards: 2 + 2. */
+@media (min-width: 541px) and (max-width: 1279px) {
+	.course-stats-grid { grid-template-columns: repeat(6, 1fr); }
+	.course-stat-card { grid-column: span 2; }
+	.course-stat-card:first-child:nth-last-child(4),
+	.course-stat-card:first-child:nth-last-child(4) ~ .course-stat-card,
+	.course-stat-card:nth-child(4):nth-last-child(2),
+	.course-stat-card:nth-child(5):last-child { grid-column: span 3; }
 }
 
 /* Each card's value, label and third row are rows of the shared grid, so a label that wraps
@@ -139,17 +149,9 @@
 
 .course-stat-hint {
 	font-size: 0.72rem;
-	color: #bbb;
+	color: #666;
 	font-weight: 600;
 	transition: color 0.2s;
-}
-
-.course-stat-clickable {
-	cursor: pointer;
-}
-
-.course-stat-clickable:hover .course-stat-hint {
-	color: #d6394c;
 }
 
 .course-stat-breakdown {
@@ -220,7 +222,7 @@
 	font-weight: 700;
 	text-transform: uppercase;
 	letter-spacing: 0.7px;
-	color: #aaa;
+	color: #666;
 	text-align: center;
 }
 
@@ -484,7 +486,8 @@
 .course-sort-btn {
 	background: none;
 	border: none;
-	padding: 0;
+	padding: 4px 0;
+	margin: -4px 0;
 	font: inherit;
 	color: inherit;
 	text-transform: inherit;
@@ -719,6 +722,8 @@
 		gap: 10px;
 	}
 
+	.course-stat-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
 	.course-stat-card {
 		padding: 17px 12px;
 	}
@@ -832,6 +837,12 @@
 		padding-bottom: 6px;
 		white-space: normal;
 	}
+
+	/* 10.56px header text: 5px each side keeps the button at 24px+ */
+	.course-sort-btn {
+		padding-block: 5px;
+		margin-block: -5px;
+	}
 }
 
 .dark .course-page {
@@ -858,15 +869,11 @@
 }
 
 .dark .course-stat-label {
-	color: #777;
+	color: #999;
 }
 
 .dark .course-stat-hint {
-	color: #555;
-}
-
-.dark .course-stat-clickable:hover .course-stat-hint {
-	color: #d6394c;
+	color: #999;
 }
 
 .dark .course-difficulty-bar {

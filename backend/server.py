@@ -14,7 +14,7 @@ from psycopg2.extras import RealDictCursor
 from functools import lru_cache
 from dotenv import load_dotenv
 from prof_aliases import ALIAS_MAP
-from pipeline.names import COLLEGE_MAP
+from pipeline.names import COLLEGE_MAP, search_fold, search_squash
 from flask import Flask, g, jsonify, request, redirect, make_response
 from flask.json.provider import DefaultJSONProvider
 from flask_cors import CORS
@@ -145,11 +145,10 @@ def search_text(raw):
 
 
 def course_search_text(raw):
-    """search_text for a course search, with a spaced code joined: "cs 3100" -> "cs3100".
-    course_catalog.search_text holds the code unspaced, plus the spaced form from the read
-    model (pipeline/read_models.course_search_text) once a pipeline run has rebuilt it; that
-    covers partial codes ("cs 31"), this keeps a complete one matching until then."""
-    return re.sub(r"\b([a-z]{2,5}) (\d{4})\b", r"\1\2", search_text(raw))
+    """search_text for a course search, squashed (folded, no spaces) to match
+    replace(course_catalog.search_text, ' ', ''): "cs 3100", "object-oriented" and
+    "master’s" all hit however the catalog spaces or punctuates them."""
+    return search_squash(search_text(raw))
 
 
 def course_relevance(q):
@@ -157,12 +156,14 @@ def course_relevance(q):
     search_text holds the description too, so "calculus" matches every course that mentions
     it: a code match ranks first, then a title that starts with q, then one that contains it,
     then description-only matches. The code is compared unspaced, so a partial "cs 35" still
-    lands on CS35xx rather than on courses listing "CS 3500" as a prerequisite."""
-    return ("""CASE WHEN lower(course_catalog.code) LIKE %s THEN 0
-                    WHEN lower(course_catalog.name) LIKE %s THEN 1
-                    WHEN lower(course_catalog.name) LIKE %s THEN 2
+    lands on CS35xx rather than on courses listing "CS 3500" as a prerequisite. NFKD splits
+    an accent off its letter before the regex drops it, as search_squash does ("Bouvé" -> "bouve")."""
+    name = "regexp_replace(lower(normalize(course_catalog.name, NFKD)), '[^a-z0-9+#]', '', 'g')"
+    return (f"""CASE WHEN lower(course_catalog.code) LIKE %s THEN 0
+                    WHEN {name} LIKE %s THEN 1
+                    WHEN {name} LIKE %s THEN 2
                     ELSE 3 END""",
-            [f"{q.replace(' ', '')}%", f"{q}%", f"%{q}%"])
+            [f"{q}%", f"{q}%", f"%{q}%"])
 
 
 # Build a word-level mapping so partial/typeahead queries also resolve.
@@ -894,6 +895,9 @@ def _approved_aliases():
     return _alias_cache["map"]
 
 
+PROFESSOR_KEY_FOLD_SQL = "regexp_replace(name_key, '[^a-z0-9 ]', '', 'g')"
+
+
 def _professor_search(q, limit=5, rated_only=False):
     """Search professors with tiered relevance ranking. rated_only applies the
     caller's avg_rating filter before the 100-row cut, not after it."""
@@ -908,23 +912,21 @@ def _professor_search(q, limit=5, rated_only=False):
     if not words:
         return []
 
-    # Expand individual words through the word-level alias map so partial
-    # typeahead queries like "virgiliu" also match "virgil pavlu".
-    expanded_words = set(words)
-    for w in words:
-        if w in _WORD_ALIAS:
-            expanded_words.update(_WORD_ALIAS[w])
-
     # Build WHERE: each *original* word must match, OR its alias expansion must
     conditions = []
     params = []
     aliases = _approved_aliases()
     alias_slugs = set()
-    for word in words:
-        group = [word] + list(_WORD_ALIAS.get(word, ()))
-        alias_hit = aliases.get(word)
+    folded_words = []
+    for raw in words:
+        word = search_fold(raw)
+        if not word:
+            continue
+        folded_words.append(word)
+        group = [word] + [f for f in (search_fold(a) for a in _WORD_ALIAS.get(raw, ())) if f]
+        alias_hit = aliases.get(raw)
         if len(group) > 1 or alias_hit:
-            parts = ["name_key LIKE %s" for _ in group]
+            parts = [f"{PROFESSOR_KEY_FOLD_SQL} LIKE %s" for _ in group]
             params.extend(f"%{w}%" for w in group)
             if alias_hit:
                 parts.append("slug = ANY(%s)")
@@ -932,9 +934,14 @@ def _professor_search(q, limit=5, rated_only=False):
                 alias_slugs.update(alias_hit)
             conditions.append("(" + " OR ".join(parts) + ")")
         else:
-            conditions.append("name_key LIKE %s")
+            conditions.append(f"{PROFESSOR_KEY_FOLD_SQL} LIKE %s")
             params.append(f"%{word}%")
 
+    if not folded_words:
+        return []
+    q_fold = " ".join(folded_words)
+    if len(q_fold) < 2:
+        return []
     if rated_only:
         conditions.append("avg_rating IS NOT NULL")
     where = " AND ".join(conditions)
@@ -944,16 +951,16 @@ def _professor_search(q, limit=5, rated_only=False):
     rows = query(
         f"SELECT slug, name, name_key, department, avg_rating, total_reviews "
         f"FROM professors_catalog WHERE {where} "
-        f"ORDER BY {alias_first}(name_key LIKE %s OR name_key LIKE %s) DESC, total_reviews DESC, slug LIMIT 100",
-        params + alias_params + [f"{q_resolved}%", f"% {q_resolved}%"]
+        f"ORDER BY {alias_first}({PROFESSOR_KEY_FOLD_SQL} LIKE %s OR {PROFESSOR_KEY_FOLD_SQL} LIKE %s) DESC, total_reviews DESC, slug LIMIT 100",
+        params + alias_params + [f"{q_fold}%", f"% {q_fold}%"]
     )
 
     # Rank in Python for proper tiered relevance (use resolved query)
-    q_rank = q_resolved
-    words_rank = q_resolved.split()
+    q_rank = q_fold
+    words_rank = folded_words
 
     def rank_match(row):
-        nk = row['name_key']
+        nk = search_fold(row['name_key'])
         parts = nk.split()
 
         # Tier 1: an approved nickname of this professor was searched
@@ -1130,6 +1137,17 @@ def ranking_prior(query_one):
     return float(prior) if prior is not None else FALLBACK_PRIOR
 
 
+def cached_ranking_prior():
+    """ranking_prior, cached so each uncached board or rating-sorted catalog page skips
+    a full-table AVG. The prior only changes when the catalog is reloaded, which bumps
+    data_version and so drops this entry with the pages ranked by it."""
+    prior = cache_get("ranking_prior")
+    if prior is None:
+        prior = ranking_prior(query_one)
+        cache_set("ranking_prior", prior)
+    return prior
+
+
 def shrunk_score(avg_rating, total_reviews, prior_mean, m=SHRINKAGE_M):
     """Python mirror of RANKING_SCORE_SQL (for tests and any Python-side ranking)."""
     if avg_rating is None:
@@ -1165,7 +1183,7 @@ def goat_professors():
     if cached is not None:
         return jsonify(cached)
 
-    prior = ranking_prior(query_one)
+    prior = cached_ranking_prior()
     # `name` breaks ties last. Without it, professors equal on both score and
     # review count come back in whatever order the scan produces, so the board
     # could reshuffle between requests. Measured on the current corpus:
@@ -1261,10 +1279,12 @@ def search():
         # Course search
         q = course_search_text(request.args.get("q", ""))
         # Best match first (course_relevance), the most-rated course leading within a tier.
+        if len(q) < 2:
+            return jsonify([])
         tier, tier_params = course_relevance(q)
         rows = query(f"""
             SELECT code, name, department FROM course_catalog
-            WHERE search_text LIKE %s
+            WHERE replace(search_text, ' ', '') LIKE %s
             ORDER BY {tier}, num_ratings DESC NULLS LAST, code
             LIMIT %s
         """, [f"%{q}%", *tier_params, limit])
@@ -1755,11 +1775,15 @@ def professors_catalog():
         page_rows = all_rows[offset:offset + limit]
     else:
         # No search - use SQL sorting. Every order ends in slug: tied rows have no fixed order in
-        # Postgres, so LIMIT/OFFSET pages could repeat professors and skip others.
+        # Postgres, so LIMIT/OFFSET pages could repeat professors and skip others. The two rating
+        # sorts use the board's shrunk score, so one 5.0 rating doesn't outrank 200 ratings at 4.8.
+        order_params = []
         if sort == "rating":
-            order = "avg_rating DESC NULLS LAST, slug ASC"
+            order = f"{RANKING_SCORE_SQL} DESC NULLS LAST, total_reviews DESC NULLS LAST, slug ASC"
+            order_params = [cached_ranking_prior()]
         elif sort == "rating_asc":
-            order = "avg_rating ASC NULLS LAST, slug ASC"
+            order = f"{RANKING_SCORE_SQL} ASC NULLS LAST, total_reviews DESC NULLS LAST, slug ASC"
+            order_params = [cached_ranking_prior()]
         elif sort == "alpha_desc":
             order = "lower(name) DESC, slug DESC"
         elif sort == "comments":
@@ -1778,7 +1802,7 @@ def professors_catalog():
 
         page_rows = query(
             f"SELECT * FROM professors_catalog WHERE {where} ORDER BY {order} LIMIT %s OFFSET %s",
-            params + [limit, offset]
+            params + order_params + [limit, offset]
         )
 
     professors = []
@@ -1828,6 +1852,8 @@ def course_departments():
 @app.route("/api/courses-catalog")
 def courses_catalog():
     q = course_search_text(request.args.get("q", ""))
+    if len(q) < 2:   # like professors_catalog: one folded character ("a'") is no filter, not LIKE '%a%'
+        q = ""
     dept = request.args.get("dept", "")
     sort = sort_arg(COURSE_SORTS)
     page = int_arg("page", 1, 1, 100000)
@@ -1863,7 +1889,7 @@ def courses_catalog():
             conditions.append("department IN (" + ",".join(["%s"] * len(dept_list)) + ")")
             params.extend(dept_list)
     if q:
-        conditions.append("search_text LIKE %s")
+        conditions.append("replace(search_text, ' ', '') LIKE %s")
         params.append(f"%{q}%")
     if min_rating > 0:
         conditions.append("avg_rating >= %s")

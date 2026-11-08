@@ -156,6 +156,13 @@ def test_parse_faculty_drops_email_addresses():
         assert "instructor_email" not in f
 
 
+def test_parse_faculty_unescapes_the_display_name():
+    payload = {"fmt": [{"faculty": [{"displayName": "O&#39;Brien, David", "primaryIndicator": True}]}]}
+    [f] = parse_faculty(payload)
+    assert f["instructor_name"] == "O'Brien, David"
+    assert f["instructor_key"] == "david o'brien"
+
+
 def test_parse_faculty_picks_up_a_primary_flag_from_a_later_block():
     """The OR has to work in both directions — first block false, second true."""
     payload = {"fmt": [
