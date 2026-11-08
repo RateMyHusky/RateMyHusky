@@ -16,7 +16,7 @@ call is logged to moderation_calls. The set, results and reports live only in
 backend/reports/, which git ignores, since the `hold` examples include threats and
 slurs.
 
-    python moderation_eval.py plan|run|report [--variant baseline] [--half all|tune|held]
+    python moderation_eval.py plan|run|report [--variant baseline] [--half all|tune|held|fresh|...]
         [--policy-file F] [--model M] [--effort E] [--token-cap N]
 """
 
@@ -76,8 +76,8 @@ def load_set(path):
             raise ValueError(f"{id}: severity must be clear, subtle or null")
         if it["label"] == "hold" and it.get("severity") is None:
             raise ValueError(f"{id}: a hold item needs a severity")
-        if it.get("half") not in ("tune", "held"):
-            raise ValueError(f"{id}: half must be tune or held")
+        if not it.get("half") or it["half"] == "all":
+            raise ValueError(f"{id}: half must be a name such as tune or held, not empty or all")
         if not str(it.get("text") or "").strip():
             raise ValueError(f"{id}: empty text")
     return items
@@ -326,7 +326,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="Evaluate Groq comment checks on the local test set.")
     p.add_argument("command", choices=("plan", "run", "report"))
     p.add_argument("--variant", default="baseline")
-    p.add_argument("--half", choices=("all", "tune", "held"), default="all")
+    p.add_argument("--half", default="all", help="all, or a half named in the set (tune, held, fresh, ...)")
     p.add_argument("--policy-file")
     p.add_argument("--model", default=moderation_groq.MODEL)
     p.add_argument("--effort", default=moderation_groq.EFFORT)

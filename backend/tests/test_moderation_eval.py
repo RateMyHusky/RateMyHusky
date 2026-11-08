@@ -326,3 +326,22 @@ def test_a_second_run_at_the_same_time_is_refused(tmp_path, monkeypatch):
                 pass
     with me.results_lock():
         pass
+
+
+def test_a_fresh_half_is_its_own_check_set(tmp_path):
+    path = tmp_path / "set.json"
+    path.write_text(json.dumps([item("w-live-90", half="fresh")]), encoding="utf-8")
+    (fresh,) = me.load_set(path)
+    assert me.in_half(fresh, "fresh") and me.in_half(fresh, "all")
+    assert not me.in_half(fresh, "held") and not me.in_half(fresh, "tune")
+    assert me.in_half(real("r"), "fresh")
+
+
+def test_any_named_half_works_but_all_is_reserved(tmp_path):
+    path = tmp_path / "set.json"
+    path.write_text(json.dumps([item("w-live-91", half="fresh2")]), encoding="utf-8")
+    (it,) = me.load_set(path)
+    assert me.in_half(it, "fresh2") and not me.in_half(it, "fresh")
+    path.write_text(json.dumps([item("w-live-92", half="all")]), encoding="utf-8")
+    with pytest.raises(ValueError, match="w-live-92"):
+        me.load_set(path)
