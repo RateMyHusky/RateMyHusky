@@ -90,3 +90,10 @@ def test_recollege_matches_a_department_spelled_with_the_ampersand_stripped():
     stale = {**prof("jane-doe", "jane doe"), "department": "Counseling  Educational Psych",
              "college": "Professional Studies"}
     assert recollege([stale]) == [("jane-doe", "Health Sciences")]
+
+
+def test_new_professor_name_is_tidied_but_key_is_not():
+    links, profs, _ = resolve_roster([page("THOMAS SEXTON", 9)], [], [], NO_DENY)
+    assert profs[0]["name"] == "Thomas Sexton"
+    assert profs[0]["name_key"] == "thomas sexton"
+    assert links[0]["rmp_name"] == "THOMAS SEXTON"

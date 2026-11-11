@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { PartyPopper, POPPER_REST_DEG } from './PartyPopper';
 import type { PopperRefs } from './PartyPopper';
 import { confettiCount, pieceScale, runConfetti, spawn } from './confetti';
-import { useMediaQuery } from './useMediaQuery';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 
 const UP_DEG = -90;
 const FIRE_MS = 320;

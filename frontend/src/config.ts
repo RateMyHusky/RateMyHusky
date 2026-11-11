@@ -7,9 +7,9 @@
 // ban-appeal feedback option.
 export const ASK_ENABLED = false;
 
-// Hours per week and comment counts come from the student questionnaire, which does not
-// exist yet. While false, the professor page hides Hrs/Week and Reviews & Mentions and the
-// course page hides Avg Hrs/Week. Flip to true once the questionnaire source is live.
+// Reviews & Mentions on the professor page counts questionnaire comments plus Reddit mentions.
+// Hidden while false. Avg Hrs / Week is always shown on both pages and reads "—" until ratings
+// report hours.
 export const SHOW_SURVEY_STATS = false;
 
 // The first term the course-schedule history covers: scraper/banner_scrape.py's

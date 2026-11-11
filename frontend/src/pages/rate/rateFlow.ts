@@ -1,8 +1,9 @@
 // Step logic and pure helpers for the /rate form. No React, no runtime imports from api.ts.
 import type { ProfessorCourse, RateStart, RateSubmission, RatedCourse } from '../../api/api';
 
-export type StepId = 'who' | 'newProfessor' | 'course' | 'otherCourse' | 'term' | 'otherTerm'
-  | 'overall' | 'difficulty' | 'workload' | 'grade' | 'comment' | 'thanks';
+export const STEP_IDS = ['who', 'newProfessor', 'course', 'otherCourse', 'term', 'otherTerm',
+  'overall', 'difficulty', 'workload', 'grade', 'comment', 'thanks'] as const;
+export type StepId = typeof STEP_IDS[number];
 
 export interface RateProfessor { slug: string | null; name: string; department: string | null }
 export interface RateCourse { code: string; name: string | null; isNew: boolean; terms: string[] }
@@ -60,6 +61,16 @@ const MAIN_ORDER = ['who', 'course', 'term', 'overall', 'difficulty', 'workload'
 type MainStep = typeof MAIN_ORDER[number];
 
 export const QUESTION_COUNT = MAIN_ORDER.length;
+
+export const COMMENT_MAX = 2000;
+export const COMMENT_COUNT_FROM = 1800;
+
+export function commentCountLabel(length: number): string | null {
+  if (length < COMMENT_COUNT_FROM) return null;
+  const left = COMMENT_MAX - length;
+  if (left <= 0) return 'No characters left';
+  return left === 1 ? '1 character left' : `${left} characters left`;
+}
 
 function mainOf(step: StepId): MainStep | null {
   switch (step) {
@@ -122,6 +133,29 @@ export function prevStep(step: StepId, a: Answers): StepId | null {
   if (step === 'otherCourse') return a.professor?.slug === null ? 'newProfessor' : 'course';
   if (step === 'otherTerm' && a.course?.terms.length) return 'term';
   return screenFor(MAIN_ORDER[MAIN_ORDER.indexOf(main) - 1], a);
+}
+
+// The number of Back hops from a screen to the first one. Each hop is one browser history entry.
+export function depth(step: StepId, a: Answers): number {
+  let n = 0;
+  for (let s = prevStep(step, a); s !== null; s = prevStep(s, a)) n++;
+  return n;
+}
+
+// The screen of the next question, or null when it can't be reached without answering this one.
+export function forwardStep(step: StepId, a: Answers): StepId | null {
+  if (step === 'who' && a.professor?.slug === null) return 'newProfessor';
+  const main = mainOf(step);
+  if (main === null || main === 'comment' || !isAnswered(main, a)) return null;
+  return screenFor(MAIN_ORDER[MAIN_ORDER.indexOf(main) + 1], a);
+}
+
+// The screen at history depth target, reached from step and stopping at the first unanswered question.
+export function walkTo(step: StepId, a: Answers, target: number): StepId {
+  let s = step;
+  while (depth(s, a) > target) { const p = prevStep(s, a); if (p === null) break; s = p; }
+  while (depth(s, a) < target) { const f = forwardStep(s, a); if (f === null || depth(f, a) > target) break; s = f; }
+  return s;
 }
 
 function sameProfessor(x: RateProfessor | undefined, y: RateProfessor): boolean {

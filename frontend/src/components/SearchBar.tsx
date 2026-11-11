@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import Dropdown from './Dropdown';
 import { fetchSearchSuggestions } from '../api/api';
 import type { SearchSuggestion } from '../api/api';
+import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
 import './SearchBar.css';
 
 // A course code as a student types it: "cs2500", "CS 2500", "math 1341".
@@ -21,8 +22,6 @@ const SearchBar = () => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [isFocused, setIsFocused] = useState(false);
-  // The example the typing animation has reached; empty between examples.
-  const [typedExample, setTypedExample] = useState('');
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -50,48 +49,11 @@ const SearchBar = () => {
     "ARTF 1122", "MUSC 1201", "PHIL 1101", "ENVR 1101", "FINA 2201"
   ], []);
 
-  const idlePrompt = searchType === 'Professor' ? 'Search by professor name...' : 'Search by course name or code...';
-  // Between examples the text is empty: show the plain prompt, not `Search for ""`.
-  const placeholder = !isFocused && !query && typedExample ? `Search for "${typedExample}"` : idlePrompt;
-
-  // Typing animation logic
-  useEffect(() => {
-    if (isFocused || query) return;
-
-    const examples = searchType === 'Professor' ? professorExamples : courseExamples;
-    let currentExampleIndex = Math.floor(Math.random() * examples.length);
-    let currentText = "";
-    let isDeleting = false;
-    let typingSpeed = 100;
-
-    const type = () => {
-      const fullText = examples[currentExampleIndex];
-
-      if (isDeleting) {
-        currentText = fullText.substring(0, currentText.length - 1);
-        typingSpeed = 50;
-      } else {
-        currentText = fullText.substring(0, currentText.length + 1);
-        typingSpeed = 100;
-      }
-
-      setTypedExample(currentText);
-
-      if (!isDeleting && currentText === fullText) {
-        isDeleting = true;
-        typingSpeed = 2000; // Pause at end
-      } else if (isDeleting && currentText === "") {
-        isDeleting = false;
-        currentExampleIndex = (currentExampleIndex + 1) % examples.length;
-        typingSpeed = 500; // Pause before next
-      }
-
-      timeoutId = setTimeout(type, typingSpeed);
-    };
-
-    let timeoutId = setTimeout(type, typingSpeed);
-    return () => clearTimeout(timeoutId);
-  }, [isFocused, query, searchType, professorExamples, courseExamples]);
+  const placeholder = useTypingPlaceholder(
+    searchType === 'Professor' ? professorExamples : courseExamples,
+    searchType === 'Professor' ? 'Search by professor name...' : 'Search by course name or code...',
+    isFocused || !!query,
+  );
 
   const handleSearchTypeChange = (newType: string) => {
     setSearchType(newType);
@@ -227,6 +189,7 @@ const SearchBar = () => {
       <div className="search-bar">
         <div onMouseDown={() => setShowSuggestions(false)}>
           <Dropdown
+            ariaLabel="Search type"
             className="search-dropdown"
             options={searchOptions}
             value={searchType}
@@ -254,6 +217,7 @@ const SearchBar = () => {
         <input
           ref={inputRef}
           className="search-input"
+          aria-label={searchType === 'Professor' ? 'Search professors' : 'Search courses'}
           type="text"
           placeholder={placeholder}
           value={query}

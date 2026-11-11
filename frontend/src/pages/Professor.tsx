@@ -22,6 +22,7 @@ import RatePopup from '../components/RatePopup';
 import { defaultTab, filterByCourses, reportDescription, type ReviewTab } from './professor/studentReviews';
 import { rateHref, loadState, hasRated } from '../utils/ratePrompt';
 import { lastName } from './rate/rateFlow';
+import { useDialog } from '../utils/useDialog';
 import neuIcon from '../assets/neu-circle-icon.png';
 import './Professor.css';
 
@@ -252,6 +253,8 @@ const Professor = () => {
   const gradesRef = useRef<HTMLDivElement>(null);
   const reviewTabsRef = useRef<HTMLDivElement>(null);
   const rateCardRef = useRef<HTMLDivElement>(null);
+  const imageModalRef = useRef<HTMLDivElement>(null);
+  const imageCloseRef = useRef<HTMLButtonElement>(null);
 
   const [profile, setProfile] = useState<ProfessorPage | null>(null);
   const [loadError, setLoadError] = useState<'not_found' | 'failed' | null>(null);
@@ -343,9 +346,9 @@ const Professor = () => {
       if (res.ok) {
         setProfile(res.data);
         // ?course=CS3100 (the course page's professor table) opens on that course's reviews,
-        // when they have rated reviews for it; anything else starts unfiltered.
+        // when they have rated reviews for it (the ratedCourses test); anything else starts unfiltered.
         const wanted = new URLSearchParams(location.search).get('course')?.toUpperCase();
-        const rated = wanted && res.data.courses.some(c => c.code === wanted && c.rating !== null);
+        const rated = wanted && res.data.courses.some(c => c.code === wanted && c.numRatings > 0);
         setSelectedCourses(rated ? new Set([wanted]) : new Set());
         setActiveTag(null);
         // An Ask citation picks its own tab (the pins effect); otherwise open on the first with entries.
@@ -597,9 +600,10 @@ const Professor = () => {
     return safeHttpUrl(url) ?? null;
   };
 
+  const ratedCourses = useMemo(() => courses.filter(c => c.numRatings > 0), [courses]);
   const courseOptions = useMemo(
-    () => [{ value: 'all', label: 'All courses' }, ...courses.map(c => ({ value: c.code, label: c.code }))],
-    [courses]);
+    () => [{ value: 'all', label: 'All courses' }, ...ratedCourses.map(c => ({ value: c.code, label: c.code }))],
+    [ratedCourses]);
 
   /* Filtering can drop the chart row above the courses, so the clicked row is put back where it was on screen.
      Safari has no native scroll anchoring, and Chrome's misses when its anchor was inside the dropped row. */
@@ -620,8 +624,7 @@ const Professor = () => {
          snap back to it so the stats match "All courses" and the next click filters instead
          of removing. Uncoded reviews make it a real filter, so it stays. Banner-only rows
          (taught, never rated) add nothing, so they don't count. */
-      const rated = courses.filter(c => c.numRatings > 0);
-      const coversAll = rated.length > 0 && rated.every(c => next.has(c.code))
+      const coversAll = ratedCourses.length > 0 && ratedCourses.every(c => next.has(c.code))
         && reviews.every(r => r.courseCode !== null && next.has(r.courseCode));
       return coversAll ? new Set() : next;
     });
@@ -632,19 +635,7 @@ const Professor = () => {
   // Reset visible reviews when course filter changes, but only if the filtered list got smaller
   useEffect(() => { setVisibleReviews(v => Math.min(v, Math.max(10, filteredRmpReviews.length))); }, [selectedCourses.size, filteredRmpReviews.length]);
 
-  useEffect(() => {
-    if (!isImageModalOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsImageModalOpen(false);
-    };
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [isImageModalOpen]);
+  useDialog(isImageModalOpen, () => setIsImageModalOpen(false), imageModalRef, imageCloseRef);
 
   if (loading) return (
     <div className="prof-page">
@@ -670,6 +661,7 @@ const Professor = () => {
   const rmp = profile.sources.rmp;
   // A selection of courses no one has rated has nothing to chart either.
   const noRatings = stats.numRatings === 0;
+  const scrollToCharts = () => chartsRef.current?.scrollIntoView({ behavior: 'smooth' });
   const rmpUrl = safeHttpUrl(rmp.professorUrl);
   // `?? []`: a payload cached before awards shipped has no key.
   const awards = profile.awards ?? [];
@@ -725,8 +717,8 @@ const Professor = () => {
     return (
     <div
       key={c.code}
-      className={`prof-course-row ${!canFilter ? 'prof-course-row-static' : selectedCourses.has(c.code) ? 'selected' : ''}`}
-      onClick={canFilter ? (e) => toggleCourse(c.code, e.currentTarget) : undefined}
+      className={`prof-course-row ${!canFilter || unrated ? 'prof-course-row-static' : selectedCourses.has(c.code) ? 'selected' : ''}`}
+      onClick={canFilter && !unrated ? (e) => toggleCourse(c.code, e.currentTarget) : undefined}
     >
       <div className="prof-course-row-main">
         <span className="prof-course-code">{c.code}</span>
@@ -907,11 +899,6 @@ const Professor = () => {
       </header>
 
       <section className="prof-stats">
-        {noRatings ? (
-          <div className="prof-stat-card">
-            <span className="prof-stat-value prof-stat-value-text">No ratings yet</span>
-          </div>
-        ) : (<>
         <div className={`prof-stat-card${stats.breakdown.length > 1 ? ' prof-stat-clickable' : ''}`}>
           <span className="prof-stat-value">{stats.rating !== null ? <AnimatedNumber value={stats.rating} /> : '—'}</span>
           <span className="prof-stat-label" style={{ display: 'block', textAlign: 'center', position: 'relative' }}>
@@ -920,7 +907,9 @@ const Professor = () => {
               <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', marginLeft: '4px', opacity: 0.6 }}><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
             )}
           </span>
-          <div className="prof-stat-extra"><StarRating rating={stats.rating ?? 0} size="lg" /></div>
+          <div className="prof-stat-extra">
+            {noRatings ? <span className="prof-stat-hint">No ratings yet</span> : <StarRating rating={stats.rating ?? 0} size="lg" />}
+          </div>
           {/* One source's score is the overall score, so the breakdown only shows for two or more. */}
           {stats.breakdown.length > 1 && (
             <div className="prof-stat-breakdown">
@@ -956,28 +945,35 @@ const Professor = () => {
             ) : <span className="prof-stat-hint">All courses</span>}
           </div>
         </div>
-        {SHOW_SURVEY_STATS && (
-          <div className="prof-stat-card">
-            <span className="prof-stat-value">
-              {summary.hoursPerWeek !== null ? <AnimatedNumber value={summary.hoursPerWeek} decimals={1} suffix="h" /> : '—'}
-            </span>
-            <span className="prof-stat-label">Hrs / Week</span>
-            <div className="prof-stat-extra" />
-          </div>
-        )}
-        <div className="prof-stat-card prof-stat-clickable" onClick={() => chartsRef.current?.scrollIntoView({ behavior: 'smooth' })}>
-          <span className="prof-stat-value">{stats.numRatings ? stats.numRatings.toLocaleString() : '—'}</span>
-          <span className="prof-stat-label">Total Ratings</span>
-          <div className="prof-stat-extra"><span className="prof-stat-hint">View distribution ↓</span></div>
+        <div className="prof-stat-card">
+          <span className="prof-stat-value">
+            {summary.hoursPerWeek !== null ? <AnimatedNumber value={summary.hoursPerWeek} decimals={1} suffix="h" /> : '—'}
+          </span>
+          <span className="prof-stat-label">Avg Hrs / Week</span>
+          {/* Like Would Take Again, the value isn't split by course. */}
+          <div className="prof-stat-extra">{!unfiltered && <span className="prof-stat-hint">All courses</span>}</div>
         </div>
-        </>)}
-        {profile.lastTaught && (
-          <div className="prof-stat-card">
-            <span className="prof-stat-value prof-stat-value-text"><FitText>{seasonYear(profile.lastTaught)}</FitText></span>
-            <span className="prof-stat-label">Last Taught</span>
-            <div className="prof-stat-extra"><span className="prof-stat-hint">{relativeTerm(profile.lastTaught)}</span></div>
-          </div>
-        )}
+        <div
+          className={`prof-stat-card${noRatings ? '' : ' prof-stat-clickable'}`}
+          role={noRatings ? undefined : 'button'}
+          tabIndex={noRatings ? undefined : 0}
+          onClick={noRatings ? undefined : scrollToCharts}
+          onKeyDown={noRatings ? undefined : e => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scrollToCharts(); }
+          }}
+        >
+          <span className="prof-stat-value">{stats.numRatings.toLocaleString()}</span>
+          <span className="prof-stat-label">Total Ratings</span>
+          <div className="prof-stat-extra">{!noRatings && <span className="prof-stat-hint">View distribution ↓</span>}</div>
+        </div>
+        <div className="prof-stat-card">
+          {profile.lastTaught
+            ? <span className="prof-stat-value prof-stat-value-text"><FitText>{seasonYear(profile.lastTaught)}</FitText></span>
+            : <span className="prof-stat-value">—</span>}
+          <span className="prof-stat-label">Last Taught</span>
+          <div className="prof-stat-extra">{profile.lastTaught && <span className="prof-stat-hint">{relativeTerm(profile.lastTaught)}</span>}</div>
+        </div>
+        {/* A 7th card would sit alone on a row at every width: give it a layout before turning this on. */}
         {SHOW_SURVEY_STATS && (
           <div className="prof-stat-card prof-stat-clickable" onClick={() => reviewsRef.current?.scrollIntoView({ behavior: 'smooth' })}>
             <span className="prof-stat-value">{summary.numComments.toLocaleString()}</span>
@@ -1042,8 +1038,17 @@ const Professor = () => {
 
       {isImageModalOpen && identity.imageUrl && (
         <div className="prof-image-modal-overlay" onClick={() => setIsImageModalOpen(false)}>
-          <div className="prof-image-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={imageModalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Photo of ${identity.name}`}
+            className="prof-image-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
+              ref={imageCloseRef}
+              type="button"
               className="prof-image-modal-close"
               onClick={() => setIsImageModalOpen(false)}
               aria-label="Close enlarged professor image"
@@ -1061,7 +1066,7 @@ const Professor = () => {
             <h2 className="prof-section-title">Courses Taught</h2>
             <div className="prof-section-actions">
               {unfiltered
-                ? (canFilter && courses.length > 1 && <span className="prof-section-hint">Click a course to filter reviews</span>)
+                ? (canFilter && ratedCourses.length > 1 && <span className="prof-section-hint">Click a course to filter reviews</span>)
                 : <button className="prof-action-link" onClick={() => setSelectedCourses(new Set())}>Show all courses</button>}
             </div>
           </div>
@@ -1117,10 +1122,11 @@ const Professor = () => {
 
         {reviewTab === 'students' && (
           <>
-            {((canFilter && courses.length > 1) || showRateLink) && (
+            {((canFilter && ratedCourses.length > 1) || showRateLink) && (
               <div className="prof-reviews-filters">
-                {canFilter && courses.length > 1 && (
+                {canFilter && ratedCourses.length > 1 && (
                   <Dropdown
+                    ariaLabel="Filter reviews by course"
                     className="feedback-dropdown"
                     options={courseOptions}
                     value={unfiltered ? 'all' : selectedCourses.size === 1 ? [...selectedCourses][0] : ''}
@@ -1199,8 +1205,9 @@ const Professor = () => {
         {reviewTab === 'rmp' && (
           <>
             <div className="prof-reviews-filters">
-              {canFilter && courses.length > 1 && (
+              {canFilter && ratedCourses.length > 1 && (
                 <Dropdown
+                  ariaLabel="Filter reviews by course"
                   className="feedback-dropdown"
                   options={courseOptions}
                   value={unfiltered ? 'all' : selectedCourses.size === 1 ? [...selectedCourses][0] : ''}
@@ -1208,7 +1215,7 @@ const Professor = () => {
                   placeholder={`${selectedCourses.size} courses`}
                 />
               )}
-              <Dropdown className="feedback-dropdown" options={sortOptions} value={sortBy} onChange={setSortBy} placeholder="Sort by…" />
+              <Dropdown ariaLabel="Sort reviews" className="feedback-dropdown" options={sortOptions} value={sortBy} onChange={setSortBy} placeholder="Sort by…" />
             </div>
             {(!unfiltered || activeTag) && (
               <div className="prof-active-filter">
@@ -1276,12 +1283,13 @@ const Professor = () => {
                 <input
                   type="text"
                   className="reddit-search-input"
+                  aria-label="Search Reddit mentions"
                   placeholder="Search Reddit mentions..."
                   value={redditSearch}
                   onChange={e => { setRedditSearch(e.target.value); setVisibleRedditMentions(10); }}
                 />
               </div>
-              <Dropdown className="reddit-sort-dropdown" options={redditSentimentOptions} value={redditSentiment} onChange={(v) => { setRedditSentiment(v); setVisibleRedditMentions(10); }} />
+              <Dropdown ariaLabel="Filter mentions by sentiment" className="reddit-sort-dropdown" options={redditSentimentOptions} value={redditSentiment} onChange={(v) => { setRedditSentiment(v); setVisibleRedditMentions(10); }} />
             </div>
             <div className="prof-reddit-list">
               {filteredRedditMentions.length === 0 ? (

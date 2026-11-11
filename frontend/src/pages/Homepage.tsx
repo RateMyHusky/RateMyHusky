@@ -11,7 +11,8 @@ import { fetchGoatProfessors, fetchProfessorsCatalog } from '../api/api';
 import type { CatalogProfessor, Professor } from '../api/api';
 import neuIcon from '../assets/neu-circle-icon.png';
 import { ASK_ENABLED, RATE_ENABLED } from '../config';
-import { useMediaQuery } from './rate/useMediaQuery';
+import { useMediaQuery } from '../hooks/useMediaQuery';
+import { useScrollLock } from '../utils/useScrollLock';
 import './Homepage.css';
 
 const STATS = [
@@ -260,15 +261,13 @@ const Homepage = () => {
       if (e.key === 'Escape') setRankSheetOpen(false);
       if (e.key === 'Tab') e.preventDefault();
     };
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     document.addEventListener('keydown', onKey);
     return () => {
-      document.body.style.overflow = prevOverflow;
       document.removeEventListener('keydown', onKey);
       help?.focus();
     };
   }, [rankSheetOpen, isMobile]);
+  useScrollLock(rankSheetOpen && isMobile);
 
   // Pill animation state
   const [pillStyle, setPillStyle] = useState({ left: 0, width: 0, opacity: 0 });
@@ -645,8 +644,9 @@ const Homepage = () => {
                 on Rating alone reads as "sorted by Rating, descending", the exact
                 claim the note is there to deny. */}
             <span className="goat-col-rating goat-col-ranked">Rating</span>
-            {/* "Ratings", not "Reviews": many professors on these boards have ratings but no written review. */}
-            <span className="goat-col-reviews goat-col-ranked">Ratings</span>
+            {/* "# Rated", not "Reviews": many professors on these boards have ratings but no
+                written review. Not "Ratings" either: it read as the same column as "Rating". */}
+            <span className="goat-col-reviews goat-col-ranked"># Rated</span>
           </div>
 
           {profsLoading ? (
@@ -695,7 +695,7 @@ const Homepage = () => {
                 />
                 <span className="goat-col-reviews">
                   {/* No totalComments fallback: it is a comment count, so under a
-                      "Ratings" header it would show the wrong unit entirely. */}
+                      "# Rated" header it would show the wrong unit entirely. */}
                   {(p.totalReviews ?? 0).toLocaleString()}
                 </span>
               </div>
