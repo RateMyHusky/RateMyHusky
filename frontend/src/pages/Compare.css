@@ -184,10 +184,24 @@
 }
 
 .compare-suggestion-meta {
-	display: block;
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
 	font-size: 0.78rem;
 	color: #777;
 	margin-top: 2px;
+}
+
+.compare-suggestion-dept {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.compare-suggestion-rating {
+	flex: none;
+	margin-left: auto;
 }
 
 /* Empty slot in the search row */
@@ -676,6 +690,27 @@
 	line-height: 1.5;
 }
 
+.compare-verdict-note {
+	font-size: 0.82rem;
+	color: #666;
+	max-width: 600px;
+	margin: 8px auto 0;
+	line-height: 1.5;
+}
+
+.compare-verdict-how {
+	max-width: 600px;
+	margin: 12px auto 0;
+	font-size: 0.82rem;
+	color: #666;
+	line-height: 1.5;
+}
+
+.compare-verdict-how summary {
+	font-weight: 700;
+	cursor: pointer;
+}
+
 /* ---- Dark mode ---- */
 .dark .compare-page {
 	background: #1a1a1a;
@@ -807,7 +842,9 @@
 .dark .compare-metrics-header p,
 .dark .compare-cell small,
 .dark .compare-profile-card p,
-.dark .compare-verdict-body {
+.dark .compare-verdict-body,
+.dark .compare-verdict-note,
+.dark .compare-verdict-how {
 	color: #a1a7af;
 }
 
@@ -937,6 +974,7 @@
 
 /* Mobile-only pieces are hidden on larger screens */
 .compare-chips,
+.compare-mobile-status,
 .compare-name-short {
 	display: none;
 }
@@ -1030,6 +1068,42 @@
 	.compare-chip-avatar.tone-2 { background: #dbe5f6; color: var(--compare-tone-2); }
 	.compare-chip-avatar.tone-3 { background: #f3e8cf; color: var(--compare-tone-3); }
 
+	/* ---- Failed slot: error block under the chips ---- */
+	.compare-mobile-status {
+		display: grid;
+		gap: 8px;
+		margin: 12px var(--compare-gutter) 0;
+	}
+
+	.compare-mobile-status .compare-status {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 14px;
+		border-radius: 12px;
+		background: #fff;
+		border: 1px solid #f0c9c4;
+	}
+
+	.compare-mobile-status .compare-status p {
+		margin: 0;
+	}
+
+	.compare-mobile-status .compare-retry {
+		margin-top: 0;
+	}
+
+	.compare-chip.is-failed .compare-chip-avatar {
+		opacity: 0.35;
+		filter: grayscale(1);
+	}
+
+	.compare-chip.is-failed .compare-chip-name {
+		color: #767676;
+		font-style: italic;
+	}
+
 	.compare-chip-remove {
 		border: none;
 		background: transparent;
@@ -1038,6 +1112,11 @@
 		line-height: 1;
 		padding: 6px 10px 6px 4px;
 		cursor: pointer;
+		min-width: 24px;
+		min-height: 24px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.compare-chip-add {
@@ -1185,12 +1264,23 @@
 		display: none;
 	}
 
+	.compare-row-head .compare-cell {
+		text-transform: none;
+		letter-spacing: 0;
+	}
+
+	.compare-row-head .compare-col-name {
+		flex-direction: column;
+	}
+
 	.compare-name-short {
 		display: block;
 		max-width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		overflow: visible;
+		text-overflow: clip;
+		white-space: normal;
+		overflow-wrap: anywhere;
+		line-height: 1.2;
 	}
 
 	.compare-cell {
@@ -1242,6 +1332,15 @@
 		font-weight: 700;
 	}
 
+	.dark .compare-mobile-status .compare-status {
+		background: #242628;
+		border-color: #5a2d2a;
+	}
+
+	.dark .compare-mobile-status .compare-status-error {
+		color: #f08a80;
+	}
+
 	.dark .compare-chip {
 		background: #242628;
 		border-color: #2f343a;
@@ -1249,6 +1348,10 @@
 
 	.dark .compare-chip-main {
 		color: #e8eaed;
+	}
+
+	.dark .compare-chip.is-failed .compare-chip-name {
+		color: #999;
 	}
 
 	.dark .compare-chip-add {
@@ -1286,6 +1389,31 @@
 	.dark .compare-cell-second > span:first-child {
 		background: rgba(240, 150, 60, 0.16);
 		color: #f2a65a;
+	}
+}
+
+@media (max-width: 400px) {
+	.compare-row {
+		grid-template-columns: minmax(64px, 1fr) repeat(var(--cols, 4), minmax(0, 1fr));
+	}
+
+	.compare-row-hint {
+		white-space: normal;
+	}
+
+	.compare-row-head .compare-cell {
+		font-size: 0.66rem;
+	}
+
+	.compare-row-head .compare-cell:not(.compare-cell-label) {
+		padding-left: 3px;
+		padding-right: 3px;
+	}
+
+	.compare-best,
+	.compare-second {
+		display: block;
+		margin: 2px 0 0;
 	}
 }
 

@@ -1,5 +1,7 @@
 """Flask endpoints, bookmarks and usage alerts through the real pool."""
 
+import urllib.parse
+
 import psycopg2.extras
 import pytest
 
@@ -101,6 +103,73 @@ def test_course_search_ranks_code_and_title_matches_above_descriptions(live_serv
     assert rows[0][key] == ("CS3500" if "cs" in path else "MATH1341"), rows
 
 
+@pytest.mark.parametrize("endpoint", ["/api/search?type=Course&q=", "/api/courses-catalog?q="])
+@pytest.mark.parametrize("q, code", [
+    ("object oriented", "CS3500"),
+    ("object-oriented", "CS3500"),
+    ("objectoriented", "CS3500"),
+    ("study argentina", "ABRD5140"),
+    ("bouve", "HSCI2000"),
+    ("bouvé", "HSCI2000"),
+    ("master’s", "CHME7945"),
+    ("masters", "CHME7945"),
+    ("c++", "CS3520"),
+    ("c#", "CSYE6202"),
+])
+def test_course_search_folds_punctuation_spacing_and_accents(live_server, pg, endpoint, q, code):
+    rows = [
+        ("CS3500", "Object-Oriented Design", ""),
+        ("CSYE7200", "Big Data Systems", "object oriented programming"),
+        ("ABRD5140", "International Study—Argentina", ""),
+        ("HSCI2000", "Co-op for Bouvé Students", ""),
+        ("CHME7945", "Master’s Project", ""),
+        ("CS3520", "Programming in C++", ""),
+        ("CSYE6202", "Enterprise Software Design with C#", ""),
+    ]
+    courses = [_course(c, n, read_models.course_search_text(c, f"{c.lower()} {n.lower()} {d}"), 10)
+               for c, n, d in rows]
+    truncate(pg, "professors_catalog", "course_catalog", "source_summary", "stats_cache")
+    read_models.write(pg, CATALOG, courses, SUMMARIES, COUNTS)
+    resp = live_server.app.test_client().get(endpoint + urllib.parse.quote(q), headers={"User-Agent": "Mozilla/5.0"})
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:500]
+    body = resp.get_json()
+    found = body["courses"] if isinstance(body, dict) else body
+    assert found[0]["code"] == code, found
+
+
+@pytest.mark.parametrize("q", ["bouve", "bouvé"])
+def test_an_accented_title_ranks_above_a_description_match(live_server, pg, q):
+    courses = [_course(c, n, read_models.course_search_text(c, f"{c.lower()} {n.lower()} {d}"), r)
+               for c, n, d, r in [("HSCI2000", "Co-op for Bouvé Students", "", 1),
+                                  ("HSCI1000", "College: An Introduction", "for bouve students", 50)]]
+    truncate(pg, "professors_catalog", "course_catalog", "source_summary", "stats_cache")
+    read_models.write(pg, CATALOG, courses, SUMMARIES, COUNTS)
+    found = live_server.app.test_client().get("/api/search?type=Course&q=" + urllib.parse.quote(q),
+                                              headers={"User-Agent": "Mozilla/5.0"}).get_json()
+    assert [r["code"] for r in found] == ["HSCI2000", "HSCI1000"]
+
+
+def test_courses_catalog_ignores_a_single_folded_character(live_server, seeded):
+    # "x'" folds to "x", which CS2500's search text doesn't contain: no filter lists it.
+    body = live_server.app.test_client().get("/api/courses-catalog?q=x%27",
+                                             headers={"User-Agent": "Mozilla/5.0"}).get_json()
+    assert [c["code"] for c in body["courses"]] == ["CS2500"]
+
+
+@pytest.mark.parametrize("path", ["/api/search?type=Course&q=a%27", "/api/search?q=a%27"])
+def test_search_of_a_single_folded_character_returns_nothing(live_server, seeded, path):
+    resp = live_server.app.test_client().get(path, headers={"User-Agent": "Mozilla/5.0"})
+    assert resp.status_code == 200
+    assert resp.get_json() == []
+
+
+def test_course_search_with_an_empty_fold_returns_nothing(live_server, seeded):
+    resp = live_server.app.test_client().get("/api/search?type=Course&q=%27%E2%80%94",
+                                             headers={"User-Agent": "Mozilla/5.0"})
+    assert resp.status_code == 200
+    assert resp.get_json() == []
+
+
 def test_search_finds_an_approved_alias_only(live_server, seeded, pg):
     truncate(pg, "professor_aliases")
     with pg.cursor() as cur:
@@ -161,3 +230,46 @@ def test_catalog_pages_show_each_professor_once_when_sort_values_tie(live_server
             page += 1
         assert sorted(seen) == sorted(slugs), query
     truncate(pg, "professors_catalog")
+
+
+def test_catalog_rating_sorts_weight_by_number_of_ratings(live_server, pg):
+    # Prior = mean of rows with >= 30 reviews = (4.8 + 2.0) / 2 = 3.4. With m = 50:
+    # many-high 4.52, one-five 3.43, one-one 3.35, many-low 2.28.
+    truncate(pg, "professors_catalog")
+    rows = [("many-high", 4.8, 200), ("one-five", 5.0, 1), ("one-one", 1.0, 1), ("many-low", 2.0, 200)]
+    with pg.cursor() as cur:
+        for slug, avg, n in rows:
+            cur.execute("INSERT INTO professors_catalog (slug, name, name_key, total_reviews, avg_rating, total_comments) "
+                        "VALUES (%s, %s, %s, %s, %s, 0)", (slug, slug, slug.replace("-", " "), n, avg))
+    pg.commit()
+    client = live_server.app.test_client()
+    order = lambda sort: [p["slug"] for p in client.get(f"/api/professors-catalog?sort={sort}&limit=10").get_json()["professors"]]
+    assert order("rating") == ["many-high", "one-five", "one-one", "many-low"]
+    assert order("rating_asc") == ["many-low", "one-one", "one-five", "many-high"]
+    truncate(pg, "professors_catalog")
+
+
+@pytest.mark.parametrize("q, slug", [
+    ("obrien", "david-o-brien"),
+    ("o’brien", "david-o-brien"),
+    ("O’BRIEN", "david-o-brien"),
+    ("o brien", "david-o-brien"),
+    ("o'brien", "david-o-brien"),
+    ("nunez neto", "blas-nunez-neto"),
+    ("nunezneto", "blas-nunez-neto"),
+    ("dominguez", "carlos-dominguez"),
+    ("domínguez", "carlos-dominguez"),
+])
+def test_professor_search_ignores_apostrophes_hyphens_and_accents(live_server, pg, q, slug):
+    rows = [
+        dict(CATALOG[0], slug="david-o-brien", name="David O'Brien", name_key="david o'brien"),
+        dict(CATALOG[0], slug="blas-nunez-neto", name="Blas Nunez-Neto", name_key="blas nunez-neto"),
+        dict(CATALOG[0], slug="carlos-dominguez", name="Carlos Domínguez", name_key="carlos dominguez"),
+    ]
+    truncate(pg, "professors_catalog", "course_catalog", "source_summary", "stats_cache")
+    read_models.write(pg, rows, COURSES, SUMMARIES, COUNTS)
+    client = live_server.app.test_client()
+    found = client.get("/api/search?q=" + urllib.parse.quote(q))
+    assert found.status_code == 200, found.get_data(as_text=True)[:500]
+    assert found.get_json()[0]["slug"] == slug
+    assert client.get("/api/search?q=%27%27").get_json() == []

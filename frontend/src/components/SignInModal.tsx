@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { clearPendingBookmark } from '../utils/pendingBookmark';
+import { useDialog } from '../utils/useDialog';
 import neuIcon from '../assets/neu-circle-icon.png';
 import './SignInModal.css';
 
@@ -18,6 +19,9 @@ export default function SignInModal({ open, onClose, reason }: Props) {
   const { login, user } = useAuth();
   const navigate = useNavigate();
   const [closing, setClosing] = useState(false);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const googleBtnRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
 
   // Every path here is the student dismissing the modal (close, backdrop, a policy link),
   // so a bookmark tapped before it opened is dropped. A finished sign-in closes through
@@ -39,14 +43,7 @@ export default function SignInModal({ open, onClose, reason }: Props) {
     }
   }, [user, open, onClose]);
 
-  useEffect(() => {
-    if (open) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [open]);
+  useDialog(open, () => { if (!closing) animatedClose(); }, modalRef, googleBtnRef);
 
   if (!open) return null;
 
@@ -57,7 +54,13 @@ export default function SignInModal({ open, onClose, reason }: Props) {
 
   return (
     <div className={`signin-modal-overlay${closing ? ' closing' : ''}`} onClick={() => animatedClose()}>
-      <div className={`signin-modal${closing ? ' closing' : ''}`} onClick={e => e.stopPropagation()}>
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className={`signin-modal${closing ? ' closing' : ''}`}
+        onClick={e => e.stopPropagation()}>
         <button className="signin-modal-close" onClick={() => animatedClose()} aria-label="Close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
             <line x1="18" y1="6" x2="6" y2="18" />
@@ -65,7 +68,7 @@ export default function SignInModal({ open, onClose, reason }: Props) {
           </svg>
         </button>
 
-        <h2 className="signin-modal-title">Sign In</h2>
+        <h2 id={titleId} className="signin-modal-title">Sign In</h2>
 
         <p className="signin-modal-desc">
           {reason
@@ -82,7 +85,7 @@ export default function SignInModal({ open, onClose, reason }: Props) {
           <a href="/privacy" onClick={e => handleLinkClick(e, '/privacy')}>Privacy Policy</a>.
         </p>
 
-        <button className="signin-modal-google-btn" onClick={login}>
+        <button ref={googleBtnRef} className="signin-modal-google-btn" onClick={login}>
           <svg className="google-icon" viewBox="0 0 24 24">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
             <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>

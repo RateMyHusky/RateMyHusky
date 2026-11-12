@@ -554,6 +554,13 @@
   transition: border-color 0.15s, color 0.15s;
 }
 
+.goat-rank-help::after {
+  content: '';
+  position: absolute;
+  inset: -4.5px;
+  border-radius: 50%;
+}
+
 .goat-rank-help:hover,
 .goat-rank-help:focus-visible {
   border-color: #d6394c;
@@ -813,9 +820,11 @@
   border-top: 1px solid #e0e0e0;
 }
 
+/* Animates translate, not transform, so it composes with whatever transform a
+   breakpoint sets: centered on desktop, edge-anchored on phones. */
 @keyframes tooltipFadeIn {
-  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  from { opacity: 0; translate: 0 4px; }
+  to   { opacity: 1; translate: 0 0; }
 }
 
 .tooltip-row {
@@ -1654,8 +1663,11 @@
     min-width: 0;
     /* Fixed Rating width: each row is its own grid, so an auto column sized the header
        to "Rating" and the rows to the stars, and the two didn't line up. Score, stars and
-       the info glyph measure about 111px at 481-600px, so this leaves a little room. */
-    grid-template-columns: 28px minmax(0, 1fr) 116px 48px;
+       the info glyph measure about 111px at 481-600px, so 116px leaves a little room.
+       The name used to take all the spare width, which left a wide gap after it and
+       pushed Rating against the count; now the spare width is shared out. 54px fits
+       the "# Rated" header, which can't wrap and has tighter letter-spacing below. */
+    grid-template-columns: 28px minmax(0, 1.4fr) minmax(116px, 1fr) minmax(54px, 0.6fr);
     grid-template-areas: "rank name rating reviews" "rank dept rating reviews";
     column-gap: 8px;
     padding: 0 12px;
@@ -1676,6 +1688,8 @@
   .goat-col-name { grid-area: name; padding-left: 0; }
   .goat-col-rating { grid-area: rating; padding-right: 0; gap: 4px; }
   .goat-col-reviews { grid-area: reviews; padding-left: 0; text-align: left; }
+  /* At 0.8px letter-spacing "# Rated" is 54px, the whole column, and wraps in the fallback font. */
+  .goat-header-row .goat-col-reviews { white-space: nowrap; letter-spacing: 0.4px; }
 
   .goat-col-dept {
     grid-area: dept;

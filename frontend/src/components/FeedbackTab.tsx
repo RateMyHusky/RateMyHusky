@@ -3,6 +3,7 @@ import logo from '../assets/logo.jpg';
 import Dropdown from './Dropdown';
 import { submitFeedback } from '../api/api';
 import { useAuth } from '../context/AuthContext';
+import { useDialog } from '../utils/useDialog';
 import { ASK_ENABLED } from '../config';
 import './FeedbackTab.css';
 
@@ -60,6 +61,10 @@ const FeedbackTab = () => {
   const [turnstileToken, setTurnstileToken] = useState('');
   const turnstileRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const typeTriggerRef = useRef<HTMLButtonElement>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const doneRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     // A "Report" link on a review sends { type, description } to open the form prefilled.
@@ -163,18 +168,29 @@ const FeedbackTab = () => {
     }
   };
 
+  const resetForm = () => {
+    setSubmitted(false);
+    setFeedbackType('');
+    setDescription('');
+    setEmail('');
+    setError('');
+    setLoading(false);
+    setTurnstileToken('');
+  };
+
+  // The draft (type, description, email) survives a close; only a successful submit clears it.
   const handleClose = () => {
     setIsOpen(false);
-    setTimeout(() => {
-      setSubmitted(false);
-      setFeedbackType('');
-      setDescription('');
-      setEmail('');
-      setError('');
-      setLoading(false);
-      setTurnstileToken('');
-    }, 300);
+    setError('');
+    if (submitted) resetForm();
   };
+
+  // A Report link prefills the type, so first focus goes to the description; otherwise the type picker.
+  useDialog(isOpen, handleClose, modalRef, feedbackType ? descriptionRef : typeTriggerRef);
+
+  useEffect(() => {
+    if (submitted) doneRef.current?.focus();
+  }, [submitted]);
 
   const getPlaceholder = () => {
     switch (feedbackType) {
@@ -209,21 +225,25 @@ const FeedbackTab = () => {
       {isOpen && (
         <div className="feedback-overlay" onClick={handleClose}>
           <div
+            ref={modalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="feedback-dialog-title"
             className={`feedback-modal ${submitted ? 'feedback-modal-shrink' : ''}`}
             onClick={(e) => e.stopPropagation()}
           >
-            <button className="feedback-close" onClick={handleClose}>
+            <button type="button" className="feedback-close" onClick={handleClose} aria-label="Close feedback form">
               ×
             </button>
 
             {submitted ? (
               <div className="feedback-success">
                 <div className="feedback-success-icon">✓</div>
-                <h2 className="feedback-title">Thank You!</h2>
+                <h2 id="feedback-dialog-title" className="feedback-title">Thank You!</h2>
                 <p className="feedback-success-msg">
                   We've received your feedback and appreciate you taking the time to help us improve RateMyHusky.
                 </p>
-                <button className="feedback-done-btn" onClick={handleClose}>
+                <button ref={doneRef} className="feedback-done-btn" onClick={handleClose}>
                   Done
                 </button>
               </div>
@@ -233,14 +253,14 @@ const FeedbackTab = () => {
                   <img src={logo} alt="RateMyHusky Mascot" className="feedback-mascot-img" />
                 </div>
 
-                <h2 className="feedback-title">Feedback Form</h2>
+                <h2 id="feedback-dialog-title" className="feedback-title">Feedback Form</h2>
                 <p className="feedback-subtitle">
                   Spotted something off? Got ideas? We'd love to hear from you.
                 </p>
 
                 {error && <p className="feedback-error">{error}</p>}
 
-                <label className="feedback-label">
+                <label id="feedback-type-label" className="feedback-label">
                   Type of Feedback <span className="feedback-required">*</span>
                 </label>
                 <Dropdown
@@ -249,6 +269,8 @@ const FeedbackTab = () => {
                   value={feedbackType}
                   onChange={setFeedbackType}
                   placeholder="Select Feedback Type"
+                  ariaLabelledBy="feedback-type-label"
+                  triggerRef={typeTriggerRef}
                 />
                 {feedbackType === 'datadeletion' && !authLoading && !user && (
                   <p className="feedback-note">
@@ -256,10 +278,12 @@ const FeedbackTab = () => {
                   </p>
                 )}
 
-                <label className="feedback-label">
+                <label htmlFor="feedback-description" className="feedback-label">
                   Description <span className="feedback-required">*</span>
                 </label>
                 <textarea
+                  id="feedback-description"
+                  ref={descriptionRef}
                   className="feedback-textarea"
                   placeholder={getPlaceholder()}
                   rows={4}
@@ -268,12 +292,13 @@ const FeedbackTab = () => {
                   onChange={(e) => setDescription(e.target.value)}
                 />
 
-                <label className="feedback-label">
+                <label htmlFor="feedback-email" className="feedback-label">
                   Email {EMAIL_REQUIRED_TYPES.includes(feedbackType)
                     ? <span className="feedback-required">*</span>
                     : '(Optional)'}
                 </label>
                 <input
+                  id="feedback-email"
                   className="feedback-input"
                   type="email"
                   maxLength={MAX_EMAIL}
@@ -287,6 +312,7 @@ const FeedbackTab = () => {
                 <button className="feedback-submit" onClick={handleSubmit} disabled={loading || !turnstileToken || (feedbackType === 'datadeletion' && authLoading)}>
                   {loading ? 'Sending...' : 'Submit'}
                 </button>
+                <span tabIndex={0} data-dialog-wrap />
               </>
             )}
           </div>

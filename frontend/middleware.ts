@@ -20,6 +20,7 @@
 //   PROXY_SECRET      — shared secret the backend checks; also set on Railway
 
 import maintenance from './maintenance.config.json';
+import { DETAIL_RE, isUnknownRoute, notFoundPage } from './spaRoutes';
 
 // Share of CSP violation reports forwarded to the backend's /api/csp-report.
 const CSP_REPORT_SAMPLE = 0.1;
@@ -169,9 +170,6 @@ function isCrawler(ua: string): boolean {
   const lc = ua.toLowerCase();
   return CRAWLER_UAS.some((bot) => lc.includes(bot));
 }
-
-// Matches /professors/<slug>, /courses/<code>, and /departments/<slug> (single trailing segment).
-const DETAIL_RE = /^\/(professors|courses|departments)\/([^/]+)\/?$/;
 
 // Exact non-detail paths that get a server-rendered snapshot for crawlers.
 const STATIC_RENDER: Record<string, string> = {
@@ -324,22 +322,25 @@ export default async function middleware(request: Request): Promise<Response | u
 
   if (
     process.env.PRERENDER_ENABLED === 'true' &&
-    isCrawler(request.headers.get('user-agent') || '') &&
-    (DETAIL_RE.test(url.pathname) || url.pathname in STATIC_RENDER)
+    isCrawler(request.headers.get('user-agent') || '')
   ) {
-    const snapshot = await fetchSnapshot(url.pathname, request.headers.get('x-real-ip'));
-    if (snapshot) {
-      return new Response(snapshot.body, {
-        status: snapshot.status,
-        headers: {
-          'content-type': 'text/html; charset=utf-8',
-          'cache-control': snapshot.headers.get('cache-control') ||
-            'public, max-age=3600, s-maxage=86400',
-          'x-prerendered': '1',
-        },
-      });
+    if (DETAIL_RE.test(url.pathname) || url.pathname in STATIC_RENDER) {
+      const snapshot = await fetchSnapshot(url.pathname, request.headers.get('x-real-ip'));
+      if (snapshot) {
+        return new Response(snapshot.body, {
+          status: snapshot.status,
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': snapshot.headers.get('cache-control') ||
+              'public, max-age=3600, s-maxage=86400',
+            'x-prerendered': '1',
+          },
+        });
+      }
+      // snapshot undefined → fall through to SPA below
+    } else if (isUnknownRoute(url.pathname)) {
+      return notFoundPage();
     }
-    // snapshot undefined → fall through to SPA below
   }
 
   // Fall through to vercel.json rewrites (SPA fallback).
