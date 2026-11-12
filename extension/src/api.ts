@@ -9,8 +9,9 @@ const PROFESSOR_FIXTURES: Record<string, unknown> = {
   'david-kaeli': kaeli,
 };
 
-// Flip once the site is out of maintenance and /api/* returns JSON again.
-export const USE_FIXTURES = true;
+// Live by default. Set true to work offline, or while the site is in
+// maintenance and /api/* serves the maintenance page instead of JSON.
+export const USE_FIXTURES = false;
 
 // Must be the site, not the backend host: the API only accepts traffic
 // proxied through here, which is what attaches the shared secret.
