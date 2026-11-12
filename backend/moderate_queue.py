@@ -15,8 +15,8 @@ reviewer looks. It stops
 at the first 429, and once the day's model calls (submit and queue) reach
 DAILY_CAP. The cap comes from Groq's 200,000 tokens a day, which run out before
 the 1,000 requests: at ~800 tokens a call that's ~250 calls, and the cap leaves
-~100 of them for submits. The spacing leaves one of Groq's 3 requests a minute
-free, so a submit during a run doesn't get a 429. A failed check
+~100 of them for submits. The spacing keeps a run near 1,070 of Groq's 2,000
+tokens a minute, so an ~800-token submit during a run still fits. A failed check
 backs off and is tried again later, without end; the reviewer can approve or
 reject it at any time.
 """
@@ -32,8 +32,8 @@ import ratings
 from pipeline.db import connect
 from pipeline.read_models import DATA_VERSION_SQL
 
-BATCH = 15
-SPACING_SECONDS = 30  # 2 of Groq's 3 requests a minute; the third stays free for submits
+BATCH = 12  # 12 calls 45 s apart take ~8 minutes, inside the 10-minute schedule
+SPACING_SECONDS = 45  # ~1,070 of Groq's 2,000 tokens a minute; the rest stays free for a submit
 DAILY_CAP = 150  # of the ~250 calls Groq's 200,000 tokens a day allow
 NEXT_RUN = timedelta(minutes=10)
 BASE_BACKOFF = timedelta(minutes=10)
