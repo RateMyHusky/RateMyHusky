@@ -1,5 +1,5 @@
 import Footer from '../components/Footer';
-import { BANNER_SINCE, RATE_ENABLED } from '../config';
+import { ASK_ENABLED, BANNER_SINCE, RATE_ENABLED } from '../config';
 import './Terms.css';
 
 const Privacy = () => {
@@ -9,7 +9,7 @@ const Privacy = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Privacy Policy</h1>
-            <p className="terms-meta">Effective November 2, 2026</p>
+            <p className="terms-meta">Effective November 12, 2026</p>
           </header>
 
           <div className="terms-body">
@@ -44,7 +44,8 @@ const Privacy = () => {
                   address, profile photo, and Google account id. Your name, email, and photo
                   are encoded in a JWT token stored in your browser and are never written to a
                   server-side database. Your Google account id is stored server-side if you
-                  bookmark a professor or course (see the Bookmarks item below).
+                  bookmark a professor or course{ASK_ENABLED ? ' or ask a question with Ask' : ''} (see
+                  the Bookmarks{ASK_ENABLED ? ' and Ask items' : ' item'} below).
                 </li>
                 <li>
                   <strong>Browser preferences:</strong> your selected theme (dark/light), your
@@ -54,7 +55,7 @@ const Privacy = () => {
                   {RATE_ENABLED ? ' The one exception is the rating device ID, described under Ratings below. We also keep when you last saw or skipped a prompt to rate a professor, how often you skipped one, which professors you rated from this browser and when, and the last day you visited, so prompts are not repeated too often.' : ''} While
                   you sign in, <code>sessionStorage</code> holds a marker that sign-in is
                   underway and any bookmark you clicked before signing in, so it can be saved
-                  once you are back; both are dropped when sign-in finishes or you close the tab.{RATE_ENABLED ? ' The rating form also keeps your unsent answers there, comment included, along with a copy of its device ID, until you submit them or close the tab.' : ''}
+                  once you are back; both are dropped when sign-in finishes or you close the tab.{RATE_ENABLED ? ' The rating form also keeps your unsent answers there, comment included, along with a copy of its device ID, until you submit them or close the tab.' : ''}{ASK_ENABLED ? ' Ask keeps your recent conversation there until you close the tab or sign out.' : ''}
                 </li>
                 <li>
                   <strong>IP address:</strong> your IP address is used in the moment a request
@@ -87,6 +88,19 @@ const Privacy = () => {
                   account is capped at 200 bookmarks. These records are retained on our servers,
                   as described in <em>How We Store Your Information</em> below.
                 </li>
+                {ASK_ENABLED && (
+                <li>
+                  <strong>Ask:</strong> when you send a question to Ask, we store the question,
+                  the answer we gave, the professor or course it was about, how it was handled
+                  (for example answered, refused as off-topic, or limited), and when you asked. If
+                  you are signed in, the question is stored with your Google account id, so Ask
+                  questions are <strong>not anonymous</strong>. Questions about how the site works
+                  can be asked without signing in, and those are stored without an account id. We
+                  do not store your IP address with any Ask question. Stored questions are deleted
+                  30 days after you ask them. Questions that need a written answer are sent to
+                  Groq, without your account id (see <em>Third-Party Services</em>).
+                </li>
+                )}
                 {RATE_ENABLED && (
                 <li>
                   <strong>Ratings:</strong> you do not need to sign in to submit a rating. We
@@ -117,6 +131,7 @@ const Privacy = () => {
                 pages you viewed, or any other browsing activity ourselves, though the request
                 logs our hosting providers keep record the address of each request, which
                 includes any search (see <em>Third-Party Services</em>).
+                {ASK_ENABLED ? ' Questions you send to Ask are different: we store them as described under Ask above.' : ''}
                 {RATE_ENABLED ? ' The one exception is the time taken to fill in the rating form, stored with a rating you submit. When you open or submit the rating form, or see or use a prompt to rate a professor, we send Google Analytics which prompt led you there and whether you rated. These events don\'t include the professor, course or your rating. Whether to show the prompt is decided in your browser.' : ''} The analytics
                 providers listed under <em>Third-Party Services</em> collect their own data
                 about your visit; Google Analytics records the address of each page you view,
@@ -132,6 +147,10 @@ const Privacy = () => {
                 <li>Display your name and profile photo in the navigation bar while signed in</li>
                 <li>Save and display the professors and courses you bookmark</li>
                 <li>Apply rate limits across the site so automated traffic cannot overwhelm it</li>
+                {ASK_ENABLED && (<>
+                <li>Answer your Ask questions, limit how often each account can ask, and restrict or suspend Ask for accounts that repeatedly send off-topic or abusive questions (only the last 7 days of questions count toward this)</li>
+                <li>Review Ask questions and answers to look into abuse, fix wrong answers, and improve Ask</li>
+                </>)}
                 {RATE_ENABLED && (<>
                 <li>Prevent duplicate or fraudulent ratings</li>
                 <li>Count the ratings students submit and show them on professor pages</li>
@@ -160,7 +179,7 @@ const Privacy = () => {
                 browser's <code>localStorage</code> and the handshake cookies are cleared.
                 The token expires automatically after 7 days. RateMyHusky does not maintain
                 user accounts or profiles; the only per-user data we store server-side is your
-                bookmarks{RATE_ENABLED ? ' and your ratings (which are pseudonymous)' : ''}, described below.
+                bookmarks{ASK_ENABLED ? (RATE_ENABLED ? ', your Ask questions' : ' and your Ask questions') : ''}{RATE_ENABLED ? ' and your ratings (which are pseudonymous)' : ''}, described below.
               </p>
               <p>
                 Signing out deletes the token from your browser immediately.
@@ -172,6 +191,13 @@ const Privacy = () => {
                 persist across sign-ins until you remove them or request deletion (see{' '}
                 <em>Your Rights &amp; Choices</em>).
               </p>
+              {ASK_ENABLED && (
+              <p>
+                If you send an Ask question, it is stored in our database with the data listed
+                under Ask in Section 2, and deleted automatically 30 days after you asked it. Our
+                team can read stored questions and answers, to look into abuse and improve Ask.
+              </p>
+              )}
               {RATE_ENABLED && (<>
               <p>
                 If you submit a rating, it is stored in our database with the data listed under
@@ -322,12 +348,11 @@ const Privacy = () => {
                   <strong>RateMyProfessors, Northeastern faculty and award pages, the Northeastern course catalog and course schedule (NUBanner) &amp; Reddit</strong>: these are data sources only. We do not send any user
                   data to these services.
                 </li>
-                {RATE_ENABLED && (<>
+                {(ASK_ENABLED || RATE_ENABLED) && (
                 <li>
-                  <strong>Groq</strong>: the text of rating comments may be sent to Groq to
-                  check it for abuse, and the answers and comments of ratings held for review, why
-                  they were held, and recent ratings and comments for the same professor, are sent to Groq for an
-                  automated check. Subject to{' '}
+                  <strong>Groq</strong>:{ASK_ENABLED ? ' Ask questions that need a written answer are sent to Groq, which checks each question and writes the answer from the reviews we send with it. Your account id is not sent.' : ''}
+                  {RATE_ENABLED ? ' The text of rating comments may be sent to Groq to check it for abuse, and the answers and comments of ratings held for review, why they were held, and recent ratings and comments for the same professor, are sent to Groq for an automated check.' : ''}
+                  {' '}Subject to{' '}
                   <a
                     href="https://groq.com/privacy-policy/"
                     target="_blank"
@@ -336,6 +361,8 @@ const Privacy = () => {
                     Groq's Privacy Policy
                   </a>.
                 </li>
+                )}
+                {RATE_ENABLED && (<>
                 <li>
                   <strong>OpenAI Moderation</strong>: when the Groq check is not set up, the
                   text of an optional rating comment is sent to OpenAI's moderation service
@@ -394,7 +421,7 @@ const Privacy = () => {
                 (<code>auth_token</code>), your theme, your catalog view mode, and flags for
                 on-page tips you have dismissed{RATE_ENABLED && (<>, plus your rate-prompt history (<code>rmh_rate_prompt</code>)</>)}.
                 While you sign in, <code>sessionStorage</code> holds a sign-in marker and any
-                bookmark you clicked before signing in, and is cleared when you close the tab.{RATE_ENABLED && (<> The rating form also keeps your unsent answers there (<code>rmh_rate_draft</code>), comment included, along with a copy of its device ID, until you submit them or close the tab.</>)} None of this data is
+                bookmark you clicked before signing in, and is cleared when you close the tab.{ASK_ENABLED && (<> Ask keeps your recent conversation there (<code>ask_widget_v1</code>) until you close the tab or sign out.</>)}{RATE_ENABLED && (<> The rating form also keeps your unsent answers there (<code>rmh_rate_draft</code>), comment included, along with a copy of its device ID, until you submit them or close the tab.</>)} None of this data is
                 synced to our servers{RATE_ENABLED ? (<>, with one exception: the rating form also keeps a copy of
                 its device ID (<code>rmh_device</code>) in <code>localStorage</code>, and that
                 copy is sent to our servers when you use the rating form</>) : ''}.
@@ -419,7 +446,7 @@ const Privacy = () => {
                 <li>
                   <strong>Right to access:</strong> you may request a copy of the data we hold
                   that is associated with you. In practice this is limited to your
-                  bookmarks{RATE_ENABLED ? ' and your ratings' : ''}; your sign-in details and preferences live only in your own
+                  bookmarks{ASK_ENABLED ? (RATE_ENABLED ? ', the Ask questions you sent while signed in during the last 30 days' : ' and the Ask questions you sent while signed in during the last 30 days') : ''}{RATE_ENABLED ? ' and your ratings' : ''}; your sign-in details and preferences live only in your own
                   browser and are not accessible to us.
                   {RATE_ENABLED && (<>
                   {' '}Ratings are not tied to an account, so
@@ -438,7 +465,12 @@ const Privacy = () => {
                   sign in and submit an <strong>Account Deletion</strong> request through the
                   feedback form: an email address is required, and your signed-in account
                   identifier is included so we can verify your identity and delete the records
-                  tied to your account.
+                  tied to your account{ASK_ENABLED ? ', including your Ask questions' : ''}.
+                  {ASK_ENABLED && (<>
+                  {' '}Ask questions sent while signed out carry no account id, so we cannot
+                  find them to delete early; they are deleted after 30 days like all Ask
+                  questions.
+                  </>)}
                   {RATE_ENABLED && (<>
                   {' '}To delete ratings, which are not tied to an account,
                   email{' '}
@@ -457,7 +489,7 @@ const Privacy = () => {
                   <strong>Right to correction:</strong> your name, email, and photo come
                   directly from Google and are never stored on our servers, so corrections to
                   them are made through your Google account. Your Google account id also comes
-                  from Google and cannot be edited; we store it with your bookmarks, and an
+                  from Google and cannot be edited; we store it with your bookmarks{ASK_ENABLED ? ' and Ask questions' : ''}, and an
                   Account Deletion request removes it (see Right to deletion above).
                   If you believe professor or course data displayed on the site is inaccurate,
                   you can report it through the feedback form under "Wrong or Missing Data."
@@ -471,7 +503,7 @@ const Privacy = () => {
               <p>
                 Note that there is no account to delete. Once your token is cleared, no personal
                 data remains in our systems except for any bookmarks{RATE_ENABLED ? ' and ratings' : ''}, which remain
-                until you request their deletion.
+                until you request their deletion{ASK_ENABLED ? ', and any Ask questions from the last 30 days' : ''}.
               </p>
             </section>
 

@@ -1,9 +1,11 @@
 import Footer from '../components/Footer';
-import { RATE_ENABLED } from '../config';
+import { ASK_ENABLED, RATE_ENABLED } from '../config';
 import './Terms.css';
 
-// Section 9 (ratings) is hidden while the rating form is off, so later sections shift up by this much.
-const n = RATE_ENABLED ? 0 : 1;
+// Section 9 (ratings) is hidden while the rating form is off, and the Ask section after it while
+// Ask is off. Later sections shift by this much (negative when both are shown).
+const askSection = RATE_ENABLED ? 10 : 9;
+const n = (RATE_ENABLED ? 0 : 1) - (ASK_ENABLED ? 1 : 0);
 
 const Terms = () => {
   return (
@@ -12,7 +14,7 @@ const Terms = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Terms &amp; Conditions</h1>
-            <p className="terms-meta">Effective November 2, 2026</p>
+            <p className="terms-meta">Effective November 12, 2026</p>
           </header>
 
           <div className="terms-body">
@@ -34,6 +36,7 @@ const Terms = () => {
                 Alongside that source data we show figures we compute from it, such as averages,
                 blended ratings, department comparisons, and sentiment labels derived from Reddit text.
                 Those are our estimates, not numbers published by any source.
+                {ASK_ENABLED ? ' Ask, the question feature, writes answers automatically from the same data (see Section ' + askSection + ').' : ''}
               </p>
               <p>
                 RateMyHusky is an independent student project and is not affiliated with,
@@ -47,7 +50,7 @@ const Terms = () => {
               <h2>2. Eligibility &amp; Access</h2>
               <p>
                 Most content on RateMyHusky is publicly accessible without an account. However,
-                access to the bookmarks feature requires signing in with a valid Northeastern
+                {ASK_ENABLED ? ' bookmarks and asking Ask about professors and courses require' : ' access to the bookmarks feature requires'} signing in with a valid Northeastern
                 University Google account (<code>@husky.neu.edu</code>).
               </p>
               <p>
@@ -68,7 +71,7 @@ const Terms = () => {
                 This information is encoded in a JWT (JSON Web Token) that is stored in your
                 browser's <code>localStorage</code>. The token expires after 7 days.
                 RateMyHusky does not maintain user accounts or profiles. The only per-user data
-                we store server-side is your bookmarks{RATE_ENABLED ? ' and your pseudonymous ratings' : ''}, described
+                we store server-side is your bookmarks{ASK_ENABLED ? (RATE_ENABLED ? ', your Ask questions' : ' and your Ask questions') : ''}{RATE_ENABLED ? ' and your pseudonymous ratings' : ''}, described
                 below and in our <a href="/privacy">Privacy Policy</a>. Signing out deletes the
                 token from your browser.
               </p>
@@ -98,7 +101,8 @@ const Terms = () => {
                   While you sign in, <code>sessionStorage</code> holds a marker that sign-in is
                   underway and any bookmark you clicked before signing in, until sign-in
                   finishes or you close the tab; that bookmark is then saved to your account.
-                  Otherwise this data stays on your device and is never synced to our
+                  {ASK_ENABLED ? ' Ask keeps your recent conversation there until you close the tab or sign out.' : ''}
+                  {' '}Otherwise this data stays on your device and is never synced to our
                   servers{RATE_ENABLED ? ', except for the rating form\'s device ID, which is kept there too and sent to us when you use the rating form (see Ratings below)' : ''}.
                 </li>
                 <li>
@@ -125,12 +129,21 @@ const Terms = () => {
                   our database. Each account is capped at 200 bookmarks. See our{' '}
                   <a href="/privacy">Privacy Policy</a> for details on retention and deletion.
                 </li>
+                {ASK_ENABLED && (
+                <li>
+                  <strong>Ask questions:</strong> we store each question you send to Ask with the
+                  answer it got and how it was handled, for 30 days. Questions sent while signed
+                  in are stored with your Google account id, so they are not anonymous. We do not
+                  store your IP address with them. See our <a href="/privacy">Privacy Policy</a>{' '}
+                  for details.
+                </li>
+                )}
               </ul>
               <p>
                 We do <strong>not</strong> log or store your search queries, which professor or
                 course pages you viewed, or any other browsing activity ourselves, though our
                 hosting providers' request logs record the address of each request, which
-                includes any search. Your IP
+                includes any search.{ASK_ENABLED ? ' Questions you send to Ask are different: we store them as described above.' : ''} Your IP
                 address is used in the moment to enforce rate limits. We never store it in raw
                 form{RATE_ENABLED ? '; only if you submit a rating do we store keyed hashes of it' : ''}.
               </p>
@@ -166,11 +179,12 @@ const Terms = () => {
                   <strong>Cloudflare Turnstile</strong>: a CAPTCHA that protects the feedback
                   form{RATE_ENABLED ? ' and the rating form' : ''} from automated abuse.
                 </li>
-                {RATE_ENABLED && (<>
+                {(ASK_ENABLED || RATE_ENABLED) && (
                 <li>
-                  <strong>Groq</strong>: checks the text of rating comments for abuse and runs an
-                  automated reviewer that checks ratings held for review.
+                  <strong>Groq</strong>:{ASK_ENABLED ? ' checks Ask questions and writes Ask answers from the reviews we send with each question' : ''}{ASK_ENABLED && RATE_ENABLED ? '; it also' : ''}{RATE_ENABLED ? ' checks the text of rating comments for abuse and runs an automated reviewer that checks ratings held for review' : ''}.
                 </li>
+                )}
+                {RATE_ENABLED && (<>
                 <li>
                   <strong>OpenAI Moderation</strong>: checks the text of rating comments for
                   abuse when the Groq check is not set up.
@@ -269,10 +283,16 @@ const Terms = () => {
                   Use data from this platform, including review text and Reddit excerpts, to
                   harass, target, defame, or harm any individual professor or instructor
                 </li>
+                {ASK_ENABLED && (
+                <li>
+                  Try to make Ask ignore its instructions, reveal how it works internally, or
+                  produce content that harasses, targets, or defames anyone
+                </li>
+                )}
                 <li>Attempt to reverse-engineer, overload, or otherwise disrupt the service</li>
               </ul>
               <p>
-                We enforce per-IP rate limits across the site. Repeated misuse may result in
+                We enforce per-IP rate limits across the site{ASK_ENABLED ? ', and per-account limits on Ask' : ''}. Repeated misuse may result in
                 suspension of your access, as described in Section {16 - n}.
               </p>
             </section>
@@ -294,6 +314,33 @@ const Terms = () => {
                 service, including in the figures we compute from it, for as long as we keep it.
                 You can ask us to delete your rating at any time, as our{' '}
                 <a href="/privacy">Privacy Policy</a> describes.
+              </p>
+            </section>
+            )}
+
+            {ASK_ENABLED && (
+            <section className="terms-section">
+              <h2>{askSection}. Using Ask</h2>
+              <p>
+                Ask answers questions about professors, courses, and how the site works. Answers
+                about professors and courses are written automatically by an AI model from
+                ratings, reviews, and Reddit discussion. Such an answer summarizes what those
+                sources say. It is not a statement of fact by RateMyHusky, and it can misread,
+                misstate, or leave out what the sources say. Check the sources an answer cites
+                before relying on it.
+              </p>
+              <p>
+                Do not include your own or anyone else's personal information in a question.
+                Questions are stored for 30 days, can be read by our team, and are sent to Groq to
+                be answered, as our <a href="/privacy">Privacy Policy</a> describes.
+              </p>
+              <p>
+                Ask is limited to questions about Northeastern professors, courses, and this site.
+                Questions outside that scope, or that try to misuse Ask, count against your
+                account: repeated ones lower how many questions you can ask each day and can
+                suspend your access to Ask. Only the last 7 days count. You can appeal a
+                suspension through the feedback form. We may limit, change, or switch off Ask at
+                any time.
               </p>
             </section>
             )}
@@ -342,7 +389,7 @@ const Terms = () => {
                 incomplete, outdated, or inaccurate. Figures we compute (blended ratings,
                 averages, and Reddit sentiment labels) depend
                 on that source data and on matching a professor's name across systems that spell
-                it differently, so they can be wrong even when the sources are right. RateMyHusky
+                it differently, so they can be wrong even when the sources are right.{ASK_ENABLED ? ' Ask answers are generated automatically and can be wrong in the same ways, or misstate what their sources say.' : ''} RateMyHusky
                 makes no guarantees about the accuracy, completeness, or timeliness of anything
                 displayed on the platform.
               </p>
