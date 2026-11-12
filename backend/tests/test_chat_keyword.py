@@ -28,9 +28,7 @@ def test_chat_keyword_returns_results(chat_client):
     assert "professors" in data
     assert data["professors"][0]["slug"] == "ada-lovelace"
 
-def test_chat_question_mode_requires_account(monkeypatch, chat_client):
-    import server
-    monkeypatch.setattr(server, "CHAT_ENABLED", True)  # the route checks the kill switch first
+def test_chat_question_mode_requires_account(chat_client):
     # question mode is account-gated: an unauthenticated request is rejected (401)
     # before the orchestrator is ever reached.
     resp = chat_client.post("/api/chat", json={"q": "is Guha hard"},

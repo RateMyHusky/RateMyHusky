@@ -32,9 +32,10 @@ if not URL:
     sys.exit("Need ORACLE_DATABASE_URL in backend/.env")
 
 ALL_STATUSES = (
-    "ok", "ok_cached", "kill_switch", "rate_limited", "off_topic",
+    "ok", "ok_cached", "rate_limited", "off_topic",
     "injection_blocked", "too_long", "gate_error", "ambiguous", "out_of_scope",
     "thin_data", "llm_error", "validation_failed", "site_help", "site_help_llm",
+    "site_help_choice", "site_help_pick", "site_help_other",
 )
 
 app = Flask(__name__)
@@ -230,8 +231,7 @@ def api_users():
                 count(*) FILTER (WHERE result_status IN ('ok', 'ok_cached')) AS ok_count,
                 count(*) FILTER (WHERE result_status = ANY(%s)) AS strike_count_range,
                 coalesce(sum(tokens_used), 0) AS tokens_used,
-                max(created_at) AS last_seen,
-                array_agg(DISTINCT ip_hash) FILTER (WHERE ip_hash IS NOT NULL) AS ip_hashes
+                max(created_at) AS last_seen
             FROM ask_log
             {where_sql}
             GROUP BY session_token

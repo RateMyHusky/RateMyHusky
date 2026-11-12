@@ -296,12 +296,13 @@ export type ChatResponse =
       courses: { code: string; name: string; department?: string; rating?: number | null }[];
       disclaimer: string }
   | { mode: 'site_help'; id: string; title: string; answer: string; links: { label: string; href: string }[]; menu?: { id: string; title: string }[] }
+  | { mode: 'site_help_choice'; message: string; options: { id: string; title: string }[] }
   | { mode: 'error'; message: string };
 
 /* Ask does its own fetch instead of get<T>(): get() throws on any non-2xx, but Ask must read
    the 401 body and the various 200 modes. Returns a synthetic error on network failure so the
    caller never has to try/catch. */
-async function postChat(payload: Record<string, string>): Promise<{ status: number; body: ChatResponse }> {
+async function postChat(payload: Record<string, string | boolean>): Promise<{ status: number; body: ChatResponse }> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = localStorage.getItem('auth_token');
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -321,10 +322,12 @@ async function postChat(payload: Record<string, string>): Promise<{ status: numb
   }
 }
 
-export const askChat = (q: string) => postChat({ q });
+/* skipHelp: the user tapped "No, other" on the site-help prompt, so go straight to the LLM. */
+export const askChat = (q: string, skipHelp = false) => postChat(skipHelp ? { q, skip_help: true } : { q });
 
-/* Menu chips: fetch a canned site-help answer by id. */
-export const askHelp = (id: string) => postChat({ help_id: id });
+/* Fetch a canned site-help answer by id. A topic picked from the site-help prompt passes the
+   question it came from, so the server can log which topic the keyword led to. */
+export const askHelp = (id: string, q?: string) => postChat(q ? { help_id: id, q } : { help_id: id });
 
 /* ---- Professor catalog (browse page) ---- */
 export interface CatalogProfessor {

@@ -1,11 +1,9 @@
-// Ask is disabled while it's being improved (backend mirror: CHAT_ENABLED=false on Railway).
-// Before flipping it back on, update the Privacy Policy and Terms: neither mentions Ask. It
-// logs each question with the account id and hashed IP (ask_log, deleted after 30 days:
-// ASK_LOG_RETENTION_DAYS in server.py) and sends questions to Groq, which isn't in either
-// document's third-party list. While Ask is off, nothing is logged.
+// Ask logs each question with the account id, and no IP (ask_log, deleted after 30 days:
+// ASK_LOG_RETENTION_DAYS in server.py) and sends questions to Groq. The Privacy Policy and
+// Terms don't mention Ask yet, and Groq is only listed there for rating comments.
 // This flag gates the floating Ask widget, the homepage "Try Now" bubble and the
-// ban-appeal feedback option.
-export const ASK_ENABLED = false;
+// ban-appeal feedback option. The backend serves Ask regardless of it.
+export const ASK_ENABLED = true;
 
 // Reviews & Mentions on the professor page counts questionnaire comments plus Reddit mentions.
 // Hidden while false. Avg Hrs / Week is always shown on both pages and reads "—" until ratings

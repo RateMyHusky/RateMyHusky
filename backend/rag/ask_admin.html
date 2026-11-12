@@ -471,7 +471,6 @@
           <th>OK count</th>
           <th>Tokens</th>
           <th>Last seen</th>
-          <th>IP hashes</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -519,7 +518,7 @@
   "use strict";
 
   var ALL_STATUSES = [
-    "ok", "ok_cached", "kill_switch", "rate_limited", "off_topic",
+    "ok", "ok_cached", "rate_limited", "off_topic",
     "injection_blocked", "too_long", "gate_error", "ambiguous", "out_of_scope",
     "thin_data", "llm_error", "validation_failed"
   ];
@@ -528,7 +527,7 @@
   var RED_STATUSES = ["injection_blocked", "off_topic"];
   var GREEN_STATUSES = ["ok", "ok_cached"];
   var AMBER_STATUSES = [
-    "kill_switch", "rate_limited", "too_long", "gate_error", "ambiguous",
+    "rate_limited", "too_long", "gate_error", "ambiguous",
     "out_of_scope", "thin_data", "llm_error", "validation_failed"
   ];
 
@@ -871,8 +870,6 @@
       }
       tr.appendChild(el("td", { text: lastSeenText }));
 
-      var ipText = (row.ip_hashes && row.ip_hashes.length) ? row.ip_hashes.join(", ") : "";
-      tr.appendChild(el("td", { className: "truncate", text: truncate(ipText, 30), title: ipText }));
 
       var tdActions = el("td", { className: "row-actions" });
       var viewBtn = el("button", { text: "View logs" });

@@ -4,103 +4,147 @@ from rag.chat_gate import MAX_QUERY_LEN
 
 IDS = ["menu", "data_sources", "affiliation", "rate", "goated", "compare", "sentiment",
        "photos", "no_ratings", "missing_course", "offerings", "awards", "report", "search",
-       "bookmarks", "departments", "sign_in", "theme", "professors", "privacy", "ask_help"]
+       "bookmarks", "departments", "sign_in", "theme", "professors", "privacy", "ask_help",
+       "courses"]
 
-SHOULD_MATCH = {
-    "menu": ["what can you do", "help", "what is this site", "what is RateMyHusky?",
-             "Hi, what can you do?", "hey there! help", "hi"],
-    "data_sources": ["where do the ratings come from", "where does the data come from",
-                     "how often is the data updated", "where do ratings come from",
-                     "where does reddit data come from", "where does this data come from"],
-    "affiliation": ["is RateMyHusky run by Northeastern", "is this site affiliated with the university",
-                    "is this an official Northeastern website"],
-    "rate": ["can I write a review here", "how do I rate a professor", "where is the rating form"],
-    "goated": ["how are the GOATED professors ranked", "what does GOATED mean",
-               "how is the goated list calculated"],
-    "compare": ["how does compare pick the best professor", "what does the compare page do",
-                "how do I compare professors"],
-    "sentiment": ["what does the sentiment bar mean", "how is the reddit sentiment label generated",
-                  "what is the sentiment bar on a comment"],
-    "photos": ["why doesn't this instructor have a photo", "where do the faculty photos come from",
-               "why is there no picture", "why doesn’t this instructor have a photo?"],
-    "no_ratings": ["why do some pages have no ratings", "why does this instructor have zero reviews",
-                   "why is there a page with no ratings"],
-    "missing_course": ["why is a course missing from a professor's page",
-                       "why isn't a class listed on the page", "a course is missing from the list"],
-    "offerings": ["where does last taught come from", "what is when it's offered",
-                  "how do I know when a course is offered"],
-    "awards": ["where do the teaching award badges come from", "what do the award badges mean",
-               "where does award information come from"],
-    "report": ["how do I report wrong data", "where is the feedback button",
-               "something on the site is wrong"],
-    "search": ["how do I search for a professor", "where is the search bar", "how do I find a course",
-               "Hi! Where can i view information about professors?"],
-    "bookmarks": ["how do I bookmark a professor", "where are my saved professors",
-                  "how do bookmarks work"],
-    "departments": ["where can I see all departments", "is there a department page",
-                    "how do I browse by department"],
-    "sign_in": ["how do I sign in", "do I need to log in", "what do I get with a husky account"],
-    "theme": ["how do I turn on dark mode", "is there a light theme", "can I change the theme"],
-    "professors": ["my professor page is wrong", "how do I get my page removed",
-                   "I teach at northeastern, how do I correct my page"],
-    "privacy": ["what is your privacy policy", "where are the terms of service",
-                "what data do you collect about me"],
-    "ask_help": ["what can Ask answer", "what kind of questions can I ask",
-                 "how does the ask feature work"],
+# One question per topic that must offer that topic (other topics may be offered too).
+OFFERS = {
+    "data_sources": ["where do the ratings come from", "is the reddit data recent"],
+    "affiliation": ["is this site official", "who runs RateMyHusky"],
+    "rate": ["how do I rate a professor", "where is the rating form"],
+    "goated": ["who is the best CS professor", "how is the GOATED list ranked"],
+    "compare": ["Guha vs Lieberherr", "how do I compare professors"],
+    "sentiment": ["what does the sentiment bar mean"],
+    "photos": ["why is there no photo", "where do the headshots come from"],
+    "no_ratings": ["why does this page have no ratings", "a professor with zero reviews"],
+    "missing_course": ["a course is missing from the page", "my class is not listed"],
+    "offerings": ["what does last taught mean", "when is CS3500 offered"],
+    "awards": ["what do the award badges mean", "is there a badge for teaching"],
+    "report": ["how do I report a bug", "this rating is wrong"],
+    "search": ["where is the search bar", "how do I look up a course"],
+    "bookmarks": ["how do bookmarks work", "where are my saved courses"],
+    "departments": ["is there a departments page"],
+    "sign_in": ["how do I sign in", "do I need a login", "sign-in isn't working"],
+    "theme": ["how do I turn on dark mode", "can I change the theme"],
+    "professors": ["I teach at Northeastern", "how do I take down my page"],
+    "privacy": ["what is your privacy policy", "where are the terms of service"],
+    "ask_help": ["what can I ask", "what can you answer"],
+    "courses": ["help me plan my semester", "can I filter courses by rating", "how do I sort courses"],
 }
-SHOULD_NOT_MATCH = [
-    "hi, is Guha a good teacher", "where can I view information about Guha",
-    "is CS3500 hard", "how do I get an A in CS2500", "compare Wu and Smith for CS2500",
-    "should I bookmark Prof Lee's class", "rate Guha's teaching", "how do I sign up for classes",
-    "is professor Lieberherr good at explaining compare and contrast", "who teaches DS 3000",
-    "how do I get an A", "is Dr. Wu goated", "is professor Lee's sentiment bar positive",
-    "what do you know about Guha", "what do you know about algorithms",
-    "i need help choosing a class", "can you help me with a schedule",
-    "how is Guha ranked among CS professors",
-    "what kind of questions does Guha ask on exams",
-    "does Guha have a teaching award badge",
-    "why does Guha have no reviews", "something is wrong with Guha's grading",
-    "what's the theme of Guha's class", "is Guha official",
-    "where does Guha get good reviews from", "how often does Guha update the syllabus",
-    "can I write a review for Guha", "is Guha on the goated list",
-    "where can I review Guha's syllabus", "is Guha affiliated with the CS department",
-    "where does Guha search for funding",
-    # Course and professor questions that share a word with a site-help topic.
-    "is this class part of the NUpath requirements", "is the algorithms class part of the major",
-    "are the reviews for Guha official",
-    "is the privacy course hard", "who teaches data privacy",
-    "is the Ethics and Privacy course a lot of work",
-    "when was Algorithms last taught", "who last taught OOD",
-    "how does Lieberherr rank on the goated list",
-    "how is the reddit sentiment for Guha calculated",
-    "does Guha make you log in to Khoury handins",
+
+# Questions with no topic keyword go straight to the LLM.
+NO_TOPIC = [
+    "is Guha a good teacher", "is CS3500 hard", "who teaches DS 3000",
+    "how do I get an A in CS2500", "tell me about Lieberherr", "is algorithms worth taking",
+    # Whole words only: these contain a keyword as part of a longer word.
+    "is the workload heavy in topology", "who is the vsauce of khoury", "what about pratesi",
 ]
+
+MENU = ["help", "menu", "hi", "Hey!", "what can you do", "Hi, what can you do?",
+        "what is this site", "what is RateMyHusky?", "can you help me", "i need help"]
+
+
+def _ids(q):
+    return [h.entry.id for h in site_help.matches(q)]
+
 
 def test_registry_has_every_entry():
     assert sorted(e.id for e in site_help.ENTRIES) == sorted(IDS)   # each id exactly once
     assert site_help.ENTRIES[-1].id == "menu"
 
-def test_every_entry_has_three_phrasings():
-    assert set(SHOULD_MATCH) == set(IDS)
-    assert all(len(v) >= 3 for v in SHOULD_MATCH.values())
 
-@pytest.mark.parametrize("entry_id,q", [(k, q) for k, qs in SHOULD_MATCH.items() for q in qs])
-def test_match(entry_id, q):
-    hit = site_help.match(q)
-    assert hit is not None and hit.id == entry_id
+def test_every_topic_has_keywords_and_a_test():
+    topics = [e for e in site_help.ENTRIES if e.id != "menu"]
+    assert all(e.keywords for e in topics)
+    assert set(OFFERS) == {e.id for e in topics}
 
-@pytest.mark.parametrize("q", SHOULD_NOT_MATCH)
-def test_no_match_on_professor_or_course_questions(q):
-    assert site_help.match(q) is None
 
-def test_match_ignores_overlong_text():
-    assert site_help.match("how do bookmarks work " + "x" * MAX_QUERY_LEN) is None
+def test_menu_has_no_keywords():
+    assert site_help.get("menu").keywords == ()
+
+
+@pytest.mark.parametrize("entry_id,q", [(k, q) for k, qs in OFFERS.items() for q in qs])
+def test_question_offers_its_topic(entry_id, q):
+    assert entry_id in _ids(q)
+
+
+@pytest.mark.parametrize("q", NO_TOPIC)
+def test_question_without_keyword_offers_nothing(q):
+    assert site_help.matches(q) == []
+
+
+def test_professor_questions_still_offer_topics():
+    # The prompt's "No, other" button sends these to the LLM, so naming someone doesn't skip it.
+    assert "compare" in _ids("compare Guha vs Lieberherr for CS3500")
+    assert "goated" in _ids("is professor Lee the best")
+
+
+def test_hit_records_the_keyword_that_fired():
+    hit = next(h for h in site_help.matches("Guha VS Lieberherr") if h.entry.id == "compare")
+    assert hit.keyword == "vs"
+
+
+def test_keyword_matches_simple_plural():
+    assert "bookmarks" in _ids("where are my bookmarks")
+    assert "data_sources" in _ids("where do ratings come from")
+
+
+def test_curly_apostrophes_match():
+    assert "missing_course" in _ids("my class isn’t listed")
+
+
+def test_matches_follow_registry_order_and_are_capped():
+    q = "compare the best ratings, report a bug, bookmark, dark mode, privacy"
+    ids = _ids(q)
+    order = [e.id for e in site_help.ENTRIES]
+    assert ids == sorted(ids, key=order.index)
+    assert len(ids) == site_help.MAX_CHOICES
+
+
+def test_each_topic_offered_once():
+    ids = _ids("compare compare vs versus")
+    assert ids == ["compare"]
+
+
+@pytest.mark.parametrize("q", MENU)
+def test_menu_request(q):
+    assert site_help.is_menu_request(q)
+
+
+@pytest.mark.parametrize("q", ["help me plan my semester", "is Guha helpful", "hi is Guha good"])
+def test_not_a_menu_request(q):
+    assert not site_help.is_menu_request(q)
+
+
+def test_overlong_text_matches_nothing():
+    q = "how do bookmarks work " + "x" * MAX_QUERY_LEN
+    assert site_help.matches(q) == [] and not site_help.is_menu_request(q)
+
+
+def test_empty_text_matches_nothing():
+    assert site_help.matches("") == [] and site_help.matches("?!") == []
+
+
+def test_choice_payload_shape():
+    hits = site_help.matches("Guha vs Lieberherr, who is best")
+    p = site_help.choice_payload(hits)
+    assert p["mode"] == "site_help_choice"
+    assert p["message"] == "Is your question about one of these?"
+    assert p["options"] == [{"id": h.entry.id, "title": h.entry.title} for h in hits]
+
+
+def test_hit_summary_names_topic_and_keyword():
+    hits = site_help.matches("Guha vs Lieberherr, who is best")
+    assert site_help.hit_summary(hits) == "goated:best compare:vs"
+
 
 def test_answers_state_no_numbers():
     assert all(not any(ch.isdigit() for ch in e.answer) for e in site_help.ENTRIES)
 
+
 def test_links_are_internal_paths():
     assert all(href.startswith("/") for e in site_help.ENTRIES for _, href in e.links)
+
 
 def test_payload_shapes():
     p = site_help.payload(site_help.get("bookmarks"))
@@ -108,6 +152,13 @@ def test_payload_shapes():
     assert p["links"] and set(p["links"][0]) == {"label", "href"}
     m = site_help.payload(site_help.get("menu"))
     assert [i["id"] for i in m["menu"]] == [e.id for e in site_help.ENTRIES if e.id != "menu"]
+
+
+def test_courses_entry_links_to_courses_page():
+    e = site_help.get("courses")
+    assert ("Courses", "/courses") in e.links
+    assert "filter" in e.answer.lower() and "sort" in e.answer.lower()
+
 
 def test_answers_follow_the_faq():
     # Feedback sits in the phone menu now that the round bottom-right button is the Ask widget.
@@ -117,6 +168,7 @@ def test_answers_follow_the_faq():
     assert site_help.get("ask_help").links == (("FAQ", "/faq"),)
     rate = site_help.get("rate").answer
     assert "needs our review first" in rate and "Comments aren't shown on the site yet" in rate
+
 
 def test_get_unknown_is_none():
     assert site_help.get("nope") is None

@@ -27,7 +27,10 @@ def seconds_until_utc_midnight():
     return (tomorrow - now).total_seconds()
 
 class GroqAdapter:
-    CLASSIFY_MODEL = "llama-3.1-8b-instant"
+    # Groq retired llama-3.1-8b-instant. gpt-oss-20b reasons before it answers, so classify
+    # runs it at low effort with room for the reasoning (120 tokens came back as empty JSON).
+    CLASSIFY_MODEL = "openai/gpt-oss-20b"
+    CLASSIFY_MAX_TOKENS = 500
     SYNTH_MODEL = "openai/gpt-oss-120b"  # no model fallback (locked decision)
 
     def __init__(self, provider, client_factory=None):
@@ -48,12 +51,13 @@ class GroqAdapter:
                        "professor_or_course": None,
                        "looks_like_injection": True, "error": True}
         try:
-            _entry, client = self._client(est_tokens=300)
+            _entry, client = self._client(est_tokens=300 + self.CLASSIFY_MAX_TOKENS)
             resp = client.chat.completions.create(
                 model=self.CLASSIFY_MODEL,
                 messages=[{"role": "user", "content": _CLASSIFY_PROMPT.format(text=text)}],
                 response_format={"type": "json_object"},
-                temperature=0.0, max_tokens=120,
+                reasoning_effort="low",
+                temperature=0.0, max_tokens=self.CLASSIFY_MAX_TOKENS,
             )
             data = json.loads(resp.choices[0].message.content)
             entities = data.get("professors_or_courses")

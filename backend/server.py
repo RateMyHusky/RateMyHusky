@@ -6,7 +6,7 @@ Install deps:  pip install flask flask-cors flask-limiter psycopg2-binary pyjwt 
 Run:           python server.py
 """
 
-import os, re, unicodedata, json, hashlib, hmac, random, secrets
+import os, re, unicodedata, json, hmac, random, secrets
 import html as _html
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
@@ -33,7 +33,7 @@ from rag.chat_question import handle_question, log_ask
 from rag import site_help
 from rag.llm_adapter import GroqAdapter
 from rag.key_pool import KeyPool
-from rag.chat_gate import gate
+from rag.chat_gate import gate, MAX_QUERY_LEN
 from rag.chat_retrieve import retrieve, fetch_reddit_mentions
 from rag.query_embedder import embed_query
 from rag.chat_answer import generate, generate_course_list, generate_course_ranking
@@ -55,17 +55,8 @@ load_dotenv()
 
 import types as _types
 
-CHAT_ENABLED = os.getenv("CHAT_ENABLED", "false").lower() == "true"
-# The ip_hash in ask_log is only as private as this salt: with a known one, every
-# IPv4 hash can be reversed by trying all 2^32 addresses.
-_IP_SALT = os.getenv("ASK_IP_SALT", "")
-if CHAT_ENABLED and not _IP_SALT:
-    raise RuntimeError("ASK_IP_SALT must be set when CHAT_ENABLED is true")
 _chat_pool = KeyPool()
 _chat_adapter = GroqAdapter(_chat_pool)
-
-def _hash_ip(ip):
-    return hmac.new(_IP_SALT.encode(), (ip or "").encode(), hashlib.sha256).hexdigest()[:16]
 
 
 # ──────────────────────────────────────────────
@@ -746,7 +737,7 @@ def _chat_write_rc(sql, params=None):
     conn.commit()
     return cur.rowcount
 
-# ask_log keeps each question with its account id and ip_hash; rows older than this
+# ask_log keeps each question with its account id (no IP); rows older than this
 # are deleted. The abuse ladder only reads the last STRIKE_WINDOW_DAYS (7) and the
 # budget only today's, so 30 days leaves room for appeals and debugging.
 ASK_LOG_RETENTION_DAYS = 30
@@ -1299,6 +1290,15 @@ def search():
 # ──────────────────────────────────────────────
 #  Reddit RAG chatbot
 # ──────────────────────────────────────────────
+def _log_site_help(q, status, answer, t0):
+    """One ask_log row for the site-help flow. status: site_help (menu shown), site_help_choice
+    (prompt shown; answer = 'topic:keyword ...'), site_help_pick (topic tapped; answer = id),
+    site_help_other ("No, other" tapped)."""
+    log_ask(_chat_write, q[:MAX_QUERY_LEN], "site_help", None, status, 0, answer, 0,
+            int((time.monotonic() - t0) * 1000),
+            (decode_session_token(_get_auth_token()) or {}).get("sub"), False)
+
+
 @app.route("/api/chat", methods=["GET", "POST"])
 @limiter.limit("30 per minute")
 def chat():
@@ -1309,17 +1309,20 @@ def chat():
         q = body.get("q") if isinstance(body, dict) else None
         q = q.strip() if isinstance(q, str) else ""
         help_id = body.get("help_id") if isinstance(body, dict) else None
+        # "No, other" on the site-help prompt: send the question to the LLM without matching.
+        skip_help = isinstance(body, dict) and body.get("skip_help") is True
         mode = "question"
-        # Kill switch, ahead of site help: with Ask off, nothing a user sends is stored.
-        if not CHAT_ENABLED:
-            return jsonify({"mode": "error", "message": "The question feature is temporarily disabled."}), 503
         if help_id is not None:
             entry = site_help.get(help_id) if isinstance(help_id, str) else None
             if entry is None:
                 return jsonify({"mode": "error", "message": "Unknown help topic."}), 404
+            # A topic picked from the prompt carries its question; a menu chip has none.
+            if q:
+                _log_site_help(q, "site_help_pick", entry.id, time.monotonic())
             return jsonify(site_help.payload(entry))
     else:
         q = (request.args.get("q") or "").strip()
+        skip_help = False
         mode = request.args.get("mode", "keyword")
         if mode != "keyword":
             return jsonify({"mode": "error", "message": "Ask questions must be sent as a POST."}), 405
@@ -1333,23 +1336,27 @@ def chat():
         data = keyword_search(q, query, _professor_search, limit=limit,
                               mod_filter=moderation.sql_filter("t"))
         return jsonify({"mode": "keyword", "results": data["comments"], "professors": data["professors"]})
-    # Site questions ("how do bookmarks work") are answered from the registry for everyone,
-    # signed in or not, with no LLM call. Logged without ever raising an abuse strike.
+    # Site questions ("how do bookmarks work") are handled for everyone, signed in or not,
+    # with no LLM call: a bare "help" gets the topic menu, and a question with a topic keyword
+    # gets a prompt offering those topics plus "No, other". Logged without ever raising an
+    # abuse strike; the log row names the keywords that fired.
     t0 = time.monotonic()
-    entry = site_help.match(q)
-    if entry is not None:
-        log_ask(_chat_write, q, "site_help", None, "site_help", 0, entry.id, 0,
-                int((time.monotonic() - t0) * 1000),
-                (decode_session_token(_get_auth_token()) or {}).get("sub"),
-                _hash_ip(get_real_ip()), False)
-        return jsonify(site_help.payload(entry))
+    if skip_help:
+        _log_site_help(q, "site_help_other", None, t0)
+    elif site_help.is_menu_request(q):
+        _log_site_help(q, "site_help", "menu", t0)
+        return jsonify(site_help.payload(site_help.get("menu")))
+    else:
+        hits = site_help.matches(q)
+        if hits:
+            _log_site_help(q, "site_help_choice", site_help.hit_summary(hits), t0)
+            return jsonify(site_help.choice_payload(hits))
     # 'question' mode is account-gated: identity comes from the verified JWT (not a spoofable
     # header), so the abuse ladder keys on a server-trusted user id that can't be forged or omitted.
     _claims = decode_session_token(_get_auth_token())
     if _claims is None:
         return jsonify({"mode": "error", "message": "Sign in to use Ask mode."}), 401
     deps = _types.SimpleNamespace(
-        chat_enabled=CHAT_ENABLED,
         num_keys=len(_chat_pool.entries) or 1,
         query_fn=query,
         query_one_fn=query_one,
@@ -1371,8 +1378,7 @@ def chat():
     session_token = _claims.get("sub")  # verified account id — unspoofable, never None
     if not session_token:
         return jsonify({"mode": "error", "message": "Sign in to use Ask mode."}), 401
-    ip_hash = _hash_ip(get_real_ip())
-    payload, code = handle_question(q, session_token, ip_hash, deps)
+    payload, code = handle_question(q, session_token, deps)
     return jsonify(payload), code
 
 

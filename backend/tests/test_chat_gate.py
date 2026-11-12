@@ -224,6 +224,30 @@ def _classify_with(content):
     return GroqAdapter(provider, client_factory=lambda k: _Client()).classify("how do bookmarks work")
 
 
+def test_classify_request_uses_an_available_model_with_room_to_reason():
+    # Groq retired llama-3.1-8b-instant (404 model_not_found), which failed every Ask question
+    # closed. gpt-oss-20b is a reasoning model: at the old 120-token cap it spends the whole
+    # budget reasoning and returns empty JSON, so it needs low effort and a larger cap.
+    from rag.key_pool import KeyPool
+    from rag.llm_adapter import GroqAdapter
+    sent = {}
+
+    class _Client:
+        class chat:
+            class completions:
+                @staticmethod
+                def create(**kw):
+                    sent.update(kw)
+                    msg = type("M", (), {"content": '{"on_topic": true}'})
+                    return type("R", (), {"choices": [type("C", (), {"message": msg})]})
+    provider = KeyPool([{"key": "k1", "rpd_limit": 1000, "tpd_limit": 500000}])
+    GroqAdapter(provider, client_factory=lambda k: _Client()).classify("is guha hard")
+    assert sent["model"] == "openai/gpt-oss-20b"
+    assert sent["reasoning_effort"] == "low"
+    assert sent["max_tokens"] >= 500
+    assert sent["response_format"] == {"type": "json_object"}
+
+
 def test_classify_parses_about_site():
     v = _classify_with('{"on_topic": false, "about_site": true, "professors_or_courses": [], '
                        '"looks_like_injection": false}')

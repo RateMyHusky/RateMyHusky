@@ -111,10 +111,18 @@ const AskWidget = () => {
 
   const onPick = (msg: WidgetMsg, pick: AskPick) => {
     if (pending) return;
+    if (pick.kind === 'other') {
+      const question = msg.question ?? '';
+      void ask('No, other', () => askChat(question, true), question);
+      return;
+    }
     if (pick.kind === 'help') {
-      const menu = msg.result?.mode === 'site_help' ? msg.result.menu : undefined;
-      const title = menu?.find(i => i.id === pick.id)?.title ?? 'How does this site work?';
-      void ask(title, () => askHelp(pick.id), title);
+      const r = msg.result;
+      const topics = r?.mode === 'site_help' ? r.menu : r?.mode === 'site_help_choice' ? r.options : undefined;
+      const title = topics?.find(i => i.id === pick.id)?.title ?? 'How does this site work?';
+      // A topic from the prompt sends its question along so the pick is logged against it.
+      const from = r?.mode === 'site_help_choice' ? msg.question : undefined;
+      void ask(title, () => askHelp(pick.id, from), title);
       return;
     }
     const ambiguous = msg.result?.mode === 'disambiguation' ? msg.result.ambiguous : undefined;

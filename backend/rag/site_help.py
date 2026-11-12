@@ -1,12 +1,18 @@
 """Hand-written answers to questions about the site itself ("how do bookmarks work?").
 
-A match returns a fixed answer with links and costs no LLM call. The registry never answers
-about a named professor or course: those questions fall through to the LLM path.
+Each topic has a plain list of keywords. A question containing any of them (whole words,
+case-insensitive, an optional plural "s") gets a prompt asking whether it is about one of the
+matched topics, with a button per topic and a "No, other" button that sends it to the LLM.
+A question with no keyword goes straight to the LLM. Topic answers cost no LLM call.
 """
 import re
 from dataclasses import dataclass
 
 from rag.chat_gate import MAX_QUERY_LEN
+
+# At most this many topic buttons in one prompt (plus "No, other").
+MAX_CHOICES = 4
+CHOICE_MESSAGE = "Is your question about one of these?"
 
 
 @dataclass(frozen=True)
@@ -15,20 +21,14 @@ class Entry:
     title: str
     answer: str
     links: tuple[tuple[str, str], ...]
-    patterns: tuple[re.Pattern, ...]
+    keywords: tuple[str, ...]
 
 
-def _p(*regexes):
-    return tuple(re.compile(r, re.I) for r in regexes)
+@dataclass(frozen=True)
+class Hit:
+    entry: Entry
+    keyword: str   # the listed keyword that fired, for the log
 
-
-# Same shape as chat_retrieve's course-code regex, kept local so this module stays light.
-_COURSE_CODE = re.compile(r"\b[a-z]{2,5}\s?\d{4}\b")
-# A title used as a title: prof / professor / dr (optional ".") then a word that is not a
-# plain noun-phrase word. "rate a professor" and "my professor page" pass; "professor Lee" does not.
-_TITLE = re.compile(r"\b(?:prof|professor|dr)\b\.?\s+(\w+)")
-_TITLE_STOP = {"a", "an", "the", "my", "your", "their", "this", "that", "who", "is", "has",
-               "page", "pages", "ratings", "reviews"}
 
 ENTRIES: tuple[Entry, ...] = (
     Entry(
@@ -37,60 +37,42 @@ ENTRIES: tuple[Entry, ...] = (
         "ratings, reviews, and Reddit comments. Questions about reviews need you to sign in with "
         "your Husky Google account.",
         (("FAQ", "/faq"),),
-        _p(r"what (kinds?|types?|sorts?) of questions (can|could) (i|you) (ask|answer)",
-           r"what (can|could) ask (answer|do|handle)",
-           r"how (does|do) (the )?ask( feature| widget| assistant| box)? work",
-           r"how do i use (the )?ask\b",
-           r"(can|does) ask (answer|handle)")),
+        ("ask", "what can you answer")),
     Entry(
         "awards", "Teaching award badges",
         "Badges come from the award lists Northeastern publishes, including the University "
         "Excellence in Teaching Award and college awards such as Khoury's. Each badge links to "
         "the announcement it came from.",
         (("FAQ: award badges", "/faq#students"),),
-        _p(r"\bwhere (do|does|did) (the )?(teaching )?(award )?badges? come from",
-           r"\bwhat (are|is|do) (the )?(teaching )?(award )?badges?( mean)?$",
-           r"\bwhere (do|does|did) (the )?(teaching )?awards? (data|information|info|badges?) come from")),
+        ("award", "badge")),
     Entry(
         "photos", "Why no photo?",
         "We only use photos that Northeastern publishes on its own faculty and college "
         "directory pages. Many instructors, especially part-time and former faculty, don't have "
         "one there, so we don't either.",
         (("FAQ: photos", "/faq#students"),),
-        _p(r"\bwhy (is|are) there no (photo|picture|headshot)s?\b",
-           r"\bwhy (doesn'?t|does not|don'?t|do not) (this|a|every|some|that) (instructor|faculty|professor|page|profile)s? have (a )?(photo|picture|headshot)",
-           r"\bwhere do (the )?(faculty |professor |instructor )?(photos|pictures|headshots) come from",
-           r"\bwhy (do|does) (some|a|this) (page|profile)s? (have|show) no (photo|picture|headshot)")),
+        ("photo", "picture", "pic", "headshot")),
     Entry(
         "offerings", "Last Taught and When it's offered",
         "They come from Northeastern's public course schedule, and show when a course ran and "
         "who taught it, to read alongside the reviews. For seats, meeting times, and "
         "registration, use Northeastern's registration system or SearchNEU.",
         (("FAQ: Last Taught", "/faq#students"),),
-        # Only the labels themselves: "when was Algorithms last taught" is a course question.
-        _p(r"\b(what|where|how) (is|are|does|do) (the )?['\"‘’“”]?(last taught|when it'?s offered)['\"‘’“”]?"
-           r"( (label|section|column|field|data|info|information|dates?))?"
-           r"( (mean|come from|get (filled|worked out|calculated)|work|calculated|determined))?$",
-           r"\b(last taught|when it'?s offered) (label|section|column|field)s?\b",
-           r"\bhow (do|can) i (know|find out|see|tell) when (a )?(course|class)(es)? (is|are|gets?) (offered|run|taught)$",
-           r"^(last taught|when it'?s offered)$")),
+        ("last taught", "offered")),
     Entry(
         "missing_course", "Missing course",
         "A professor's course list combines the courses students have rated them in with the "
         "courses Northeastern's schedule shows them teaching in recent terms. A course they "
         "taught before then that nobody has reviewed won't appear.",
         (("FAQ: missing courses", "/faq#students"),),
-        _p(r"\b(course|class)(es)? ((is|are) )?(missing|not (listed|showing|shown)|isn'?t (listed|showing|shown)) (from|on|in) (a |the |this |my )?(professor'?s? |instructor'?s? )?(page|list|profile)",
-           r"\b(isn'?t|aren'?t|not) (a |the |my )?(course|class)(es)? (listed|showing|shown) (on|in) (the|a|this) (page|list|profile)",
-           r"\b(can'?t|cannot|don'?t) (see|find) (a |the |my )?(course|class) (on|in) (the|a|this) (professor'?s? )?(page|list|profile)")),
+        ("missing", "not listed", "isn't listed", "not showing")),
     Entry(
         "no_ratings", "Page but no ratings",
         "Most instructors on Northeastern's course schedule get a page even when nobody has "
         "rated them on RateMyProfessors or here. Their page shows the courses and terms they "
         "taught, and ratings appear after students submit them and the next weekly refresh runs.",
         (("FAQ: pages without ratings", "/faq#students"), ("Rate a professor", "/rate")),
-        _p(r"\bwhy (does|do|is|are) (there |a |an |this |some |my |the |these )?(a |an )?(instructor|page|profile|professor)s?\b.*\b(no|zero|without) (ratings?|reviews?)\b",
-           r"\b(page|profile)s? (but|with|without) (no|zero) (ratings?|reviews?)")),
+        ("no rating", "no review", "zero rating", "zero review")),
     Entry(
         "sentiment", "Sentiment bar",
         "It's an automated read of whether a Reddit comment speaks about the professor "
@@ -98,10 +80,7 @@ ENTRIES: tuple[Entry, ...] = (
         "person, and it scores each comment on its own, so sarcasm can be misread. Read the "
         "comment itself before you rely on the label.",
         (("FAQ: sentiment bar", "/faq#students"),),
-        # No free gap between the trigger words: "the reddit sentiment for Guha" is about Guha.
-        _p(r"(^|\b(the|a|an|this|that|each) )(reddit |comment )?sentiment (bar|label|score|colou?r|meaning)s?\b",
-           r"\b(how|what) (is|are|does|do) (the )?(reddit |comment )?sentiment( (bar|label|score|colou?r)s?)? "
-           r"(mean|calculated|determined|generated|decided|work)")),
+        ("sentiment",)),
     Entry(
         "goated", "GOATED Professors",
         "GOATED Professors are ranked by rating and by how many students rated them, so a "
@@ -109,23 +88,14 @@ ENTRIES: tuple[Entry, ...] = (
         "from many. The ranking compares every professor on the same scale and doesn't adjust "
         "for how hard their department is.",
         (("GOATED Professors", "/#goated"), ("FAQ: ranking", "/faq#students")),
-        # No free gap between the trigger words: "how does Lieberherr rank on the goated list"
-        # is about Lieberherr.
-        _p(r"\b(what|how) (is|are|does|do) (the )?goated( (professors?|list|ranking|rankings|section|page))? "
-           r"(ranked|rank|mean|calculated|work|chosen|picked|sorted|ordered|scored|decided|determined)\b",
-           r"\bhow (is|are) (the )?(professors|list) (on|in) (the )?goated (list|section|page) "
-           r"(ranked|sorted|ordered|chosen|picked|calculated)\b",
-           r"^what('?s| is) (the )?goated( (professors?|list|ranking))?$")),
+        ("goated", "best", "top", "rank", "ranking", "ranked")),
     Entry(
         "compare", "Compare professors",
         "Compare puts professors side by side and, for each row, marks the one with the best "
         "number among your picks. Nobody is marked when everyone ties, and a professor with too "
         "few ratings is shown greyed out and never marked best.",
         (("Compare professors", "/compare"), ("FAQ: how Compare works", "/faq#students")),
-        _p(r"\bcompare (page|tool|feature|tab)\b",
-           r"\bhow does compare\b",
-           r"\bwhat (does|is) (the )?compare\b",
-           r"\bhow (do|can) i compare (two |multiple |some )?(professors|instructors)\b")),
+        ("compare", "comparison", "vs", "versus", "side by side")),
     Entry(
         "rate", "Rate a professor",
         "Yes. Use the rating form to rate a professor and course you took: you answer a few "
@@ -134,106 +104,70 @@ ENTRIES: tuple[Entry, ...] = (
         "names a new professor or course, needs our review first. Comments aren't shown on the "
         "site yet.",
         (("Rate a professor", "/rate"), ("FAQ: writing a review", "/faq#students")),
-        _p(r"\b(can|how do|how can|where do|where can) i (write|leave|submit|post|add) (a |an |my )?(review|rating)( here| on (the )?(site|website)| on ratemyhusky)?$",
-           r"\brating form\b",
-           r"\brate (a|my|an) (professor|course|class|instructor)\b",
-           r"\bwhere (do|can) i (rate|review) (a|my|the) (professor|course|class|instructor)s?\b")),
+        ("rate", "rating form", "leave a review", "write a review", "submit a review")),
     Entry(
         "affiliation", "Is this run by Northeastern?",
         "No. RateMyHusky is an independent student project. It is not affiliated with, "
         "endorsed by, or officially connected to Northeastern University or RateMyProfessors.",
         (("FAQ", "/faq#students"),),
-        # The site must be the subject, right before the predicate: "is this class part of
-        # the major" and "are the reviews for Guha official" are course and professor questions.
-        _p(r"\b(is|are) (this (site|website)|ratemyhusky|this|it) (an? )?(officially |actually )?"
-           r"(affiliated|endorsed|official|run by|owned by|made by|connected (to|with))",
-           r"\b(ratemyhusky|this (site|website)) (is |was )?(run|owned|made|created|operated|built) by",
-           r"\bwho (runs|made|built|owns|created) (this (site|website)|ratemyhusky|the (site|website))\b")),
+        ("official", "officially", "affiliated", "run by", "who made", "who runs", "who built",
+         "who owns")),
     Entry(
         "professors", "Professors: corrections and removal",
         "If you teach at Northeastern, you can have your page corrected or removed. Use the "
         "feedback form and choose Data Deletion, entering your Northeastern email, so we can "
         "confirm the request is really from you.",
         (("FAQ for professors", "/faq#professors"),),
-        _p(r"\bi teach\b",
-           r"\bi('?m| am) (a |an )?(professor|faculty|instructor)",
-           r"\b(my|our) (professor |faculty )?(page|profile)\b",
-           r"\b(page|profile) (removed|taken down|deleted)\b")),
+        ("i teach", "my page", "my profile", "take down", "taken down", "remove my")),
     Entry(
         "privacy", "Privacy and terms",
         "The Privacy Policy lists what the site collects and publishes, and the Terms of "
         "Service cover how you can use it.",
         (("Privacy Policy", "/privacy"), ("Terms of Service", "/terms")),
-        # Not a bare "privacy": "is the privacy course hard" is a course question.
-        _p(r"^privacy$",
-           r"\bprivacy (policy|policies|notice|statement)\b",
-           r"\b(my|your) privacy\b",
-           r"\b(site|website|ratemyhusky)('?s)? privacy\b",
-           r"\bprivacy (on|of|at) (this |the )?(site|website|ratemyhusky)\b",
-           r"\bterms (of (service|use)|and conditions)\b",
-           r"\bwhat (data|information) do you (collect|store|keep|track)")),
+        ("privacy", "terms")),
     Entry(
         "report", "Report wrong or missing data",
         "Use the Feedback tab on the left edge of any page (in the menu on phones) and choose "
         "Wrong or Missing Data. A link to the page in question helps.",
         (("FAQ: reporting problems", "/faq#students"),),
-        _p(r"\bfeedback (tab|button|form|link)\b",
-           r"\breport (a |an )?(bug|problem|issue|error|mistake|wrong|incorrect|missing|data)",
-           r"\b(wrong|incorrect|missing|outdated) (data|info|information) (on|in) (the |this |a )?(site|page|website|profile)\b",
-           r"\bsomething (on|in) (the|this) (site|page|website) (is|looks|seems) (wrong|incorrect|broken)\b",
-           r"\bgive feedback\b")),
+        ("report", "bug", "feedback", "wrong", "incorrect", "broken")),
     Entry(
         "bookmarks", "Bookmarks",
         "Bookmark a professor or course to save it, then find your saved ones on the Bookmarks "
         "page. You need to sign in with your Husky Google account to use bookmarks.",
         (("Your bookmarks", "/bookmarks"),),
-        _p(r"\bbookmark",
-           r"\bsaved (professors|courses|list|items)\b",
-           r"\bsave (a|this|that) (professor|course)\b")),
+        ("bookmark", "saved")),
     Entry(
         "departments", "Departments",
         "The Departments page lists every department, and each one links to its professors and "
         "courses.",
         (("Departments", "/departments"),),
-        _p(r"\bdepartments? (page|list|pages|directory)\b",
-           r"\bbrowse (professors |courses )?by department\b",
-           r"\b(see|browse|list|view) (all |the )?(departments|colleges)\b")),
+        ("department",)),
     Entry(
         "sign_in", "Signing in",
         "Sign in with your Husky Google account. Signing in lets you bookmark professors and "
         "courses and ask Ask questions about reviews; browsing and rating need no sign-in.",
         (("Your bookmarks", "/bookmarks"),),
-        # Not a bare "log in": "does Guha make you log in to Khoury handins" is about Guha.
-        _p(r"^(sign|log)[ -]?(in|on)$",
-           r"\b(how|where) (do|can|should) i (sign|log)[ -]?(in|on)\b",
-           r"\b(do|why do|when do|must) (i|you|we) (need|have) to (sign|log)[ -]?(in|on)\b",
-           r"\bwhy (should|would) i (sign|log)[ -]?in\b",
-           r"\b(can'?t|cannot|unable to) (sign|log)[ -]?(in|on)\b",
-           r"\btrouble (signing|logging) (in|on)\b",
-           r"\b(sign|log)[ -]?in (button|page|link|options?|problems?|issues?)\b",
-           r"\b(is )?(signing|logging|sign|log)[ -]?in (required|needed|necessary)\b",
-           r"\bwhat (does|do) (signing|logging) in (do|give|get)",
-           r"\bhusky (google )?account\b",
-           r"\bgoogle account\b")),
+        ("sign in", "log in", "login", "signin", "sign on", "account")),
     Entry(
         "theme", "Dark and light mode",
         "Use the theme toggle to switch between dark and light mode. The site remembers your "
         "choice on that device.",
         (),
-        _p(r"\b(dark|light|night) (mode|theme)\b",
-           r"\btheme (toggle|switch|button)\b",
-           r"\b(change|switch|toggle) (the |my )?(site |page )?theme\b",
-           r"\bswitch (to )?(dark|light)\b")),
+        ("dark mode", "light mode", "night mode", "theme")),
     Entry(
         "search", "Finding a professor or course",
         "Use the search bar to find a professor or course by name. You can also browse every "
         "professor on the Professors page and every course on the Courses page.",
         (("Professors", "/professors"), ("Courses", "/courses")),
-        _p(r"\b(search|look ?up) (bar|box|for (a |an )?(professor|course|class|instructor)s?)\b",
-           r"\bhow (do|can) i (search|look up|find) (a |an |the )?(professor|course|class|instructor)s?(\s+(here|on (the )?(site|website)|on ratemyhusky))?$",
-           r"\bbrowse (all )?(professors|courses|classes)\b",
-           r"\bwhere (can|do) i (view|see|find|get|look at) (information|info|ratings|reviews) (about|on|for) (professors|courses|classes|instructors)$",
-           r"\bwhere is the search (bar|box)\b")),
+        ("search", "look up", "lookup")),
+    Entry(
+        "courses", "Planning with the Courses page",
+        "The Courses page lists every course. Search by name or code, sort by most rated, "
+        "rating, or most recent, filter by department, and use the rating slider to narrow the "
+        "list. Bookmark the courses you're considering to keep a shortlist while you plan.",
+        (("Courses", "/courses"), ("Your bookmarks", "/bookmarks")),
+        ("plan", "planning", "planner", "filter", "sort")),
     Entry(
         "data_sources", "Where the data comes from",
         "Ratings and written reviews come from RateMyProfessors, and ratings also come from "
@@ -241,37 +175,49 @@ ENTRIES: tuple[Entry, ...] = (
         "posts and comments from Northeastern subreddits that mention that professor, with a "
         "link back to each original. We refresh the data every week.",
         (("FAQ: where ratings come from", "/faq#students"),),
-        _p(r"\bwhere (do|does|did) (the |your |these |this |those |this site'?s? )?((reddit|rmp|ratemyprofessors?) )?(ratings?|reviews?|data|posts|comments)\b.*\b(come|from|get|got)\b",
-           r"\bhow often (is|are|do|does) (the )?(data|ratings|reviews|site|website) (updat|refresh|chang)",
-           r"\bweekly refresh\b",
-           r"\bdata sources?\b")),
+        ("rating", "review", "reddit", "rmp", "ratemyprofessors", "data", "refresh", "source",
+         "come from")),
+    # Never offered as a button: shown directly for the MENU_PHRASES below.
     Entry(
         "menu", "What can I ask?",
         "I can answer questions about how RateMyHusky works: where the data comes from, how to "
         "rate a professor, how GOATED Professors and Compare work, bookmarks, signing in, "
         "searching, departments, privacy, and more. Tap a topic below.",
         (("FAQ", "/faq"),),
-        _p(r"^(help|menu|options|hi|hello|hey)$",
-           r"^what (can|do) you (do|know)( here)?$",
-           r"^what (can|do) you (do|know) about (this|the) (site|website|ask)$",
-           r"^what can i do here$",
-           r"^what (is|'?s) (this|the) (site|website|page)$",
-           r"^what (is|'?s) ratemyhusky$",
-           r"^how does (this|the) (site|website) work$",
-           r"^can you help( me)?$",
-           r"^i need help$")),
+        ()),
 )
 
+# Whole questions (after normalising) that get the full topic menu with no prompt.
+MENU_PHRASES = frozenset({
+    "help", "menu", "options", "hi", "hello", "hey",
+    "what can you do", "what do you do", "what can you do here", "what do you know",
+    "what can i do here", "can you help", "can you help me", "i need help",
+    "what is this site", "what is this website", "what's this site", "what is ratemyhusky",
+    "what's ratemyhusky", "how does this site work", "how does the site work",
+    "how does this website work",
+})
+
 _BY_ID = {e.id: e for e in ENTRIES}
+
+
+def _keyword_re(keyword: str) -> re.Pattern:
+    # Whole words only, an optional plural "s", and a space also matches a hyphen ("sign-in").
+    words = r"[\s-]+".join(re.escape(w) for w in keyword.split())
+    return re.compile(rf"(?<!\w){words}s?(?!\w)")
+
+
+_KEYWORDS: tuple[tuple[Entry, tuple[tuple[str, re.Pattern], ...]], ...] = tuple(
+    (e, tuple((k, _keyword_re(k)) for k in e.keywords)) for e in ENTRIES if e.keywords
+)
 
 
 def get(entry_id: str) -> Entry | None:
     return _BY_ID.get(entry_id)
 
 
-# Phones and some keyboards type curly quotes, which the patterns' plain apostrophes miss.
+# Phones and some keyboards type curly quotes, which the keywords' plain apostrophes miss.
 _QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
-# A leading "Hi," / "Hey there!" would stop the anchored menu patterns from matching.
+# A leading "Hi," / "Hey there!" would stop a menu phrase from matching.
 _GREETING = re.compile(r"^(hi|hello|hey)( there)?\b[\s,!.]*(?=\w)")
 
 
@@ -281,22 +227,43 @@ def _normalise(q: str) -> str:
     return _GREETING.sub("", q)
 
 
-def _names_entity(text: str) -> bool:
-    if _COURSE_CODE.search(text):
-        return True
-    return any(m.group(1) not in _TITLE_STOP for m in _TITLE.finditer(text))
-
-
-def match(q: str) -> Entry | None:
+def _text(q: str) -> str:
     if not q or len(q) > MAX_QUERY_LEN:
-        return None
-    text = _normalise(q)
-    if not text or _names_entity(text):
-        return None
-    for entry in ENTRIES:
-        if any(p.search(text) for p in entry.patterns):
-            return entry
-    return None
+        return ""
+    return _normalise(q)
+
+
+def is_menu_request(q: str) -> bool:
+    text = _text(q)
+    return bool(text) and text in MENU_PHRASES
+
+
+def matches(q: str) -> list[Hit]:
+    """The topics whose keywords appear in q, in registry order, at most MAX_CHOICES."""
+    text = _text(q)
+    if not text:
+        return []
+    hits = []
+    for entry, keywords in _KEYWORDS:
+        keyword = next((k for k, rx in keywords if rx.search(text)), None)
+        if keyword is not None:
+            hits.append(Hit(entry, keyword))
+            if len(hits) == MAX_CHOICES:
+                break
+    return hits
+
+
+def hit_summary(hits: list[Hit]) -> str:
+    """'goated:best compare:vs', stored in the log so it shows which keywords fire."""
+    return " ".join(f"{h.entry.id}:{h.keyword}" for h in hits)
+
+
+def choice_payload(hits: list[Hit]) -> dict:
+    return {
+        "mode": "site_help_choice",
+        "message": CHOICE_MESSAGE,
+        "options": [{"id": h.entry.id, "title": h.entry.title} for h in hits],
+    }
 
 
 def payload(entry: Entry) -> dict:

@@ -10,8 +10,6 @@ def q_client(monkeypatch):
     import server
     monkeypatch.setattr(server, "_get_pool",
         lambda: (_ for _ in ()).throw(AssertionError("no DB in test")), raising=False)
-    # the route checks the kill switch before anything else, so these tests need Ask on
-    monkeypatch.setattr(server, "CHAT_ENABLED", True)
     return server.app.test_client()
 
 def _auth_headers():
@@ -24,7 +22,7 @@ def _auth_headers():
 def test_chat_question_returns_answer(monkeypatch, q_client):
     import server
     seen = {}
-    def _fake(q, session_token, ip_hash, deps):
+    def _fake(q, session_token, deps):
         seen["session_token"] = session_token  # capture what the route passed through
         return {"mode": "question", "answer": "Guha is fair.", "disclaimer": "AI-generated."}, 200
     monkeypatch.setattr(server, "handle_question", _fake)
@@ -47,28 +45,10 @@ def test_chat_question_rejects_invalid_token(q_client):
                         headers={"Origin": "http://localhost:5173", "Authorization": "Bearer not.a.jwt"})
     assert resp.status_code == 401
 
-def test_chat_question_kill_switch(monkeypatch, q_client):
-    import server
-    monkeypatch.setattr(server, "handle_question",
-        lambda q, session_token, ip_hash, deps: (
-            {"mode": "error", "message": "The question feature is temporarily disabled."}, 503
-        ))
-    monkeypatch.setattr(server, "CHAT_ENABLED", False)
-    resp = q_client.post("/api/chat", json={"q": "is Guha hard"}, headers=_auth_headers())
-    assert resp.status_code == 503
-
 def test_chat_question_over_get_is_refused(q_client):
     # Questions must not travel in the query string (it lands in access logs).
     resp = q_client.get("/api/chat?q=is+Guha+hard&mode=question", headers=_auth_headers())
     assert resp.status_code == 405
-
-def test_kill_switch_logs_nothing():
-    import types
-    from rag.chat_question import handle_question
-    logged = []
-    deps = types.SimpleNamespace(chat_enabled=False, log_fn=lambda sql, params: logged.append(params))
-    _, code = handle_question("is guha hard", "user-123", "iphash", deps)
-    assert code == 503 and logged == []
 
 def test_ask_log_purge_runs_at_most_hourly(monkeypatch):
     import server
@@ -106,7 +86,7 @@ def test_ask_log_purge_starts_off_the_request_thread_on_railway(monkeypatch):
 def _disambiguation_deps(**over):
     import types
     base = dict(
-        chat_enabled=True, log_fn=lambda sql, params: None,
+        log_fn=lambda sql, params: None,
         query_one_fn=lambda sql, params=(): None,
         gate_fn=lambda q: {"ok": True, "status": "ok", "professors_or_courses": ["Lee"],
                            "professor_or_course": "Lee", "message": None},
@@ -120,7 +100,7 @@ def _disambiguation_deps(**over):
 
 def test_disambiguation_payload_names_the_ambiguous_hint():
     from rag.chat_question import handle_question
-    payload, code = handle_question("is Lee hard", "user-123", "iphash", _disambiguation_deps())
+    payload, code = handle_question("is Lee hard", "user-123", _disambiguation_deps())
     assert code == 200 and payload["mode"] == "disambiguation"
     assert payload["ambiguous"] == "Lee"
     assert [m["pick"] for m in payload["matches"]] == ["Ann Lee", "Bo Lee"]
@@ -140,7 +120,7 @@ def test_course_disambiguation_payload_picks_the_course_code():
             "entity_key": None, "course_code": None, "professor_slug": None,
             "facts": {}, "comments": [], "comment_count": 0},
         num_keys=1)
-    payload, code = handle_question("is data science hard", "user-123", "iphash", deps)
+    payload, code = handle_question("is data science hard", "user-123", deps)
     assert code == 200 and payload["mode"] == "disambiguation"
     assert payload["ambiguous"] == "Data Science"
     assert [m["pick"] for m in payload["matches"]] == ["DS2000", "DS3000"]
@@ -154,7 +134,7 @@ def test_site_help_llm_returns_menu_logged_as_site_help():
         query_one_fn=lambda sql, params=(): {"c": 0},
         gate_fn=lambda q: {"ok": False, "status": "site_help_llm", "professors_or_courses": [],
                            "professor_or_course": None, "message": None})
-    payload, code = handle_question("what does this thing do", "user-123", "iphash", deps)
+    payload, code = handle_question("what does this thing do", "user-123", deps)
     assert code == 200
     assert payload["mode"] == "site_help" and payload["id"] == "menu"
     # log_ask params: (query, mode, slug, result_status, ..., flagged)

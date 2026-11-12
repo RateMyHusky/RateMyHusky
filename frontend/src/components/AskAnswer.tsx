@@ -2,8 +2,9 @@ import { Link } from 'react-router-dom';
 import type { ChatResponse } from '../api/api';
 import './AskAnswer.css';
 
-// What a chip in an answer asks the host to do next: open a help topic, or re-ask with a name.
-export type AskPick = { kind: 'help'; id: string } | { kind: 'name'; pick: string };
+// What a chip in an answer asks the host to do next: open a help topic, re-ask with a name,
+// or ("No, other" on the site-help prompt) send the question on to the LLM.
+export type AskPick = { kind: 'help'; id: string } | { kind: 'name'; pick: string } | { kind: 'other' };
 
 // Route state for links out of an answer. fromAsk lets the homepage scroll to /#goated;
 // professor citations spread askPins onto it for the Professor page's highlighting.
@@ -121,6 +122,29 @@ export default function AskAnswer({ result, askedAt, onPick }: { result: ChatRes
           </ol>
         )}
         <p className="ask-disclaimer">{result.disclaimer}</p>
+      </>
+    );
+  }
+
+  if (result.mode === 'site_help_choice') {
+    return (
+      <>
+        <p className="ask-answer">{result.message}</p>
+        <div className="ask-chips">
+          {result.options.map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              className="ask-chip"
+              onClick={() => onPick?.({ kind: 'help', id: o.id })}
+            >
+              {o.title}
+            </button>
+          ))}
+          <button type="button" className="ask-chip" onClick={() => onPick?.({ kind: 'other' })}>
+            No, other
+          </button>
+        </div>
       </>
     );
   }

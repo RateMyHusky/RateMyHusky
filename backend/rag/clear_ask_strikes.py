@@ -92,7 +92,7 @@ def clear(conn, cur, account, dry_run):
 
 def purge_account(conn, cur, account, dry_run):
     """Data-erasure: delete EVERY ask_log row for one account (query text, answer_text,
-    ip_hash, all statuses) — not just strikes — plus the account's bookmarks. Use for a
+    all statuses) — not just strikes — plus the account's bookmarks. Use for a
     user's 'remove my tracked data' request. Also resets that account's strikes/daily-cap
     as a side effect."""
     cur.execute("SELECT count(*) FROM ask_log WHERE session_token = %s", (account,))
