@@ -25,15 +25,17 @@ every command but list and purge-ip bumps data_version; the rest of the site
 a rating held as unverified_pair vouches for that professor teaching that
 course, so later ratings of the pair aren't held for it.
 
-A comment never shows until approve-comment, even on an accepted rating, and
-an edit to its text waits again. approve-comment takes the ID@TIME `list`
+A comment shows once the model's check allows it, at submit or in
+moderate_queue.py. Any other comment waits for approve-comment, even on an
+accepted rating, and an edit to its text is checked again. remove-comment takes
+down one already showing. approve-comment takes the ID@TIME `list`
 printed next to the comment, and refuses when the row changed since then, so
 an edit between reading and approving can't put unread text on the page. approve-rating counts the rating only: its
 comment stays in the comments list until approved there too.
 
 `list` shows each comment's model check (moderation_groq.py): flagged first,
-then clean or not yet checked. The check only sorts the list; approving and
-rejecting work the same either way, and both take the comment off
+then clean or not yet checked. Among waiting comments the check only sorts the
+list; approving and rejecting work the same either way, and both take the comment off
 moderate_queue.py's queue. A comment the queue found blocked is flagged as
 `blocked` and its rating held as moderation_block until a reviewer acts.
 """

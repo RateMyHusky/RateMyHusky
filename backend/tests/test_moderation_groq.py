@@ -47,6 +47,11 @@ def test_the_policy_blocks_attacks_on_appearance():
     assert "Attacks on appearance, body, weight, or private life" in mg.POLICY
 
 
+def test_the_policy_sends_any_doubtful_part_to_review():
+    assert "ALLOW is only for reviews whose every part fits the ALLOW list." in mg.POLICY
+    assert "never ALLOW such a review" in mg.POLICY
+
+
 def test_enabled_follows_the_key(monkeypatch):
     assert mg.enabled() is False  # conftest sets it empty
     monkeypatch.setenv("GROQ_MODERATION_KEY", "  ")

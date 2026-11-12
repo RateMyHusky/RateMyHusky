@@ -157,12 +157,12 @@ def test_submit_stores_each_check_result(submit, pg, fake_groq):
                      "comment_check_attempts, comment_next_check_at IS NOT NULL AS due, "
                      "comment_checked_at IS NOT NULL AS checked FROM survey_ratings")
     by_device = {r["device_hash"]: r for r in saved}
-    expect = {"0": ("allow", None, False, True), "1": ("review", "review", False, True),
-              "2": ("unchecked", "groq_rate_limited", True, False)}
+    expect = {"0": ("approved", "allow", None, False, True), "1": ("pending", "review", "review", False, True),
+              "2": ("pending", "unchecked", "groq_rate_limited", True, False)}
     assert len(saved) == 3
-    for d, (check, reason, due, checked) in expect.items():
+    for d, (comment_status, check, reason, due, checked) in expect.items():
         row = by_device[ri.keyed_hash(SECRET, "device", d * 32)]
-        assert (row["status"], row["comment_status"]) == ("accepted", "pending")
+        assert (row["status"], row["comment_status"]) == ("accepted", comment_status)
         assert (row["comment_check"], row["comment_check_reason"], row["due"], row["checked"]) == (
             check, reason, due, checked)
         assert row["comment_check_attempts"] == 1

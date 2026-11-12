@@ -229,6 +229,16 @@ def test_moderation_timeout_keeps_the_rating_and_queues_the_comment(rate):
     assert saved(server, params, "comment_next_check_at") is not None
 
 
+def test_an_openai_allow_waits_for_review_since_only_groq_was_measured(rate):
+    server, client, state, ri = rate
+    state["moderation"] = "allow"
+    assert post(client, ri).status_code == 200
+    (sql, params), = rating_writes(state)
+    assert saved(server, params, "comment_check") == "allow"
+    assert saved(server, params, "comment_check_reason") == "openai"
+    assert saved(server, params, "comment_status") == "pending"
+
+
 def test_a_rule_match_is_422_before_any_model_call_or_write(rate):
     server, client, state, ri = rate
     for comment in ("great notes at studyhelp.com", "text me 617-555-0123", "asdfghjkl"):
@@ -322,7 +332,7 @@ def test_budgets_per_ip_and_on_shared_networks(rate):
     post(client, ri)
     assert len(state["scored"]) == 1
     assert [saved(server, p, "comment_check_reason") for s, p in rating_writes(state)] == [
-        "over_budget", None, "over_budget"]
+        "over_budget", "openai", "over_budget"]
 
 
 def test_an_edit_that_keeps_the_text_keeps_its_check_without_a_call(rate):

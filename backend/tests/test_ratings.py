@@ -153,7 +153,7 @@ def test_save_is_one_upsert_that_keeps_holds():
     assert ratings.save_rating(row, None, f.write) == f.writes[0][1][0]
 
 
-def test_a_new_comment_waits_for_review_and_an_unchanged_one_keeps_its_approval():
+def test_only_a_model_allow_publishes_new_text():
     col = 1 + ratings._INSERT_COLUMNS.index("comment_status")
     row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
 
@@ -161,13 +161,16 @@ def test_a_new_comment_waits_for_review_and_an_unchanged_one_keeps_its_approval(
         f = Fake()
         ratings.save_rating({**row, **kw}, None, f.write)
         return f.writes[0]
-    assert saved(comment="Hard but fair", comment_status="approved")[1][col] == "pending"
-    assert saved(comment=None)[1][col] is None
+    assert saved(comment="Hard but fair", comment_check="allow")[1][col] == "approved"
+    assert saved(comment="Hard but fair", comment_check="review")[1][col] == "pending"
+    assert saved(comment="Hard but fair", comment_check="allow", comment_check_reason="openai")[1][col] == "pending"
+    assert saved(comment="Hard but fair", comment_check="unchecked", comment_status="approved")[1][col] == "pending"
+    assert saved(comment=None, comment_check="allow")[1][col] is None
     sql = saved()[0]
     assert "comment_status = EXCLUDED" not in sql
     assert ("comment_status = CASE WHEN EXCLUDED.comment IS NULL THEN NULL "
             "WHEN EXCLUDED.comment = survey_ratings.comment THEN survey_ratings.comment_status "
-            "ELSE 'pending' END") in sql
+            "ELSE EXCLUDED.comment_status END") in sql
 
 
 def test_resubmitting_a_held_row_keeps_its_old_hold_reasons():

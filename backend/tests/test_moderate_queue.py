@@ -88,6 +88,23 @@ def test_a_block_holds_the_rating_and_bumps_the_data_version(fake_groq):
     assert any(s == mq.DATA_VERSION_SQL for s, p in conn.executed)
 
 
+def test_an_allow_publishes_the_comment_and_bumps_the_data_version(fake_groq):
+    conn = FakeConn(due(1))
+    mq.run(conn, fake_groq("ALLOW"), now=NOW, sleep=lambda s: None)
+    ((sql, params),) = conn.updates()
+    assert "comment_status = 'approved'" in sql
+    assert "AND comment = %s AND comment_check = 'unchecked' AND comment_status = 'pending'" in sql
+    assert any(s == mq.DATA_VERSION_SQL for s, p in conn.executed)
+
+
+def test_a_review_leaves_the_comment_waiting(fake_groq):
+    conn = FakeConn(due(1))
+    mq.run(conn, fake_groq("REVIEW"), now=NOW, sleep=lambda s: None)
+    ((sql, params),) = conn.updates()
+    assert "comment_status" not in sql.split("WHERE")[0]
+    assert not any(s == mq.DATA_VERSION_SQL for s, p in conn.executed)
+
+
 def test_a_failure_backs_off_and_the_run_goes_on(fake_groq):
     conn = FakeConn(due(2))
     mq.run(conn, fake_groq(TimeoutError("slow"), "ALLOW"), now=NOW, sleep=lambda s: None)

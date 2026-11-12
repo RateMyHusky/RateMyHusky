@@ -360,7 +360,7 @@ def test_apply_surge_holds_holds_only_unreviewed_accepted_rows(pg):
     assert survey.apply_surge_holds(pg, set()) == 0
 
 
-def test_a_comment_waits_for_review_until_its_text_is_approved(pg):
+def test_only_a_model_allow_publishes_new_text_and_unchanged_text_keeps_its_status(pg):
     import ratings
 
     row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
@@ -368,20 +368,22 @@ def test_a_comment_waits_for_review_until_its_text_is_approved(pg):
                status="accepted", device_hash="d1", new_device=True,
                network_type="unknown", collection="turnstile+device")
 
-    def save(comment):
+    def save(comment, check=None):
         existing = ratings.existing_rating("d1", ratings.rating_key(row, None, None), lambda q, p: (
             rows(pg, q, p) or [None])[0])
-        ratings.save_rating({**row, "comment": comment}, existing, pg_write(pg))
+        ratings.save_rating({**row, "comment": comment, "comment_check": check}, existing, pg_write(pg))
         return scalar(pg, "SELECT comment_status FROM survey_ratings")
 
-    assert save("Hard but fair") == "pending"
-    with pg.cursor() as cur:
-        cur.execute("UPDATE survey_ratings SET comment_status = 'approved'")
-    pg.commit()
+    assert save("Hard but fair", "allow") == "approved"
     assert save("Hard but fair") == "approved"   # an edit to the numbers keeps the approved text
-    assert save("Hard but fair, and rude") == "pending"
+    assert save("Hard but fair, and rude", "review") == "pending"
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET comment_status = 'approved'")  # a reviewer approves it
+    pg.commit()
+    assert save("Hard but fair, and rude") == "approved"
+    assert save("Hard but fair, and late", "unchecked") == "pending"
+    assert save("Back again", "allow") == "approved"
     assert save(None) is None
-    assert save("Back again") == "pending"
     assert scalar(pg, "SELECT count(*) FROM survey_ratings") == 1
 
 
