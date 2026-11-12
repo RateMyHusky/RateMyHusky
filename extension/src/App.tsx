@@ -10,19 +10,12 @@ import {
 
 type RecentSearch = { name: string; dept: string | null; slug: string };
 
-const DEFAULT_RECENTS: RecentSearch[] = [
-  { name: 'Daniela Rus', dept: 'CS', slug: 'daniela-rus' },
-  { name: 'David Kaeli', dept: 'EECS', slug: 'david-kaeli' },
-  { name: 'Sarah Ostadabbas', dept: 'ECE', slug: 'sarah-ostadabbas' },
-  { name: 'Kristina Lynch', dept: 'ME', slug: 'kristina-lynch' },
-];
-
 const RECENTS_KEY = 'rmh-extension-recent-searches';
 
 function loadRecents(): RecentSearch[] {
   try {
     const saved = localStorage.getItem(RECENTS_KEY);
-    if (!saved) return DEFAULT_RECENTS;
+    if (!saved) return [];
     const parsed: unknown = JSON.parse(saved);
     if (
       Array.isArray(parsed) &&
@@ -39,7 +32,7 @@ function loadRecents(): RecentSearch[] {
   } catch {
     // A fresh popup should still work if storage is unavailable or malformed.
   }
-  return DEFAULT_RECENTS;
+  return [];
 }
 
 function SearchIcon() {
@@ -64,15 +57,6 @@ function ChevronIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="m9 5 7 7-7 7" />
-    </svg>
-  );
-}
-
-function GearIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M9.7 3.7h4.6l.5 2a7 7 0 0 1 1.4.8l2-.6 2.3 4-1.5 1.5a7 7 0 0 1 0 1.6l1.5 1.5-2.3 4-2-.6a7 7 0 0 1-1.4.8l-.5 2H9.7l-.5-2a7 7 0 0 1-1.4-.8l-2 .6-2.3-4L5 13a7 7 0 0 1 0-1.6l-1.5-1.5 2.3-4 2 .6a7 7 0 0 1 1.4-.8z" />
-      <circle cx="12" cy="12.2" r="2.6" />
     </svg>
   );
 }
@@ -122,94 +106,64 @@ function ReviewCard({ review }: { review: ProfessorReview }) {
   );
 }
 
-function ProfileView({
-  profile,
-  activeTab,
-  onTabChange,
-}: {
-  profile: ProfessorProfile;
-  activeTab: 'reviews' | 'trace';
-  onTabChange: (tab: 'reviews' | 'trace') => void;
-}) {
+function ProfileAvatar({ imageUrl }: { imageUrl: string | null | undefined }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => setFailed(false), [imageUrl]);
+
+  return imageUrl && !failed ? (
+    <img src={imageUrl} alt="" onError={() => setFailed(true)} />
+  ) : (
+    <span className="avatar large" aria-hidden="true" />
+  );
+}
+
+function ProfileView({ profile }: { profile: ProfessorProfile }) {
   const [reviewSort, setReviewSort] = useState<'newest' | 'highest' | 'lowest'>('newest');
   const reviews = profile.sources.rmp.reviews;
   const orderedReviews = [...reviews].sort((a, b) => {
     if (reviewSort === 'highest') return b.quality - a.quality;
     if (reviewSort === 'lowest') return a.quality - b.quality;
-    return Date.parse(b.date) - Date.parse(a.date);
+    return (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0);
   });
-  const survey = profile.sources.survey;
-  const distribution = survey.ratingDistribution;
-  const totalEvaluations = Object.values(distribution).reduce((sum, value) => sum + value, 0);
+
+  // Build keys from review content because the current API type has no review ID
+  // Include occurrence count so identical reviews still have distinct keys
+  const occurrences = new Map<string, number>();
+  const keyedReviews = orderedReviews.map((review) => {
+    const keyBase = review.id != null
+      ? String(review.id)
+      : JSON.stringify([review.date, review.courseCode, review.course, review.quality,
+        review.difficulty, review.comment, review.tags]);
+    const occurrence = occurrences.get(keyBase) ?? 0;
+    occurrences.set(keyBase, occurrence + 1);
+    return { review, key: `${keyBase}-${occurrence}` };
+  });
 
   return (
-    <>
-      <nav className="profile-tabs" aria-label="Professor information">
-        <button className={activeTab === 'reviews' ? 'active' : ''} onClick={() => onTabChange('reviews')} type="button">Reviews</button>
-        <button className={activeTab === 'trace' ? 'active' : ''} onClick={() => onTabChange('trace')} type="button">TRACE Data</button>
-        <button className="disabled-tab" type="button" disabled>Courses</button>
-      </nav>
-
-      {activeTab === 'reviews' ? (
-        <section className="profile-content">
-          <div className="content-heading">
-            <div>
-              <h1>Student Reviews <span className="count">({profile.summary.numComments})</span></h1>
-              <p>Written feedback from Rate My Professors</p>
-            </div>
-            <label className="sort-control">
-              <span className="visually-hidden">Sort reviews</span>
-              <select value={reviewSort} onChange={(event) => setReviewSort(event.target.value as typeof reviewSort)}>
-                <option value="newest">Newest</option>
-                <option value="highest">Highest rated</option>
-                <option value="lowest">Lowest rated</option>
-              </select>
-            </label>
-          </div>
-          {orderedReviews.length ? (
-            <div className="review-list">
-              {orderedReviews.map((review, index) => <ReviewCard key={`${review.date}-${index}`} review={review} />)}
-            </div>
-          ) : (
-            <p className="profile-empty">No written reviews are available for this professor yet.</p>
-          )}
-        </section>
+    <section className="profile-content">
+      <div className="content-heading">
+        <div>
+          <h1>Student Reviews <span className="count">({reviews.length})</span></h1>
+          <p>Ratings and feedback from Rate My Professors</p>
+        </div>
+        <label className="sort-control">
+          <span className="visually-hidden">Sort reviews</span>
+          <select value={reviewSort} onChange={(event) => setReviewSort(event.target.value as typeof reviewSort)}>
+            <option value="newest">Newest</option>
+            <option value="highest">Highest rated</option>
+            <option value="lowest">Lowest rated</option>
+          </select>
+        </label>
+      </div>
+      {keyedReviews.length > 0 ? (
+        <div className="review-list">
+          {keyedReviews.map(({ review, key }) => <ReviewCard key={key} review={review} />)}
+        </div>
       ) : (
-        <section className="profile-content trace-content">
-          <div className="content-heading trace-heading">
-            <div>
-              <h1>TRACE Evaluation Results <span className="info-dot" title="Student evaluation data available for this professor">i</span></h1>
-              <p>{survey.available ? `${survey.numRatings.toLocaleString()} responses` : 'Student evaluation data'}</p>
-            </div>
-            {survey.rating != null && <strong className="trace-total">{survey.rating.toFixed(1)}<small> / 5</small></strong>}
-          </div>
-          {survey.available ? (
-            <>
-              <div className="trace-summary">
-                <span>Overall</span>
-                <div className="trace-bar"><span style={{ width: `${((survey.rating ?? 0) / 5) * 100}%` }} /></div>
-                <strong>{survey.rating?.toFixed(1) ?? '—'}</strong>
-              </div>
-              <div className="distribution-heading">Rating distribution <span>{totalEvaluations.toLocaleString()} responses</span></div>
-              {[5, 4, 3, 2, 1].map((score) => {
-                const count = distribution[String(score) as keyof typeof distribution] ?? 0;
-                const percent = totalEvaluations ? (count / totalEvaluations) * 100 : 0;
-                return (
-                  <div className="distribution-row" key={score}>
-                    <span>{score} ★</span>
-                    <div className="trace-bar"><span style={{ width: `${percent}%` }} /></div>
-                    <strong>{count.toLocaleString()}</strong>
-                  </div>
-                );
-              })}
-              <p className="trace-note">Detailed category scores aren’t included in the available evaluation data.</p>
-            </>
-          ) : (
-            <p className="profile-empty">TRACE evaluation data isn’t available for this professor yet.</p>
-          )}
-        </section>
+        <p className="profile-empty">No reviews are available for this professor yet.</p>
       )}
-    </>
+    </section>
   );
 }
 
@@ -223,11 +177,15 @@ export default function App() {
   const [profile, setProfile] = useState<ProfessorProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState('');
-  const [profileTab, setProfileTab] = useState<'reviews' | 'trace'>('reviews');
   const inputRef = useRef<HTMLInputElement>(null);
+  const profileRequestId = useRef(0);
+  const latestQuery = useRef('');
+  const [resultsQuery, setResultsQuery] = useState('');
 
   useEffect(() => {
     const normalized = query.trim();
+    setResults([]);
+    setResultsQuery('');
     if (normalized.length < 2) {
       setResults([]);
       setLoading(false);
@@ -241,7 +199,10 @@ export default function App() {
     const timeout = window.setTimeout(() => {
       searchProfessors(normalized, 8)
         .then((matches) => {
-          if (active) setResults(matches);
+          if (active && latestQuery.current === normalized) {
+            setResults(matches);
+            setResultsQuery(normalized);
+          }
         })
         .catch((err: unknown) => {
           if (!active) return;
@@ -285,16 +246,23 @@ export default function App() {
     setSelectedProfessor(professor);
     setProfile(null);
     setProfileError('');
-    setProfileTab('reviews');
     setProfileLoading(true);
+    const requestId = ++profileRequestId.current;
     fetchProfessorProfile(professor.slug)
-      .then(setProfile)
-      .catch((err: unknown) => setProfileError(
-        isUnavailable(err)
-          ? 'Professor details are temporarily unavailable. Check your connection and try again.'
-          : 'Could not load professor details. Please try again.',
-      ))
-      .finally(() => setProfileLoading(false));
+      .then((nextProfile) => {
+        if (requestId === profileRequestId.current) setProfile(nextProfile);
+      })
+      .catch((err: unknown) => {
+        if (requestId !== profileRequestId.current) return;
+        setProfileError(
+          isUnavailable(err)
+            ? 'Professor details are temporarily unavailable. Check your connection and try again.'
+            : 'Could not load professor details. Please try again.',
+        );
+      })
+      .finally(() => {
+        if (requestId === profileRequestId.current) setProfileLoading(false);
+      });
   }
 
   function clearRecents() {
@@ -314,25 +282,20 @@ export default function App() {
       <header className="bar">
         <img className="brand-icon" src="/neu-husky-icon.png" alt="" />
         <span className="wordmark">RateMyHusky</span>
-        <button
-          className="icon-button settings-button"
-          type="button"
-          aria-label="Settings"
-          title="Settings"
-        >
-          <GearIcon />
-        </button>
       </header>
 
       {selectedProfessor ? (
         <>
           <div className="profile-titlebar">
             <button className="back-button" type="button" aria-label="Back to search" onClick={() => {
+              profileRequestId.current += 1;
               setSelectedProfessor(null);
               setProfile(null);
+              setProfileLoading(false);
+              setProfileError('');
             }}><ChevronIcon /></button>
             <div className="profile-identity">
-              {profile?.identity.imageUrl ? <img src={profile.identity.imageUrl} alt="" /> : <span className="avatar large" />}
+              <ProfileAvatar imageUrl={profile?.identity.imageUrl} />
               <div>
                 <h1>{profile?.identity.name ?? selectedProfessor.name}</h1>
                 <p>{profile?.identity.department ?? displayDepartment(selectedProfessor.dept)}</p>
@@ -344,7 +307,7 @@ export default function App() {
           </div>
           {profileLoading ? <p className="profile-empty">Loading professor details…</p> : profileError ? (
             <p className="profile-empty error-state">{profileError}</p>
-          ) : profile ? <ProfileView profile={profile} activeTab={profileTab} onTabChange={setProfileTab} /> : null}
+          ) : profile ? <ProfileView profile={profile} /> : null}
         </>
       ) : <main className="body">
         <form
@@ -352,17 +315,25 @@ export default function App() {
           role="search"
           onSubmit={(event) => {
             event.preventDefault();
-            if (results[0]) openProfessor(results[0]);
+            if (!loading && !error && resultsQuery === latestQuery.current && results[0]) {
+              openProfessor(results[0]);
+            }
           }}
         >
           <SearchIcon />
           <input
             ref={inputRef}
             autoFocus
-            aria-label="Search professor, course, or department"
-            placeholder="Search professor, course, or department..."
+            aria-label="Search professors"
+            placeholder="Search professors..."
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              latestQuery.current = event.target.value.trim();
+              setResults([]);
+              setResultsQuery('');
+              setLoading(latestQuery.current.length >= 2);
+              setQuery(event.target.value);
+            }}
           />
           {query && (
             <button
@@ -370,6 +341,9 @@ export default function App() {
               type="button"
               aria-label="Clear search"
               onClick={() => {
+                latestQuery.current = '';
+                setResults([]);
+                setResultsQuery('');
                 setQuery('');
                 inputRef.current?.focus();
               }}
@@ -398,7 +372,10 @@ export default function App() {
                     <button
                       className="recent-row"
                       type="button"
-                      onClick={() => setQuery(recent.name)}
+                      onClick={() => openProfessor({
+                        type: 'professor', name: recent.name, dept: recent.dept,
+                        slug: recent.slug, rating: null,
+                      })}
                     >
                       <ClockIcon />
                       <span className="recent-name">{recent.name}</span>
@@ -419,7 +396,7 @@ export default function App() {
               <p className="empty-state error-state">{error}</p>
             ) : trimmedQuery.length < 2 ? (
               <p className="empty-state">Type at least 2 characters to search.</p>
-            ) : results.length > 0 ? (
+            ) : resultsQuery === trimmedQuery && results.length > 0 ? (
               <ul className="results-list">
                 {results.map((professor) => (
                   <li key={professor.slug}>

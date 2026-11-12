@@ -23,6 +23,7 @@ export type CourseSuggestion = {
 };
 
 export type ProfessorReview = {
+  id?: string | number;
   course: string;
   courseCode: string | null;
   quality: number;
@@ -103,7 +104,7 @@ export async function searchProfessors(
         const nameTokens = s.name.toLowerCase().split(/\s+/);
         return tokens.every((token) =>
           nameTokens.some(
-            (nameToken) => nameToken.startsWith(token) || token.startsWith(nameToken),
+            (nameToken) => nameToken.startsWith(token),
           ),
         );
       })
