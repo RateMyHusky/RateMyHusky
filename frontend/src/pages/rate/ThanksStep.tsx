@@ -54,7 +54,7 @@ export function ThanksStep({ answers, counter, onRateAnother, popperSlot }: Than
         : counter !== null && <p className="rate-hint">You're one of {counter} Huskies who rated this term.</p>}
       <p className="rate-hint rate-when">
         {whenShown}
-        {answers.comment.trim() ? " Comments aren't shown on the site yet." : ''}
+        {answers.comment.trim() ? " Comments show once they pass a quick check or our team reads them." : ''}
       </p>
       <button type="button" className="rate-btn" onClick={onRateAnother}>Rate another professor</button>
       <button type="button" className="rate-ghost" onClick={share}>Share with a friend</button>

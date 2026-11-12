@@ -366,8 +366,10 @@ UPDATE public.survey_ratings SET comment_status = 'pending'
 ```
 
 Comments are then checked by a model (Groq's gpt-oss-safeguard when
-the `groq1` key is set, else OpenAI) as a first pass for the reviewer:
-`backend/moderate_queue.py` retries the ones the submit couldn't check. That
+the `groq1` key is set, else OpenAI). A Groq ALLOW publishes the comment;
+anything else, including an OpenAI allow, waits for `review_ratings.py
+approve-comment`. `backend/moderate_queue.py` retries the ones the submit
+couldn't check. That
 added five nullable columns, all NULL when the rating has no comment, and the
 `moderation_calls` table the per-sender budgets count. Run this after the block
 above and before deploying the backend that writes them, or every rating fails
