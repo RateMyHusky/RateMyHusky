@@ -133,4 +133,4 @@ def test_the_daily_cap_counts_every_call(fake_groq):
 def test_main_does_nothing_without_the_key(monkeypatch, capsys):
     monkeypatch.setattr(mq, "connect", lambda: (_ for _ in ()).throw(AssertionError("no DB")))
     assert mq.main() == 0
-    assert "GROQ_MODERATION_KEY is not set" in capsys.readouterr().out
+    assert "groq1 is not set" in capsys.readouterr().out

@@ -7,7 +7,7 @@ on:
 
 # Checks rating comments the submit couldn't (backend/moderate_queue.py). A run
 # makes at most 15 Groq calls 30 s apart, so two must never overlap. Without the
-# GROQ_MODERATION_KEY secret it does nothing and succeeds. Nothing here reads
+# groq1 secret it does nothing and succeeds. Nothing here reads
 # or writes the repo through GITHUB_TOKEN.
 concurrency:
   group: moderate-queue
@@ -35,5 +35,5 @@ jobs:
         working-directory: backend
         env:
           ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
-          GROQ_MODERATION_KEY: ${{ secrets.GROQ_MODERATION_KEY }}
+          groq1: ${{ secrets.groq1 }}
         run: python moderate_queue.py

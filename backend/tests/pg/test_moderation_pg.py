@@ -131,7 +131,7 @@ def submit(live_server, pg, monkeypatch, fake_groq):
     monkeypatch.setattr(server, "PROXY_SECRET", None)
     monkeypatch.delenv("TURNSTILE_SECRET_KEY", raising=False)
     monkeypatch.setattr(server, "_networks", SimpleNamespace(network_type=lambda ip: "other"))
-    monkeypatch.setenv("GROQ_MODERATION_KEY", "gsk-test")
+    monkeypatch.setenv("groq1", "gsk-test")
     # The seed has no one teaching CS2500; unverified_pair holds aren't what's tested here.
     monkeypatch.setattr(server.ratings, "pair_taught", lambda *a: True)
     server.limiter.reset()

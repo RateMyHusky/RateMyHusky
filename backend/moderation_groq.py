@@ -1,6 +1,6 @@
 """Rating comments checked by gpt-oss-safeguard-20b on Groq, with POLICY below.
 
-Used by server.rate_submit and moderate_queue.py when GROQ_MODERATION_KEY is set;
+Used by server.rate_submit and moderate_queue.py when the groq1 key is set;
 without it the form falls back to moderation.score_texts (OpenAI). Only new
 rating comments are checked: RMP and Reddit comments never are.
 
@@ -8,7 +8,8 @@ Quota: Groq's free plan allows this model 3 requests and 2,000 tokens a minute,
 1,000 requests and 200,000 tokens a day, for the whole organization. A call is
 about 800 tokens. Don't bulk-test against it, and don't spread load over more
 keys: a 429 or an outage leaves the comment `unchecked` for moderate_queue.py,
-never holds the rating. Tests pass a fake client.
+never holds the rating. groq1 is the first of the keys chat and the review agent
+use (rag/key_pool.py), but they call other models, and Groq's limits are per model. Tests pass a fake client.
 """
 
 import os
@@ -60,14 +61,14 @@ Answer with exactly one word: ALLOW, REVIEW, or BLOCK.
 
 
 def enabled():
-    return bool(os.getenv("GROQ_MODERATION_KEY", "").strip())
+    return bool(os.getenv("groq1", "").strip())
 
 
 def client():
     """An OpenAI-package client pointed at Groq: 3 s and no retries, so a slow or
     rate-limited call fails fast and the comment waits for the queue."""
     from openai import OpenAI
-    return OpenAI(api_key=os.environ["GROQ_MODERATION_KEY"].strip(), base_url=BASE_URL,
+    return OpenAI(api_key=os.environ["groq1"].strip(), base_url=BASE_URL,
                   timeout=TIMEOUT, max_retries=0)
 
 

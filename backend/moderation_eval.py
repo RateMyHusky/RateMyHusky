@@ -5,8 +5,7 @@ random sample of real approved comments through moderation_groq.check exactly as
 prod calls it, and writes a markdown report. The bar: at least 90% of the real
 sample gets ALLOW, and no clearly-bad `hold` comment gets ALLOW in any run.
 
-Keys: calls go on the groq1..groqN keys from backend/.env in turn, never on prod's
-GROQ_MODERATION_KEY. Quota: Groq's free plan gives this model 3 requests and 2,000
+Keys: calls go on the groq1..groqN keys from backend/.env in turn. Quota: Groq's free plan gives this model 3 requests and 2,000
 tokens a minute, 200,000 tokens a day per org, so calls go about 2 a minute and the
 run stops before 170,000 tokens in 24 hours. A stopped run resumes the next day without
 redoing finished calls: results are saved after every call.

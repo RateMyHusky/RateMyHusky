@@ -28,7 +28,7 @@ os.environ["ORACLE_DATABASE_URL"] = "postgresql://test:test@localhost:1/test"
 # route and moderate_queue.py would call Groq. Tests that want the Groq path set
 # it with monkeypatch and pass a FakeGroq. Groq's free quota is shared with
 # production, so no test may reach it.
-os.environ["GROQ_MODERATION_KEY"] = ""
+os.environ["groq1"] = ""
 
 
 class FakeGroq:

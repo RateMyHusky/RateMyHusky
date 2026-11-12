@@ -2442,7 +2442,7 @@ def _rating_moderation_score(texts):
 
 
 def _moderate_comment(comment):
-    """(action, reason, tokens) from Groq when GROQ_MODERATION_KEY is set, else from OpenAI.
+    """(action, reason, tokens) from Groq when the groq1 key is set, else from OpenAI.
     action is "allow" | "review" | "block" | "unavailable"; tokens is None off Groq; never raises.
     An OpenAI allow carries the reason "openai", so it waits for review: only Groq's check was
     measured well enough to publish a comment (ratings.save_rating)."""

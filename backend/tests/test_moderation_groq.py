@@ -54,14 +54,14 @@ def test_the_policy_sends_any_doubtful_part_to_review():
 
 def test_enabled_follows_the_key(monkeypatch):
     assert mg.enabled() is False  # conftest sets it empty
-    monkeypatch.setenv("GROQ_MODERATION_KEY", "  ")
+    monkeypatch.setenv("groq1", "  ")
     assert mg.enabled() is False
-    monkeypatch.setenv("GROQ_MODERATION_KEY", "gsk-test")
+    monkeypatch.setenv("groq1", "gsk-test")
     assert mg.enabled() is True
 
 
 def test_the_client_fails_fast_with_no_retries(monkeypatch):
-    monkeypatch.setenv("GROQ_MODERATION_KEY", "gsk-test")
+    monkeypatch.setenv("groq1", "gsk-test")
     groq = mg.client()  # builds only, no request
     assert str(groq.base_url).rstrip("/") == mg.BASE_URL
     assert groq.max_retries == 0 and groq.timeout == mg.TIMEOUT

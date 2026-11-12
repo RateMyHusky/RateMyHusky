@@ -262,7 +262,7 @@ def test_an_edit_that_keeps_text_a_later_rule_matches_still_saves(rate):
 
 def test_groq_verdicts_mark_the_comment_and_never_hold_the_rating(rate, monkeypatch, fake_groq):
     server, client, state, ri = rate
-    monkeypatch.setenv("GROQ_MODERATION_KEY", "gsk-test")
+    monkeypatch.setenv("groq1", "gsk-test")
     cases = (("ALLOW", "allow", None), ("REVIEW", "review", "review"), ("Not sure.", "review", "review"),
              (TimeoutError("slow"), "unchecked", "groq_unavailable"),
              (fake_groq.RateLimited("429"), "unchecked", "groq_rate_limited"))
@@ -284,7 +284,7 @@ def test_groq_verdicts_mark_the_comment_and_never_hold_the_rating(rate, monkeypa
 
 def test_groq_block_is_422(rate, monkeypatch, fake_groq):
     server, client, state, ri = rate
-    monkeypatch.setenv("GROQ_MODERATION_KEY", "gsk-test")
+    monkeypatch.setenv("groq1", "gsk-test")
     monkeypatch.setattr(server, "_groq_moderation_client", fake_groq("BLOCK"))
     resp = post(client, ri)
     assert resp.status_code == 422 and resp.get_json() == {"error": "comment_blocked"}

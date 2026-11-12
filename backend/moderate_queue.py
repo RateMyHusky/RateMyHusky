@@ -3,7 +3,7 @@
     python moderate_queue.py   # check up to BATCH comments that are due
 
 Runs every 10 minutes from .github/workflows/moderate-queue.yml. Without
-GROQ_MODERATION_KEY it does nothing and exits 0; it never calls OpenAI, whose
+the groq1 key it does nothing and exits 0; it never calls OpenAI, whose
 free allowance production shares (see moderation.py). Reads ORACLE_DATABASE_URL.
 Prints counts only: no comment text, hashes or network data.
 
@@ -124,7 +124,7 @@ def run(conn, groq, now=None, sleep=time.sleep):
 
 def main():
     if not moderation_groq.enabled():
-        print("GROQ_MODERATION_KEY is not set; nothing to do")
+        print("groq1 is not set; nothing to do")
         return 0
     conn = connect()
     try:
