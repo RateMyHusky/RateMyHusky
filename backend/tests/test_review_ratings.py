@@ -274,6 +274,15 @@ def test_list_shows_the_agent_decision_and_reason(capsys):
     assert "agent: -" in out and "" not in out
 
 
+def test_list_prints_a_held_ratings_already_approved_comment_whole(capsys):
+    long = "Clear lectures and fair exams. " * 5
+    row = {"id": "abcd1234-0000", "professor": "jane-doe", "course": "CS2500", "term_label": None,
+           "rating": 4, "difficulty": None, "hold_reasons": "silent_hold", "agent_decision": None,
+           "agent_reason": None, "comment": long, "comment_status": "approved", "created_at": "2026-10-01"}
+    rr.list_pending(FakeCursor({"comment_status = 'pending'": [], "FROM survey_ratings": [row]}))
+    assert f"comment already approved, shows with the rating: {long!r}" in capsys.readouterr().out
+
+
 def test_list_shows_the_agent_decision_and_reason_on_pending_courses(capsys):
     base = {"id": "c1", "code": "ENVR1110", "name": "Typo", "n": 1, "in_catalog": False}
     escalated = dict(base, agent_decision="escalate", agent_reason="jane-doe: 2 candidates (A, B)[2J")

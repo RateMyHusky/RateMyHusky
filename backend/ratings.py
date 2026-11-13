@@ -473,10 +473,12 @@ def save_rating(row, existing, write):
     """Insert or replace this device's rating in one statement; return its id.
 
     The unique index on (device, key) is the conflict target, so two racing
-    submits still leave one row, and a held row stays held. New comment text is
-    approved when Groq's check allowed it, and pending for review otherwise (an
+    submits still leave one row, and a held row stays held. A new rating's comment
+    is approved when Groq's check allowed it, and pending for review otherwise (an
     OpenAI-fallback allow, reason "openai", included), whatever row["comment_status"]
-    says. An approved comment on a held rating shows only once the rating is
+    says. Text saved onto an existing rating always waits for review, even on a Groq
+    allow: otherwise a comment a reviewer took down could be sent again, or a flagged
+    one edited until the model allows it. An approved comment on a held rating shows only once the rating is
     accepted, since the page reads accepted rows only. A resubmit adds the new hold
     reasons to the old ones, or keeps the old ones when it has none.
     """
@@ -484,7 +486,7 @@ def save_rating(row, existing, write):
         old = existing["hold_reasons"].split(",")
         row = {**row, "hold_reasons": ",".join(
             old + [r for r in row["hold_reasons"].split(",") if r not in old])}
-    groq_allow = row["comment_check"] == "allow" and row["comment_check_reason"] is None
+    groq_allow = not existing and row["comment_check"] == "allow" and row["comment_check_reason"] is None
     status = "approved" if groq_allow else "pending"
     row = {**row, "comment_status": status if row["comment"] else None}
     new_id = str(uuid.uuid4())

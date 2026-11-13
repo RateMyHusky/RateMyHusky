@@ -16,6 +16,12 @@ def test_any_other_reply_is_review():
         assert mg.parse(reply) == "review"
 
 
+def test_allow_counts_only_as_the_whole_reply():
+    assert mg.parse(" Allow.\n") == "allow"
+    for reply in ("DISALLOW", "Not allowed", "This should not be allowed.", "ALLOW?"):
+        assert mg.parse(reply) == "review"
+
+
 def test_check_sends_the_policy_and_the_comment(fake_groq):
     groq = fake_groq("ALLOW")
     assert mg.check("Fair exams.", groq) == ("allow", None, 500)

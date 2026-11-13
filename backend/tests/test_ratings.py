@@ -157,11 +157,15 @@ def test_only_a_model_allow_publishes_new_text():
     col = 1 + ratings._INSERT_COLUMNS.index("comment_status")
     row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
 
-    def saved(**kw):
+    def saved(existing=None, **kw):
         f = Fake()
-        ratings.save_rating({**row, **kw}, None, f.write)
+        ratings.save_rating({**row, **kw}, existing, f.write)
         return f.writes[0]
     assert saved(comment="Hard but fair", comment_check="allow")[1][col] == "approved"
+    # Text on an existing rating waits even on a Groq allow: a resubmit after a takedown,
+    # or an edit made until the model allows it, must not publish itself.
+    existing = {"id": "r1", "status": "accepted", "hold_reasons": None}
+    assert saved(existing, comment="Hard but fair", comment_check="allow")[1][col] == "pending"
     assert saved(comment="Hard but fair", comment_check="review")[1][col] == "pending"
     assert saved(comment="Hard but fair", comment_check="allow", comment_check_reason="openai")[1][col] == "pending"
     assert saved(comment="Hard but fair", comment_check="unchecked", comment_status="approved")[1][col] == "pending"

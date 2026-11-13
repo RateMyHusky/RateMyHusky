@@ -25,13 +25,16 @@ every command but list and purge-ip bumps data_version; the rest of the site
 a rating held as unverified_pair vouches for that professor teaching that
 course, so later ratings of the pair aren't held for it.
 
-A comment shows once the model's check allows it, at submit or in
+A new rating's comment shows once the model's check allows it, at submit or in
 moderate_queue.py. Any other comment waits for approve-comment, even on an
-accepted rating, and an edit to its text is checked again. remove-comment takes
+accepted rating, and so does any text written onto an existing rating: an edit,
+or a comment sent again after remove-comment. remove-comment takes
 down one already showing. approve-comment takes the ID@TIME `list`
 printed next to the comment, and refuses when the row changed since then, so
-an edit between reading and approving can't put unread text on the page. approve-rating counts the rating only: its
-comment stays in the comments list until approved there too.
+an edit between reading and approving can't put unread text on the page. approve-rating counts the rating only: a
+waiting comment stays in the comments list until approved there too, but one the
+model already allowed shows as soon as the rating does, so `list` prints it whole
+under the held rating.
 
 `list` shows each comment's model check (moderation_groq.py): flagged first,
 then clean or not yet checked. Among waiting comments the check only sorts the
@@ -349,7 +352,7 @@ def list_pending(cur):
         "AND r.agent_reviewed_at >= r.updated_at) THEN r.agent_decision END AS agent_decision, "
         "CASE WHEN r.agent_decision = 'reject' OR (r.agent_decision = 'escalate' "
         "AND r.agent_reviewed_at >= r.updated_at) THEN r.agent_reason END AS agent_reason, "
-        "r.comment, r.created_at "
+        "r.comment, r.comment_status, r.created_at "
         "FROM survey_ratings r "
         "LEFT JOIN survey_pending_professors pp ON pp.id = r.pending_professor_id "
         "LEFT JOIN survey_pending_courses pc ON pc.id = r.pending_course_id "
@@ -364,6 +367,9 @@ def list_pending(cur):
               f"agent: {clean(r['agent_decision'] or '-')}"
               f"{' (' + clean(r['agent_reason']) + ')' if r['agent_reason'] else ''}  "
               f"{comment!r}  {str(r['created_at'])[:10]}")
+        if r.get("comment_status") == "approved":
+            # The model allowed it, so approve-rating puts every word on the page.
+            print(f"      comment already approved, shows with the rating: {clean(r['comment'])!r}")
 
     # The whole text, since approving it puts every word on the page.
     cur.execute(

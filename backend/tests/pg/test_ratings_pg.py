@@ -382,9 +382,32 @@ def test_only_a_model_allow_publishes_new_text_and_unchanged_text_keeps_its_stat
     pg.commit()
     assert save("Hard but fair, and rude") == "approved"
     assert save("Hard but fair, and late", "unchecked") == "pending"
-    assert save("Back again", "allow") == "approved"
+    assert save("Back again", "allow") == "pending"   # an edit waits even on a Groq allow
     assert save(None) is None
     assert scalar(pg, "SELECT count(*) FROM survey_ratings") == 1
+
+
+def test_a_comment_sent_again_after_a_takedown_waits_for_review(pg):
+    import ratings
+    import review_ratings
+
+    row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
+    row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
+               status="accepted", device_hash="d1", new_device=True,
+               network_type="unknown", collection="turnstile+device", comment="Hard but fair",
+               comment_check="allow")
+
+    def save():
+        existing = ratings.existing_rating("d1", ratings.rating_key(row, None, None), lambda q, p: (
+            rows(pg, q, p) or [None])[0])
+        ratings.save_rating(row, existing, pg_write(pg))
+        return scalar(pg, "SELECT comment_status FROM survey_ratings")
+
+    assert save() == "approved"
+    with pg.cursor() as cur:
+        cur.execute(review_ratings._DROP_COMMENT_SQL + "WHERE true")  # remove-comment takes it down
+    pg.commit()
+    assert save() == "pending"
 
 
 def test_comment_status_check_rejects_other_values(pg):

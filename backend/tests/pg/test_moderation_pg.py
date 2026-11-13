@@ -175,9 +175,11 @@ def test_a_device_over_its_budget_is_saved_unchecked_without_a_call(submit, pg):
     for i in range(ratings.DEVICE_MODERATION_BUDGET + 1):
         assert post("ALLOW", "a" * 32, comment=f"Edit {i}: the lectures were clear.").status_code == 200
     assert scalar(pg, "SELECT count(*) FROM moderation_calls") == ratings.DEVICE_MODERATION_BUDGET
-    (row,) = rows(pg, "SELECT comment_check, comment_check_reason, comment_next_check_at IS NOT NULL AS due "
-                      "FROM survey_ratings")
-    assert row == {"comment_check": "unchecked", "comment_check_reason": "over_budget", "due": True}
+    (row,) = rows(pg, "SELECT comment_check, comment_check_reason, comment_next_check_at IS NOT NULL AS due, "
+                      "comment_status FROM survey_ratings")
+    # An edit, so it isn't queued either: a queue allow would publish it.
+    assert row == {"comment_check": "unchecked", "comment_check_reason": "over_budget", "due": False,
+                   "comment_status": "pending"}
 
 
 # ── the queue ──

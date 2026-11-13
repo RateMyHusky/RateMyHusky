@@ -19,7 +19,8 @@ EFFORT = "low"
 BASE_URL = "https://api.groq.com/openai/v1"
 TIMEOUT = 3
 
-# Found in this order in the reply; anything else is "review".
+# BLOCK, then REVIEW, anywhere in the reply; ALLOW only as the whole reply (parse).
+# Anything else is "review".
 LABELS = ("BLOCK", "REVIEW", "ALLOW")
 
 POLICY = """# Policy: student reviews of university professors
@@ -73,12 +74,14 @@ def client():
 
 
 def parse(reply):
-    """"allow" | "review" | "block" from the model's reply."""
-    text = (reply or "").upper()
-    for label in LABELS:
+    """"allow" | "review" | "block" from the model's reply. ALLOW counts only as the
+    whole reply, since an allow publishes the comment and "Not allowed" or
+    "DISALLOW" contain the word too."""
+    text = (reply or "").strip().upper()
+    for label in LABELS[:2]:
         if label in text:
             return label.lower()
-    return "review"
+    return "allow" if text.rstrip(".") == "ALLOW" else "review"
 
 
 def check(comment, groq):

@@ -229,6 +229,17 @@ def test_moderation_timeout_keeps_the_rating_and_queues_the_comment(rate):
     assert saved(server, params, "comment_next_check_at") is not None
 
 
+def test_an_edit_the_check_missed_is_not_queued_since_a_queue_allow_publishes(rate):
+    server, client, state, ri = rate
+    state["moderation"] = "timeout"
+    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": None, "comment": None}
+    assert post(client, ri).status_code == 200
+    (sql, params), = rating_writes(state)
+    assert saved(server, params, "comment_check") == "unchecked"
+    assert saved(server, params, "comment_next_check_at") is None
+    assert saved(server, params, "comment_status") == "pending"
+
+
 def test_an_openai_allow_waits_for_review_since_only_groq_was_measured(rate):
     server, client, state, ri = rate
     state["moderation"] = "allow"

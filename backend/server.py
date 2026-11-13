@@ -2615,8 +2615,8 @@ def rate_submit():
     if changed and rating_checks.rule_block(clean["comment"]):
         return _rating_response({"error": "comment_blocked"}, 422, device)
 
-    # 9. Moderation of new or edited text. A blocked comment stops here, an allowed one
-    # is published (ratings.save_rating), and anything else waits for the reviewer, so a
+    # 9. Moderation of new or edited text. A blocked comment stops here, an allowed one on a
+    # new rating is published (ratings.save_rating), and anything else waits for the reviewer, so a
     # busy or failed check never holds the rating. Duplicates (near copies too) and bursts get no call and no queue, or a flood
     # would just move its model calls there. Text the edit leaves alone keeps its earlier check
     # (ratings._UPSERT_SQL), so these fields stay unset.
@@ -2636,6 +2636,10 @@ def rate_submit():
             if action == "block":
                 return _rating_response({"error": "comment_blocked"}, 422, device)
         check = rating_checks.comment_check_fields(action, reason, now)
+        if existing:
+            # Not queued: a queue allow publishes, and text on an existing rating never
+            # publishes itself. The reviewer reads it as not yet checked.
+            check["comment_next_check_at"] = None
 
     # 10. Pending professor / course. No team email: invented names cost nothing to
     # submit, so one email each could flood the inbox and the Resend quota the
