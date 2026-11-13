@@ -32,7 +32,7 @@ import ratings
 from pipeline.db import connect
 from pipeline.read_models import DATA_VERSION_SQL
 
-BATCH = 12  # 12 calls 45 s apart take ~8 minutes, inside the 10-minute schedule
+BATCH = 10  # 9 waits of 45 s plus the calls and job setup stay well inside the job's 10-minute timeout
 SPACING_SECONDS = 45  # ~1,070 of Groq's 2,000 tokens a minute; the rest stays free for a submit
 DAILY_CAP = 150  # of the ~250 calls Groq's 200,000 tokens a day allow
 NEXT_RUN = timedelta(minutes=10)

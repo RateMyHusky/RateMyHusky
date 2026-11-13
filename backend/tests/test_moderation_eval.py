@@ -296,11 +296,11 @@ def test_report_held_half_leaves_out_tuning_items():
     assert "real-9" in text
 
 
-def test_the_eval_takes_the_groq1_to_n_keys_in_order(monkeypatch):
-    for n, key in ((1, "gsk-a"), (2, "gsk-b"), (4, "gsk-d")):
+def test_the_eval_takes_the_groq2_to_n_keys_in_order_and_never_prods_groq1(monkeypatch):
+    for n, key in ((1, "gsk-a"), (2, "gsk-b"), (3, "gsk-c"), (5, "gsk-e")):
         monkeypatch.setenv(f"groq{n}", key)
-    monkeypatch.delenv("groq3", raising=False)
-    assert me.groq_keys() == ["gsk-a", "gsk-b"]
+    monkeypatch.delenv("groq4", raising=False)
+    assert me.groq_keys() == ["gsk-b", "gsk-c"]
 
 
 def test_each_call_goes_on_the_next_key_in_turn(fake_groq):

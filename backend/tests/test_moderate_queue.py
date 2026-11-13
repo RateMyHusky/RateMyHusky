@@ -57,13 +57,13 @@ def test_backoff_doubles_from_ten_minutes_up_to_six_hours():
     assert mq.backoff(30) == timedelta(hours=6)
 
 
-def test_a_run_checks_up_to_twelve_45_seconds_apart(fake_groq):
-    conn, sleeps = FakeConn(due(12)), []
+def test_a_run_checks_up_to_ten_45_seconds_apart(fake_groq):
+    conn, sleeps = FakeConn(due(10)), []
     summary = mq.run(conn, fake_groq("ALLOW"), now=NOW, sleep=sleeps.append)
-    assert sleeps == [45] * 11  # ~1,070 tokens a minute, so an 800-token submit still fits in Groq's 2,000
-    assert summary == "12 due: 12 clean, 0 flagged, 0 blocked, 0 failed"
+    assert sleeps == [45] * 9  # ~1,070 tokens a minute, so an 800-token submit still fits in Groq's 2,000
+    assert summary == "10 due: 10 clean, 0 flagged, 0 blocked, 0 failed"
     select = conn.executed[0]
-    assert select[1] == (NOW, 12) and "comment_status = 'pending'" in select[0]
+    assert select[1] == (NOW, 10) and "comment_status = 'pending'" in select[0]
     assert "ORDER BY COALESCE(comment_check_reason = 'over_budget', false), new_device, updated_at" in select[0]
 
 

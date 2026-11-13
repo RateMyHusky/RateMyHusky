@@ -41,7 +41,8 @@ _TAUGHT = """
 def fetch_rows(slug, query, now=None):
     """The professor's accepted ratings, each with its course's catalog name, the
     Banner enrollment of the term it names, and how many terms of that term's year
-    the professor taught the course. `comment` is NULL unless a reviewer approved it.
+    the professor taught the course. `comment` is NULL unless the model's check or a
+    reviewer approved it.
 
     Ratings over the professor's weekly limit (pipeline/survey.surge_ids) are left
     out, so a drip under the route's hourly and daily caps can't move the page

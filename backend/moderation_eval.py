@@ -5,7 +5,8 @@ random sample of real approved comments through moderation_groq.check exactly as
 prod calls it, and writes a markdown report. The bar: at least 90% of the real
 sample gets ALLOW, and no clearly-bad `hold` comment gets ALLOW in any run.
 
-Keys: calls go on the groq1..groqN keys from backend/.env in turn. Quota: Groq's free plan gives this model 3 requests and 2,000
+Keys: calls go on the groq2..groqN keys from backend/.env in turn, never on groq1,
+which prod's comment check uses. Quota: Groq's free plan gives this model 3 requests and 2,000
 tokens a minute, 200,000 tokens a day per org, so calls go about 2 a minute and the
 run stops before 170,000 tokens in 24 hours. A stopped run resumes the next day without
 redoing finished calls: results are saved after every call.
@@ -105,10 +106,11 @@ def in_half(item, half):
 
 
 def groq_keys():
-    """The groq1, groq2, ... keys from the environment, stopping at the first gap."""
+    """The groq2, groq3, ... keys from the environment, stopping at the first gap.
+    Never groq1: prod's comment check runs on it, on this same model."""
     keys = []
-    while os.getenv(f"groq{len(keys) + 1}", "").strip():
-        keys.append(os.environ[f"groq{len(keys) + 1}"].strip())
+    while os.getenv(f"groq{len(keys) + 2}", "").strip():
+        keys.append(os.environ[f"groq{len(keys) + 2}"].strip())
     return keys
 
 
@@ -356,7 +358,7 @@ def _command(args):
         apply_setup(policy, args.model, args.effort)
         keys = groq_keys()
         if not keys:
-            print("No groq1..groqN keys in backend/.env.", file=sys.stderr)
+            print("No groq2..groqN keys in backend/.env (groq1 is prod's).", file=sys.stderr)
             return 1
 
         def save(recs):

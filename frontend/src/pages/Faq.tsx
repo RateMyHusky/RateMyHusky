@@ -65,8 +65,8 @@ const Faq = () => {
                 took: you answer a few questions, add an optional comment, and no sign-in is
                 needed. Once accepted, your rating shows up here after the next weekly refresh; a rating
                 that is held, or that names a new professor or course, needs our review first.
-                Comments aren't
-                shown on the site yet. You can still post a review on RateMyProfessors too, and
+                Comments show once they pass a quick check or our team reads them.
+                You can still post a review on RateMyProfessors too, and
                 it will show up here after the refresh.
               </p>
               </>)}
