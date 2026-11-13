@@ -172,8 +172,8 @@ def test_failed_submissions_list_each_reason_and_stay_out_when_none():
 
 def test_every_failure_reason_has_its_label():
     assert set(review_digest._FAILURES) == {"invalid", "captcha_missing", "captcha_failed", "captcha_down",
-                                            "unknown_professor", "unknown_course", "rule_block", "rate_limited",
-                                            "error"}
+                                            "captcha_unconfigured", "unknown_professor", "unknown_course",
+                                            "rule_block", "rate_limited", "error", "error_after_save"}
 
 
 def test_comment_checker_section_shows_outcomes_and_stuck_comments():

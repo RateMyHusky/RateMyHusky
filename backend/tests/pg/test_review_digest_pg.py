@@ -82,23 +82,23 @@ def test_failure_counts_sum_the_24_whole_hours_before_this_one(pg):
                     "(date_trunc('hour', now()) - interval '1 day', 'invalid', 1), "
                     "(date_trunc('hour', now()) - interval '1 day 1 hour', 'invalid', 70), "  # yesterday's
                     "(date_trunc('hour', now()) - interval '3 hours', 'captcha_failed', 9)")
-    pg.commit()
+    # No commit: one transaction, so now() can't cross an hour between the insert and the count.
     assert review_digest.failure_counts(pg) == [("captcha_failed", 9), ("invalid", 3)]
 
 
-def test_server_failure_insert_counts_up_within_the_hour(pg):
+def test_server_failure_writes_add_up_within_the_hour(pg):
     import os
     os.environ.setdefault("ORACLE_DATABASE_URL", "postgresql://stub")
     os.environ.setdefault("JWT_SECRET", "test-secret")
     import server
+    # Two hours back stays inside the window even if the clock turns an hour during the test.
+    hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) - timedelta(hours=2)
     with pg.cursor() as cur:
-        for reason in ("invalid", "invalid", "rule_block"):
-            cur.execute(server.RATING_FAILURE_SQL, (reason,))
+        cur.execute(server.RATING_FAILURE_SQL.format("(%s, %s, %s), (%s, %s, %s)"),
+                    (hour, "invalid", 2, hour, "rule_block", 1))
+        cur.execute(server.RATING_FAILURE_SQL.format("(%s, %s, %s)"), (hour, "invalid", 3))
     pg.commit()
-    with pg.cursor() as cur:
-        cur.execute("UPDATE rating_failures SET hour = hour - interval '1 hour'")
-    pg.commit()
-    assert review_digest.failure_counts(pg) == [("invalid", 2), ("rule_block", 1)]
+    assert review_digest.failure_counts(pg) == [("invalid", 5), ("rule_block", 1)]
 
 
 def test_checker_stats_count_outcomes_and_comments_still_unchecked(pg):

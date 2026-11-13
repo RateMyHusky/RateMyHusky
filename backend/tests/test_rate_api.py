@@ -7,6 +7,7 @@ the FakeGroq in conftest) and the team email.
 
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -88,7 +89,11 @@ def rate(monkeypatch):
     monkeypatch.setattr(server, "query", lambda sql, params=None: [], raising=False)
     monkeypatch.setattr(server, "query_one", fake_query_one, raising=False)
     monkeypatch.setattr(server, "_write", fake_write, raising=False)
-    monkeypatch.setattr(server, "_chat_write", lambda sql, params=None: state["failures"].append(params[0])
+    # Each failure written as it happens, so state["failures"] lists them in order.
+    monkeypatch.setattr(server, "RATING_FAILURE_WRITE_EVERY", 0)
+    monkeypatch.setattr(server, "_rating_failures", {})
+    monkeypatch.setattr(server, "_rating_failures_written", {"last": 0.0})
+    monkeypatch.setattr(server, "_chat_write", lambda sql, params=None: state["failures"].append(params[1])
                         if "rating_failures" in sql else None, raising=False)
     monkeypatch.setattr(server, "_rating_moderation_score", fake_score, raising=False)
     monkeypatch.setattr(server.http_requests, "post", fake_post)
@@ -832,7 +837,9 @@ def test_captcha_failures_are_counted_apart(rate, monkeypatch):
     monkeypatch.setattr(server.http_requests, "post", lambda *a, **k: (_ for _ in ()).throw(
         server.http_requests.ConnectionError("down")))
     post(client, ri, {"turnstileToken": "t"})
-    assert state["failures"] == ["captcha_missing", "captcha_failed", "captcha_down"]
+    monkeypatch.setattr(server, "_turnstile_unconfigured", lambda: True)
+    assert post(client, ri, {"turnstileToken": "t"}).status_code == 503
+    assert state["failures"] == ["captcha_missing", "captcha_failed", "captcha_down", "captcha_unconfigured"]
 
 
 def test_a_saved_rating_and_the_honeypot_count_no_failure(rate):
@@ -846,8 +853,33 @@ def test_rate_limits_and_errors_on_submit_are_counted(rate, monkeypatch):
     server, client, state, ri = rate
     for _ in range(21):
         post(client, ri)
-    client.get("/api/rate/course-suggestions?code=CS2500")  # only the submit route counts
+    monkeypatch.setattr(server.course_typos, "banner_candidates", lambda *a: 1 / 0)
+    # Only the submit route counts.
+    assert client.get("/api/rate/course-suggestions?code=CS2500").status_code == 500
     monkeypatch.setattr(server.ratings, "existing_rating", lambda *a: 1 / 0)
     server.limiter.reset()
     assert post(client, ri).status_code == 500
     assert state["failures"] == ["rate_limited", "error"]
+
+
+def test_an_error_after_the_rating_is_saved_is_counted_apart(rate, monkeypatch):
+    server, client, state, ri = rate
+    monkeypatch.setattr(server.ratings, "huskies_this_term", lambda *a: 1 / 0)
+    assert post(client, ri).status_code == 500
+    assert state["failures"] == ["error_after_save"]
+
+
+def test_failures_are_written_at_most_once_a_minute(rate, monkeypatch):
+    server, client, state, ri = rate
+    writes = []
+    monkeypatch.setattr(server, "RATING_FAILURE_WRITE_EVERY", 60)
+    monkeypatch.setattr(server, "_chat_write", lambda sql, params=None: writes.append(params))
+    hour = datetime(2026, 11, 12, 5, tzinfo=timezone.utc)
+    start = hour.timestamp() + 3590
+    server._record_rating_failure("invalid", now=start)  # the first is written at once
+    for i, reason in enumerate(("invalid", "rate_limited", "invalid")):
+        server._record_rating_failure(reason, now=start + 5 + i)  # 05:59:55 to 05:59:57: held
+    server._record_rating_failure("error", now=start + 61)  # 06:00:51: writes all four, by their hour
+    later = hour + timedelta(hours=1)
+    assert writes == [[hour, "invalid", 1],
+                      [hour, "invalid", 2, hour, "rate_limited", 1, later, "error", 1]]
