@@ -85,6 +85,8 @@ export interface SurveyData {
   reviews?: SurveyReview[];
   /** Signed out only: how many comments the API held back (reviews is then []). */
   lockedReviews?: number;
+  /** With lockedReviews: each held-back comment's course, for the course filter's count. */
+  lockedCourses?: (string | null)[];
 }
 
 export interface SurveyReview {

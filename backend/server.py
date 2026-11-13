@@ -1455,11 +1455,13 @@ def professor_full(slug):
     data = {**data, "identity": {**identity, "departmentSlug": dept_slug if has_hub else None}}
     authed = _is_authed()
     # RateMyHusky comments are for signed-in students: a signed-out page gets only how many there
-    # are, so the tab can show its count behind the sign-in prompt. The numbers stay public.
+    # are, and each one's course so a ?course= filter can count them, so the tab can show its
+    # count behind the sign-in prompt. The numbers stay public.
     survey = (data.get("sources") or {}).get("survey") or {}
     if not authed and survey.get("reviews"):
         data["sources"] = {**data["sources"],
-                           "survey": {**survey, "reviews": [], "lockedReviews": len(survey["reviews"])}}
+                           "survey": {**survey, "reviews": [], "lockedReviews": len(survey["reviews"]),
+                                      "lockedCourses": [r.get("course") for r in survey["reviews"]]}}
     resp = jsonify(data)
     resp.headers["Cache-Control"] = "private, max-age=3600" if authed else "public, max-age=3600"
     resp.headers["Vary"] = "Authorization"
