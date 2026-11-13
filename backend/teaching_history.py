@@ -93,12 +93,16 @@ def current_term_code(terms):
     opens next term for registration months before it starts), else the
     earliest open term, else the newest; labels that don't parse are skipped.
     A CPS quarter overlaps the semesters (Winter runs inside Spring, Spring's
-    quarter into Summer), so an open one beside an open semester is not it."""
+    quarter into Summer), so an open one beside an open semester is not it.
+    From 2026 one Summer term (…50) runs both sessions, and its Summer 2
+    sections are labelled with Summer 2's code (…60), so a summer term in
+    progress reaches that code: Summer 2 teaching counts all summer."""
     readable = [(t["view_only"], "Quarter" in (t.get("track") or ""), label_code(t["label"])) for t in terms]
     readable = [r for r in readable if r[2]]
     open_codes = [c for closed, quarter, c in readable if not closed and not quarter] \
         or [c for closed, _, c in readable if not closed]
-    return min(open_codes) if open_codes else max((c for *_, c in readable), default=None)
+    code = min(open_codes) if open_codes else max((c for *_, c in readable), default=None)
+    return code + 10 if code and code % 100 == 50 else code
 
 
 def current_term(query):

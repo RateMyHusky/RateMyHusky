@@ -2196,8 +2196,8 @@ def _get_auth_token():
 
 
 def _is_authed():
-    """True when the request carries a valid session token. Pages serve the same
-    payload either way; only the Cache-Control header differs."""
+    """True when the request carries a valid session token. It sets the page's
+    Cache-Control, and a professor page holds back RateMyHusky comments without it."""
     return decode_session_token(_get_auth_token()) is not None
 
 

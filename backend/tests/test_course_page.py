@@ -531,6 +531,36 @@ def test_spring_is_in_progress_while_the_cps_winter_quarter_is_open():
     assert olin["lastTerm"] == "Spring 2027"
 
 
+SUMMER_HISTORY = {**HISTORY, "lastOffered": "Fall 2026", "instructors": [
+    _inst("new-prof", "New Prof", ["Fall 2026"]),
+    _inst("olin-guha", "Olin Guha", ["Summer 2 2026", "Spring 2026"], 40),
+    _inst(None, "Jane Q Doe", ["Summer 1 2026"]),
+    _inst("amal-ahmed", "Amal Ahmed", ["Summer 2026"], 35),
+]}
+
+
+def test_next_summer_lists_its_summer_1_and_summer_2_instructors():
+    # Spring 2026 is running, so next is the one Summer 2026 term, whose
+    # sections are labelled by session.
+    terms = [{"label": "Summer 2026", "view_only": True, "track": "Semester"},
+             {"label": "Spring 2026", "view_only": False, "track": "Semester"}]
+    h = _with_history(SUMMER_HISTORY, terms=terms)["history"]
+    assert h["nextTerm"] == "Summer 2026"
+    assert [r["name"] for r in h["nextInstructors"]] == ["Olin Guha", "Jane Q Doe", "Amal Ahmed"]
+
+
+def test_summer_2_teaching_counts_while_the_summer_term_runs():
+    # July: Summer 2026 is in progress and Fall 2026 is open for registration.
+    terms = [{"label": "Fall 2026", "view_only": False, "track": "Semester"},
+             {"label": "Summer 2026", "view_only": False, "track": "Semester"}]
+    data = _with_history(SUMMER_HISTORY, terms=terms)
+    h = data["history"]
+    assert "Olin Guha" in [r["name"] for r in h["recentInstructors"]]
+    assert (h["nextTerm"], [r["name"] for r in h["nextInstructors"]]) == ("Fall 2026", ["New Prof"])
+    olin = next(p for p in data["professors"] if p["slug"] == "olin-guha")
+    assert olin["lastTerm"] == "Summer 2 2026"
+
+
 def test_professor_rows_carry_this_courses_hours_per_week():
     rows = [{**r, "hours_per_week": 7.25} if r["professor_slug"] == "olin-guha" else r for r in ROWS]
     db = FakeDB(rows=rows)

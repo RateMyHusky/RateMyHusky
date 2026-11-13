@@ -356,7 +356,7 @@ const Professor = () => {
             students: RATE_ENABLED ? (res.data.sources.survey.reviews ?? []).length : 0,
             rmp: res.data.sources.rmp.reviews.filter(r => r.comment?.trim()).length,
             reddit: res.data.redditMentions.length,
-          }));
+          }, RATE_ENABLED ? res.data.sources.survey.lockedReviews ?? 0 : 0));
         }
       }
       else setLoadError(res.status === 404 ? 'not_found' : 'failed');

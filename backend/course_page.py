@@ -49,9 +49,9 @@ def _card(i, by_slug):
     }
 
 
-def build_recent(instructors, by_slug, cutoff, current=None):
+def build_recent(instructors, by_slug, cutoff, current):
     """Instructors who taught the course from `cutoff` through `current` (the
-    term in progress; None for no upper bound), newest first (instructors'
+    term in progress), newest first (instructors'
     order), one card per professor with only their in-window terms; with none,
     they're left out. Unreadable labels (label_code None) never count as
     in-window.
@@ -60,7 +60,7 @@ def build_recent(instructors, by_slug, cutoff, current=None):
     recent, seen = [], set()
     for i in instructors:
         terms = [t for t in i["recentTerms"]
-                 if cutoff <= (teaching_history.label_code(t) or 0) <= (current or float("inf"))]
+                 if cutoff <= (teaching_history.label_code(t) or 0) <= current]
         key = i["slug"] or ("unmatched", i["name"])
         if not terms or key in seen:
             continue
@@ -71,24 +71,28 @@ def build_recent(instructors, by_slug, cutoff, current=None):
 
 def build_next(instructors, by_slug, label):
     """Instructors Banner has teaching the course in `label`, one card each, in
-    instructors' order."""
+    instructors' order. From 2026 a summer term's sections are labelled by
+    session, so "Summer 2027" also takes "Summer 1 2027" and "Summer 2 2027"."""
+    season, _, year = label.rpartition(" ")
+    labels = {label, f"Summer 1 {year}", f"Summer 2 {year}"} if season == "Summer" else {label}
     out, seen = [], set()
     for i in instructors:
         key = i["slug"] or ("unmatched", i["name"])
-        if label in i["recentTerms"] and key not in seen:
+        if labels & set(i["recentTerms"]) and key not in seen:
             seen.add(key)
             out.append(_card(i, by_slug))
     return out
 
 
 def _history(code, query, query_one, history_for, professors):
-    """(history, failed): course_history plus recentInstructors and next
+    """(history, failed, current): course_history plus recentInstructors and next
     semester's (nextTerm, nextInstructors: None and [] when Banner lists no one
     for it yet), or None. lastOffered never names a term that hasn't started.
     Banner decorates the page and never fails it, so any error reads as "no
     history" with failed True, which keeps the caller from caching the page.
     The cutoff and the instructors' terms are both in the label_code scheme:
-    labels, not codes, which may be CPS/Law ones."""
+    labels, not codes, which may be CPS/Law ones. current is the term in
+    progress (teaching_history.current_term_code), None with no history."""
     try:
         history = history_for(code, query, query_one)
         if history is None:

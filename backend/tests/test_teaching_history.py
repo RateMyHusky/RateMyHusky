@@ -311,7 +311,17 @@ def test_an_open_cps_quarter_is_not_the_term_in_progress_beside_an_open_semester
     # Spring 2026 CPS Quarter runs into June, beside the Summer 2026 semester.
     terms = [{"label": "Summer 2026", "view_only": False, "track": "Semester"},
              {"label": "Spring 2026", "view_only": False, "track": "CPS Quarter"}]
-    assert th.current_term_code(terms) == 202650
+    assert th.current_term_code(terms) == 202660
+
+
+def test_a_summer_term_in_progress_reaches_its_summer_2_session():
+    # July 2026: Summer 2026 (202650) is open beside Fall 2026. Its Summer 2
+    # sections are labelled "Summer 2 2026" (202660) and are running.
+    terms = [{"label": "Fall 2026", "view_only": False, "track": "Semester"},
+             {"label": "Summer 2026", "view_only": False, "track": "Semester"}]
+    current = th.current_term_code(terms)
+    assert current == 202660
+    assert th.latest_started(["Fall 2026", "Summer 2 2026", "Summer 1 2026"], current) == "Summer 2 2026"
 
 
 def test_an_open_quarter_counts_when_no_semester_is_open():
