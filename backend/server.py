@@ -7,6 +7,7 @@ Run:           python server.py
 """
 
 import os, re, unicodedata, json, hashlib, hmac, random, secrets
+import atexit
 import html as _html
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
@@ -452,10 +453,11 @@ _feedback_count = 0
 _account_feedback_count = 0
 _feedback_by_account = {}
 _feedback_date = None   # "YYYY-MM-DD" UTC, resets counter each day
-FEEDBACK_DAILY_LIMIT = 80
+FEEDBACK_DAILY_LIMIT = 78
 # Requests with a verified account get their own allowance, so anonymous reports can't
-# use up the day and block a data-deletion request. 80 + 15 + 3 usage alerts + 2
-# review digests (review_digest.py) are exactly Resend's free 100/day, with none spare.
+# use up the day and block a data-deletion request. 78 + 15 + 3 usage alerts + 2
+# review digests (review_digest.py) fit Resend's free 100/day, with 2 spare for a
+# manual or re-run digest.
 ACCOUNT_FEEDBACK_DAILY_LIMIT = 15
 # One account's share of that allowance, so one user sending from several IPs can't
 # use up the day and block another user's data-deletion request.
@@ -2496,7 +2498,8 @@ def _rating_unavailable():
 
 # Counts failed rate-form submits by reason and hour for the daily digest: no device, IP or form data.
 # Held in memory and written at most once a minute, so a flood of junk or rate-limited submits costs
-# one write a minute, not one each. Counts since the last write go out with the next failure.
+# one write a minute, not one each. Counts since the last write go out with the next request after
+# the minute is up, or when the process exits, so a quiet site doesn't leave them in memory.
 RATING_FAILURE_SQL = ("INSERT INTO rating_failures (hour, reason, n) VALUES {} "
                       "ON CONFLICT (hour, reason) DO UPDATE SET n = rating_failures.n + EXCLUDED.n")
 RATING_FAILURE_WRITE_EVERY = 60  # seconds
@@ -2506,19 +2509,53 @@ _rating_failures_written = {"last": 0.0}
 _rating_failures_lock = Lock()
 
 
+def _take_rating_failures(now, force=False):
+    """The held counts, cleared, once a minute has passed since the last write (or when forced); else None."""
+    with _rating_failures_lock:
+        if not _rating_failures or (not force and now - _rating_failures_written["last"] < RATING_FAILURE_WRITE_EVERY):
+            return None
+        _rating_failures_written["last"] = now
+        counts = list(_rating_failures.items())
+        _rating_failures.clear()
+    return counts
+
+
+def _write_rating_failures(counts):
+    _chat_write(RATING_FAILURE_SQL.format(", ".join(["(%s, %s, %s)"] * len(counts))),
+                [v for (h, r), n in counts for v in (h, r, n)])
+
+
 def _record_rating_failure(reason, now=None):
     """Best-effort, like ask_log: a lost count never changes the answer the student gets."""
     now = time.time() if now is None else now
     hour = datetime.fromtimestamp(now - now % 3600, timezone.utc)
     with _rating_failures_lock:
         _rating_failures[(hour, reason)] = _rating_failures.get((hour, reason), 0) + 1
-        if now - _rating_failures_written["last"] < RATING_FAILURE_WRITE_EVERY:
-            return
-        _rating_failures_written["last"] = now
-        counts = list(_rating_failures.items())
-        _rating_failures.clear()
-    _chat_write(RATING_FAILURE_SQL.format(", ".join(["(%s, %s, %s)"] * len(counts))),
-                [v for (h, r), n in counts for v in (h, r, n)])
+    counts = _take_rating_failures(now)
+    if counts:
+        _write_rating_failures(counts)
+
+
+def _rating_failures_job(counts):
+    with app.app_context():   # get_db() keeps its connection on flask.g
+        _write_rating_failures(counts)
+
+
+@app.before_request
+def write_rating_failures_in_background():
+    """Writes counts held past the minute from whatever request comes in next, on its own
+    thread like the ask_log purge, so no user waits for it."""
+    counts = _take_rating_failures(time.time())
+    if counts:
+        Thread(target=_rating_failures_job, args=(counts,), daemon=True).start()
+
+
+@atexit.register
+def _write_rating_failures_at_exit():
+    """A redeploy or worker restart writes what's held instead of dropping it."""
+    counts = _take_rating_failures(time.time(), force=True)
+    if counts:
+        _rating_failures_job(counts)
 
 
 def _rating_failure(reason, error, status, token=None):
@@ -2724,7 +2761,7 @@ def rate_submit():
     }
     ratings.save_rating(row, existing, _write)
     g.rating_saved = True  # a 500 from here on still kept the rating
-    held =ratings.hold_burst(bursts, key, ip_hash, prefix_hash, _write, now) if bursts else set()
+    held = ratings.hold_burst(bursts, key, ip_hash, prefix_hash, _write, now) if bursts else set()
     if near:
         ratings.hold_matches(near, "near_duplicate", device_hash, ip_hash, prefix_hash, network_type, _write)
     if skew:

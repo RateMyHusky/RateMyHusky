@@ -170,12 +170,6 @@ def test_failed_submissions_list_each_reason_and_stay_out_when_none():
     assert "Failed submissions" not in review_digest.build_digest([], [], 0, 0, NOW)[1]
 
 
-def test_every_failure_reason_has_its_label():
-    assert set(review_digest._FAILURES) == {"invalid", "captcha_missing", "captcha_failed", "captcha_down",
-                                            "captcha_unconfigured", "unknown_professor", "unknown_course",
-                                            "rule_block", "rate_limited", "error", "error_after_save"}
-
-
 def test_comment_checker_section_shows_outcomes_and_stuck_comments():
     checker = {"allow": 30, "review": 2, "block": 1, "unavailable": 4, "waiting": 6, "stuck": 3}
     _, text, html = review_digest.build_digest([], [], 0, 0, NOW, checker=checker)

@@ -98,7 +98,10 @@ def rate(monkeypatch):
     monkeypatch.setattr(server, "_rating_moderation_score", fake_score, raising=False)
     monkeypatch.setattr(server.http_requests, "post", fake_post)
     monkeypatch.setattr(server, "_networks", SimpleNamespace(network_type=lambda ip: state["network"]))
-    return server, server.app.test_client(), state, ri
+    yield server, server.app.test_client(), state, ri
+    import review_digest
+    # A reason the digest has no label for would show there as its raw key.
+    assert set(state["failures"]) <= set(review_digest._FAILURES)
 
 
 def opened_for(ri, device=DEVICE, minted=False):
@@ -883,3 +886,22 @@ def test_failures_are_written_at_most_once_a_minute(rate, monkeypatch):
     later = hour + timedelta(hours=1)
     assert writes == [[hour, "invalid", 1],
                       [hour, "invalid", 2, hour, "rate_limited", 1, later, "error", 1]]
+
+
+def test_held_failures_go_out_with_the_next_request_or_at_exit(rate, monkeypatch):
+    server, client, state, ri = rate
+    writes = []
+    monkeypatch.setattr(server, "RATING_FAILURE_WRITE_EVERY", 60)
+    monkeypatch.setattr(server, "_chat_write", lambda sql, params=None: writes.append(params))
+    monkeypatch.setattr(server, "Thread", lambda target, args, daemon: SimpleNamespace(start=lambda: target(*args)))
+    now = time.time()
+    server._record_rating_failure("invalid", now=now)  # written at once
+    server._record_rating_failure("rule_block", now=now + 1)  # held
+    client.get("/api/rate/course-suggestions")  # under a minute: still held
+    assert len(writes) == 1
+    server._rating_failures_written["last"] = now - 61
+    client.get("/api/rate/course-suggestions")  # a quiet minute later, any request writes it
+    assert len(writes) == 2 and writes[1][1:] == ["rule_block", 1]
+    server._record_rating_failure("invalid")  # held again, and written at exit inside the minute
+    server._write_rating_failures_at_exit()
+    assert len(writes) == 3 and writes[2][1:] == ["invalid", 1]
