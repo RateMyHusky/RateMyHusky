@@ -101,7 +101,10 @@ def _history(code, query, query_one, history_for, professors):
         current = teaching_history.current_term_code(terms)
         instructors = history["instructors"]
         by_slug = {p["slug"]: p for p in professors}
-        recent = build_recent(instructors, by_slug, current - RECENT_SPAN, current) if current else []
+        # A summer term in progress reads as its Summer 2 code (…60); a year
+        # back from it is all of last summer, from Summer 1 (…40) on.
+        start = current - 20 if current and current % 100 == 60 else current
+        recent = build_recent(instructors, by_slug, start - RECENT_SPAN, current) if current else []
         label = next_term(terms, current) if current else None
         upcoming = build_next(instructors, by_slug, label) if label else []
         # Every term the course ran, TBA-only ones included; the instructors'

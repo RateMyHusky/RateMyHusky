@@ -526,6 +526,9 @@ def test_last_taught_is_never_a_term_that_has_not_started():
                *HISTORY[1:]]
     data, _ = _with_history(history, db=FakeDB(terms=terms))
     assert data["lastTaught"] == "Fall 2026"
+    # The course's own lastTerm agrees; its term chips still show what's scheduled.
+    course = data["courses"][0]
+    assert (course["lastTerm"], course["terms"][0]) == ("Fall 2026", "Spring 2027")
 
 
 def test_only_upcoming_teaching_means_no_last_taught():
@@ -533,3 +536,4 @@ def test_only_upcoming_teaching_means_no_last_taught():
     history = [{**HISTORY[0], "lastTerm": "Spring 2027", "recentTerms": ["Spring 2027"]}]
     data, _ = _with_history(history, db=FakeDB(terms=terms))
     assert data["lastTaught"] is None
+    assert data["courses"][0]["lastTerm"] is None

@@ -575,6 +575,17 @@ def test_summer_2_teaching_counts_while_the_summer_term_runs():
     assert olin["lastTerm"] == "Summer 2 2026"
 
 
+def test_last_years_whole_summer_term_is_recent_while_this_summer_runs():
+    # July 2027: the Summer 2027 term is in progress, so a year back is all of
+    # Summer 2026, both sessions included, and Spring 2026 is not.
+    terms = [{"label": "Fall 2027", "view_only": False, "track": "Semester"},
+             {"label": "Summer 2027", "view_only": False, "track": "Semester"}]
+    recent = _with_history(SUMMER_HISTORY, terms=terms)["history"]["recentInstructors"]
+    assert [(r["name"], r["terms"]) for r in recent] == [
+        ("New Prof", ["Fall 2026"]), ("Olin Guha", ["Summer 2 2026"]),
+        ("Jane Q Doe", ["Summer 1 2026"]), ("Amal Ahmed", ["Summer 2026"])]
+
+
 def test_professor_rows_carry_this_courses_hours_per_week():
     rows = [{**r, "hours_per_week": 7.25} if r["professor_slug"] == "olin-guha" else r for r in ROWS]
     db = FakeDB(rows=rows)

@@ -175,12 +175,14 @@ const RatingCell = ({ prof, isOpen, onToggle }: {
               {prof.rmpRating !== null ? prof.rmpRating.toFixed(2) : '—'}
             </span>
           </div>
-          <div className="tooltip-row">
-            <span className="tooltip-label">RMH</span>
-            <span className="tooltip-value">
-              {prof.rmhRating != null ? prof.rmhRating.toFixed(2) : '—'}
-            </span>
-          </div>
+          {RATE_ENABLED && (
+            <div className="tooltip-row">
+              <span className="tooltip-label">RMH</span>
+              <span className="tooltip-value">
+                {prof.rmhRating != null ? prof.rmhRating.toFixed(2) : '—'}
+              </span>
+            </div>
+          )}
           <div className="tooltip-divider" />
           <div className="tooltip-row">
             <span className="tooltip-label">Avg Rating</span>

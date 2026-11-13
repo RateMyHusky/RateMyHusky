@@ -103,12 +103,13 @@ def build_summary(own_rows, reddit_mentions, survey_comments=None):
     }
 
 
-def build_courses(course_rows, history):
+def build_courses(course_rows, history, current):
     """Reviewed courses (the blend rows) merged on code with the courses Banner
     has them teaching. Taught courses come first in `history`'s order (most
     recently taught, then most terms); the rest follow most-rated first. A
     course Banner lists but no one has rated has no ratings. hasPage: the code
-    is in course_catalog, so a course page exists."""
+    is in course_catalog, so a course page exists. lastTerm is capped at
+    `current` like lastTaught; terms keeps a scheduled term."""
     reviewed = {r["course_code"]: {
         "code": r["course_code"],
         "name": r["course_name"],
@@ -128,7 +129,8 @@ def build_courses(course_rows, history):
             "code": h["code"], "name": h["name"], "rating": None, "difficulty": None,
             "numRatings": 0, "ratingDistribution": None, "hasPage": h["hasPage"]}
         taught.append({**row, "name": row["name"] or h["name"],   # Banner's title when the catalog has none
-                       "terms": h["recentTerms"], "lastTerm": h["lastTerm"]})
+                       "terms": h["recentTerms"],
+                       "lastTerm": teaching_history.latest_started([h["lastTerm"], *h["recentTerms"]], current)})
     rest = sorted(reviewed.values(), key=lambda c: (-c["numRatings"], c["code"]))
     return taught + [{**c, "terms": [], "lastTerm": None} for c in rest]
 
@@ -210,7 +212,7 @@ def build_payload(slug, query, query_one, sanitize, fetch_reddit_mentions,
                     "survey": build_survey_section(
                         own.get("survey"), survey_reviews.shape_reviews(survey_rows, review_id, sanitize))},
         "courses": build_courses([r for r in summaries if r["course_code"] and r["source"] == "blend"],
-                                 history),
+                                 history, current),
         "lastTaught": teaching_history.latest_started(
             [t for h in history for t in [h["lastTerm"], *h["recentTerms"]]], current),
         "redditMentions": mentions,
