@@ -54,11 +54,12 @@ def enabled():
     return bool(os.getenv("GROQ_MODERATION_KEY", "").strip())
 
 
-def client():
+def client(key=None):
     """An OpenAI-package client pointed at Groq: 3 s and no retries, so a slow or
-    rate-limited call fails fast and the comment waits for the queue."""
+    rate-limited call fails fast and the comment waits for the queue. `key` defaults
+    to GROQ_MODERATION_KEY."""
     from openai import OpenAI
-    return OpenAI(api_key=os.environ["GROQ_MODERATION_KEY"].strip(), base_url=BASE_URL,
+    return OpenAI(api_key=(key or os.environ["GROQ_MODERATION_KEY"]).strip(), base_url=BASE_URL,
                   timeout=TIMEOUT, max_retries=0)
 
 

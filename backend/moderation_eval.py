@@ -8,9 +8,11 @@ comment gets ALLOW in any run. The real sample alone can't show wrong blocks: a
 comment prod's check blocked was never saved, so it can't be drawn.
 
 Keys: calls go on the groq1..groqN keys from backend/.env in turn, never on prod's
-GROQ_MODERATION_KEY. Quota: Groq's free plan gives this model 3 requests and 2,000
-tokens a minute, 200,000 tokens a day per org, so calls go about 2 a minute and the
-run stops before 170,000 tokens in 24 hours. A stopped run resumes the next day without
+GROQ_MODERATION_KEY. Each groqN key must come from a Groq org other than prod's: the
+limits are per org, so a key in prod's org spends prod's quota and live comments get
+429s. Quota: Groq's free plan gives this model 3 requests and 2,000 tokens a minute,
+200,000 tokens a day per org, so calls go about 2 a minute and the run stops before
+170,000 tokens in 24 hours. A stopped run resumes the next day without
 redoing finished calls: results are saved after every call.
 
 It writes nothing to prod: a read-only session draws the real sample once, and no
@@ -128,7 +130,8 @@ def in_half(item, half):
 
 def groq_keys():
     """The groq1, groq2, ... keys from the environment, stopping at the first gap,
-    minus prod's GROQ_MODERATION_KEY, so a run never spends prod's quota."""
+    minus prod's GROQ_MODERATION_KEY. Each must be from an org other than prod's,
+    since Groq's limits are per org; this can't check that."""
     keys = []
     while os.getenv(f"groq{len(keys) + 1}", "").strip():
         keys.append(os.environ[f"groq{len(keys) + 1}"].strip())
@@ -141,13 +144,6 @@ def rotating(*clients):
     turn = cycle(clients)
     return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
         create=lambda **kw: next(turn).chat.completions.create(**kw))))
-
-
-def _client(key):
-    """Built like moderation_groq.client(): 3 s and no retries."""
-    from openai import OpenAI
-    return OpenAI(api_key=key, base_url=moderation_groq.BASE_URL,
-                  timeout=moderation_groq.TIMEOUT, max_retries=0)
 
 
 def _latest(records, variant):
@@ -172,11 +168,14 @@ def pending_calls(items, records, variant):
 
 
 def _counted(r):
-    """What a record counts toward the cap: its usage, else a ceiling per attempt,
-    since an `unavailable` record stands for MAX_FAILURES attempts that may have run on Groq."""
-    if r["tokens"] is not None:
-        return r["tokens"]
-    return CALL_CEILING * (MAX_FAILURES if r["action"] == "unavailable" else 1)
+    """What a record counts toward the cap: a ceiling per failed attempt, since a
+    timeout may still have run on Groq, plus the answer's usage (a ceiling without it).
+    Records from before `failures` count MAX_FAILURES for `unavailable`, else none."""
+    failures = r.get("failures", MAX_FAILURES if r["action"] == "unavailable" else 0)
+    spent = CALL_CEILING * failures
+    if r["action"] != "unavailable":
+        spent += CALL_CEILING if r["tokens"] is None else r["tokens"]
+    return spent
 
 
 def tokens_last_day(records, model, now):
@@ -194,9 +193,10 @@ def run(items, records, groq, variant, setup, save, token_cap=TOKEN_CAP, now=Non
     refuse_changed_texts(items, records, variant)
     clock = (lambda: now) if now is not None else (lambda: datetime.now(timezone.utc))
 
-    def add(it, n, action, tokens):
+    def add(it, n, action, tokens, failures=0):
         records.append({"variant": variant, **setup, "id": it["id"], "run": n, "action": action,
-                        "tokens": tokens, "text_sha": _sha(it["text"]), "at": clock().isoformat()})
+                        "tokens": tokens, "failures": failures, "text_sha": _sha(it["text"]),
+                        "at": clock().isoformat()})
         save(records)
 
     made, stopped, dead = 0, "nothing left", 0
@@ -207,11 +207,10 @@ def run(items, records, groq, variant, setup, save, token_cap=TOKEN_CAP, now=Non
         for it, n in pending_calls(items, records, variant):
             if n != phase:
                 continue
-            if tokens_last_day(records, setup["model"], clock()) + CALL_CEILING > token_cap:
+            if tokens_last_day(records, setup["model"], clock()) + CALL_CEILING * MAX_FAILURES > token_cap:
                 stopped = f"stopped at the token cap ({token_cap:,}); rerun tomorrow to resume"
                 break
-            if made:
-                sleep(SPACING_SECONDS)
+            sleep(SPACING_SECONDS)  # before the first call too: a rerun may follow a stop on 429s
             failures = limited = 0
             while True:
                 action, reason, tokens = moderation_groq.check(it["text"], groq)
@@ -230,7 +229,7 @@ def run(items, records, groq, variant, setup, save, token_cap=TOKEN_CAP, now=Non
                 stopped = f"stopped after {MAX_429S} 429s in a row"
                 break
             made += 1
-            add(it, n, action, tokens)
+            add(it, n, action, tokens, failures)
             dead = dead + 1 if action == "unavailable" else 0
             if dead >= MAX_UNAVAILABLE:
                 stopped = (f"stopped after {MAX_UNAVAILABLE} comments in a row failed every attempt; "
@@ -273,6 +272,8 @@ def report(items, records, variant, half):
         verdict = "NO VERDICT: this half has no clear hold comments, so nothing was tested for letting one through"
     elif not written:
         verdict = "NO VERDICT: this half has no written live comments, so nothing was tested for blocking a fair one"
+    elif not real_decided:
+        verdict = "NO VERDICT: no real sample has been drawn yet; `plan` or `run` draws it"
     elif share >= BAR and written_share >= BAR and not clear_allowed:
         verdict = "PASS"
     else:
@@ -298,7 +299,8 @@ def report(items, records, variant, half):
     counts = Counter(one[it["id"]] for it in by["either"])
     lines.append("- " + (", ".join(f"{a}: {c}" for a, c in sorted(counts.items(), key=lambda x: str(x[0]))) or "none"))
     run_one = [a for a in one.values() if a in DECIDED]
-    calls = [r for r in records if r["variant"] == variant and r["action"] != "rules"]
+    ids = {it["id"] for it in items}
+    calls = [r for r in records if r["variant"] == variant and r["id"] in ids and r["action"] != "rules"]
     lines += ["", "## Usage", "",
               f"- REVIEW rate over run-1 answers: {_pct(run_one.count('review'), len(run_one))}",
               f"- Calls: {len(calls)}",
@@ -356,7 +358,11 @@ def load_items(connect=True):
     if "real_sample" not in results and connect:
         results["real_sample"] = real_sample(_connect())
         save_results(results)
-    return load_set(SET_PATH) + results.get("real_sample", []), results
+    items = load_set(SET_PATH) + results.get("real_sample", [])
+    twice = sorted(id for id, n in Counter(it["id"] for it in items).items() if n > 1)
+    if twice:
+        raise ValueError(f"ids used twice across the set and the real sample: {', '.join(twice)}")
+    return items, results
 
 
 def main(argv=None):
@@ -402,11 +408,12 @@ def _command(args):
         if not keys:
             print("No groq1..groqN keys in backend/.env.", file=sys.stderr)
             return 1
+        print(f"Using {len(keys)} groqN key(s); each must be from a Groq org other than prod's.")
 
         def save(recs):
             results["records"] = recs
             save_results(results)
-        print(run(items, records, rotating(*map(_client, keys)), args.variant,
+        print(run(items, records, rotating(*map(moderation_groq.client, keys)), args.variant,
                   setup_of(policy, args.model, args.effort), save, token_cap=args.token_cap))
         return 0
 

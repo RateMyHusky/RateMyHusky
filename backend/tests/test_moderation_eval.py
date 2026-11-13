@@ -87,7 +87,7 @@ def test_run_paces_calls_and_reruns_a_live_mistake_the_same_day(fake_groq):
     summary, sleeps, _ = run(items, records, groq)
     assert [(r["id"], r["run"], r["action"]) for r in records] == [
         ("a", 1, "review"), ("h", 1, "allow"), ("a", 2, "block"), ("h", 2, "block")]
-    assert sleeps == [30, 30, 30]
+    assert sleeps == [30, 30, 30, 30]
     for r in records:
         assert r["variant"] == "v" and r["model"] == mg.MODEL and r["effort"] == "low"
         assert r["policy_sha"] == SETUP["policy_sha"] and r["at"] == NOW.isoformat()
@@ -115,7 +115,7 @@ def test_a_429_waits_a_minute_and_retries_the_same_comment(fake_groq):
     records = []
     groq = fake_groq(fake_groq.RateLimited("429"), "ALLOW")
     _, sleeps, _ = run([item("a")], records, groq)
-    assert sleeps == [60]
+    assert sleeps == [30, 60]
     assert [(r["id"], r["action"]) for r in records] == [("a", "allow")]
 
 
@@ -132,7 +132,7 @@ def test_other_failures_retry_twice_then_record_unavailable(fake_groq):
     records = []
     groq = fake_groq(TimeoutError("3 s"))
     _, sleeps, _ = run([item("a")], records, groq)
-    assert len(groq.calls) == 3 and sleeps == [60, 60]
+    assert len(groq.calls) == 3 and sleeps == [30, 60, 60]
     assert [(r["id"], r["run"], r["action"], r["tokens"]) for r in records] == [("a", 1, "unavailable", None)]
 
 
@@ -144,6 +144,20 @@ def test_the_run_stops_before_passing_the_token_cap(fake_groq):
     summary, _, _ = run([item("a")], records, groq)
     assert groq.calls == [] and "cap" in summary
     assert len(records) == 3
+
+
+def test_the_run_reserves_room_for_a_call_that_fails_every_attempt(fake_groq):
+    records = [rec("x", 1, "allow", tokens=me.TOKEN_CAP - me.CALL_CEILING * me.MAX_FAILURES + 1)]
+    groq = fake_groq(TimeoutError("3 s"))
+    summary, _, _ = run([item("a")], records, groq)
+    assert groq.calls == [] and "cap" in summary
+
+
+def test_failed_attempts_before_an_answer_count_toward_the_cap(fake_groq):
+    records = []
+    run([item("a")], records, fake_groq(TimeoutError("3 s"), TimeoutError("3 s"), "ALLOW"))
+    assert [(r["action"], r["tokens"], r["failures"]) for r in records] == [("allow", 500, 2)]
+    assert me.tokens_last_day(records, mg.MODEL, NOW) == 500 + 2 * me.CALL_CEILING
 
 
 def test_tokens_last_day_counts_only_this_model_in_the_last_24_hours():
@@ -173,6 +187,11 @@ def test_a_changed_item_text_refuses_the_run_and_the_report(fake_groq):
         me.report([item("a", text="New wording.")], records, "v", "all")
     run([item("a", text="Old wording.")], records, groq)  # unchanged text still resumes
     me.report([item("a", text="Old wording.")], [rec("a", 1, "allow")], "v", "all")  # records from before text_sha
+
+
+def test_a_resumed_run_waits_before_its_first_call(fake_groq):
+    _, sleeps, _ = run([item("a"), item("b")], [rec("a", 1, "allow")], fake_groq("ALLOW"))
+    assert sleeps == [me.SPACING_SECONDS]
 
 
 def test_a_resumed_run_skips_finished_calls(fake_groq):
@@ -234,6 +253,16 @@ def test_the_real_sample_is_frozen_in_the_results_file(tmp_path, monkeypatch):
     items, results = me.load_items()
     assert [i["id"] for i in items] == ["w-live-01", "real-1"]
     assert results["records"] == []
+
+
+def test_an_id_shared_by_the_set_and_the_real_sample_is_refused(tmp_path, monkeypatch):
+    set_path, results_path = tmp_path / "set.json", tmp_path / "results.json"
+    set_path.write_text(json.dumps([item("real-1")]), encoding="utf-8")
+    results_path.write_text(json.dumps({"real_sample": [real("real-1")], "records": []}), encoding="utf-8")
+    monkeypatch.setattr(me, "SET_PATH", set_path)
+    monkeypatch.setattr(me, "RESULTS_PATH", results_path)
+    with pytest.raises(ValueError, match="real-1"):
+        me.load_items()
 
 
 def test_a_missing_real_sample_is_drawn_once_and_saved(tmp_path, monkeypatch):
@@ -311,6 +340,19 @@ def test_report_gives_no_verdict_without_a_written_live_comment():
     items, records = scored_set()
     items = [it for it in items if not it["id"].startswith("wl-")]
     assert me.report(items, records, "v", "all").startswith("NO VERDICT")
+
+
+def test_report_gives_no_verdict_without_a_real_sample():
+    items, records = scored_set()
+    items = [it for it in items if it["category"] != "real"]
+    assert me.report(items, records, "v", "all").startswith("NO VERDICT")
+
+
+def test_report_usage_counts_only_the_reported_half():
+    items = [item("t", half="tune"), item("h", half="held")]
+    records = [rec("t", 1, "allow", tokens=700), rec("h", 1, "allow", tokens=400)]
+    text = me.report(items, records, "v", "held")
+    assert "- Calls: 1" in text and "- Tokens: 400 " in text
 
 
 def test_report_is_incomplete_while_calls_are_pending():

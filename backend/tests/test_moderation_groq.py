@@ -60,3 +60,9 @@ def test_the_client_fails_fast_with_no_retries(monkeypatch):
     groq = mg.client()  # builds only, no request
     assert str(groq.base_url).rstrip("/") == mg.BASE_URL
     assert groq.max_retries == 0 and groq.timeout == mg.TIMEOUT
+
+
+def test_the_client_takes_another_key(monkeypatch):
+    monkeypatch.setenv("GROQ_MODERATION_KEY", "gsk-prod")
+    groq = mg.client(" gsk-eval ")
+    assert groq.api_key == "gsk-eval" and groq.max_retries == 0 and groq.timeout == mg.TIMEOUT
