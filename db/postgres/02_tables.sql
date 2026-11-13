@@ -487,6 +487,13 @@ CREATE TABLE public.email_sends (
     CONSTRAINT email_sends_pkey PRIMARY KEY (id)
 );
 
+CREATE TABLE public.rating_failures (
+    hour TIMESTAMPTZ NOT NULL,
+    reason TEXT NOT NULL,
+    n BIGINT NOT NULL,
+    CONSTRAINT rating_failures_pkey PRIMARY KEY (hour, reason)
+);
+
 CREATE TABLE public.survey_pending_professors (
     id UUID NOT NULL,
     name TEXT NOT NULL,

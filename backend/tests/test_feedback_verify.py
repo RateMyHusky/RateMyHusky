@@ -190,23 +190,23 @@ def test_turnstile_token_from_a_vercel_preview_is_accepted(monkeypatch):
 
 
 def test_daily_cap_leaves_resend_free_tier_headroom(monkeypatch):
-    # Resend's free tier sends 100 a day across feedback and usage alerts; stop feedback at 80.
+    # Resend's free tier sends 100 a day across feedback and usage alerts; stop feedback at 78.
     import server
     from datetime import datetime, timezone
     monkeypatch.setattr(server, "_feedback_date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-    monkeypatch.setattr(server, "_feedback_count", 79)
-    assert _post(monkeypatch, feedbackType="bug", description="hi").status_code == 500  # the 80th, not configured
+    monkeypatch.setattr(server, "_feedback_count", 77)
+    assert _post(monkeypatch, feedbackType="bug", description="hi").status_code == 500  # the 78th, not configured
     resp = _post(monkeypatch, feedbackType="bug", description="hi")
     assert resp.status_code == 429 and "Daily feedback limit" in resp.get_json()["error"]
 
 
 def test_signed_in_requests_get_past_a_full_anonymous_cap(monkeypatch):
-    # 80 anonymous reports cost an attacker about $0.12 in CAPTCHA solves; they mustn't
+    # 78 anonymous reports cost an attacker about $0.12 in CAPTCHA solves; they mustn't
     # block a data-deletion request. A ban appeal with no verified account shares the cap.
     import server
     from datetime import datetime, timezone
     monkeypatch.setattr(server, "_feedback_date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-    monkeypatch.setattr(server, "_feedback_count", 80)
+    monkeypatch.setattr(server, "_feedback_count", 78)
     monkeypatch.setattr(server, "_account_feedback_count", 0, raising=False)
     monkeypatch.setattr(server, "_feedback_by_account", {})
     for t in ("datadeletion", "banappeal"):
@@ -229,8 +229,9 @@ def test_signed_in_allowance_has_its_own_cap(monkeypatch):
     assert _post(monkeypatch, **body).status_code == 500  # the last one, not configured
     resp = _post(monkeypatch, **body)
     assert resp.status_code == 429 and "Daily feedback limit" in resp.get_json()["error"]
-    # Resend's free 100/day also covers up to 3 usage alerts and the daily review digest.
-    assert server.FEEDBACK_DAILY_LIMIT + server.ACCOUNT_FEEDBACK_DAILY_LIMIT + 3 + 1 <= 100
+    # Resend's free 100/day also covers up to 3 usage alerts and the two review digests, with 2 spare
+    # for a manual or re-run digest.
+    assert server.FEEDBACK_DAILY_LIMIT + server.ACCOUNT_FEEDBACK_DAILY_LIMIT + 3 + 2 + 2 <= 100
 
 
 def test_one_account_cannot_use_up_the_signed_in_allowance(monkeypatch):

@@ -7,6 +7,7 @@ Run:           python server.py
 """
 
 import os, re, unicodedata, json, hashlib, hmac, random, secrets
+import atexit
 import html as _html
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
@@ -390,6 +391,8 @@ def _http_error(e):
     A limiter 429 never names its bucket ("20 per 1 hour"): that tells a client which
     key it hit, and so whether a fresh device token gets around it."""
     if e.code == 429:
+        if request.path == "/api/rate":
+            _record_rating_failure("rate_limited")
         return jsonify({"error": "Rate limit reached. Please try again later."}), 429
     return jsonify({"error": e.description}), e.code
 
@@ -398,6 +401,13 @@ def _http_error(e):
 def _unhandled_error(e):
     """Any uncaught error is logged with its traceback and served as a JSON 500."""
     app.logger.exception("Unhandled error on %s", request.path)
+    if request.path == "/api/rate":
+        if "db" in g:
+            try:
+                g.db.rollback()  # a failed statement aborts the transaction the count would use
+            except Exception:
+                pass
+        _record_rating_failure("error_after_save" if g.get("rating_saved") else "error")
     return jsonify({"error": "Internal server error"}), 500
 
 
@@ -443,10 +453,11 @@ _feedback_count = 0
 _account_feedback_count = 0
 _feedback_by_account = {}
 _feedback_date = None   # "YYYY-MM-DD" UTC, resets counter each day
-FEEDBACK_DAILY_LIMIT = 80
+FEEDBACK_DAILY_LIMIT = 78
 # Requests with a verified account get their own allowance, so anonymous reports can't
-# use up the day and block a data-deletion request. 80 + 15 + 3 usage alerts + 1
-# review digest (review_digest.py) fit Resend's free 100/day.
+# use up the day and block a data-deletion request. 78 + 15 + 3 usage alerts + 2
+# review digests (review_digest.py) fit Resend's free 100/day, with 2 spare for a
+# manual or re-run digest.
 ACCOUNT_FEEDBACK_DAILY_LIMIT = 15
 # One account's share of that allowance, so one user sending from several IPs can't
 # use up the day and block another user's data-deletion request.
@@ -2485,6 +2496,74 @@ def _rating_unavailable():
     return jsonify({"error": RATINGS_UNAVAILABLE}), 503
 
 
+# Counts failed rate-form submits by reason and hour for the daily digest: no device, IP or form data.
+# Held in memory and written at most once a minute, so a flood of junk or rate-limited submits costs
+# one write a minute, not one each. Counts since the last write go out with the next request after
+# the minute is up, or when the process exits, so a quiet site doesn't leave them in memory.
+RATING_FAILURE_SQL = ("INSERT INTO rating_failures (hour, reason, n) VALUES {} "
+                      "ON CONFLICT (hour, reason) DO UPDATE SET n = rating_failures.n + EXCLUDED.n")
+RATING_FAILURE_WRITE_EVERY = 60  # seconds
+_CAPTCHA_FAILURES = {400: "captcha_missing", 403: "captcha_failed", 503: "captcha_down"}
+_rating_failures = {}  # (hour, reason) -> n not written yet
+_rating_failures_written = {"last": 0.0}
+_rating_failures_lock = Lock()
+
+
+def _take_rating_failures(now, force=False):
+    """The held counts, cleared, once a minute has passed since the last write (or when forced); else None."""
+    with _rating_failures_lock:
+        if not _rating_failures or (not force and now - _rating_failures_written["last"] < RATING_FAILURE_WRITE_EVERY):
+            return None
+        _rating_failures_written["last"] = now
+        counts = list(_rating_failures.items())
+        _rating_failures.clear()
+    return counts
+
+
+def _write_rating_failures(counts):
+    _chat_write(RATING_FAILURE_SQL.format(", ".join(["(%s, %s, %s)"] * len(counts))),
+                [v for (h, r), n in counts for v in (h, r, n)])
+
+
+def _record_rating_failure(reason, now=None):
+    """Best-effort, like ask_log: a lost count never changes the answer the student gets."""
+    now = time.time() if now is None else now
+    hour = datetime.fromtimestamp(now - now % 3600, timezone.utc)
+    with _rating_failures_lock:
+        _rating_failures[(hour, reason)] = _rating_failures.get((hour, reason), 0) + 1
+    counts = _take_rating_failures(now)
+    if counts:
+        _write_rating_failures(counts)
+
+
+def _rating_failures_job(counts):
+    with app.app_context():   # get_db() keeps its connection on flask.g
+        _write_rating_failures(counts)
+
+
+@app.before_request
+def write_rating_failures_in_background():
+    """Writes counts held past the minute from whatever request comes in next, on its own
+    thread like the ask_log purge, so no user waits for it."""
+    counts = _take_rating_failures(time.time())
+    if counts:
+        Thread(target=_rating_failures_job, args=(counts,), daemon=True).start()
+
+
+@atexit.register
+def _write_rating_failures_at_exit():
+    """A redeploy or worker restart writes what's held instead of dropping it."""
+    counts = _take_rating_failures(time.time(), force=True)
+    if counts:
+        _rating_failures_job(counts)
+
+
+def _rating_failure(reason, error, status, token=None):
+    """A failed submit's answer, counted for the digest."""
+    _record_rating_failure(reason)
+    return _rating_response({"error": error}, status, token)
+
+
 def _rating_response(body, status, token=None):
     resp = make_response(jsonify(body), status)
     resp.headers["Cache-Control"] = "no-store"
@@ -2561,21 +2640,23 @@ def rate_submit():
     # 3. Validation
     clean, err = rating_checks.validate_submission(body, now.year)
     if err:
-        return _rating_response({"error": err}, 400)
+        return _rating_failure("invalid", err, 400)
 
     # 4. Turnstile
     failed = _turnstile_gate(body.get("turnstileToken"), "rate", RATINGS_UNAVAILABLE)
     if failed:
         status, error = failed
-        return _rating_response({"error": error}, status)
+        # A missing key on Railway is a config error, not Cloudflare being down: both are 503s.
+        reason = "captcha_unconfigured" if _turnstile_unconfigured() else _CAPTCHA_FAILURES[status]
+        return _rating_failure(reason, error, status)
 
     # 5. Existence
     if clean["professor_slug"] and not ratings.professor_exists(clean["professor_slug"], query_one):
-        return _rating_response({"error": "Unknown professor"}, 400)
+        return _rating_failure("unknown_professor", "Unknown professor", 400)
     new_course = None
     if not ratings.course_exists(clean["course_code"], query_one):
         if not clean["new_course_name"]:
-            return _rating_response({"error": "Unknown course code: give the course name"}, 400)
+            return _rating_failure("unknown_course", "Unknown course code: give the course name", 400)
         new_course = clean["new_course_name"]
 
     # 6. Device, hashes, network, fill time
@@ -2611,7 +2692,7 @@ def rate_submit():
     # when it was saved, so a later rule doesn't lock the student out of changing the stars.
     changed = bool(clean["comment"]) and (not existing or existing["comment"] != clean["comment"])
     if changed and rating_checks.rule_block(clean["comment"]):
-        return _rating_response({"error": "comment_blocked"}, 422, device)
+        return _rating_failure("rule_block", "comment_blocked", 422, device)
 
     # 9. Moderation of new or edited text. A blocked comment stops here; anything else
     # only marks the comment for the reviewer, so a busy or failed check never holds the
@@ -2679,6 +2760,7 @@ def rate_submit():
         **{c: check.get(c) for c in ratings.CHECK_COLUMNS},
     }
     ratings.save_rating(row, existing, _write)
+    g.rating_saved = True  # a 500 from here on still kept the rating
     held = ratings.hold_burst(bursts, key, ip_hash, prefix_hash, _write, now) if bursts else set()
     if near:
         ratings.hold_matches(near, "near_duplicate", device_hash, ip_hash, prefix_hash, network_type, _write)

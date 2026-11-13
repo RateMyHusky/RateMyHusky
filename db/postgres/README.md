@@ -469,6 +469,20 @@ CREATE TABLE IF NOT EXISTS public.email_sends (
 CREATE INDEX IF NOT EXISTS email_sends_sent_at ON public.email_sends (sent_at);
 ```
 
+The digest counts rate-form submits that failed, by reason and hour, in
+`rating_failures` (no device, IP or form data). Run this before the change reaches
+`main`: the backend's write is best-effort and only drops counts, but the digest
+reads the table and fails without it, so no email goes out. Rerunnable:
+
+```sql
+CREATE TABLE IF NOT EXISTS public.rating_failures (
+    hour TIMESTAMPTZ NOT NULL,
+    reason TEXT NOT NULL,
+    n BIGINT NOT NULL,
+    CONSTRAINT rating_failures_pkey PRIMARY KEY (hour, reason)
+);
+```
+
 ### Optional cleanup (destructive; take a backup first)
 
 `02_tables.sql` no longer declares the old backup tables or the tables nothing

@@ -35,7 +35,7 @@ def test_day_bars_scale_to_the_busiest_day():
     out = h.day_bars([(0, 0)] * 12 + [(30, 10), (10, 0)])
     assert "height:30px;background:#27ae60" in out
     assert "height:10px;background:#f39c12" in out
-    assert "height:10px;background:#d6394c" in out
+    assert "height:10px;background:#27ae60" in out  # today is green like every other day
     assert out.count('<td align="center">') == 14
     assert ">40</div><div>0</div>" in out  # the scale tops out at the busiest day
     assert "13 days ago" in out and "Today" in out
@@ -45,7 +45,7 @@ def test_every_day_has_a_track_so_a_lone_bar_has_something_to_sit_beside():
     out = h.day_bars([(0, 0)] * 13 + [(1, 0)])
     days = out.split('<td align="center">')[1:]
     assert all(f"height:40px;background:{h.TRACK}" in d for d in days[:13])
-    assert "height:40px;background:#d6394c" in days[13] and h.TRACK not in days[13]
+    assert "height:40px;background:#27ae60" in days[13] and h.TRACK not in days[13]
     assert ">1</div><div>0</div>" in out
 
 

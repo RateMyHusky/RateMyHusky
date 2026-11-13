@@ -117,7 +117,7 @@ def day_bars(days, height=40):
     for i, (live, held) in enumerate(days):
         px = [max(1, round(value * height / busiest)) if value else 0 for value in (held, live)]
         px[px.index(max(px))] -= max(0, sum(px) - height)  # the 1px floor and rounding can overshoot
-        segs = ((height - sum(px), TRACK), (px[0], AMBER), (px[1], BRAND if i == last else GREEN))
+        segs = ((height - sum(px), TRACK), (px[0], AMBER), (px[1], GREEN))
         cells.append('<td align="center">' + "".join(
             f'<div style="width:8px;height:{h}px;background:{bg};font-size:0;line-height:0;"></div>'
             for h, bg in segs if h) + "</td>")
