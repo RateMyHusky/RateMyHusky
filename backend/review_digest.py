@@ -233,10 +233,9 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
 RESEND_LIMITS = (100, 3000)  # free plan: emails per UTC day, per month
 CHECKER_LIMITS = (1000, 200_000)
 AGENT_LIMITS_PER_KEY = (1000, 200_000)
+# The last 24 hours. For the agent that is the run before this digest and the one 12 hours earlier, plus
+# the one before that when cron fired later yesterday: those tokens were spent in the window too.
 _DAY = "now() - interval '1 day'"
-# The agent runs before each digest, so a rolling day could hold yesterday's runs too, depending on when
-# cron fires. Today's runs plus a rolling day of chat is the last 24 hours, the same window as the checker.
-_UTC_DAY = "date_trunc('day', now(), 'UTC')"
 
 
 def rating_stats(conn, now):
@@ -259,10 +258,11 @@ def rating_stats(conn, now):
                count(*) FILTER (WHERE status = 'accepted') AS live, count(*) FILTER (WHERE status = 'held') AS held
         FROM survey_ratings WHERE created_at >= %s GROUP BY 1""",
         (datetime.combine(first, datetime.min.time(), timezone.utc),))}
-    # Pending professors share a NULL slug, so they'd read as one professor: left out.
+    # Pending professors share a NULL slug, so they'd read as one professor: left out. Live ratings only,
+    # so a held burst on one professor doesn't top the list.
     top = {col: [(r["key"], int(r["n"])) for r in fetch_all(
         conn, f"SELECT {col} AS key, count(*) AS n FROM survey_ratings WHERE created_at >= {_DAY} "
-              f"AND {col} IS NOT NULL GROUP BY 1 ORDER BY n DESC, 1 LIMIT 3")]
+              f"AND status = 'accepted' AND {col} IS NOT NULL GROUP BY 1 ORDER BY n DESC, 1 LIMIT 3")]
            for col in ("professor_slug", "course_code")}
     return {**{k: int(v) for k, v in row.items()},
             "top_professors": top["professor_slug"], "top_courses": top["course_code"],
@@ -280,17 +280,17 @@ def failure_counts(conn):
 
 def checker_stats(conn):
     """The `checker` dict of build_digest: the last day's check outcomes, submit and queue alike,
-    and the comments still waiting for one."""
-    (row,) = fetch_all(conn, f"""
+    and the comments moderate_queue.py will still check. Duplicates and bursts are never queued
+    (rating_checks.comment_check_fields), so they wait for a reviewer, not here."""
+    (calls,) = fetch_all(conn, f"""
         SELECT count(*) FILTER (WHERE outcome = 'allow') AS allow, count(*) FILTER (WHERE outcome = 'review') AS review,
                count(*) FILTER (WHERE outcome = 'block') AS block,
-               count(*) FILTER (WHERE outcome = 'unavailable') AS unavailable,
-               (SELECT count(*) FROM survey_ratings
-                WHERE comment_status = 'pending' AND comment_check = 'unchecked') AS waiting,
-               (SELECT count(*) FROM survey_ratings WHERE comment_status = 'pending' AND comment_check = 'unchecked'
-                AND comment_check_attempts >= 3) AS stuck
+               count(*) FILTER (WHERE outcome = 'unavailable') AS unavailable
         FROM moderation_calls WHERE called_at >= {_DAY}""")
-    return {k: int(v) for k, v in row.items()}
+    (queue,) = fetch_all(conn, """
+        SELECT count(*) AS waiting, count(*) FILTER (WHERE comment_check_attempts >= 3) AS stuck FROM survey_ratings
+        WHERE comment_status = 'pending' AND comment_check = 'unchecked' AND comment_next_check_at IS NOT NULL""")
+    return {k: int(v) for k, v in {**calls, **queue}.items()}
 
 
 def usage_meters(conn):
@@ -300,9 +300,9 @@ def usage_meters(conn):
     meters = [{"label": "Resend today", "used": int(sends["day"]), "limit": RESEND_LIMITS[0], "unit": ""},
               {"label": "Resend month", "used": int(sends["month"]), "limit": RESEND_LIMITS[1], "unit": ""}]
     (agent,) = fetch_all(conn, f"""
-        SELECT (SELECT COALESCE(sum(requests), 0) FROM review_agent_runs WHERE ran_at >= {_UTC_DAY})
+        SELECT (SELECT COALESCE(sum(requests), 0) FROM review_agent_runs WHERE ran_at >= {_DAY})
                  + (SELECT count(*) FROM ask_log WHERE created_at >= {_DAY} AND tokens_used > 0) AS requests,
-               (SELECT COALESCE(sum(tokens), 0) FROM review_agent_runs WHERE ran_at >= {_UTC_DAY})
+               (SELECT COALESCE(sum(tokens), 0) FROM review_agent_runs WHERE ran_at >= {_DAY})
                  + (SELECT COALESCE(sum(tokens_used), 0) FROM ask_log WHERE created_at >= {_DAY}) AS tokens,
                (SELECT keys FROM review_agent_runs WHERE keys > 0 ORDER BY ran_at DESC LIMIT 1) AS keys""")
     # The agent step records its keys just before the digest, so 1 only before any run has had a key.

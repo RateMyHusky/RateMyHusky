@@ -60,13 +60,15 @@ def test_rating_stats_counts_the_last_day_and_fourteen_utc_days(pg):
 
 def test_rating_stats_counts_devices_and_the_most_rated(pg):
     with pg.cursor() as cur:
-        for slug, code, device, new, hours in (("jane-doe", "CS2500", "d1", True, 1), ("jane-doe", "CS3500", "d1", True, 2),
-                                               ("jane-doe", "CS2500", "d2", False, 3), ("zed", "CS2500", "d3", True, 4),
-                                               (None, "CS2500", "d4", True, 5), ("old", "OLD1000", "d5", True, 48)):
+        for slug, code, device, new, hours, status in (
+                ("jane-doe", "CS2500", "d1", True, 1, "accepted"), ("jane-doe", "CS3500", "d1", True, 2, "accepted"),
+                ("jane-doe", "CS2500", "d2", False, 3, "accepted"), ("zed", "CS2500", "d3", True, 4, "accepted"),
+                (None, "CS2500", "d4", True, 5, "accepted"), ("old", "OLD1000", "d5", True, 48, "accepted"),
+                *(("zed", "MATH1341", d, False, 1, "held") for d in ("d1", "d2", "d3", "d4"))):  # a held burst isn't most rated
             cur.execute("INSERT INTO survey_ratings (id, professor_slug, pending_professor_id, course_code, rating, hours, "
                         "status, device_hash, new_device, network_type, created_at) VALUES "
-                        "(%s, %s, %s, %s, 4, '3-4', 'accepted', %s, %s, 'other', now() - %s * interval '1 hour')",
-                        (str(uuid.uuid4()), slug, None if slug else str(uuid.uuid4()), code, device, new, hours))
+                        "(%s, %s, %s, %s, 4, '3-4', %s, %s, %s, 'other', now() - %s * interval '1 hour')",
+                        (str(uuid.uuid4()), slug, None if slug else str(uuid.uuid4()), code, status, device, new, hours))
     pg.commit()
     stats = review_digest.rating_stats(pg, NOW)
     assert stats["devices"] == 4 and stats["new_devices"] == 3
@@ -107,12 +109,15 @@ def test_checker_stats_count_outcomes_and_comments_still_unchecked(pg):
                     "(gen_random_uuid(), 'submit', 'allow', now()), (gen_random_uuid(), 'queue', 'allow', now()), "
                     "(gen_random_uuid(), 'queue', 'unavailable', now()), (gen_random_uuid(), 'submit', 'block', now()), "
                     "(gen_random_uuid(), 'queue', 'review', now() - interval '2 days')")
-        for check, attempts, status in (("unchecked", 0, "pending"), ("unchecked", 3, "pending"),
-                                        ("unchecked", 5, "approved"), ("review", 1, "pending")):
+        # The last is a duplicate or burst comment: never queued, so not waiting on the checker.
+        for check, attempts, status, queued in (("unchecked", 0, "pending", True), ("unchecked", 3, "pending", True),
+                                                ("unchecked", 5, "approved", True), ("review", 1, "pending", False),
+                                                ("unchecked", 0, "pending", False)):
             cur.execute("INSERT INTO survey_ratings (id, professor_slug, course_code, rating, hours, status, device_hash, "
-                        "new_device, network_type, comment, comment_status, comment_check, comment_check_attempts) "
-                        "VALUES (%s, 'jane-doe', 'CS2500', 4, '3-4', 'accepted', %s, true, 'other', 'Fine.', %s, %s, %s)",
-                        (str(uuid.uuid4()), str(uuid.uuid4()), status, check, attempts))
+                        "new_device, network_type, comment, comment_status, comment_check, comment_check_attempts, "
+                        "comment_next_check_at) VALUES (%s, 'jane-doe', 'CS2500', 4, '3-4', 'accepted', %s, true, "
+                        "'other', 'Fine.', %s, %s, %s, CASE WHEN %s THEN now() END)",
+                        (str(uuid.uuid4()), str(uuid.uuid4()), status, check, attempts, queued))
     pg.commit()
     assert review_digest.checker_stats(pg) == {"allow": 2, "review": 0, "block": 1, "unavailable": 1,
                                                "waiting": 2, "stuck": 1}
@@ -129,17 +134,18 @@ def test_usage_meters_count_sends_by_utc_day_and_month_and_sum_groq(pg):
     assert meters[3] == {"label": "Groq checker", "used": 500, "limit": 200_000, "unit": "tokens"}
 
 
-def test_groq_agent_meter_counts_todays_run_and_a_rolling_day_of_chat(pg):
-    # One second before UTC midnight is always inside a rolling 24 hours: yesterday's run is left out,
-    # but chat from then still counts, since the digest at 13:00 UTC would otherwise miss Boston's daytime.
+def test_groq_agent_meter_counts_a_rolling_day_of_runs_and_chat(pg):
+    # The 12-hours-earlier run counts even when it was on the previous UTC day, as at the 05:00 digest.
     with pg.cursor() as cur:
         cur.execute("INSERT INTO review_agent_runs (ran_at, requests, tokens, keys) VALUES "
-                    "(date_trunc('day', now(), 'UTC') - interval '1 second', 900, 150000, 1), (now(), 10, 4000, 1)")
+                    "(now() - interval '12 hours', 20, 50000, 1), (now() - interval '25 hours', 900, 150000, 1), "
+                    "(now(), 10, 4000, 1)")
         cur.execute("INSERT INTO ask_log (query, mode, result_status, tokens_used, created_at) VALUES "
-                    "('q', 'm', 'ok', 2000, date_trunc('day', now(), 'UTC') - interval '1 second'), "
+                    "('q', 'm', 'ok', 2000, now() - interval '23 hours'), "
                     "('q', 'm', 'ok', 7000, now() - interval '25 hours')")
     pg.commit()
-    assert review_digest.usage_meters(pg)[2] == {"label": "Groq chat + agent", "used": 6000, "limit": 200_000, "unit": "tokens"}
+    assert review_digest.usage_meters(pg)[2] == {"label": "Groq chat + agent", "used": 56000, "limit": 200_000,
+                                                 "unit": "tokens"}
 
 
 def test_groq_checker_meter_counts_only_calls_that_reached_groq(pg):
@@ -176,4 +182,4 @@ def test_main_dry_run_shows_professor_names(pg, pg_env, capsys):
     assert review_digest.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "Jane Doe" in out and "HTML preview:" in out
-    assert "Most rated professors\nJane Doe: 2" in out and "Comment checker\nPassed: 1" in out
+    assert "Most rated professors\nJane Doe: 1" in out and "Comment checker\nPassed: 1" in out
