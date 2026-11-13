@@ -55,7 +55,7 @@
   ],
   "rewrites": [
     {
-      "source": "/((?!photos/).*)",
+      "source": "/((?!photos/|assets/).*)",
       "destination": "/index.html"
     }
   ]
