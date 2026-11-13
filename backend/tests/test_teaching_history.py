@@ -80,6 +80,15 @@ def test_course_history_summary():
     assert got["typicalClassSize"] == 98
 
 
+def test_course_history_carries_every_term_offered_for_last_taught():
+    query, query_one, seen = course_db(offerings={"CS3100": {**OFFERING, "term_labels": "Spring 2027,Fall 2026"}})
+    assert th.course_history("CS3100", query, query_one)["offeredTerms"] == ["Spring 2027", "Fall 2026"]
+    assert "term_labels" in next(s for s, _ in seen if "FROM banner_course_offerings" in s)
+    # Before the history build stores them.
+    query, query_one, _ = course_db()
+    assert th.course_history("CS3100", query, query_one)["offeredTerms"] == []
+
+
 def test_course_history_offering_years_use_the_season_keys_and_the_first_year():
     query, query_one, _ = course_db()
     got = th.course_history("CS3100", query, query_one)
@@ -291,6 +300,43 @@ def test_label_code_matches_banners_term_codes(label, code):
 @pytest.mark.parametrize("label", [None, "", "Fall", "2026", "Autumn 2026", "Fall A 2026", "Fall 26"])
 def test_label_code_is_none_for_a_label_it_cannot_read(label):
     assert th.label_code(label) is None
+
+
+def test_current_term_skips_unreadable_labels_and_falls_back_to_the_newest_term():
+    assert th.current_term_code([{"label": "Fall A 2026", "view_only": False},
+                                 {"label": "Fall 2026", "view_only": False}]) == 202710
+    assert th.current_term_code([{"label": "Fall 2025", "view_only": True},
+                                 {"label": "Spring 2026", "view_only": True}]) == 202630
+    assert th.current_term_code([{"label": "Fall A 2026", "view_only": False}]) is None
+
+
+def test_an_open_cps_quarter_is_not_the_term_in_progress_beside_an_open_semester():
+    # January: Fall has closed, Winter 2027 CPS Quarter (202725) and the Spring
+    # 2027 semester (202730) are both open, and it is Spring that is running.
+    terms = [{"label": "Spring 2027", "view_only": False, "track": "Semester"},
+             {"label": "Winter 2027", "view_only": False, "track": "CPS Quarter"},
+             {"label": "Fall 2026", "view_only": True, "track": "Semester"}]
+    assert th.current_term_code(terms) == 202730
+    # Spring 2026 CPS Quarter runs into June, beside the Summer 2026 semester.
+    terms = [{"label": "Summer 2026", "view_only": False, "track": "Semester"},
+             {"label": "Spring 2026", "view_only": False, "track": "CPS Quarter"}]
+    assert th.current_term_code(terms) == 202660
+
+
+def test_a_summer_term_in_progress_reaches_its_summer_2_session():
+    # July 2026: Summer 2026 (202650) is open beside Fall 2026. Its Summer 2
+    # sections are labelled "Summer 2 2026" (202660) and are running.
+    terms = [{"label": "Fall 2026", "view_only": False, "track": "Semester"},
+             {"label": "Summer 2026", "view_only": False, "track": "Semester"}]
+    current = th.current_term_code(terms)
+    assert current == 202660
+    assert th.latest_started(["Fall 2026", "Summer 2 2026", "Summer 1 2026"], current) == "Summer 2 2026"
+
+
+def test_an_open_quarter_counts_when_no_semester_is_open():
+    terms = [{"label": "Winter 2027", "view_only": False, "track": "CPS Quarter"},
+             {"label": "Spring 2027", "view_only": True, "track": "Semester"}]
+    assert th.current_term_code(terms) == 202725
 
 
 # ── names ───────────────────────────────────────────────────────────────

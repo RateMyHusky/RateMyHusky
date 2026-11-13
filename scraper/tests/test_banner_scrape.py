@@ -472,6 +472,14 @@ def test_plan_current_skips_an_open_term_already_stored_as_closed():
     assert [c for c, _ in plan_terms(TERMS, {"202710": False}, "current")] == ["202710"]
 
 
+def test_plan_current_scrapes_an_open_term_stored_closed_before_it_ever_opened():
+    """Before upcoming terms were tagged, next term's View Only scrape was stored
+    as closed. Once registration opens it must be scraped again, or its
+    pre-registration sections stay frozen all term."""
+    got = plan_terms(TERMS, {"202710": True}, "current", closed_unopened={"202710"})
+    assert [c for c, _ in got] == ["202710"]
+
+
 def test_plan_backfill_takes_closed_terms_newest_first_from_since():
     got = [c for c, _ in plan_terms(TERMS, {}, "backfill", since_term="201610")]
     assert got == ["202650", "202630", "202615"]
@@ -545,6 +553,63 @@ def test_plan_rescrape_forces_a_finished_banner_term():
     assert [c for c, _ in got] == ["202650"]
     got = plan_terms(TERMS, {}, "current", rescrape=["202650"])
     assert [c for c, _ in got] == ["202710", "202650"]
+
+
+def test_plan_backfill_replans_a_view_only_term_newer_than_the_open_one():
+    """Next term is View Only before registration and was stored closed on its
+    first scrape; newer than the term in progress, it cannot have happened, so
+    it is scraped again each week until it opens."""
+    terms = [{"code": "202730", "description": "Spring 2027 Semester (View Only)"}] + TERMS
+    known = {"202730": True, **ALL_CLOSED}
+    sources = {c: "banner" for c in known}
+    got = plan_terms(terms, known, "backfill", "201610", instructors_from="202615", sources=sources)
+    assert [c for c, _ in got] == ["202730"]
+
+
+def test_plan_tags_only_a_view_only_term_newer_than_every_open_one_as_upcoming():
+    """Banner lists next term View Only until registration opens, so its scrape
+    is no final headcount. The plan says so from getTerms alone: section start
+    dates can't, since one early section would make the term look started."""
+    terms = [{"code": "202730", "description": "Spring 2027 Semester (View Only)"}] + TERMS
+    got = dict(plan_terms(terms, {}, "backfill", "201610", rescrape=["202710"]))
+    assert {c: p["upcoming"] for c, p in got.items()} == {
+        "202730": True, "202710": False, "202650": False, "202630": False, "202615": False}
+
+
+def test_plan_judges_upcoming_within_each_track():
+    """A CPS quarter's code sits above its season's semester, so one that opens
+    first must not make the semester beside it look finished."""
+    terms = [{"code": "202815", "description": "Fall 2027 CPS Quarter"},
+             {"code": "202810", "description": "Fall 2027 Semester (View Only)"},
+             {"code": "202750", "description": "Summer 2027 Semester"},
+             {"code": "202725", "description": "Winter 2027 CPS Quarter (View Only)"},
+             {"code": "202552", "description": "Summer 2025 Law Semester (View Only)"}]
+    got = dict(plan_terms(terms, {}, "backfill", "201610",
+                          rescrape=["202815", "202750", "202725", "202552"]))
+    assert {c: p["upcoming"] for c, p in got.items()} == {
+        "202815": False, "202810": True, "202750": False, "202725": False, "202552": False}
+
+
+def test_plan_judges_a_track_with_no_open_term_against_the_term_in_progress():
+    """Banner had no open CPS term in Nov 2026. A quarter newer than the term in
+    progress hasn't started, even when its code sits below next semester's."""
+    terms = [{"code": "202730", "description": "Spring 2027 Semester"},
+             {"code": "202725", "description": "Winter 2027 CPS Quarter (View Only)"},
+             {"code": "202710", "description": "Fall 2026 Semester"},
+             {"code": "202655", "description": "Summer 2026 CPS Quarter (View Only)"}]
+    got = dict(plan_terms(terms, {}, "backfill", "201610", rescrape=["202730", "202710"]))
+    assert {c: p["upcoming"] for c, p in got.items()} == {
+        "202730": False, "202725": True, "202710": False, "202655": False}
+
+
+def test_plan_backfill_puts_upcoming_terms_after_the_terms_that_need_a_final_scrape():
+    """An upcoming term is re-scraped every week; a just-closed one needs its
+    one final scrape before the run's time runs out."""
+    terms = [{"code": "202730", "description": "Spring 2027 Semester (View Only)"}] + TERMS
+    known = {"202730": True, **ALL_CLOSED, "202650": False}
+    sources = {c: "banner" for c in known}
+    got = plan_terms(terms, known, "backfill", "201610", instructors_from="202615", sources=sources)
+    assert [c for c, _ in got] == ["202650", "202730"]
 
 
 def test_plan_rescrape_refuses_a_code_getterms_does_not_list():

@@ -15,6 +15,10 @@ function selftest(): number {
   check('students first when it has reviews', defaultTab({ students: 1, rmp: 9, reddit: 9 }) === 'students');
   check('skips empty tabs', defaultTab({ students: 0, rmp: 0, reddit: 2 }) === 'reddit');
   check('all empty falls back to rmp', defaultTab({ students: 0, rmp: 0, reddit: 0 }) === 'rmp');
+  check('all empty with locked comments opens their sign-in card',
+    defaultTab({ students: 0, rmp: 0, reddit: 0 }, 3) === 'students');
+  check('locked comments never beat a tab with entries',
+    defaultTab({ students: 0, rmp: 2, reddit: 0 }, 3) === 'rmp');
   check('no selection keeps courseless reviews',
     filterByCourses([{ course: null }, { course: 'CS3500' }], new Set()).length === 2);
   check('selection filters',

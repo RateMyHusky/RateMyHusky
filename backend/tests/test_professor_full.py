@@ -66,9 +66,9 @@ def srow(**kw):
 class FakeDB:
     """`survey`: the survey_ratings rows, or an exception the read raises."""
 
-    def __init__(self, catalog=CATALOG, reviews=REVIEWS, summaries=SUMMARY_ROWS, survey=()):
+    def __init__(self, catalog=CATALOG, reviews=REVIEWS, summaries=SUMMARY_ROWS, survey=(), terms=()):
         self.catalog, self.reviews, self.summaries = catalog, reviews, summaries
-        self.survey = survey
+        self.survey, self.terms = survey, terms
         self.calls = []
 
     def query(self, sql, params=None):
@@ -84,6 +84,10 @@ class FakeDB:
             return [dict(r) for r in self.survey]
         if "from banner_course_instructors" in s:
             return []
+        if "from banner_terms" in s:
+            if isinstance(self.terms, Exception):
+                raise self.terms
+            return [dict(t) for t in self.terms]
         raise AssertionError(f"unexpected query: {sql}")
 
     def query_one(self, sql, params=None):
@@ -493,3 +497,43 @@ def test_at_most_six_statements_and_only_live_tables():
     for table in ("professors_catalog", "rmp_reviews", "source_summary", "banner_course_instructors",
                   "survey_ratings"):
         assert table in tables
+
+
+def test_at_most_seven_statements_with_banner_history():
+    # With history the term in progress is read too, for the Last Taught cap.
+    def course_history_for(slug, query):
+        query("SELECT 1 FROM banner_course_instructors")
+        return [dict(h) for h in HISTORY]
+
+    _, db, _ = _build(history=course_history_for, review_id=lambda u: "abc")
+    assert len(db.calls) <= 7
+    assert "banner_terms" in " ".join(sql.lower() for sql, _ in db.calls)
+
+
+def test_a_failed_term_read_keeps_the_courses_and_skips_the_cache(caplog):
+    data, _ = _with_history(db=FakeDB(terms=RuntimeError("boom")))
+    assert [c["code"] for c in data["courses"]][:2] == ["CS3100", "CS2500"]
+    assert data["lastTaught"] == "Fall 2026"
+    assert data["_partial"] is True
+    assert len([r for r in caplog.records if r.levelname == "ERROR"]) == 1
+
+
+def test_last_taught_is_never_a_term_that_has_not_started():
+    # Banner lists Spring 2027's sections while Fall 2026 is in progress.
+    terms = [{"label": "Spring 2027", "view_only": True, "track": "Semester"},
+             {"label": "Fall 2026", "view_only": False, "track": "Semester"}]
+    history = [{**HISTORY[0], "lastTerm": "Spring 2027", "recentTerms": ["Spring 2027", "Fall 2026", "Spring 2026"]},
+               *HISTORY[1:]]
+    data, _ = _with_history(history, db=FakeDB(terms=terms))
+    assert data["lastTaught"] == "Fall 2026"
+    # The course's own lastTerm agrees; its term chips still show what's scheduled.
+    course = data["courses"][0]
+    assert (course["lastTerm"], course["terms"][0]) == ("Fall 2026", "Spring 2027")
+
+
+def test_only_upcoming_teaching_means_no_last_taught():
+    terms = [{"label": "Fall 2026", "view_only": False, "track": "Semester"}]
+    history = [{**HISTORY[0], "lastTerm": "Spring 2027", "recentTerms": ["Spring 2027"]}]
+    data, _ = _with_history(history, db=FakeDB(terms=terms))
+    assert data["lastTaught"] is None
+    assert data["courses"][0]["lastTerm"] is None

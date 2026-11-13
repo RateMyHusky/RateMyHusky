@@ -103,12 +103,13 @@ def build_summary(own_rows, reddit_mentions, survey_comments=None):
     }
 
 
-def build_courses(course_rows, history):
+def build_courses(course_rows, history, current):
     """Reviewed courses (the blend rows) merged on code with the courses Banner
     has them teaching. Taught courses come first in `history`'s order (most
     recently taught, then most terms); the rest follow most-rated first. A
     course Banner lists but no one has rated has no ratings. hasPage: the code
-    is in course_catalog, so a course page exists."""
+    is in course_catalog, so a course page exists. lastTerm is capped at
+    `current` like lastTaught; terms keeps a scheduled term."""
     reviewed = {r["course_code"]: {
         "code": r["course_code"],
         "name": r["course_name"],
@@ -128,20 +129,31 @@ def build_courses(course_rows, history):
             "code": h["code"], "name": h["name"], "rating": None, "difficulty": None,
             "numRatings": 0, "ratingDistribution": None, "hasPage": h["hasPage"]}
         taught.append({**row, "name": row["name"] or h["name"],   # Banner's title when the catalog has none
-                       "terms": h["recentTerms"], "lastTerm": h["lastTerm"]})
+                       "terms": h["recentTerms"],
+                       "lastTerm": teaching_history.latest_started([h["lastTerm"], *h["recentTerms"]], current)})
     rest = sorted(reviewed.values(), key=lambda c: (-c["numRatings"], c["code"]))
     return taught + [{**c, "terms": [], "lastTerm": None} for c in rest]
 
 
 def _course_history(slug, query, course_history_for):
-    """(courses, failed): Banner's courses for the professor, or [] when they
-    can't be read: history decorates the page and never fails it, and failed
-    True keeps the caller from caching the page."""
+    """(courses, current, failed): Banner's courses for the professor, or []
+    when they can't be read: history decorates the page and never fails it, and
+    failed True keeps the caller from caching the page. `current` is the term in
+    progress (teaching_history.current_term), read only when there are courses;
+    it keeps lastTaught off a term that hasn't started. A failed read of it
+    keeps the courses, with current None and failed True."""
     try:
-        return course_history_for(slug, query), False
+        courses = course_history_for(slug, query)
     except Exception:
         log.exception("teaching history failed for professor %s", slug)
-        return [], True
+        return [], None, True
+    if not courses:
+        return courses, None, False
+    try:
+        return courses, teaching_history.current_term(query), False
+    except Exception:
+        log.exception("term in progress failed for professor %s", slug)
+        return courses, None, True
 
 
 def _survey(slug, query):
@@ -165,8 +177,9 @@ def build_payload(slug, query, query_one, sanitize, fetch_reddit_mentions,
                   course_history_for=teaching_history.professor_course_history,
                   review_id=None):
     """The §4.2 professor payload, or None when no professor matches `slug`.
-    Six statements: catalog row, summaries, RMP reviews, Reddit, then Banner
-    history and the student reviews last, so a failure there can't affect the
+    Seven statements: catalog row, summaries, RMP reviews, Reddit, then Banner
+    history (and the term in progress, when there is history) and the student
+    reviews last, so a failure there can't affect the
     reads before it. Awards come from the committed teaching_awards.json, not
     the database. `review_id(uuid)` gives a student review its public id; None
     (reviews off, or no RATING_SECRET) skips the survey read, so no review text
@@ -186,7 +199,7 @@ def build_payload(slug, query, query_one, sanitize, fetch_reddit_mentions,
     mentions = fetch_reddit_mentions(prof["slug"], query, moderation.sql_filter("t"))
     for m in mentions:
         m["body"] = sanitize(m["body"]) if m["body"] else ""
-    history, history_failed = _course_history(prof["slug"], query, course_history_for)
+    history, current, history_failed = _course_history(prof["slug"], query, course_history_for)
     survey_rows, survey_failed = _survey(prof["slug"], query) if review_id else ([], False)
     if review_id and not survey_failed:   # a failed read keeps the pipeline's numbers
         summaries = live_summaries(summaries, survey_reviews.live_summary_rows(survey_rows))
@@ -199,8 +212,9 @@ def build_payload(slug, query, query_one, sanitize, fetch_reddit_mentions,
                     "survey": build_survey_section(
                         own.get("survey"), survey_reviews.shape_reviews(survey_rows, review_id, sanitize))},
         "courses": build_courses([r for r in summaries if r["course_code"] and r["source"] == "blend"],
-                                 history),
-        "lastTaught": history[0]["lastTerm"] if history else None,
+                                 history, current),
+        "lastTaught": teaching_history.latest_started(
+            [t for h in history for t in [h["lastTerm"], *h["recentTerms"]]], current),
         "redditMentions": mentions,
         "awards": awards_for(prof["name_key"]),
     }

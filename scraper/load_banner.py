@@ -268,15 +268,17 @@ def add_columns(cur, columns):
 
 
 def known_terms(cur):
-    """{term_code: (closed when last scraped, section_count, instructors_source)}.
+    """{term_code: (closed when last scraped, section_count, instructors_source,
+    ever scraped while open)}.
 
-    The first and third drive plan_terms (a term last seen open needs one final
-    scrape; one whose instructors aren't Banner's needs them from Banner); the
-    second is the section-count baseline for the drop gate.
+    The first, third and fourth drive plan_terms (a term last seen open needs
+    one final scrape; one whose instructors aren't Banner's needs them from
+    Banner; one stored closed before it ever opened is scraped again once it
+    opens); the second is the section-count baseline for the drop gate.
     """
-    cur.execute("SELECT term_code, scraped_closed, section_count, instructors_source "
-                "FROM banner_terms")
-    return {r[0]: (bool(r[1]), r[2], r[3]) for r in cur.fetchall()}
+    cur.execute("SELECT term_code, scraped_closed, section_count, instructors_source, "
+                "first_seen_at FROM banner_terms")
+    return {r[0]: (bool(r[1]), r[2], r[3], r[4] is not None) for r in cur.fetchall()}
 
 
 def _insert(cur, table, columns, rows, conflict=None):
@@ -319,7 +321,9 @@ def write_term(cur, term_code, parsed, desc_raw, scrape):
     scraped_closed, so the next finalize pass tries it again.
 
     A term whose last meeting has passed (scrape["ended"]) is stored as closed
-    even though Banner has not marked it View Only yet.
+    even though Banner has not marked it View Only yet. A View Only term that
+    has not started (parsed["upcoming"], from plan_terms) keeps view_only but
+    is not scraped_closed: no one has enrolled yet, so this is no final headcount.
 
     Returns (sections written, instructor rows written).
     """
@@ -331,7 +335,8 @@ def write_term(cur, term_code, parsed, desc_raw, scrape):
     if first_seen is None and not parsed["view_only"]:
         first_seen = datetime.now(timezone.utc).isoformat()
 
-    closed = bool(parsed["view_only"] or scrape.get("ended"))
+    view_only = bool(parsed["view_only"] or scrape.get("ended"))
+    closed = view_only and not parsed.get("upcoming")
     failed = list(scrape.get("failed_crns") or [])
     sections_only = scrape["instructors"] is None
     if not sections_only:
@@ -367,7 +372,7 @@ def write_term(cur, term_code, parsed, desc_raw, scrape):
         "season_group": parsed["season_group"],
         "year": parsed["year"],
         "track": parsed["track"],
-        "view_only": closed,
+        "view_only": view_only,
         "scraped_closed": closed and not failed,
         "instructors_source": source,
         "first_seen_at": first_seen,
@@ -438,7 +443,8 @@ def run(client, open_conn, mode, since_term=DEFAULT_SINCE_TERM,
     desc_by_code = {str(t.get("code")): t.get("description") for t in terms}
     plan = plan_terms(terms, {c: v[0] for c, v in known.items()}, mode, since_term,
                       instructors_from=instructors_from,
-                      sources={c: v[2] for c, v in known.items()}, rescrape=rescrape)
+                      sources={c: v[2] for c, v in known.items()}, rescrape=rescrape,
+                      closed_unopened={c for c, v in known.items() if v[0] and not v[3]})
     print(f"{mode}: {len(plan)} term(s) to scrape")
 
     ok, failed, done_sections = [], [], 0

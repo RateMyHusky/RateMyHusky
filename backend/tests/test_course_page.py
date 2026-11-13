@@ -53,7 +53,7 @@ def test_contract_keys():
     assert set(data["catalog"]) == {"description", "credits", "prerequisites", "corequisites", "nupath"}
     assert set(data["summary"]) == {"rating", "difficulty", "numRatings", "hoursPerWeek", "bySource"}
     assert all(set(p) == {"slug", "name", "imageUrl", "focusX", "focusY", "rating", "difficulty",
-                          "numRatings", "lastTerm", "avgClassSize"} for p in data["professors"])
+                          "numRatings", "hoursPerWeek", "lastTerm", "avgClassSize"} for p in data["professors"])
 
 
 def test_catalog_details_come_from_the_course_row():
@@ -75,7 +75,7 @@ def test_professor_rows_default_the_photo_focus():
     db = FakeDB()
     p = build_course("CS3500", db.query, db.query_one)["professors"][0]
     assert p == {"slug": "olin-guha", "name": "Olin Guha", "imageUrl": None, "focusX": 50.0,
-                 "focusY": 30.0, "rating": 4.5, "difficulty": 3.0, "numRatings": 30,
+                 "focusY": 30.0, "rating": 4.5, "difficulty": 3.0, "numRatings": 30, "hoursPerWeek": None,
                  "lastTerm": None, "avgClassSize": None}
 
 
@@ -139,9 +139,9 @@ def _with_history(history=HISTORY, newest="Fall 2026", terms=None):
                         history_for=lambda c, q, qo: copy.deepcopy(history))
 
 
-def test_history_is_course_history_plus_recent_instructors():
+def test_history_is_course_history_plus_recent_and_next_instructors():
     h = _with_history()["history"]
-    assert set(h) == set(HISTORY) | {"recentInstructors"}
+    assert set(h) == set(HISTORY) | {"recentInstructors", "nextTerm", "nextInstructors"}
     assert h["lastOffered"] == "Fall 2026"
     assert (h["offeringYears"], h["firstOffered"]) == (HISTORY["offeringYears"], "Fall 2021")
 
@@ -196,15 +196,6 @@ def test_a_future_term_open_for_registration_does_not_shift_the_cutoff():
     recent = _with_history(terms=terms)["history"]["recentInstructors"]
     assert [r["name"] for r in recent] == ["Olin Guha", "Jane Q Doe"]
     assert recent[0]["terms"] == ["Fall 2026", "Summer 1 2026", "Spring 2026", "Fall 2025"]
-
-
-def test_cutoff_skips_unreadable_labels_and_falls_back_to_the_newest_term():
-    from course_page import recent_cutoff
-    assert recent_cutoff([{"label": "Fall A 2026", "view_only": False},
-                          {"label": "Fall 2026", "view_only": False}]) == 202610
-    assert recent_cutoff([{"label": "Fall 2025", "view_only": True},
-                          {"label": "Spring 2026", "view_only": True}]) == 202530
-    assert recent_cutoff([{"label": "Fall A 2026", "view_only": False}]) is None
 
 
 def test_unmatched_instructors_with_one_name_get_one_card():
@@ -485,3 +476,119 @@ def test_professor_catalog_sorts_by_rating_count(monkeypatch):
     # "Most Rated", the catalog's default: the "N ratings" count on the card, not comments.
     test_catalogs_sort_in_reverse(monkeypatch, "/api/professors-catalog?sort=ratings",
                                   "ORDER BY total_reviews DESC NULLS LAST, slug ASC")
+
+
+# ── next semester, and Last Taught never in the future ──
+
+NEXT_TERMS = [{"label": "Spring 2027", "view_only": True, "track": "Semester"},
+              {"label": "Winter 2027", "view_only": True, "track": "CPS Quarter"},
+              {"label": "Fall 2026", "view_only": False, "track": "Semester"},
+              {"label": "Spring 2026", "view_only": True, "track": "Semester"}]
+NEXT_HISTORY = {**HISTORY, "lastOffered": "Spring 2027", "instructors": [
+    _inst("new-prof", "New Prof", ["Spring 2027"]),
+    _inst("olin-guha", "Olin Guha", ["Spring 2027", "Fall 2026", "Spring 2026"], 40),
+    _inst(None, "Jane Q Doe", ["Fall 2026"]),
+    _inst("amal-ahmed", "Amal Ahmed", ["Spring 2026"], 35),
+]}
+
+
+def test_next_semester_lists_who_banner_has_teaching_the_term_after_this_one():
+    h = _with_history(NEXT_HISTORY, terms=NEXT_TERMS)["history"]
+    assert h["nextTerm"] == "Spring 2027"   # the CPS Winter quarter between is no semester
+    assert [(r["name"], r["rating"], r["numRatings"]) for r in h["nextInstructors"]] == [
+        ("New Prof", None, 0), ("Olin Guha", 4.5, 30)]
+
+
+def test_no_next_semester_without_its_instructors():
+    h = _with_history(terms=NEXT_TERMS)["history"]
+    assert (h["nextTerm"], h["nextInstructors"]) == (None, [])
+
+
+def test_recent_professors_stop_at_the_term_in_progress():
+    recent = _with_history(NEXT_HISTORY, terms=NEXT_TERMS)["history"]["recentInstructors"]
+    assert [(r["name"], r["terms"]) for r in recent] == [
+        ("Olin Guha", ["Fall 2026", "Spring 2026"]), ("Jane Q Doe", ["Fall 2026"]), ("Amal Ahmed", ["Spring 2026"])]
+
+
+def test_last_taught_is_never_a_term_that_has_not_started():
+    data = _with_history(NEXT_HISTORY, terms=NEXT_TERMS)
+    assert data["history"]["lastOffered"] == "Fall 2026"
+    olin = next(p for p in data["professors"] if p["slug"] == "olin-guha")
+    assert olin["lastTerm"] == "Fall 2026"
+
+
+def test_spring_is_in_progress_while_the_cps_winter_quarter_is_open():
+    # January: Fall is View Only, and Winter 2027 (202725) sorts before the
+    # Spring 2027 semester that is running. Spring is no "next semester".
+    terms = [{"label": "Spring 2027", "view_only": False, "track": "Semester"},
+             {"label": "Winter 2027", "view_only": False, "track": "CPS Quarter"},
+             {"label": "Fall 2026", "view_only": True, "track": "Semester"}]
+    data = _with_history(NEXT_HISTORY, terms=terms)
+    h = data["history"]
+    assert (h["lastOffered"], h["nextTerm"], h["nextInstructors"]) == ("Spring 2027", None, [])
+    assert h["recentInstructors"][0]["name"] == "New Prof"
+    olin = next(p for p in data["professors"] if p["slug"] == "olin-guha")
+    assert olin["lastTerm"] == "Spring 2027"
+
+
+def test_last_taught_counts_a_term_with_no_instructor_listed():
+    # Fall 2026 ran with only TBA sections, so no instructor row names it.
+    history = {**NEXT_HISTORY, "offeredTerms": ["Spring 2027", "Fall 2026", "Spring 2026"],
+               "instructors": [_inst("olin-guha", "Olin Guha", ["Spring 2027", "Spring 2026"], 40)]}
+    h = _with_history(history, terms=NEXT_TERMS)["history"]
+    assert h["lastOffered"] == "Fall 2026"
+    assert "offeredTerms" not in h
+
+
+def test_last_taught_falls_back_to_instructor_terms_before_the_offering_lists_its_terms():
+    history = {**NEXT_HISTORY, "offeredTerms": []}
+    assert _with_history(history, terms=NEXT_TERMS)["history"]["lastOffered"] == "Fall 2026"
+
+
+SUMMER_HISTORY = {**HISTORY, "lastOffered": "Fall 2026", "instructors": [
+    _inst("new-prof", "New Prof", ["Fall 2026"]),
+    _inst("olin-guha", "Olin Guha", ["Summer 2 2026", "Spring 2026"], 40),
+    _inst(None, "Jane Q Doe", ["Summer 1 2026"]),
+    _inst("amal-ahmed", "Amal Ahmed", ["Summer 2026"], 35),
+]}
+
+
+def test_next_summer_lists_its_summer_1_and_summer_2_instructors():
+    # Spring 2026 is running, so next is the one Summer 2026 term, whose
+    # sections are labelled by session.
+    terms = [{"label": "Summer 2026", "view_only": True, "track": "Semester"},
+             {"label": "Spring 2026", "view_only": False, "track": "Semester"}]
+    h = _with_history(SUMMER_HISTORY, terms=terms)["history"]
+    assert h["nextTerm"] == "Summer 2026"
+    assert [r["name"] for r in h["nextInstructors"]] == ["Olin Guha", "Jane Q Doe", "Amal Ahmed"]
+
+
+def test_summer_2_teaching_counts_while_the_summer_term_runs():
+    # July: Summer 2026 is in progress and Fall 2026 is open for registration.
+    terms = [{"label": "Fall 2026", "view_only": False, "track": "Semester"},
+             {"label": "Summer 2026", "view_only": False, "track": "Semester"}]
+    data = _with_history(SUMMER_HISTORY, terms=terms)
+    h = data["history"]
+    assert "Olin Guha" in [r["name"] for r in h["recentInstructors"]]
+    assert (h["nextTerm"], [r["name"] for r in h["nextInstructors"]]) == ("Fall 2026", ["New Prof"])
+    olin = next(p for p in data["professors"] if p["slug"] == "olin-guha")
+    assert olin["lastTerm"] == "Summer 2 2026"
+
+
+def test_last_years_whole_summer_term_is_recent_while_this_summer_runs():
+    # July 2027: the Summer 2027 term is in progress, so a year back is all of
+    # Summer 2026, both sessions included, and Spring 2026 is not.
+    terms = [{"label": "Fall 2027", "view_only": False, "track": "Semester"},
+             {"label": "Summer 2027", "view_only": False, "track": "Semester"}]
+    recent = _with_history(SUMMER_HISTORY, terms=terms)["history"]["recentInstructors"]
+    assert [(r["name"], r["terms"]) for r in recent] == [
+        ("New Prof", ["Fall 2026"]), ("Olin Guha", ["Summer 2 2026"]),
+        ("Jane Q Doe", ["Summer 1 2026"]), ("Amal Ahmed", ["Summer 2026"])]
+
+
+def test_professor_rows_carry_this_courses_hours_per_week():
+    rows = [{**r, "hours_per_week": 7.25} if r["professor_slug"] == "olin-guha" else r for r in ROWS]
+    db = FakeDB(rows=rows)
+    by_slug = {p["slug"]: p for p in build_course("CS3500", db.query, db.query_one,
+                                                    history_for=lambda c, q, qo: None)["professors"]}
+    assert (by_slug["olin-guha"]["hoursPerWeek"], by_slug["amal-ahmed"]["hoursPerWeek"]) == (7.2, None)

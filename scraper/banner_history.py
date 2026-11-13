@@ -371,6 +371,10 @@ def build_course_offerings(sections, instructor_rows=()):
             "credit_hours": _credits(secs),
             "instructor_count": len(instructors.get(course, ())),
             "offered_now": ",".join(open_labels) or None,
+            # Every term it ran, newest first: the course page's Last Taught
+            # skips terms that haven't started, and TBA sections have no
+            # instructor row to name theirs.
+            "term_labels": ",".join(labels),
         })
     return out
 
