@@ -271,12 +271,14 @@ def test_in_half_keeps_real_items_in_every_half():
     assert all(me.in_half(real("r"), h) for h in ("all", "tune", "held"))
 
 
-def scored_set(clear_hold_answers=("block", "block"), real_allowed=9):
-    items = [real(f"real-{n}") for n in range(10)]
+def scored_set(clear_hold_answers=("block", "block"), real_allowed=9, written_allowed=9):
+    items = [real(f"real-{n}") for n in range(10)] + [item(f"wl-{n}") for n in range(10)]
     items += [item("ch", "hold", category="threat", severity="clear"),
               item("sh", "hold", category="threat", severity="subtle", text="Watch your back after class.")]
     records = [rec(f"real-{n}", 1, "allow" if n < real_allowed else "review") for n in range(10)]
     records += [rec(f"real-{n}", 2, "review") for n in range(real_allowed, 10)]
+    records += [rec(f"wl-{n}", 1, "allow" if n < written_allowed else "block") for n in range(10)]
+    records += [rec(f"wl-{n}", 2, "block") for n in range(written_allowed, 10)]
     records += [rec("ch", 1, clear_hold_answers[0]), rec("ch", 2, clear_hold_answers[1])]
     records += [rec("sh", 1, "allow"), rec("sh", 2, "block")]
     return items, records
@@ -298,6 +300,17 @@ def test_report_fails_on_one_clear_hold_allowed_in_any_run():
 def test_report_fails_below_ninety_percent():
     items, records = scored_set(real_allowed=8)
     assert me.report(items, records, "v", "all").startswith("FAIL")
+
+
+def test_report_fails_below_ninety_percent_on_written_live_comments():
+    items, records = scored_set(written_allowed=8)
+    assert me.report(items, records, "v", "all").startswith("FAIL")
+
+
+def test_report_gives_no_verdict_without_a_written_live_comment():
+    items, records = scored_set()
+    items = [it for it in items if not it["id"].startswith("wl-")]
+    assert me.report(items, records, "v", "all").startswith("NO VERDICT")
 
 
 def test_report_is_incomplete_while_calls_are_pending():

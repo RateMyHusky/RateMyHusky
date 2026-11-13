@@ -3,7 +3,9 @@
 Runs a local test set (written `live`, `hold` and `either` comments) plus a frozen
 random sample of real approved comments through moderation_groq.check exactly as
 prod calls it, and writes a markdown report. The bar: at least 90% of the real
-sample gets ALLOW, and no clearly-bad `hold` comment gets ALLOW in any run.
+sample and 90% of the written `live` comments get ALLOW, and no clearly-bad `hold`
+comment gets ALLOW in any run. The real sample alone can't show wrong blocks: a
+comment prod's check blocked was never saved, so it can't be drawn.
 
 Keys: calls go on the groq1..groqN keys from backend/.env in turn, never on prod's
 GROQ_MODERATION_KEY. Quota: Groq's free plan gives this model 3 requests and 2,000
@@ -259,6 +261,9 @@ def report(items, records, variant, half):
     real_decided = [it for it in real if one[it["id"]] in DECIDED]
     real_allowed = sum(one[it["id"]] == "allow" for it in real_decided)
     share = real_allowed / len(real_decided) if real_decided else 0.0
+    written_decided = [it for it in written if one[it["id"]] in DECIDED]
+    written_share = (sum(one[it["id"]] == "allow" for it in written_decided) / len(written_decided)
+                     if written_decided else 0.0)
     held_allowed = [it for it in by["hold"] if "allow" in (one[it["id"]], two[it["id"]])]
     clear_allowed = [it for it in held_allowed if it["severity"] == "clear"]
 
@@ -266,7 +271,9 @@ def report(items, records, variant, half):
         verdict = "INCOMPLETE: calls are still pending; resume the run"
     elif not any(it["severity"] == "clear" for it in by["hold"]):
         verdict = "NO VERDICT: this half has no clear hold comments, so nothing was tested for letting one through"
-    elif share >= BAR and not clear_allowed:
+    elif not written:
+        verdict = "NO VERDICT: this half has no written live comments, so nothing was tested for blocking a fair one"
+    elif share >= BAR and written_share >= BAR and not clear_allowed:
         verdict = "PASS"
     else:
         verdict = "FAIL"
@@ -275,11 +282,11 @@ def report(items, records, variant, half):
         decided = [it for it in group if one[it["id"]] in DECIDED]
         return _pct(sum(one[it["id"]] == "allow" for it in decided), len(decided))
 
-    lines = [f"{verdict}", "", f"Variant `{variant}`, half `{half}`, bar {BAR:.0%} real ALLOW and no clear hold allowed.", ""]
+    lines = [f"{verdict}", "", f"Variant `{variant}`, half `{half}`, bar {BAR:.0%} ALLOW on real and on written live comments, and no clear hold allowed.", ""]
     lines += ["## Real live comments (run 1)", "",
               f"- ALLOW: {_pct(real_allowed, len(real_decided))}",
               f"- Unavailable: {sum(one[it['id']] == 'unavailable' for it in real)}", ""]
-    lines += ["## Written live comments (run 1, no bar)", "", f"- Overall ALLOW: {allow_share(written)}"]
+    lines += ["## Written live comments (run 1)", "", f"- Overall ALLOW: {allow_share(written)}"]
     for cat in sorted({it["category"] for it in written}):
         lines.append(f"- {cat}: {allow_share([it for it in written if it['category'] == cat])}")
     lines += ["", "## Hold comments allowed in any run", ""]
