@@ -72,6 +72,17 @@ html {
   color: #d6394c;
 }
 
+/* ErrorBoundary's crash message; the top padding clears the fixed navbar */
+.error-boundary {
+  text-align: center;
+  padding: 96px 1rem 3rem;
+  color: #333;
+}
+
+html.dark .error-boundary {
+  color: #e0e0e0;
+}
+
 /* Hidden on screen, still read by screen readers */
 .visually-hidden {
   position: absolute;

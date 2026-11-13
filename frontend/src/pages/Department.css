@@ -26,3 +26,16 @@
 .dark .dept-sort-btn:hover {
   color: #f06d7d;
 }
+
+.dark .dept-hub-table td {
+  color: #e3e3e3;
+  border-bottom-color: #333;
+}
+
+.dark .dept-hub-table th {
+  border-bottom-color: #333;
+}
+
+.dark .dept-hub-table td a {
+  color: #7ab3e0;
+}

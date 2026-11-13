@@ -17,7 +17,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
 
   render() {
     if (this.state.hasError) {
-      return <p style={{ textAlign: 'center', padding: '3rem 1rem' }}>Something went wrong — reload the page.</p>;
+      return <p className="error-boundary">Something went wrong — reload the page.</p>;
     }
     return this.props.children;
   }
