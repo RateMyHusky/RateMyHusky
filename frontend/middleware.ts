@@ -27,10 +27,13 @@ const CSP_REPORT_SAMPLE = 0.1;
 
 // Skip the maintenance page itself, the assets it needs, crawler/AdSense
 // files, Vercel internals (analytics beacons, etc.), and professor photo
-// thumbnails (a catalog page loads dozens; each would be a middleware call).
+// thumbnails (a catalog page loads dozens; each would be a middleware call),
+// and Vite's hashed /assets/ bundles and images (several per page load).
+// File names are anchored with $: unanchored, /favicon.pngx would skip the gate
+// and still be rewritten to the app shell.
 export const config = {
   matcher:
-    '/((?!maintenance\\.html|logo\\.jpg|neu-husky-icon\\.png|robots\\.txt|ads\\.txt|sitemap\\.xml|llms\\.txt|2c426a030622417e4b03f2011ae5959e\\.txt|_vercel|photos/).*)',
+    '/((?!(?:maintenance\\.html|logo\\.jpg|favicon\\.png|neu-husky-icon\\.png|robots\\.txt|ads\\.txt|sitemap\\.xml|llms\\.txt|2c426a030622417e4b03f2011ae5959e\\.txt)$|_vercel/|photos/|assets/).*)',
 };
 
 // Preview hosts /bypass-handoff will redirect to. Not the security boundary
