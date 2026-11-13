@@ -268,15 +268,17 @@ def add_columns(cur, columns):
 
 
 def known_terms(cur):
-    """{term_code: (closed when last scraped, section_count, instructors_source)}.
+    """{term_code: (closed when last scraped, section_count, instructors_source,
+    ever scraped while open)}.
 
-    The first and third drive plan_terms (a term last seen open needs one final
-    scrape; one whose instructors aren't Banner's needs them from Banner); the
-    second is the section-count baseline for the drop gate.
+    The first, third and fourth drive plan_terms (a term last seen open needs
+    one final scrape; one whose instructors aren't Banner's needs them from
+    Banner; one stored closed before it ever opened is scraped again once it
+    opens); the second is the section-count baseline for the drop gate.
     """
-    cur.execute("SELECT term_code, scraped_closed, section_count, instructors_source "
-                "FROM banner_terms")
-    return {r[0]: (bool(r[1]), r[2], r[3]) for r in cur.fetchall()}
+    cur.execute("SELECT term_code, scraped_closed, section_count, instructors_source, "
+                "first_seen_at FROM banner_terms")
+    return {r[0]: (bool(r[1]), r[2], r[3], r[4] is not None) for r in cur.fetchall()}
 
 
 def _insert(cur, table, columns, rows, conflict=None):
@@ -441,7 +443,8 @@ def run(client, open_conn, mode, since_term=DEFAULT_SINCE_TERM,
     desc_by_code = {str(t.get("code")): t.get("description") for t in terms}
     plan = plan_terms(terms, {c: v[0] for c, v in known.items()}, mode, since_term,
                       instructors_from=instructors_from,
-                      sources={c: v[2] for c, v in known.items()}, rescrape=rescrape)
+                      sources={c: v[2] for c, v in known.items()}, rescrape=rescrape,
+                      closed_unopened={c for c, v in known.items() if v[0] and not v[3]})
     print(f"{mode}: {len(plan)} term(s) to scrape")
 
     ok, failed, done_sections = [], [], 0

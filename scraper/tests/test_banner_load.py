@@ -118,7 +118,7 @@ def test_co_taught_section_keeps_both_instructors(cur):
 def test_known_terms_reports_closed_flag_and_baseline(cur):
     write_term(cur, "202630", SPRING, None, scrape([sec("7"), sec("8")], []))
     write_term(cur, "202710", FALL, None, scrape([sec("1")], []))
-    assert known_terms(cur) == {"202630": (True, 2, "banner"), "202710": (False, 1, "banner")}
+    assert known_terms(cur) == {"202630": (True, 2, "banner", False), "202710": (False, 1, "banner", True)}
 
 
 def test_sections_only_write_leaves_existing_instructor_rows_alone(cur):
@@ -169,7 +169,7 @@ def test_a_closed_term_with_failed_lookups_is_not_marked_finished(cur):
     final = scrape([sec("1"), sec("2")], [ins("202630", "1")])
     final["failed_crns"] = ["2"]
     write_term(cur, "202630", SPRING, None, final)
-    assert known_terms(cur)["202630"] == (False, 2, "banner")
+    assert known_terms(cur)["202630"] == (False, 2, "banner", False)
 
 
 def test_an_ended_term_is_stored_closed(cur):
@@ -214,7 +214,7 @@ def test_sync_marks_a_closed_term_without_clearing_its_final_scrape_debt(cur):
     n = sync_view_only(cur, [{"code": "202710", "description": "Fall 2026 Semester (View Only)"}])
     assert n == 1
     assert cur.execute("SELECT view_only, scraped_closed FROM banner_terms").fetchone() == (1, 0)
-    assert known_terms(cur)["202710"] == (False, 1, "banner")
+    assert known_terms(cur)["202710"] == (False, 1, "banner", True)
 
 
 def test_sync_leaves_open_terms_alone(cur):
@@ -277,8 +277,21 @@ def test_run_current_skips_a_term_already_stored_as_ended(db):
     while Banner still lists it as open."""
     client = FakeClient({"202710": [section("1", end="09/01/2026")]}, {"1": ANNIE}, terms=TERMS)
     assert run(client, db, "current") == (["202710"], [])
-    assert known_terms(db().cursor())["202710"] == (True, 1, "banner")
+    assert known_terms(db().cursor())["202710"] == (True, 1, "banner", True)
     assert run(client, db, "current") == ([], [])
+
+
+def test_run_current_rescrapes_an_open_term_stored_closed_before_it_opened(db):
+    """The old loader stored next term's View Only scrape as finished. Once
+    registration opens, the weekly run scrapes it again as an open term."""
+    conn = db()
+    apply_ddl(conn.cursor())
+    write_term(conn.cursor(), "202710", {**FALL, "view_only": True}, None, scrape([sec("1")], []))
+    conn.commit()
+    assert known_terms(conn.cursor())["202710"] == (True, 1, "banner", False)
+    client = FakeClient({"202710": [section("1")]}, {"1": ANNIE}, terms=TERMS)
+    assert run(client, db, "current") == (["202710"], [])
+    assert known_terms(db().cursor())["202710"] == (False, 1, "banner", True)
 
 
 def test_run_backfill_is_resumable_and_skips_finished_terms(db):
@@ -321,7 +334,7 @@ def test_run_backfill_swaps_imported_instructors_for_banners(db):
     cur = db().cursor()
     assert cur.execute("SELECT instructor_key, source FROM banner_section_instructors "
                        "WHERE term_code = '202630'").fetchall() == [("annie witte", "banner")]
-    assert known_terms(cur)["202630"] == (True, 1, "banner")
+    assert known_terms(cur)["202630"] == (True, 1, "banner", False)
 
 
 def test_run_rescrape_scrapes_a_finished_term_again(db):

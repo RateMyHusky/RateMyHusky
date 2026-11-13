@@ -472,6 +472,14 @@ def test_plan_current_skips_an_open_term_already_stored_as_closed():
     assert [c for c, _ in plan_terms(TERMS, {"202710": False}, "current")] == ["202710"]
 
 
+def test_plan_current_scrapes_an_open_term_stored_closed_before_it_ever_opened():
+    """Before upcoming terms were tagged, next term's View Only scrape was stored
+    as closed. Once registration opens it must be scraped again, or its
+    pre-registration sections stay frozen all term."""
+    got = plan_terms(TERMS, {"202710": True}, "current", closed_unopened={"202710"})
+    assert [c for c, _ in got] == ["202710"]
+
+
 def test_plan_backfill_takes_closed_terms_newest_first_from_since():
     got = [c for c, _ in plan_terms(TERMS, {}, "backfill", since_term="201610")]
     assert got == ["202650", "202630", "202615"]
@@ -580,6 +588,18 @@ def test_plan_judges_upcoming_within_each_track():
                           rescrape=["202815", "202750", "202725", "202552"]))
     assert {c: p["upcoming"] for c, p in got.items()} == {
         "202815": False, "202810": True, "202750": False, "202725": False, "202552": False}
+
+
+def test_plan_judges_a_track_with_no_open_term_against_the_term_in_progress():
+    """Banner had no open CPS term in Nov 2026. A quarter newer than the term in
+    progress hasn't started, even when its code sits below next semester's."""
+    terms = [{"code": "202730", "description": "Spring 2027 Semester"},
+             {"code": "202725", "description": "Winter 2027 CPS Quarter (View Only)"},
+             {"code": "202710", "description": "Fall 2026 Semester"},
+             {"code": "202655", "description": "Summer 2026 CPS Quarter (View Only)"}]
+    got = dict(plan_terms(terms, {}, "backfill", "201610", rescrape=["202730", "202710"]))
+    assert {c: p["upcoming"] for c, p in got.items()} == {
+        "202730": False, "202725": True, "202710": False, "202655": False}
 
 
 def test_plan_backfill_puts_upcoming_terms_after_the_terms_that_need_a_final_scrape():
