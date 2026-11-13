@@ -48,6 +48,15 @@ for (const p of ['/', '/professors/x', '/api/stats', '/assets', '/favicon.pngx',
   '/favicon.png/x', '/logo.jpgfoo', '/robots.txt/a', '/_vercelx', '/photosx'])
   check(`gated: ${p}`, matcher.test(p));
 
+// A skipped folder path with no file behind it must 404, not hit the SPA rewrite, or it
+// serves the app shell ungated. So every folder the matcher skips is excluded from the rewrite.
+const vercelConfig = JSON.parse(readFileSync(new URL('./vercel.json', import.meta.url), 'utf8'));
+const rewrite = new RegExp('^' + vercelConfig.rewrites[0].source + '$');
+const skippedFolders = [...middlewareConfig.matcher.matchAll(/([\w-]+\/)(?=\||\)\.\*\)$)/g)].map(m => m[1]);
+check('matcher skipped folders found', skippedFolders.length >= 3);
+for (const f of skippedFolders)
+  check(`not rewritten: /${f}missing`, !matcher.test(`/${f}missing`) && !rewrite.test(`/${f}missing`));
+
 const res = notFoundPage();
 check('status 404', res.status === 404);
 check('content-type', res.headers.get('content-type') === 'text/html; charset=utf-8');
