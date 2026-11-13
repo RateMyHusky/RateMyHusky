@@ -2,7 +2,7 @@ name: Review digest
 
 on:
   schedule:
-    - cron: "0 13 * * *"  # 13:00 UTC daily: 9:00 Boston in summer, 8:00 in winter
+    - cron: "0 5,17 * * *"  # 05:00 and 17:00 UTC: midnight and noon EST, 1:00 and 13:00 in summer (EDT)
   workflow_dispatch:
 
 # The review agent reads and writes the review queue, then the digest sends at

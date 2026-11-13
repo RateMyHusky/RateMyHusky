@@ -22,7 +22,7 @@ def _rows(html):
 
 def _ratings(**kw):
     return {"new": 0, "live": 0, "held": 0, "rejected": 0, "live_all": 0, "comments_all": 0,
-            "days": [(0, 0)] * 14, **kw}
+            "devices": 0, "new_devices": 0, "top_professors": [], "top_courses": [], "days": [(0, 0)] * 14, **kw}
 
 
 def test_a_quiet_day_still_builds_an_email():
@@ -144,6 +144,49 @@ def test_ratings_section_numbers_chart_and_totals():
     assert "Blocked at submit: 2\n" in text and "Rejected" not in text
 
 
+def test_ratings_section_counts_devices_and_names_the_most_rated():
+    ratings = _ratings(new=18, devices=11, new_devices=9, top_professors=[("jane-doe", 5), ("zed", 2)],
+                       top_courses=[("CS2500", 4), ("MATH1341", 2)])
+    _, text, html = review_digest.build_digest([], [], 0, 0, NOW, ratings=ratings, names={"jane-doe": "Jane Doe"})
+    for out in (text, html):
+        for label in ("Devices that rated", "New devices", "Most rated professors", "Jane Doe", "zed",
+                      "Most rated courses", "CS 2500", "MATH 1341"):
+            assert label in out, label
+    assert "Devices that rated: 11" + chr(10) + "New devices: 9" in text and "Jane Doe: 5" in text and "CS 2500: 4" in text
+
+
+def test_a_day_without_ratings_lists_no_most_rated():
+    _, text, html = review_digest.build_digest([], [], 0, 0, NOW, ratings=_ratings())
+    assert "Most rated" not in text and "Most rated" not in html and "Devices that rated: 0" in text
+
+
+def test_failed_submissions_list_each_reason_and_stay_out_when_none():
+    failures = [("captcha_failed", 9), ("unknown_course", 3), ("brand_new", 1)]
+    _, text, html = review_digest.build_digest([], [], 0, 0, NOW, failures=failures)
+    for out in (text, html):
+        assert "Failed submissions" in out and "CAPTCHA failed" in out and "unknown course, no name given" in out
+        assert "brand_new" in out
+    assert "CAPTCHA failed: 9" in text and "Failed submissions: 13" in text
+    assert "Failed submissions" not in review_digest.build_digest([], [], 0, 0, NOW)[1]
+
+
+def test_every_failure_reason_has_its_label():
+    assert set(review_digest._FAILURES) == {"invalid", "captcha_missing", "captcha_failed", "captcha_down",
+                                            "unknown_professor", "unknown_course", "rule_block", "rate_limited",
+                                            "error"}
+
+
+def test_comment_checker_section_shows_outcomes_and_stuck_comments():
+    checker = {"allow": 30, "review": 2, "block": 1, "unavailable": 4, "waiting": 6, "stuck": 3}
+    _, text, html = review_digest.build_digest([], [], 0, 0, NOW, checker=checker)
+    for label, n in (("Passed", 30), ("Flagged for a reviewer", 2), ("Blocked", 1), ("Check failed", 4),
+                     ("Not checked yet", 6), ("Failed 3+ checks", 3)):
+        assert f"{label}: {n}" in text
+        assert any(label in r and f">{n}</td>" in r for r in _rows(html)), label
+    assert "Comment checker" in html
+    assert "Comment checker" not in review_digest.build_digest([], [], 0, 0, NOW)[1]
+
+
 def test_agent_bar_counts_decisions():
     approved = [H("a", "CS1", "no_timer", agent_decision="approve") for _ in range(6)]
     recent = {"agent_reviewed_at": NOW - timedelta(hours=2), "updated_at": NOW - timedelta(hours=3)}
@@ -215,10 +258,15 @@ def _main(monkeypatch, held, pending=(0, 0), key="re-test", comments=0, approved
     posts, recorded = [], []
 
     def fetch(conn, sql, params=None):
+        if "FROM rating_failures" in sql or "GROUP BY 1 ORDER BY n DESC" in sql:
+            return []
+        if "AS stuck" in sql:
+            return [{"allow": 0, "review": 0, "block": 0, "unavailable": 0, "waiting": 0, "stuck": 0}]
         if "FROM email_sends" in sql:
             return [{"day": 3, "month": 40}]
         if "AS live_all" in sql:
-            return [{"new": 0, "live": 0, "held": 0, "rejected": 0, "live_all": 0, "comments_all": 0}]
+            return [{"new": 0, "live": 0, "held": 0, "rejected": 0, "live_all": 0, "comments_all": 0,
+                     "devices": 0, "new_devices": 0}]
         if "AS day" in sql:
             return []
         if "FROM professors WHERE slug" in sql:
