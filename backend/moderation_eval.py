@@ -34,13 +34,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import moderation_groq
-from rating_checks import rule_block
+from rating_checks import MAX_COMMENT, rule_block
 
 REPORTS_DIR = Path(__file__).resolve().parent / "reports"
 SET_PATH = REPORTS_DIR / "moderation_eval_set.json"
 RESULTS_PATH = REPORTS_DIR / "moderation_eval_results.json"
 TOKEN_CAP = 170_000
-CALL_CEILING = 1_000  # what a call without usage counts toward the cap
+CALL_CEILING = 2_500  # what a call without usage counts toward the cap: above the most a medium-effort call used
 SPACING_SECONDS = 30
 RETRY_WAIT_SECONDS = 60
 MAX_FAILURES = 3
@@ -52,7 +52,7 @@ BAR = 0.90
 
 LABELS = ("live", "hold", "either")
 DECIDED = ("allow", "review", "block")
-ESTIMATE_TOKENS = 700
+ESTIMATE_TOKENS = 850
 
 REAL_SAMPLE_SQL = """SELECT id::text AS id, comment FROM survey_ratings
 WHERE comment_status = 'approved' AND comment IS NOT NULL AND btrim(comment) <> ''
@@ -72,14 +72,19 @@ def load_set(path):
             raise ValueError(f"{id}: label must be one of {LABELS}")
         if not it.get("category"):
             raise ValueError(f"{id}: no category")
+        if it["category"] == "real":
+            raise ValueError(f"{id}: category real is kept for the drawn sample of approved comments")
         if it.get("severity") not in ("clear", "subtle", None):
             raise ValueError(f"{id}: severity must be clear, subtle or null")
         if it["label"] == "hold" and it.get("severity") is None:
             raise ValueError(f"{id}: a hold item needs a severity")
         if not it.get("half") or it["half"] == "all":
             raise ValueError(f"{id}: half must be a name such as tune or held, not empty or all")
-        if not str(it.get("text") or "").strip():
+        text = str(it.get("text") or "")
+        if not text.strip():
             raise ValueError(f"{id}: empty text")
+        if text != text.strip() or len(text) > MAX_COMMENT:
+            raise ValueError(f"{id}: text must be trimmed and at most {MAX_COMMENT} characters, as prod sends it")
     return items
 
 
@@ -92,9 +97,23 @@ def real_sample(cur, n=REAL_SAMPLE, seed=SAMPLE_SEED):
              "half": None, "text": comment} for id, comment in picked]
 
 
+def _sha(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
 def setup_of(policy, model, effort):
-    return {"model": model, "effort": effort,
-            "policy_sha": hashlib.sha256(policy.encode("utf-8")).hexdigest()[:12]}
+    return {"model": model, "effort": effort, "policy_sha": _sha(policy)}
+
+
+def refuse_changed_texts(items, records, variant):
+    """Raises ValueError if an item's text changed since the variant's answers for it,
+    so an old answer never counts for new wording. Records from before text_sha are trusted."""
+    sha = {it["id"]: _sha(it["text"]) for it in items}
+    changed = sorted({r["id"] for r in records if r["variant"] == variant and r["id"] in sha
+                      and r.get("text_sha", sha[r["id"]]) != sha[r["id"]]})
+    if changed:
+        raise ValueError(f"text changed since variant {variant!r} ran: {', '.join(changed)}; "
+                         "give the item a new id or pick a new --variant name")
 
 
 def apply_setup(policy, model, effort):
@@ -106,11 +125,13 @@ def in_half(item, half):
 
 
 def groq_keys():
-    """The groq1, groq2, ... keys from the environment, stopping at the first gap."""
+    """The groq1, groq2, ... keys from the environment, stopping at the first gap,
+    minus prod's GROQ_MODERATION_KEY, so a run never spends prod's quota."""
     keys = []
     while os.getenv(f"groq{len(keys) + 1}", "").strip():
         keys.append(os.environ[f"groq{len(keys) + 1}"].strip())
-    return keys
+    prod = os.getenv("GROQ_MODERATION_KEY", "").strip()
+    return [k for k in keys if k != prod]
 
 
 def rotating(*clients):
@@ -148,9 +169,17 @@ def pending_calls(items, records, variant):
     return first + second
 
 
+def _counted(r):
+    """What a record counts toward the cap: its usage, else a ceiling per attempt,
+    since an `unavailable` record stands for MAX_FAILURES attempts that may have run on Groq."""
+    if r["tokens"] is not None:
+        return r["tokens"]
+    return CALL_CEILING * (MAX_FAILURES if r["action"] == "unavailable" else 1)
+
+
 def tokens_last_day(records, model, now):
     since = now - timedelta(hours=24)
-    return sum(CALL_CEILING if r["tokens"] is None else r["tokens"] for r in records
+    return sum(_counted(r) for r in records
                if r["model"] == model and datetime.fromisoformat(r["at"]) > since)
 
 
@@ -160,25 +189,25 @@ def run(items, records, groq, variant, setup, save, token_cap=TOKEN_CAP, now=Non
     if any({k: r[k] for k in setup} != setup for r in records if r["variant"] == variant):
         raise ValueError(f"variant {variant!r} was run with another policy, model or effort; "
                          "pick a new --variant name")
+    refuse_changed_texts(items, records, variant)
     clock = (lambda: now) if now is not None else (lambda: datetime.now(timezone.utc))
 
     def add(it, n, action, tokens):
         records.append({"variant": variant, **setup, "id": it["id"], "run": n, "action": action,
-                        "tokens": tokens, "at": clock().isoformat()})
+                        "tokens": tokens, "text_sha": _sha(it["text"]), "at": clock().isoformat()})
         save(records)
 
-    made, tried, stopped, dead = 0, set(), "nothing left", 0
+    made, stopped, dead = 0, "nothing left", 0
     for it, n in pending_calls(items, records, variant):
         if n == 1 and rule_block(it["text"]):
             add(it, 1, "rules", 0)
     for phase in (1, 2):
         for it, n in pending_calls(items, records, variant):
-            if n != phase or (it["id"], n) in tried:
+            if n != phase:
                 continue
             if tokens_last_day(records, setup["model"], clock()) + CALL_CEILING > token_cap:
                 stopped = f"stopped at the token cap ({token_cap:,}); rerun tomorrow to resume"
                 break
-            tried.add((it["id"], n))
             if made:
                 sleep(SPACING_SECONDS)
             failures = limited = 0
@@ -195,10 +224,10 @@ def run(items, records, groq, variant, setup, save, token_cap=TOKEN_CAP, now=Non
                 else:
                     break
                 sleep(RETRY_WAIT_SECONDS)
-            made += 1
             if limited >= MAX_429S:
                 stopped = f"stopped after {MAX_429S} 429s in a row"
                 break
+            made += 1
             add(it, n, action, tokens)
             dead = dead + 1 if action == "unavailable" else 0
             if dead >= MAX_UNAVAILABLE:
@@ -219,6 +248,7 @@ def _pct(part, whole):
 def report(items, records, variant, half):
     """Markdown starting with PASS, FAIL or INCOMPLETE, then the numbers and every mistake."""
     items = [it for it in items if in_half(it, half)]
+    refuse_changed_texts(items, records, variant)
     done = _latest(records, variant)
     one = {it["id"]: done.get((it["id"], 1)) for it in items}
     two = {it["id"]: done.get((it["id"], 2)) for it in items}
@@ -234,6 +264,8 @@ def report(items, records, variant, half):
 
     if pending_calls(items, records, variant):
         verdict = "INCOMPLETE: calls are still pending; resume the run"
+    elif not any(it["severity"] == "clear" for it in by["hold"]):
+        verdict = "NO VERDICT: this half has no clear hold comments, so nothing was tested for letting one through"
     elif share >= BAR and not clear_allowed:
         verdict = "PASS"
     else:
@@ -287,7 +319,7 @@ def save_results(results):
 
 
 def _connect():
-    """A read-only cursor on the database in DATABASE_URL."""
+    """A read-only cursor on the database in ORACLE_DATABASE_URL (prod)."""
     from pipeline.db import connect
     conn = connect()
     conn.set_session(readonly=True)
@@ -338,6 +370,10 @@ def main(argv=None):
 
 def _command(args):
     items, results = load_items(connect=args.command != "report")
+    halves = sorted({it["half"] for it in items if it["half"]})
+    if args.half != "all" and args.half not in halves:
+        print(f"No half {args.half!r} in the set; it has: {', '.join(halves)}", file=sys.stderr)
+        return 1
     items = [it for it in items if in_half(it, args.half)]
     records = results["records"]
 

@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -47,6 +48,9 @@ def test_load_set_rejects_bad_items(tmp_path):
         [item("no-severity", label="hold")],
         [item("no-half", half=None)],
         [item("no-text", text="   ")],
+        [item("posing-real", category="real")],
+        [item("untrimmed", text=" Hard exams. ")],
+        [item("too-long", text="a" * 2001)],
     ]
     for case in cases:
         path = tmp_path / "set.json"
@@ -121,6 +125,7 @@ def test_ten_429s_in_a_row_stop_the_run(fake_groq):
     summary, _, _ = run([item("a"), item("b")], records, groq)
     assert "429" in summary and records == []
     assert len(groq.calls) == me.MAX_429S
+    assert summary.startswith("0 calls made")
 
 
 def test_other_failures_retry_twice_then_record_unavailable(fake_groq):
@@ -149,6 +154,25 @@ def test_tokens_last_day_counts_only_this_model_in_the_last_24_hours():
 
 def test_a_reply_without_usage_counts_a_full_call_toward_the_cap():
     assert me.tokens_last_day([rec("a", 1, "allow", tokens=None)], mg.MODEL, NOW) == me.CALL_CEILING
+
+
+def test_an_unavailable_record_counts_every_failed_attempt_toward_the_cap():
+    records = [rec("a", 1, "unavailable", tokens=None)]
+    assert me.tokens_last_day(records, mg.MODEL, NOW) == me.CALL_CEILING * me.MAX_FAILURES
+
+
+def test_a_changed_item_text_refuses_the_run_and_the_report(fake_groq):
+    records = []
+    run([item("a", text="Old wording.")], records, fake_groq("ALLOW"))
+    assert records[0]["text_sha"] == me._sha("Old wording.")
+    groq = fake_groq("ALLOW")
+    with pytest.raises(ValueError, match="text changed.*a"):
+        run([item("a", text="New wording.")], records, groq)
+    assert groq.calls == []
+    with pytest.raises(ValueError, match="text changed"):
+        me.report([item("a", text="New wording.")], records, "v", "all")
+    run([item("a", text="Old wording.")], records, groq)  # unchanged text still resumes
+    me.report([item("a", text="Old wording.")], [rec("a", 1, "allow")], "v", "all")  # records from before text_sha
 
 
 def test_a_resumed_run_skips_finished_calls(fake_groq):
@@ -282,6 +306,25 @@ def test_report_is_incomplete_while_calls_are_pending():
     assert me.report(items, records, "v", "all").startswith("INCOMPLETE")
 
 
+def test_report_gives_no_verdict_without_a_clear_hold_comment():
+    items, records = scored_set()
+    items = [it for it in items if it["id"] != "ch"]
+    assert me.report(items, records, "v", "all").startswith("NO VERDICT")
+
+
+def test_an_unknown_half_is_refused(tmp_path, monkeypatch, capsys):
+    set_path, results_path = tmp_path / "set.json", tmp_path / "results.json"
+    set_path.write_text(json.dumps([item("w-live-01", half="held")]), encoding="utf-8")
+    results_path.write_text(json.dumps({"real_sample": [real("real-1")], "records": []}), encoding="utf-8")
+    monkeypatch.setattr(me, "SET_PATH", set_path)
+    monkeypatch.setattr(me, "RESULTS_PATH", results_path)
+    monkeypatch.setattr(me, "REPORTS_DIR", tmp_path)
+    args = SimpleNamespace(command="report", variant="v", half="hled")
+    assert me._command(args) == 1
+    assert "No half 'hled'" in capsys.readouterr().err
+    assert not list(tmp_path.glob("moderation_eval_*.md"))
+
+
 def test_report_held_half_leaves_out_tuning_items():
     items, records = scored_set()
     items.append(item("w-live-tune", half="tune", text="Tuning-only comment."))
@@ -300,7 +343,30 @@ def test_the_eval_takes_the_groq1_to_n_keys_in_order(monkeypatch):
     for n, key in ((1, "gsk-a"), (2, "gsk-b"), (4, "gsk-d")):
         monkeypatch.setenv(f"groq{n}", key)
     monkeypatch.delenv("groq3", raising=False)
+    monkeypatch.delenv("GROQ_MODERATION_KEY", raising=False)
     assert me.groq_keys() == ["gsk-a", "gsk-b"]
+
+
+def test_the_eval_never_takes_prods_key(monkeypatch):
+    for n, key in ((1, "gsk-a"), (2, "gsk-b")):
+        monkeypatch.setenv(f"groq{n}", key)
+    monkeypatch.delenv("groq3", raising=False)
+    monkeypatch.setenv("GROQ_MODERATION_KEY", " gsk-a ")
+    assert me.groq_keys() == ["gsk-b"]
+
+
+def test_the_real_sample_is_drawn_over_a_read_only_session(monkeypatch):
+    import pipeline.db
+
+    class Conn:
+        def set_session(self, **kw):
+            self.session = kw
+
+        def cursor(self):
+            return "cur"
+    conn = Conn()
+    monkeypatch.setattr(pipeline.db, "connect", lambda: conn)
+    assert me._connect() == "cur" and conn.session == {"readonly": True}
 
 
 def test_each_call_goes_on_the_next_key_in_turn(fake_groq):
