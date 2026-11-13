@@ -1,6 +1,7 @@
 """The survey rating tables' unique index and CHECKs against real PostgreSQL."""
 
 import uuid
+from datetime import datetime, timezone
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -371,7 +372,8 @@ def test_only_a_model_allow_publishes_new_text_and_unchanged_text_keeps_its_stat
     def save(comment, check=None):
         existing = ratings.existing_rating("d1", ratings.rating_key(row, None, None), lambda q, p: (
             rows(pg, q, p) or [None])[0])
-        ratings.save_rating({**row, "comment": comment, "comment_check": check}, existing, pg_write(pg))
+        ratings.save_rating({**row, "comment": comment, "comment_check": check}, existing, pg_write(pg),
+                            publish=check == "allow")
         return scalar(pg, "SELECT comment_status FROM survey_ratings")
 
     assert save("Hard but fair", "allow") == "approved"
@@ -400,7 +402,7 @@ def test_a_comment_sent_again_after_a_takedown_waits_for_review(pg):
     def save():
         existing = ratings.existing_rating("d1", ratings.rating_key(row, None, None), lambda q, p: (
             rows(pg, q, p) or [None])[0])
-        ratings.save_rating(row, existing, pg_write(pg))
+        ratings.save_rating(row, existing, pg_write(pg), publish=True)
         return scalar(pg, "SELECT comment_status FROM survey_ratings")
 
     assert save() == "approved"
@@ -408,6 +410,22 @@ def test_a_comment_sent_again_after_a_takedown_waits_for_review(pg):
         cur.execute(review_ratings._DROP_COMMENT_SQL + "WHERE true")  # remove-comment takes it down
     pg.commit()
     assert save() == "pending"
+
+
+def test_a_stale_read_of_an_existing_row_still_leaves_new_text_waiting_and_unqueued(pg):
+    # Two first submits from one device race: both read no row, and the second lands on
+    # the first's row as an edit, with whatever its own check gave it.
+    import ratings
+
+    row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
+    row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
+               status="accepted", device_hash="d1", new_device=True,
+               network_type="unknown", collection="turnstile+device")
+    ratings.save_rating({**row, "comment": "First text", "comment_check": "allow"}, None, pg_write(pg), publish=True)
+    ratings.save_rating({**row, "comment": "Second text", "comment_check": "unchecked",
+                         "comment_next_check_at": datetime.now(timezone.utc)}, None, pg_write(pg), publish=True)
+    (saved,) = rows(pg, "SELECT comment, comment_status, comment_next_check_at FROM survey_ratings")
+    assert saved == {"comment": "Second text", "comment_status": "pending", "comment_next_check_at": None}
 
 
 def test_comment_status_check_rejects_other_values(pg):

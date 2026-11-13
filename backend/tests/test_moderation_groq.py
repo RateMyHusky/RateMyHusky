@@ -31,6 +31,14 @@ def test_check_sends_the_policy_and_the_comment(fake_groq):
                                 {"role": "user", "content": "Fair exams."}]
 
 
+def test_auto_publish_is_on_unless_switched_off(monkeypatch):
+    assert mg.auto_publish() is True
+    monkeypatch.setenv("COMMENT_AUTO_PUBLISH", " OFF ")
+    assert mg.auto_publish() is False
+    monkeypatch.setenv("COMMENT_AUTO_PUBLISH", "on")
+    assert mg.auto_publish() is True
+
+
 def test_check_answers_and_failures(fake_groq):
     assert mg.check("x", fake_groq("REVIEW")) == ("review", "review", 500)
     assert mg.check("x", fake_groq("BLOCK")) == ("block", "blocked", 500)

@@ -65,6 +65,13 @@ def enabled():
     return bool(os.getenv("groq1", "").strip())
 
 
+def auto_publish():
+    """False when COMMENT_AUTO_PUBLISH is "off": a Groq allow then waits for review like
+    any other verdict, while the check still runs and sorts `review_ratings.py list`.
+    The kill switch for auto-publishing, since unsetting groq1 would also stop chat."""
+    return os.getenv("COMMENT_AUTO_PUBLISH", "").strip().lower() != "off"
+
+
 def client():
     """An OpenAI-package client pointed at Groq: 3 s and no retries, so a slow or
     rate-limited call fails fast and the comment waits for the queue."""

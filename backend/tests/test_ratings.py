@@ -153,28 +153,29 @@ def test_save_is_one_upsert_that_keeps_holds():
     assert ratings.save_rating(row, None, f.write) == f.writes[0][1][0]
 
 
-def test_only_a_model_allow_publishes_new_text():
+def test_only_the_routes_publish_flag_publishes_new_text():
     col = 1 + ratings._INSERT_COLUMNS.index("comment_status")
     row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
 
-    def saved(existing=None, **kw):
+    def saved(existing=None, publish=False, **kw):
         f = Fake()
-        ratings.save_rating({**row, **kw}, existing, f.write)
+        ratings.save_rating({**row, **kw}, existing, f.write, publish=publish)
         return f.writes[0]
-    assert saved(comment="Hard but fair", comment_check="allow")[1][col] == "approved"
+    assert saved(publish=True, comment="Hard but fair", comment_check="allow")[1][col] == "approved"
     # Text on an existing rating waits even on a Groq allow: a resubmit after a takedown,
     # or an edit made until the model allows it, must not publish itself.
     existing = {"id": "r1", "status": "accepted", "hold_reasons": None}
-    assert saved(existing, comment="Hard but fair", comment_check="allow")[1][col] == "pending"
-    assert saved(comment="Hard but fair", comment_check="review")[1][col] == "pending"
-    assert saved(comment="Hard but fair", comment_check="allow", comment_check_reason="openai")[1][col] == "pending"
+    assert saved(existing, publish=True, comment="Hard but fair", comment_check="allow")[1][col] == "pending"
+    assert saved(comment="Hard but fair", comment_check="allow")[1][col] == "pending"
     assert saved(comment="Hard but fair", comment_check="unchecked", comment_status="approved")[1][col] == "pending"
-    assert saved(comment=None, comment_check="allow")[1][col] is None
+    assert saved(publish=True, comment=None, comment_check="allow")[1][col] is None
     sql = saved()[0]
     assert "comment_status = EXCLUDED" not in sql
+    # A conflict means the row exists, so changed text waits even when the route's read
+    # was stale (two first submits racing) and it sent 'approved'.
     assert ("comment_status = CASE WHEN EXCLUDED.comment IS NULL THEN NULL "
             "WHEN EXCLUDED.comment = survey_ratings.comment THEN survey_ratings.comment_status "
-            "ELSE EXCLUDED.comment_status END") in sql
+            "ELSE 'pending' END") in sql
 
 
 def test_resubmitting_a_held_row_keeps_its_old_hold_reasons():
@@ -424,8 +425,18 @@ def test_record_moderation_call_keeps_no_text_or_rating_id():
 
 def test_the_upsert_keeps_the_check_while_the_text_is_unchanged():
     for column in ratings.CHECK_COLUMNS:
+        # Changed text on an existing row is never queued: a queue allow would publish it.
+        new = "NULL" if column == "comment_next_check_at" else f"EXCLUDED.{column}"
         assert (f"{column} = CASE WHEN EXCLUDED.comment IS NOT DISTINCT FROM survey_ratings.comment "
-                f"THEN survey_ratings.{column} ELSE EXCLUDED.{column} END") in ratings._UPSERT_SQL
+                f"THEN survey_ratings.{column} ELSE {new} END") in ratings._UPSERT_SQL
+
+
+def test_comment_rejected_reads_the_comment_flag():
+    f = Fake(one={"FROM rating_flags": {"x": 1}})
+    assert ratings.comment_rejected("h1", f.query_one) is True
+    assert f.calls == [("SELECT 1 FROM rating_flags WHERE kind = 'comment' AND value_hash = %s", ("h1",))]
+    assert ratings.comment_rejected(None, Fake().query_one) is False
+    assert ratings.comment_rejected("h2", Fake().query_one) is False
 
 
 def test_near_duplicate_ids_returns_close_comments_on_the_professor():

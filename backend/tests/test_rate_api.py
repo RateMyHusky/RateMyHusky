@@ -250,6 +250,31 @@ def test_an_openai_allow_waits_for_review_since_only_groq_was_measured(rate):
     assert saved(server, params, "comment_status") == "pending"
 
 
+def test_a_groq_allow_publishes_a_new_ratings_comment_unless_switched_off_or_rejected(rate, monkeypatch, fake_groq):
+    server, client, state, ri = rate
+    monkeypatch.setenv("groq1", "gsk-test")
+    monkeypatch.setattr(server, "_groq_moderation_client", fake_groq("ALLOW"))
+    real_query_one = server.query_one
+
+    def query_one(sql, params=()):
+        if "kind = 'comment'" in sql:  # a reviewer rejected a rating with this text
+            return {"x": 1} if state.get("rejected") else None
+        return real_query_one(sql, params)
+    monkeypatch.setattr(server, "query_one", query_one)
+
+    def status(device, **setup):
+        state.update(setup)
+        assert post(client, ri, device=device * 32).status_code == 200
+        return saved(server, rating_writes(state)[-1][1], "comment_status")
+    assert status("1") == "approved"
+    assert status("2", rejected=True) == "pending"
+    state["rejected"] = False
+    monkeypatch.setenv("COMMENT_AUTO_PUBLISH", "off")
+    assert status("3") == "pending"
+    monkeypatch.delenv("COMMENT_AUTO_PUBLISH")
+    assert status("4", existing={"id": "r1", "status": "accepted", "hold_reasons": None, "comment": None}) == "pending"
+
+
 def test_a_rule_match_is_422_before_any_model_call_or_write(rate):
     server, client, state, ri = rate
     for comment in ("great notes at studyhelp.com", "text me 617-555-0123", "asdfghjkl"):

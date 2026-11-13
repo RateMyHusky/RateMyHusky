@@ -92,9 +92,18 @@ def test_an_allow_publishes_the_comment_and_bumps_the_data_version(fake_groq):
     conn = FakeConn(due(1))
     mq.run(conn, fake_groq("ALLOW"), now=NOW, sleep=lambda s: None)
     ((sql, params),) = conn.updates()
-    assert "comment_status = 'approved'" in sql
+    assert mq._PUBLISH in sql  # only a never-edited rating's text, and none a reviewer rejected
     assert "AND comment = %s AND comment_check = 'unchecked' AND comment_status = 'pending'" in sql
     assert any(s == mq.DATA_VERSION_SQL for s, p in conn.executed)
+
+
+def test_with_auto_publish_off_an_allow_only_records_the_check(fake_groq, monkeypatch):
+    monkeypatch.setenv("COMMENT_AUTO_PUBLISH", "off")
+    conn = FakeConn(due(1))
+    mq.run(conn, fake_groq("ALLOW"), now=NOW, sleep=lambda s: None)
+    ((sql, params),) = conn.updates()
+    assert params[:2] == ("allow", None) and "comment_status" not in sql.split("WHERE")[0]
+    assert not any(s == mq.DATA_VERSION_SQL for s, p in conn.executed)
 
 
 def test_a_review_leaves_the_comment_waiting(fake_groq):

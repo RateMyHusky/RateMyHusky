@@ -8,8 +8,11 @@ free allowance production shares (see moderation.py). Reads ORACLE_DATABASE_URL.
 Prints counts only: no comment text, hashes or network data.
 
 Only comments still waiting for review are checked, returning devices first and
-over-budget ones last, oldest first within each. An allow publishes the comment.
-A review leaves it waiting for `review_ratings.py approve-comment`, and a block
+over-budget ones last, oldest first within each. An allow publishes the comment
+of a rating never edited since it was saved, unless a reviewer rejected a rating
+with the same text or COMMENT_AUTO_PUBLISH is off (_PUBLISH); text on an edited
+rating waits, like at submit, including any queued before edits stopped being
+queued. A review leaves it waiting for `review_ratings.py approve-comment`, and a block
 also holds the rating as moderation_block, so its numbers stop counting until a
 reviewer looks. It stops
 at the first 429, and once the day's model calls (submit and queue) reach
@@ -48,6 +51,11 @@ _DUE_SQL = (
 # approval or a rejection since the row was read leaves it alone.
 _STILL_DUE = ("WHERE id::text = %s AND comment = %s AND comment_check = 'unchecked' "
               "AND comment_status = 'pending'")
+# An allow publishes only what the submit would have: a rating's first text, which an
+# upsert never leaves at created_at = updated_at once it's edited (ratings._UPSERT_SQL).
+_PUBLISH = (", comment_status = CASE WHEN created_at = updated_at AND NOT EXISTS ("
+            "SELECT 1 FROM rating_flags f WHERE f.kind = 'comment' AND f.value_hash = survey_ratings.comment_hash) "
+            "THEN 'approved' ELSE comment_status END")
 
 
 def backoff(attempts):
@@ -61,15 +69,15 @@ def calls_today(cur, now):
 
 
 def record(cur, row, action, reason, now):
-    """Store one check result; True when it changed what the professor page shows
-    (an allow published the comment, or a block held the rating)."""
+    """Store one check result; True when it may have changed what the professor page
+    shows (an allow published the comment, or a block held the rating)."""
     attempts = (row["comment_check_attempts"] or 0) + 1
     if action in ("allow", "review"):
-        publish = ", comment_status = 'approved'" if action == "allow" else ""
+        publish = _PUBLISH if action == "allow" and moderation_groq.auto_publish() else ""
         cur.execute(f"UPDATE survey_ratings SET comment_check = %s, comment_check_reason = %s, "
                     f"comment_check_attempts = %s, comment_next_check_at = NULL, comment_checked_at = %s"
                     f"{publish} {_STILL_DUE}", (action, reason, attempts, now, row["id"], row["comment"]))
-        return action == "allow" and cur.rowcount == 1
+        return bool(publish) and cur.rowcount == 1
     if action == "block":
         # Flagged rather than dropped, so the reviewer reads it and can reject-comment.
         cur.execute("UPDATE survey_ratings SET comment_check = 'review', comment_check_reason = 'blocked', "

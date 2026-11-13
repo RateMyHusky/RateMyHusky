@@ -36,4 +36,5 @@ jobs:
         env:
           ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
           groq1: ${{ secrets.groq1 }}
+          COMMENT_AUTO_PUBLISH: ${{ vars.COMMENT_AUTO_PUBLISH }}  # "off" stops allows from publishing
         run: python moderate_queue.py

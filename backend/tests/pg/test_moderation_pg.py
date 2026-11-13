@@ -220,6 +220,32 @@ def test_a_queue_block_holds_the_rating_and_keeps_the_comment(pg, fake_groq):
         {"source": "queue", "outcome": "block", "device_hash": None, "ip_hash": None, "tokens": 500}]
 
 
+def test_a_queue_allow_publishes_only_a_never_edited_comment_no_reviewer_rejected(pg, fake_groq):
+    truncate(pg, "stats_cache", "rating_flags")
+    due = NOW - timedelta(minutes=1)
+    fresh = insert(pg, device="d1", comment_next_check_at=due)
+    # Queued before edits stopped being queued: its text was written onto an existing rating.
+    edited = insert(pg, device="d2", comment="Edited words about the lectures.", comment_next_check_at=due)
+    rejected = insert(pg, device="d3", comment="Words a reviewer rejected before.", comment_hash="h3",
+                      comment_next_check_at=due)
+    with pg.cursor() as cur:
+        cur.execute("UPDATE survey_ratings SET updated_at = created_at + interval '1 minute' WHERE id = %s",
+                    (edited,))
+        cur.execute("INSERT INTO rating_flags (kind, value_hash) VALUES ('comment', 'h3')")
+    pg.commit()
+    assert moderate_queue.run(pg, fake_groq("ALLOW"), now=NOW, sleep=lambda s: None).startswith("3 due: 3 clean")
+    assert [(get(pg, i)["comment_status"], get(pg, i)["comment_check"]) for i in (fresh, edited, rejected)] == [
+        ("approved", "allow"), ("pending", "allow"), ("pending", "allow")]
+
+
+def test_with_auto_publish_off_a_queue_allow_waits(pg, fake_groq, monkeypatch):
+    monkeypatch.setenv("COMMENT_AUTO_PUBLISH", "off")
+    rating_id = insert(pg, comment_next_check_at=NOW - timedelta(minutes=1))
+    moderate_queue.run(pg, fake_groq("ALLOW"), now=NOW, sleep=lambda s: None)
+    row = get(pg, rating_id)
+    assert (row["comment_status"], row["comment_check"], row["comment_next_check_at"]) == ("pending", "allow", None)
+
+
 def test_an_approval_takes_the_comment_off_the_queue(pg, fake_groq):
     rating_id = insert(pg, comment_next_check_at=NOW - timedelta(minutes=1))
     with pg.cursor(cursor_factory=RealDictCursor) as cur:
@@ -239,6 +265,27 @@ def test_reject_comment_clears_the_check(pg):
     pg.commit()
     row = get(pg, rating_id)
     assert row["comment"] is None and all(row[c] is None for c in ratings.CHECK_COLUMNS)
+
+
+def test_reject_comment_drops_one_the_model_already_approved(pg):
+    # On a held rating, or one the queue published after the reviewer read list.
+    rating_id = insert(pg, status="held", comment_status="approved", comment_check="allow")
+    with pg.cursor(cursor_factory=RealDictCursor) as cur:
+        review_ratings.reject_comment(cur, rating_id[:8])
+    pg.commit()
+    row = get(pg, rating_id)
+    assert (row["comment"], row["comment_status"], row["status"]) == (None, None, "held")
+
+
+def test_reject_rating_remembers_the_comment_so_a_resend_waits(pg):
+    truncate(pg, "rating_flags")
+    rating_id = insert(pg, status="held", comment_hash="h1", comment_check="allow")
+    plain = insert(pg, device="d2", comment=None, status="held")
+    with pg.cursor(cursor_factory=RealDictCursor) as cur:
+        review_ratings.reject_rating(cur, rating_id[:8], plain[:8])
+    pg.commit()
+    assert rows(pg, "SELECT kind, value_hash FROM rating_flags") == [{"kind": "comment", "value_hash": "h1"}]
+    assert ratings.comment_rejected("h1", lambda q, p: (rows(pg, q, p) or [None])[0]) is True
 
 
 # ── list and the digest ──

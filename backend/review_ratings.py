@@ -4,7 +4,7 @@
     python review_ratings.py approve-rating ID [ID...]  # held -> accepted
     python review_ratings.py reject-rating [--abuse] ID [ID...]  # delete the rating; --abuse also silences its device and IP
     python review_ratings.py approve-comment ID@TIME [ID@TIME...]  # show a comment, as list printed it
-    python review_ratings.py reject-comment ID [ID...]  # drop a waiting comment, keep its rating
+    python review_ratings.py reject-comment ID [ID...]  # drop a waiting or approved comment, keep its rating
     python review_ratings.py remove-comment PUBLIC_ID   # take down a shown comment by the id a report carries
     python review_ratings.py approve-professor ID [--slug SLUG]
     python review_ratings.py merge-professor ID SLUG
@@ -28,13 +28,15 @@ course, so later ratings of the pair aren't held for it.
 A new rating's comment shows once the model's check allows it, at submit or in
 moderate_queue.py. Any other comment waits for approve-comment, even on an
 accepted rating, and so does any text written onto an existing rating: an edit,
-or a comment sent again after remove-comment. remove-comment takes
-down one already showing. approve-comment takes the ID@TIME `list`
+or a comment sent again after remove-comment, and any text a reviewer rejected
+along with its rating (reject-rating remembers its hash). remove-comment takes
+down one already showing, and reject-comment takes the short id `list` prints
+for one the model allowed, even while the queue publishes it. approve-comment takes the ID@TIME `list`
 printed next to the comment, and refuses when the row changed since then, so
 an edit between reading and approving can't put unread text on the page. approve-rating counts the rating only: a
 waiting comment stays in the comments list until approved there too, but one the
 model already allowed shows as soon as the rating does, so `list` prints it whole
-under the held rating.
+under the held rating, with the reject-comment that drops just the comment.
 
 `list` shows each comment's model check (moderation_groq.py): flagged first,
 then clean or not yet checked. Among waiting comments the check only sorts the
@@ -167,13 +169,20 @@ def flag_abuse(cur, rating_id):
 
 
 def reject_rating(cur, *ids, abuse=False):
+    """Delete each held rating. Its comment's hash goes into rating_flags, so the same
+    text sent again (the row is gone, so it's a new rating) waits for review instead
+    of publishing on a model allow."""
     for rating_id in ids:
         if abuse:
             flag_abuse(cur, rating_id)
         cur.execute("DELETE FROM survey_ratings WHERE id::text LIKE %s AND status = 'held' "
-                    "RETURNING id", (short_id_pattern(rating_id),))
-        if len(cur.fetchall()) != 1:
+                    "RETURNING id, comment_hash", (short_id_pattern(rating_id),))
+        deleted = cur.fetchall()
+        if len(deleted) != 1:
             raise ReviewError(f"{rating_id} is not exactly one held rating")
+        if deleted[0]["comment_hash"]:
+            cur.execute("INSERT INTO rating_flags (kind, value_hash) VALUES ('comment', %s) "
+                        "ON CONFLICT DO NOTHING", (deleted[0]["comment_hash"],))
     return f"Rejected {len(ids)} rating(s)"
 
 
@@ -205,7 +214,7 @@ def approve_comment(cur, *versions):
 
 
 # Clears the comment and nothing else. A comment the device writes again waits in
-# pending like any new one, so the rating needs no hold; and hold_reasons stays as
+# pending, as text on an existing rating does, so the rating needs no hold; and hold_reasons stays as
 # it was, since a non-NULL one would take the rating out of the surge counts for
 # good. comment_hash stays, so the same text from another device is held as a
 # duplicate_comment.
@@ -215,12 +224,13 @@ _DROP_COMMENT_SQL = (
 
 
 def reject_comment(cur, *ids):
-    """Drop each waiting comment; its rating keeps counting."""
+    """Drop each comment, waiting or approved (the model may have published it since
+    `list`, or allowed it on a held rating); its rating keeps counting."""
     for rating_id in ids:
-        cur.execute(_DROP_COMMENT_SQL + "WHERE id::text LIKE %s AND comment_status = 'pending' RETURNING id",
-                    (short_id_pattern(rating_id),))
+        cur.execute(_DROP_COMMENT_SQL + "WHERE id::text LIKE %s AND comment_status IN ('pending', 'approved') "
+                    "RETURNING id", (short_id_pattern(rating_id),))
         if len(cur.fetchall()) != 1:
-            raise ReviewError(f"{rating_id} is not exactly one comment waiting for review")
+            raise ReviewError(f"{rating_id} is not exactly one comment")
     return f"Rejected {len(ids)} comment(s)"
 
 
@@ -369,7 +379,8 @@ def list_pending(cur):
               f"{comment!r}  {str(r['created_at'])[:10]}")
         if r.get("comment_status") == "approved":
             # The model allowed it, so approve-rating puts every word on the page.
-            print(f"      comment already approved, shows with the rating: {clean(r['comment'])!r}")
+            print(f"      comment already approved, shows with the rating: {clean(r['comment'])!r}\n"
+                  f"      reject-comment {str(r['id'])[:8]}")
 
     # The whole text, since approving it puts every word on the page.
     cur.execute(
