@@ -13,8 +13,14 @@ from rag.key_pool import KeyPool, load_entries
 from tests.test_review_agent import _bomb_rows, _row
 from tests.varied_ratings import VARIED_RATINGS
 
-pytestmark = pytest.mark.skipif(not (os.getenv("RUN_GROQ_LIVE") == "1" and os.getenv("groq1")),
+pytestmark = pytest.mark.skipif(not os.getenv("GROQ_LIVE_KEY"),
                                 reason="set RUN_GROQ_LIVE=1 and groq1 to call the real model")
+
+
+@pytest.fixture(autouse=True)
+def _live_key(monkeypatch):
+    # conftest moved the key here, so only these tests see it.
+    monkeypatch.setenv("groq1", os.environ["GROQ_LIVE_KEY"])
 
 
 def _answer(group):

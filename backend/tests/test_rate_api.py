@@ -312,7 +312,7 @@ def test_groq_verdicts_mark_the_comment_and_never_hold_the_rating(rate, monkeypa
             check, reason)
         (call,) = groq.calls
         assert call["model"] == "openai/gpt-oss-safeguard-20b" and call["temperature"] == 0
-        assert call["messages"][1] == {"role": "user", "content": BODY["comment"]}
+        assert call["messages"][1] == {"role": "user", "content": server.moderation_groq.user_message(BODY["comment"])}
     assert state["scored"] == []  # never OpenAI while the Groq key is set
     assert [p[3] for s, p in call_writes(state)] == ["allow", "review", "review", "unavailable", "unavailable"]
     assert [p[7] for s, p in call_writes(state)] == [500, 500, 500, None, None]

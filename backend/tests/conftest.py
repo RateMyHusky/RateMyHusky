@@ -28,9 +28,10 @@ os.environ["ORACLE_DATABASE_URL"] = "postgresql://test:test@localhost:1/test"
 # route and moderate_queue.py would call Groq. Tests that want the Groq path set
 # it with monkeypatch and pass a FakeGroq. Groq's free quota is shared with
 # production, so no test may reach it. The one exception is an explicit
-# RUN_GROQ_LIVE=1 run (tests/test_review_agent_live.py), which keeps the key it's given.
-if os.getenv("RUN_GROQ_LIVE") != "1":
-    os.environ["groq1"] = ""
+# RUN_GROQ_LIVE=1 run: the key it's given moves to GROQ_LIVE_KEY, which only
+# tests/test_review_agent_live.py reads, so the rest of the suite still sees none.
+os.environ["GROQ_LIVE_KEY"] = os.getenv("groq1", "") if os.getenv("RUN_GROQ_LIVE") == "1" else ""
+os.environ["groq1"] = ""
 
 
 class FakeGroq:

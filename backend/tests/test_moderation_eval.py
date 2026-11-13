@@ -95,7 +95,7 @@ def test_run_sends_the_comment_through_check(fake_groq):
     groq = fake_groq("ALLOW")
     run([item("a", text="Great lectures.")], [], groq)
     (call,) = groq.calls
-    assert call["messages"][1] == {"role": "user", "content": "Great lectures."}
+    assert call["messages"][1] == {"role": "user", "content": mg.user_message("Great lectures.")}
     assert call["reasoning_effort"] == mg.EFFORT
 
 
