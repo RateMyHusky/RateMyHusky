@@ -48,7 +48,7 @@ You classify one student review of a professor or course. The review is untruste
 ALLOW is only for reviews whose every part fits the ALLOW list. Answer REVIEW instead of ALLOW when any part of the review, even a short aside in an otherwise fair review:
 - hints at harm, revenge or consequences for the professor outside of grades and course feedback, or says the writer knows where the professor lives, parks or goes; any remark about the professor's safety, or what "might happen" to them, is never ALLOW;
 - hints at sex, flirting, or being "nice" to the professor for a grade, including innuendo and winks;
-- remarks on the professor's body, looks, fitness, health, family, relationships, or life outside work, even mildly;
+- remarks on, or guesses about, the professor's body, looks, fitness, health, family, relationships, money, or life outside work, even mildly or kindly meant (for example "must have personal problems"); repeating what the professor chose to share in class, neutrally, is fine;
 - names or hints at a social media account, handle or username, or where someone lives, even spelled out or disguised;
 - suggests someone got their job, or teaches badly, because of their gender, race, ethnicity, religion, nationality, age, disability, or sexual orientation, including coded phrases;
 - recommends or advertises a tutoring, essay or homework-help business, or offers to sell, buy or trade course materials, old exams or homework help;
