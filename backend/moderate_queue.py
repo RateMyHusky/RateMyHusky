@@ -3,19 +3,23 @@
     python moderate_queue.py   # check up to BATCH comments that are due
 
 Runs every 10 minutes from .github/workflows/moderate-queue.yml. Without
-GROQ_MODERATION_KEY it does nothing and exits 0; it never calls OpenAI, whose
+the groq1 key it does nothing and exits 0; it never calls OpenAI, whose
 free allowance production shares (see moderation.py). Reads ORACLE_DATABASE_URL.
 Prints counts only: no comment text, hashes or network data.
 
 Only comments still waiting for review are checked, returning devices first and
-over-budget ones last, oldest first within each. A verdict only sorts
-`review_ratings.py list`, except a block: that holds the rating as
-moderation_block, so its numbers stop counting until a reviewer looks. It stops
+over-budget ones last, oldest first within each. An allow publishes the comment
+of a rating never edited since it was saved, unless a reviewer rejected a rating
+with the same text or COMMENT_AUTO_PUBLISH is off (_PUBLISH); text on an edited
+rating waits, like at submit, including any queued before edits stopped being
+queued. A review leaves it waiting for `review_ratings.py approve-comment`, and a block
+also holds the rating as moderation_block, so its numbers stop counting until a
+reviewer looks. It stops
 at the first 429, and once the day's model calls (submit and queue) reach
 DAILY_CAP. The cap comes from Groq's 200,000 tokens a day, which run out before
-the 1,000 requests: at ~500 tokens a call that's ~400 calls, and the cap leaves
-~150 of them for submits. The spacing leaves one of Groq's 3 requests a minute
-free, so a submit during a run doesn't get a 429. A failed check
+the 1,000 requests: at ~800 tokens a call that's ~250 calls, and the cap leaves
+~100 of them for submits. The spacing keeps a run near 1,070 of Groq's 2,000
+tokens a minute, so an ~800-token submit during a run still fits. A failed check
 backs off and is tried again later, without end; the reviewer can approve or
 reject it at any time.
 """
@@ -31,9 +35,9 @@ import ratings
 from pipeline.db import connect
 from pipeline.read_models import DATA_VERSION_SQL
 
-BATCH = 15
-SPACING_SECONDS = 30  # 2 of Groq's 3 requests a minute; the third stays free for submits
-DAILY_CAP = 250  # of the ~400 calls Groq's 200,000 tokens a day allow
+BATCH = 10  # 9 waits of 45 s plus the calls and job setup stay well inside the job's 10-minute timeout
+SPACING_SECONDS = 45  # ~1,070 of Groq's 2,000 tokens a minute; the rest stays free for a submit
+DAILY_CAP = 150  # of the ~250 calls Groq's 200,000 tokens a day allow
 NEXT_RUN = timedelta(minutes=10)
 BASE_BACKOFF = timedelta(minutes=10)
 MAX_BACKOFF = timedelta(hours=6)
@@ -47,6 +51,11 @@ _DUE_SQL = (
 # approval or a rejection since the row was read leaves it alone.
 _STILL_DUE = ("WHERE id::text = %s AND comment = %s AND comment_check = 'unchecked' "
               "AND comment_status = 'pending'")
+# An allow publishes only what the submit would have: a rating's first text, which an
+# upsert never leaves at created_at = updated_at once it's edited (ratings._UPSERT_SQL).
+_PUBLISH = (", comment_status = CASE WHEN created_at = updated_at AND NOT EXISTS ("
+            "SELECT 1 FROM rating_flags f WHERE f.kind = 'comment' AND f.value_hash = survey_ratings.comment_hash) "
+            "THEN 'approved' ELSE comment_status END")
 
 
 def backoff(attempts):
@@ -60,13 +69,15 @@ def calls_today(cur, now):
 
 
 def record(cur, row, action, reason, now):
-    """Store one check result; True when it held the rating."""
+    """Store one check result; True when it may have changed what the professor page
+    shows (an allow published the comment, or a block held the rating)."""
     attempts = (row["comment_check_attempts"] or 0) + 1
     if action in ("allow", "review"):
+        publish = _PUBLISH if action == "allow" and moderation_groq.auto_publish() else ""
         cur.execute(f"UPDATE survey_ratings SET comment_check = %s, comment_check_reason = %s, "
-                    f"comment_check_attempts = %s, comment_next_check_at = NULL, comment_checked_at = %s "
-                    f"{_STILL_DUE}", (action, reason, attempts, now, row["id"], row["comment"]))
-        return False
+                    f"comment_check_attempts = %s, comment_next_check_at = NULL, comment_checked_at = %s"
+                    f"{publish} {_STILL_DUE}", (action, reason, attempts, now, row["id"], row["comment"]))
+        return bool(publish) and cur.rowcount == 1
     if action == "block":
         # Flagged rather than dropped, so the reviewer reads it and can reject-comment.
         cur.execute("UPDATE survey_ratings SET comment_check = 'review', comment_check_reason = 'blocked', "
@@ -104,7 +115,7 @@ def run(conn, groq, now=None, sleep=time.sleep):
             ratings.record_moderation_call("queue", action, None, None, False,
                                            lambda sql, params: cur.execute(sql, params), at, tokens)
             if record(cur, row, action, reason, at):
-                cur.execute(DATA_VERSION_SQL)  # the professor page drops the held rating's numbers
+                cur.execute(DATA_VERSION_SQL)  # the professor page shows the comment or drops the held rating
             conn.commit()
             counts[action] += 1
             if reason == "groq_rate_limited":
@@ -121,7 +132,7 @@ def run(conn, groq, now=None, sleep=time.sleep):
 
 def main():
     if not moderation_groq.enabled():
-        print("GROQ_MODERATION_KEY is not set; nothing to do")
+        print("groq1 is not set; nothing to do")
         return 0
     conn = connect()
     try:

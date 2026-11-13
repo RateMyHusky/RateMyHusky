@@ -242,6 +242,15 @@ def duplicate_comment(comment_hash, exclude_id, query_one):
     return row is not None
 
 
+def comment_rejected(comment_hash, query_one):
+    """True when a reviewer rejected a rating carrying this comment (review_ratings.reject_rating),
+    so the same text sent again waits for review instead of publishing on a model allow."""
+    if comment_hash is None:
+        return False
+    return query_one("SELECT 1 FROM rating_flags WHERE kind = 'comment' AND value_hash = %s",
+                     (comment_hash,)) is not None
+
+
 def near_duplicate_ids(comment, key, exclude_id, query, now):
     """Ids of the professor's ratings from the last NEAR_DUPLICATE_DAYS whose comment
     is a near copy of this one, held and accepted alike. Any course: a template gets
@@ -439,8 +448,11 @@ def hold_burst(reasons, key, ip_hash, prefix_hash, write, now):
 # status has its own held-stays-held rule below, and a clean resubmit keeps the
 # row's hold_reasons, so a reviewer's approval stays out of the burst and surge
 # counts. new_device keeps its first value, so an edit can't take a row out of
-# the burst_pair count. A comment a reviewer approved stays approved while its text
-# is unchanged; new or edited text waits for review again. The CHECK_COLUMNS follow
+# the burst_pair count. A comment keeps its status (approved by the model or a
+# reviewer, or still waiting) while its text is unchanged. New or edited text on a
+# row that already exists waits for review and is never queued, whatever the route
+# sent: the route's read of the row can be stale when two first submits race, and
+# text on an existing rating never publishes itself. The CHECK_COLUMNS follow
 # the text the same way: unchanged text keeps its check, even one moderate_queue.py
 # recorded after the route read the row. A page still on the form from before the
 # difficulty question sends none, so an edit from it keeps the stored difficulty
@@ -462,25 +474,32 @@ _UPSERT_SQL = (
     "WHEN EXCLUDED.comment = survey_ratings.comment THEN survey_ratings.comment_status "
     "ELSE 'pending' END"
     + "".join(f", {c} = CASE WHEN EXCLUDED.comment IS NOT DISTINCT FROM survey_ratings.comment "
-              f"THEN survey_ratings.{c} ELSE EXCLUDED.{c} END" for c in CHECK_COLUMNS)
+              f"THEN survey_ratings.{c} ELSE {'NULL' if c == 'comment_next_check_at' else 'EXCLUDED.' + c} END"
+              for c in CHECK_COLUMNS)
     + ", difficulty = COALESCE(EXCLUDED.difficulty, survey_ratings.difficulty)"
     ", updated_at = now()"
 )
 
 
-def save_rating(row, existing, write):
+def save_rating(row, existing, write, publish=False):
     """Insert or replace this device's rating in one statement; return its id.
 
     The unique index on (device, key) is the conflict target, so two racing
-    submits still leave one row, and a held row stays held. A new comment starts
-    as pending, whatever row["comment_status"] says. A resubmit adds the
-    new hold reasons to the old ones, or keeps the old ones when it has none.
+    submits still leave one row, and a held row stays held. A new rating's comment
+    is approved when `publish` (the route's call: a Groq allow, see server.rate_submit),
+    and pending for review otherwise, whatever row["comment_status"] says. Text saved
+    onto an existing rating always waits for review, even with `publish`: otherwise a
+    comment a reviewer took down could be sent again, or a flagged one edited until
+    the model allows it. An approved comment on a held rating shows only once the rating is
+    accepted, since the page reads accepted rows only. A resubmit adds the new hold
+    reasons to the old ones, or keeps the old ones when it has none.
     """
     if existing and existing["hold_reasons"] and row["hold_reasons"]:
         old = existing["hold_reasons"].split(",")
         row = {**row, "hold_reasons": ",".join(
             old + [r for r in row["hold_reasons"].split(",") if r not in old])}
-    row = {**row, "comment_status": "pending" if row["comment"] else None}
+    status = "approved" if publish and not existing else "pending"
+    row = {**row, "comment_status": status if row["comment"] else None}
     new_id = str(uuid.uuid4())
     write(_UPSERT_SQL, (new_id, *(row[c] for c in _INSERT_COLUMNS)))
     return existing["id"] if existing else new_id

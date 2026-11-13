@@ -2442,8 +2442,10 @@ def _rating_moderation_score(texts):
 
 
 def _moderate_comment(comment):
-    """(action, reason, tokens) from Groq when GROQ_MODERATION_KEY is set, else from OpenAI.
-    action is "allow" | "review" | "block" | "unavailable"; tokens is None off Groq; never raises."""
+    """(action, reason, tokens) from Groq when the groq1 key is set, else from OpenAI.
+    action is "allow" | "review" | "block" | "unavailable"; tokens is None off Groq; never raises.
+    An OpenAI allow carries the reason "openai", so the reviewer can tell it from Groq's: only
+    Groq's check was measured well enough to publish a comment (rate_submit)."""
     global _groq_moderation_client
     if moderation_groq.enabled():
         try:
@@ -2453,7 +2455,7 @@ def _moderate_comment(comment):
             return "unavailable", "groq_unavailable", None
         return moderation_groq.check(comment, _groq_moderation_client)
     action = rating_checks.moderate(comment, score=_rating_moderation_score)
-    return action, {"allow": None, "review": "review", "block": "blocked"}.get(action, "openai_unavailable"), None
+    return action, {"allow": "openai", "review": "review", "block": "blocked"}.get(action, "openai_unavailable"), None
 
 
 def _rating_limit_key():
@@ -2613,12 +2615,13 @@ def rate_submit():
     if changed and rating_checks.rule_block(clean["comment"]):
         return _rating_response({"error": "comment_blocked"}, 422, device)
 
-    # 9. Moderation of new or edited text. A blocked comment stops here; anything else
-    # only marks the comment for the reviewer, so a busy or failed check never holds the
-    # rating. Duplicates (near copies too) and bursts get no call and no queue, or a flood
+    # 9. Moderation of new or edited text. A blocked comment stops here, an allowed one on a
+    # new rating is published (ratings.save_rating), and anything else waits for the reviewer, so a
+    # busy or failed check never holds the rating. Duplicates (near copies too) and bursts get no call and no queue, or a flood
     # would just move its model calls there. Text the edit leaves alone keeps its earlier check
     # (ratings._UPSERT_SQL), so these fields stay unset.
     check = {}
+    publish = False
     if changed:
         shared = _shared_network()
         reason = None
@@ -2634,6 +2637,14 @@ def rate_submit():
             if action == "block":
                 return _rating_response({"error": "comment_blocked"}, 422, device)
         check = rating_checks.comment_check_fields(action, reason, now)
+        if existing:
+            # Not queued: a queue allow publishes, and text on an existing rating never
+            # publishes itself. The reviewer reads it as not yet checked.
+            check["comment_next_check_at"] = None
+        # Only Groq's check was measured well enough to publish, so an OpenAI allow waits.
+        # Text a reviewer rejected along with its rating waits too, from any device.
+        publish = (action == "allow" and not existing and moderation_groq.enabled()
+                   and moderation_groq.auto_publish() and not ratings.comment_rejected(chash, query_one))
 
     # 10. Pending professor / course. No team email: invented names cost nothing to
     # submit, so one email each could flood the inbox and the Resend quota the
@@ -2678,16 +2689,17 @@ def rate_submit():
         "fill_seconds": fill_seconds, "collection": "turnstile+device",
         **{c: check.get(c) for c in ratings.CHECK_COLUMNS},
     }
-    ratings.save_rating(row, existing, _write)
+    ratings.save_rating(row, existing, _write, publish=publish)
     held = ratings.hold_burst(bursts, key, ip_hash, prefix_hash, _write, now) if bursts else set()
     if near:
         ratings.hold_matches(near, "near_duplicate", device_hash, ip_hash, prefix_hash, network_type, _write)
     if skew:
         ratings.hold_skew_week(key, _write, now)
-    # The page's student numbers are live (its comments wait for review_ratings.py
-    # approve-comment). Any save can change them: a new rating, an edit, an accepted
-    # rating edited into a held one, or an edited comment that must come down until it's
-    # read again. A burst also holds ratings on other professors. Dropped after the hold,
+    # The page's student numbers are live, and so are its comments the model allowed
+    # (the rest wait for review_ratings.py approve-comment). Any save can change them:
+    # a new rating, an edit, an accepted rating edited into a held one, a comment the
+    # model allowed, or an edited comment that must come down until it's checked
+    # again. A burst also holds ratings on other professors. Dropped after the hold,
     # so no request between the two writes re-caches rows that are about to be held.
     pages = held | {key["professor_slug"]} if key.get("professor_slug") else held
     if pages:

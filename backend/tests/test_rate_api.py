@@ -229,6 +229,52 @@ def test_moderation_timeout_keeps_the_rating_and_queues_the_comment(rate):
     assert saved(server, params, "comment_next_check_at") is not None
 
 
+def test_an_edit_the_check_missed_is_not_queued_since_a_queue_allow_publishes(rate):
+    server, client, state, ri = rate
+    state["moderation"] = "timeout"
+    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": None, "comment": None}
+    assert post(client, ri).status_code == 200
+    (sql, params), = rating_writes(state)
+    assert saved(server, params, "comment_check") == "unchecked"
+    assert saved(server, params, "comment_next_check_at") is None
+    assert saved(server, params, "comment_status") == "pending"
+
+
+def test_an_openai_allow_waits_for_review_since_only_groq_was_measured(rate):
+    server, client, state, ri = rate
+    state["moderation"] = "allow"
+    assert post(client, ri).status_code == 200
+    (sql, params), = rating_writes(state)
+    assert saved(server, params, "comment_check") == "allow"
+    assert saved(server, params, "comment_check_reason") == "openai"
+    assert saved(server, params, "comment_status") == "pending"
+
+
+def test_a_groq_allow_publishes_a_new_ratings_comment_unless_switched_off_or_rejected(rate, monkeypatch, fake_groq):
+    server, client, state, ri = rate
+    monkeypatch.setenv("groq1", "gsk-test")
+    monkeypatch.setattr(server, "_groq_moderation_client", fake_groq("ALLOW"))
+    real_query_one = server.query_one
+
+    def query_one(sql, params=()):
+        if "kind = 'comment'" in sql:  # a reviewer rejected a rating with this text
+            return {"x": 1} if state.get("rejected") else None
+        return real_query_one(sql, params)
+    monkeypatch.setattr(server, "query_one", query_one)
+
+    def status(device, **setup):
+        state.update(setup)
+        assert post(client, ri, device=device * 32).status_code == 200
+        return saved(server, rating_writes(state)[-1][1], "comment_status")
+    assert status("1") == "approved"
+    assert status("2", rejected=True) == "pending"
+    state["rejected"] = False
+    monkeypatch.setenv("COMMENT_AUTO_PUBLISH", "off")
+    assert status("3") == "pending"
+    monkeypatch.delenv("COMMENT_AUTO_PUBLISH")
+    assert status("4", existing={"id": "r1", "status": "accepted", "hold_reasons": None, "comment": None}) == "pending"
+
+
 def test_a_rule_match_is_422_before_any_model_call_or_write(rate):
     server, client, state, ri = rate
     for comment in ("great notes at studyhelp.com", "text me 617-555-0123", "asdfghjkl"):
@@ -252,7 +298,7 @@ def test_an_edit_that_keeps_text_a_later_rule_matches_still_saves(rate):
 
 def test_groq_verdicts_mark_the_comment_and_never_hold_the_rating(rate, monkeypatch, fake_groq):
     server, client, state, ri = rate
-    monkeypatch.setenv("GROQ_MODERATION_KEY", "gsk-test")
+    monkeypatch.setenv("groq1", "gsk-test")
     cases = (("ALLOW", "allow", None), ("REVIEW", "review", "review"), ("Not sure.", "review", "review"),
              (TimeoutError("slow"), "unchecked", "groq_unavailable"),
              (fake_groq.RateLimited("429"), "unchecked", "groq_rate_limited"))
@@ -266,7 +312,7 @@ def test_groq_verdicts_mark_the_comment_and_never_hold_the_rating(rate, monkeypa
             check, reason)
         (call,) = groq.calls
         assert call["model"] == "openai/gpt-oss-safeguard-20b" and call["temperature"] == 0
-        assert call["messages"][1] == {"role": "user", "content": BODY["comment"]}
+        assert call["messages"][1] == {"role": "user", "content": server.moderation_groq.user_message(BODY["comment"])}
     assert state["scored"] == []  # never OpenAI while the Groq key is set
     assert [p[3] for s, p in call_writes(state)] == ["allow", "review", "review", "unavailable", "unavailable"]
     assert [p[7] for s, p in call_writes(state)] == [500, 500, 500, None, None]
@@ -274,7 +320,7 @@ def test_groq_verdicts_mark_the_comment_and_never_hold_the_rating(rate, monkeypa
 
 def test_groq_block_is_422(rate, monkeypatch, fake_groq):
     server, client, state, ri = rate
-    monkeypatch.setenv("GROQ_MODERATION_KEY", "gsk-test")
+    monkeypatch.setenv("groq1", "gsk-test")
     monkeypatch.setattr(server, "_groq_moderation_client", fake_groq("BLOCK"))
     resp = post(client, ri)
     assert resp.status_code == 422 and resp.get_json() == {"error": "comment_blocked"}
@@ -322,7 +368,7 @@ def test_budgets_per_ip_and_on_shared_networks(rate):
     post(client, ri)
     assert len(state["scored"]) == 1
     assert [saved(server, p, "comment_check_reason") for s, p in rating_writes(state)] == [
-        "over_budget", None, "over_budget"]
+        "over_budget", "openai", "over_budget"]
 
 
 def test_an_edit_that_keeps_the_text_keeps_its_check_without_a_call(rate):

@@ -185,8 +185,9 @@ const Privacy = () => {
                 the rating and are deleted with it, with one exception: when we remove a rating for
                 abuse, we keep its device ID hash to block further abuse from that device, and
                 its IP hash for 30 days after removal. IP hashes from campus networks, mobile
-                networks and Private Relay are never kept this way. A comment is shown publicly only
-                after it is approved in review, and then it may appear on the professor's page;
+                networks and Private Relay are never kept this way. A comment is shown publicly once
+                the Groq check finds nothing wrong with it, or after our team approves it, and then
+                it may appear on the professor's page;
                 your grade is never shown with it. A rating is kept until we remove it or you ask us to delete it (see{' '}
                 <em>Your Rights &amp; Choices</em>).
               </p>

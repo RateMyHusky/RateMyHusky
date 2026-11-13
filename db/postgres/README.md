@@ -278,6 +278,21 @@ To undo a wrong flag, run `DELETE FROM rating_flags WHERE kind = 'device' AND va
 IP), which `reject-rating --abuse` deletes with the row, so a reviewer should note it
 from the held row before rejecting.
 
+Auto-published comments added a third kind, `'comment'`: `reject-rating` stores the
+rejected rating's `comment_hash`, so the same text sent again waits for review
+instead of publishing on a Groq ALLOW. Run this before deploying the backend that
+writes it, or `reject-rating` fails on a rating with a comment. It is rerunnable:
+
+```sql
+ALTER TABLE public.rating_flags DROP CONSTRAINT IF EXISTS check_rating_flag_kind;
+ALTER TABLE public.rating_flags ADD CONSTRAINT check_rating_flag_kind
+    CHECK (kind IN ('device', 'ip', 'comment'));
+```
+
+`COMMENT_AUTO_PUBLISH=off`, in the backend's environment and as a repository
+variable for the moderate-queue workflow, stops Groq ALLOWs from publishing
+without turning off `groq1`, which chat and the review agent also use.
+
 The daily review agent added three nullable columns to each of `survey_ratings`,
 `survey_pending_professors` and `survey_pending_courses`. The rate form keeps
 working without them, but `review_agent.py`, `review_ratings.py list` and the
@@ -366,8 +381,10 @@ UPDATE public.survey_ratings SET comment_status = 'pending'
 ```
 
 Comments are then checked by a model (Groq's gpt-oss-safeguard when
-`GROQ_MODERATION_KEY` is set, else OpenAI) as a first pass for the reviewer:
-`backend/moderate_queue.py` retries the ones the submit couldn't check. That
+the `groq1` key is set, else OpenAI). A Groq ALLOW publishes the comment;
+anything else, including an OpenAI allow, waits for `review_ratings.py
+approve-comment`. `backend/moderate_queue.py` retries the ones the submit
+couldn't check. That
 added five nullable columns, all NULL when the rating has no comment, and the
 `moderation_calls` table the per-sender budgets count. Run this after the block
 above and before deploying the backend that writes them, or every rating fails

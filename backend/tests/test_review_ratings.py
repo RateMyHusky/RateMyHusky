@@ -257,7 +257,8 @@ def test_reject_comment_drops_the_text_and_keeps_the_rating():
     # The rating stays out of hold_reasons: a non-NULL one exempts it from the surge counts.
     assert "hold_reasons" not in sql and "comment_hash" not in sql
     assert "comment_check = NULL" in sql and "comment_next_check_at = NULL" in sql
-    assert "WHERE id::text LIKE %s AND comment_status = 'pending'" in sql and params == ("abcd1234%",)
+    # An approved one too: the model may have published it since list, or allowed it on a held rating.
+    assert "WHERE id::text LIKE %s AND comment_status IN ('pending', 'approved')" in sql and params == ("abcd1234%",)
     with pytest.raises(rr.ReviewError):
         rr.reject_comment(FakeCursor(), "abcd1234")
 
@@ -274,6 +275,16 @@ def test_list_shows_the_agent_decision_and_reason(capsys):
     assert "agent: -" in out and "" not in out
 
 
+def test_list_prints_a_held_ratings_already_approved_comment_whole(capsys):
+    long = "Clear lectures and fair exams. " * 5
+    row = {"id": "abcd1234-0000", "professor": "jane-doe", "course": "CS2500", "term_label": None,
+           "rating": 4, "difficulty": None, "hold_reasons": "silent_hold", "agent_decision": None,
+           "agent_reason": None, "comment": long, "comment_status": "approved", "created_at": "2026-10-01"}
+    rr.list_pending(FakeCursor({"comment_status = 'pending'": [], "FROM survey_ratings": [row]}))
+    out = capsys.readouterr().out
+    assert f"comment already approved, shows with the rating: {long!r}\n      reject-comment abcd1234\n" in out
+
+
 def test_list_shows_the_agent_decision_and_reason_on_pending_courses(capsys):
     base = {"id": "c1", "code": "ENVR1110", "name": "Typo", "n": 1, "in_catalog": False}
     escalated = dict(base, agent_decision="escalate", agent_reason="jane-doe: 2 candidates (A, B)[2J")
@@ -285,9 +296,10 @@ def test_list_shows_the_agent_decision_and_reason_on_pending_courses(capsys):
 
 
 def test_reject_rating_only_deletes_held_rows():
-    cur = FakeCursor({"DELETE FROM survey_ratings": [{"id": "abcd1234"}]})
+    cur = FakeCursor({"DELETE FROM survey_ratings": [{"id": "abcd1234", "comment_hash": None}]})
     rr.reject_rating(cur, "abcd1234")
     assert "status = 'held'" in cur.calls[0][0]
+    assert not cur.statements("INSERT INTO rating_flags")  # no comment, nothing to remember
     with pytest.raises(rr.ReviewError):
         rr.reject_rating(FakeCursor(), "abcd1234")
 
@@ -390,7 +402,7 @@ def test_remove_comment_needs_the_rating_secret(monkeypatch):
 
 def _abuse_cursor(network):
     return FakeCursor({"SELECT device_hash": [{"device_hash": "d", "ip_hash": "i", "network_type": network}],
-                       "DELETE FROM survey_ratings": [{"id": "abcd1234"}]})
+                       "DELETE FROM survey_ratings": [{"id": "abcd1234", "comment_hash": None}]})
 
 
 def test_abuse_reject_flags_device_and_ip_then_deletes():
@@ -417,7 +429,7 @@ def test_abuse_reject_on_mobile_flags_only_the_device():
 
 def test_abuse_reject_with_a_purged_ip_flags_only_the_device():
     cur = FakeCursor({"SELECT device_hash": [{"device_hash": "d", "ip_hash": None, "network_type": "other"}],
-                      "DELETE FROM survey_ratings": [{"id": "abcd1234"}]})
+                      "DELETE FROM survey_ratings": [{"id": "abcd1234", "comment_hash": None}]})
     rr.reject_rating(cur, "abcd1234", abuse=True)
     assert [p for _, p in cur.statements("INSERT INTO rating_flags")] == [("device", "d")]
 
@@ -433,6 +445,14 @@ def test_reject_without_abuse_flags_nothing():
     cur = _abuse_cursor("other")
     rr.reject_rating(cur, "abcd1234")
     assert not cur.statements("INSERT INTO rating_flags")
+
+
+def test_reject_rating_remembers_its_comment_so_a_resend_waits_for_review():
+    cur = FakeCursor({"DELETE FROM survey_ratings": [{"id": "abcd1234", "comment_hash": "h1"}]})
+    rr.reject_rating(cur, "abcd1234")
+    (flag,) = cur.statements("INSERT INTO rating_flags")
+    assert "VALUES ('comment', %s)" in flag[0] and "ON CONFLICT DO NOTHING" in flag[0] and flag[1] == ("h1",)
+    assert "RETURNING id, comment_hash" in cur.calls[0][0]
 
 
 def test_parse_reject_rating_abuse_flag():
