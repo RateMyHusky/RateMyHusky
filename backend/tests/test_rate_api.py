@@ -44,7 +44,7 @@ def rate(monkeypatch):
 
     state = {"writes": [], "posts": [], "moderation": "allow", "network": "other",
              "turnstile": True, "turnstile_calls": 0, "seen": False, "existing": None,
-             "budget": {"device": 0, "ip": 0, "shared": 0}, "scored": []}
+             "budget": {"device": 0, "ip": 0, "shared": 0}, "scored": [], "failures": []}
 
     def fake_query_one(sql, params=()):
         if "SELECT id, status, hold_reasons, comment, term_label FROM survey_ratings" in sql:
@@ -88,6 +88,8 @@ def rate(monkeypatch):
     monkeypatch.setattr(server, "query", lambda sql, params=None: [], raising=False)
     monkeypatch.setattr(server, "query_one", fake_query_one, raising=False)
     monkeypatch.setattr(server, "_write", fake_write, raising=False)
+    monkeypatch.setattr(server, "_chat_write", lambda sql, params=None: state["failures"].append(params[0])
+                        if "rating_failures" in sql else None, raising=False)
     monkeypatch.setattr(server, "_rating_moderation_score", fake_score, raising=False)
     monkeypatch.setattr(server.http_requests, "post", fake_post)
     monkeypatch.setattr(server, "_networks", SimpleNamespace(network_type=lambda ip: state["network"]))
@@ -807,3 +809,45 @@ def test_course_suggestions_is_off_with_the_form(rate, monkeypatch):
     monkeypatch.setattr(server, "RATING_SECRET", None)
     resp = client.get("/api/rate/course-suggestions?code=BIO2299")
     assert resp.status_code == 503 and resp.get_json() == {"error": server.RATINGS_UNAVAILABLE}
+
+
+def test_each_failed_submit_is_counted_by_reason_only(rate, monkeypatch):
+    server, client, state, ri = rate
+    client.post("/api/rate", data="[", content_type="application/json")
+    post(client, ri, {"rating": 9})
+    post(client, ri, {"professor": {"slug": "nobody"}})
+    post(client, ri, {"course": {"code": "ZZ9999"}})
+    post(client, ri, {"comment": "asdfghjkl"})
+    state["moderation"] = "block"
+    post(client, ri)  # the checker's blocks are already counted in moderation_calls
+    assert state["failures"] == ["invalid", "invalid", "unknown_professor", "unknown_course", "rule_block"]
+
+
+def test_captcha_failures_are_counted_apart(rate, monkeypatch):
+    server, client, state, ri = rate
+    monkeypatch.setenv("TURNSTILE_SECRET_KEY", "ts-secret")
+    post(client, ri)
+    state["turnstile"] = False
+    post(client, ri, {"turnstileToken": "t"})
+    monkeypatch.setattr(server.http_requests, "post", lambda *a, **k: (_ for _ in ()).throw(
+        server.http_requests.ConnectionError("down")))
+    post(client, ri, {"turnstileToken": "t"})
+    assert state["failures"] == ["captcha_missing", "captcha_failed", "captcha_down"]
+
+
+def test_a_saved_rating_and_the_honeypot_count_no_failure(rate):
+    server, client, state, ri = rate
+    assert post(client, ri).status_code == 200
+    assert post(client, ri, {"website": "x"}).status_code == 200
+    assert state["failures"] == []
+
+
+def test_rate_limits_and_errors_on_submit_are_counted(rate, monkeypatch):
+    server, client, state, ri = rate
+    for _ in range(21):
+        post(client, ri)
+    client.get("/api/rate/course-suggestions?code=CS2500")  # only the submit route counts
+    monkeypatch.setattr(server.ratings, "existing_rating", lambda *a: 1 / 0)
+    server.limiter.reset()
+    assert post(client, ri).status_code == 500
+    assert state["failures"] == ["rate_limited", "error"]
