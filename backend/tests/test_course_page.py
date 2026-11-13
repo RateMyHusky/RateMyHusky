@@ -531,6 +531,20 @@ def test_spring_is_in_progress_while_the_cps_winter_quarter_is_open():
     assert olin["lastTerm"] == "Spring 2027"
 
 
+def test_last_taught_counts_a_term_with_no_instructor_listed():
+    # Fall 2026 ran with only TBA sections, so no instructor row names it.
+    history = {**NEXT_HISTORY, "offeredTerms": ["Spring 2027", "Fall 2026", "Spring 2026"],
+               "instructors": [_inst("olin-guha", "Olin Guha", ["Spring 2027", "Spring 2026"], 40)]}
+    h = _with_history(history, terms=NEXT_TERMS)["history"]
+    assert h["lastOffered"] == "Fall 2026"
+    assert "offeredTerms" not in h
+
+
+def test_last_taught_falls_back_to_instructor_terms_before_the_offering_lists_its_terms():
+    history = {**NEXT_HISTORY, "offeredTerms": []}
+    assert _with_history(history, terms=NEXT_TERMS)["history"]["lastOffered"] == "Fall 2026"
+
+
 SUMMER_HISTORY = {**HISTORY, "lastOffered": "Fall 2026", "instructors": [
     _inst("new-prof", "New Prof", ["Fall 2026"]),
     _inst("olin-guha", "Olin Guha", ["Summer 2 2026", "Spring 2026"], 40),

@@ -159,7 +159,7 @@ def course_history(code, query, query_one):
     offering = query_one("""
         SELECT subject_course, course_title, last_term_label, pattern,
                offering_years, first_term_code, first_term_label,
-               median_section_size, credit_hours, offered_now
+               median_section_size, credit_hours, offered_now, term_labels
         FROM banner_course_offerings WHERE subject_course = %s
     """, (code,))
     successor = COURSE_SUCCESSORS.get(code)
@@ -185,6 +185,9 @@ def course_history(code, query, query_one):
         "firstOffered": o.get("first_term_label"),
         "lastOffered": o.get("last_term_label"),
         "offeredNow": _terms(o.get("offered_now")),
+        # Every term it ran, for course_page's Last Taught, which pops it;
+        # [] until the history build stores them.
+        "offeredTerms": _terms(o.get("term_labels")),
         "creditHours": o.get("credit_hours"),
         "typicalClassSize": _whole(o.get("median_section_size")),
         "instructors": [{

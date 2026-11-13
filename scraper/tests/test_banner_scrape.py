@@ -568,6 +568,20 @@ def test_plan_tags_only_a_view_only_term_newer_than_every_open_one_as_upcoming()
         "202730": True, "202710": False, "202650": False, "202630": False, "202615": False}
 
 
+def test_plan_judges_upcoming_within_each_track():
+    """A CPS quarter's code sits above its season's semester, so one that opens
+    first must not make the semester beside it look finished."""
+    terms = [{"code": "202815", "description": "Fall 2027 CPS Quarter"},
+             {"code": "202810", "description": "Fall 2027 Semester (View Only)"},
+             {"code": "202750", "description": "Summer 2027 Semester"},
+             {"code": "202725", "description": "Winter 2027 CPS Quarter (View Only)"},
+             {"code": "202552", "description": "Summer 2025 Law Semester (View Only)"}]
+    got = dict(plan_terms(terms, {}, "backfill", "201610",
+                          rescrape=["202815", "202750", "202725", "202552"]))
+    assert {c: p["upcoming"] for c, p in got.items()} == {
+        "202815": False, "202810": True, "202750": False, "202725": False, "202552": False}
+
+
 def test_plan_backfill_puts_upcoming_terms_after_the_terms_that_need_a_final_scrape():
     """An upcoming term is re-scraped every week; a just-closed one needs its
     one final scrape before the run's time runs out."""

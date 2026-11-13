@@ -104,9 +104,12 @@ def _history(code, query, query_one, history_for, professors):
         recent = build_recent(instructors, by_slug, current - RECENT_SPAN, current) if current else []
         label = next_term(terms, current) if current else None
         upcoming = build_next(instructors, by_slug, label) if label else []
+        # Every term the course ran, TBA-only ones included; the instructors'
+        # terms until the history build stores them.
+        offered = history.pop("offeredTerms", None) or [t for i in instructors for t in i["recentTerms"]]
         last = history["lastOffered"]
         if current and (teaching_history.label_code(last) or 0) > current:
-            last = teaching_history.latest_started([t for i in instructors for t in i["recentTerms"]], current)
+            last = teaching_history.latest_started(offered, current)
         return {**history, "lastOffered": last, "recentInstructors": recent,
                 "nextTerm": label if upcoming else None, "nextInstructors": upcoming}, False, current
     except Exception:

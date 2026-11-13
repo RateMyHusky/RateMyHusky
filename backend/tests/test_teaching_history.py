@@ -80,6 +80,15 @@ def test_course_history_summary():
     assert got["typicalClassSize"] == 98
 
 
+def test_course_history_carries_every_term_offered_for_last_taught():
+    query, query_one, seen = course_db(offerings={"CS3100": {**OFFERING, "term_labels": "Spring 2027,Fall 2026"}})
+    assert th.course_history("CS3100", query, query_one)["offeredTerms"] == ["Spring 2027", "Fall 2026"]
+    assert "term_labels" in next(s for s, _ in seen if "FROM banner_course_offerings" in s)
+    # Before the history build stores them.
+    query, query_one, _ = course_db()
+    assert th.course_history("CS3100", query, query_one)["offeredTerms"] == []
+
+
 def test_course_history_offering_years_use_the_season_keys_and_the_first_year():
     query, query_one, _ = course_db()
     got = th.course_history("CS3100", query, query_one)

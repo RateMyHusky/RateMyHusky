@@ -79,7 +79,9 @@ def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM,
     instructors that aren't Banner's (the one-off import, or a sections-only
     scrape). Newest first, so an interrupted backfill has already covered the
     terms students are likeliest to ask about. A View Only term newer than
-    every open term is next term before registration opens: it is planned
+    every open term of its track (Semester, CPS Quarter, Law Semester; every
+    open term for a track with none open) is next term before registration
+    opens, since a CPS quarter's code sits above its season's semester: it is planned
     every run, whatever is stored, since it cannot have finished, but after
     the rest, so a term that just closed gets its final scrape first.
 
@@ -95,8 +97,11 @@ def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM,
     rescrape = {str(c) for c in rescrape}
     sources = sources or {}
     parsed_terms = [(t.get("code"), parse_term(t.get("description"))) for t in terms]
-    newest_open = max((int(c) for c, p in parsed_terms if c is not None and p and not p["view_only"]),
-                      default=None)
+    open_terms = [(p["track"], int(c)) for c, p in parsed_terms if c is not None and p and not p["view_only"]]
+    newest_open = max((c for _, c in open_terms), default=None)
+    newest_open_in = {}
+    for track, c in open_terms:
+        newest_open_in[track] = max(c, newest_open_in.get(track, c))
     picked = []
     for t in terms:
         code = t.get("code")
@@ -104,7 +109,8 @@ def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM,
         if code is None or parsed is None:
             continue
         code = str(code)
-        upcoming = parsed["view_only"] and newest_open is not None and int(code) > newest_open
+        newest = newest_open_in.get(parsed["track"], newest_open)
+        upcoming = parsed["view_only"] and newest is not None and int(code) > newest
         parsed = {**parsed, "upcoming": upcoming}
         if code in rescrape:
             picked.append((code, parsed))
