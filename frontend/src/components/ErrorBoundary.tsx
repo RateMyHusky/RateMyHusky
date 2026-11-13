@@ -1,5 +1,6 @@
 import { Component } from 'react';
 import type { ReactNode } from 'react';
+import LoadError from './LoadError';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -17,7 +18,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
 
   render() {
     if (this.state.hasError) {
-      return <p className="error-boundary">Something went wrong — reload the page.</p>;
+      return <div className="course-page"><LoadError /></div>;
     }
     return this.props.children;
   }
