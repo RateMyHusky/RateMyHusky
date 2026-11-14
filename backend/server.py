@@ -1275,6 +1275,136 @@ def search():
         return jsonify(results)
 
 
+# Banner search injection
+
+@app.route("/api/banner/sections")
+def banner_sections_lookup():
+    term = request.args.get("term", "").strip()
+    raw_crns = request.args.get("crns", "").strip()
+
+    if not re.fullmatch(r"\d{6}", term):
+        return jsonify({"error": "Invalid term"}), 400
+
+    crns = list(dict.fromkeys(
+        crn.strip() for crn in raw_crns.split(",")
+    ))
+
+    if (
+        not raw_crns
+        or len(crns) > 50
+        or any(not re.fullmatch(r"\d{1,10}", crn) for crn in crns)
+    ):
+        return jsonify({"error": "Invalid CRNs (maximum 50)"}), 400
+
+    rows = query("""
+        SELECT
+            bs.crn,
+            bsi.instructor_key,
+            bsi.instructor_name,
+            bsi.is_primary,
+            pc.slug AS professor_slug,
+            pc.avg_rating AS rating,
+            pc.num_ratings,
+            (dup.instructor_key IS NOT NULL) AS ambiguous
+        FROM banner_sections bs
+        LEFT JOIN banner_section_instructors bsi
+          ON bsi.term_code = bs.term_code
+         AND bsi.crn = bs.crn
+        LEFT JOIN banner_roster_duplicates dup
+          ON dup.term_code = bsi.term_code
+         AND dup.instructor_key = bsi.instructor_key
+        LEFT JOIN banner_course_instructors bci
+        ON bci.subject_course = bs.subject_course
+        AND bsi.instructor_key = ANY(
+            string_to_array(
+                COALESCE(bci.instructor_keys, bci.instructor_key),
+                '|'
+            )
+        )
+        LEFT JOIN professors_catalog pc
+          ON pc.slug = bci.professor_slug
+        WHERE bs.term_code = %s
+          AND bs.crn = ANY(%s)
+        ORDER BY bs.crn, bsi.is_primary DESC NULLS LAST,
+                 bsi.instructor_key
+    """, (term, crns))
+
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row["crn"], []).append(row)
+
+    result = {}
+    for crn, section_rows in grouped.items():
+        instructors = {}
+        for row in section_rows:
+            key = row["instructor_key"]
+            if key is not None:
+                instructors.setdefault(key, []).append(row)
+
+        if not instructors:
+            result[crn] = {
+                "instructor": None,
+                "slug": None,
+                "rating": None,
+                "numRatings": 0,
+            }
+            continue
+
+        primary = [
+            entries for entries in instructors.values()
+            if any(entry["is_primary"] for entry in entries)
+        ]
+
+        if len(instructors) == 1:
+            chosen = next(iter(instructors.values()))
+        elif len(primary) == 1:
+            chosen = primary[0]
+        else:
+            # multiple instructors without a unique primary
+            result[crn] = {
+                "instructor": " / ".join(
+                    sorted({sanitize(entries[0]["instructor_name"])
+                            for entries in instructors.values()})
+                ),
+                "slug": None,
+                "rating": None,
+                "numRatings": 0,
+            }
+            continue
+
+        # all candidate mappings must agree on exactly one slug
+        slugs = {
+            row["professor_slug"] for row in chosen
+        }
+
+        safe = (
+            len(slugs) == 1
+            and None not in slugs
+            and not any(row["ambiguous"] for row in chosen)
+        )
+
+        match = chosen[0] if safe else None
+
+        result[crn] = {
+            # Stored still HTML-escaped (O&#39;Connell). The extension compares
+            # this with the name Banner prints, so an escaped one reads as a
+            # different instructor and the badge is hidden as stale.
+            "instructor": sanitize(chosen[0]["instructor_name"]),
+            "slug": match["professor_slug"] if match else None,
+            "rating": (
+                round(float(match["rating"]), 2)
+                if match and match["rating"] is not None
+                else None
+            ),
+            "numRatings": (
+                int(match["num_ratings"] or 0)
+                if match else 0
+            ),
+        }
+
+    return jsonify(result)
+
+
 # ──────────────────────────────────────────────
 #  Reddit RAG chatbot
 # ──────────────────────────────────────────────

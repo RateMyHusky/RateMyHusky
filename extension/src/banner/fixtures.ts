@@ -1,8 +1,9 @@
 import type { LookupResponse, Section, Term } from './messages';
 
-/** Flip once step 4 lands and the worker answers from /api/banner/sections.
- *  Until then the content script never messages the worker at all. */
-export const USE_FIXTURES = true;
+/** Live by default: the content script asks the worker, which calls
+ *  /api/banner/sections. Set true to see every badge state without the
+ *  backend, and the content script never messages the worker at all. */
+export const USE_FIXTURES = false;
 
 /** Stands in for the endpoint, answering for any CRN so badges appear on
  *  whatever you search, not only on one page somebody captured. The CRN picks
