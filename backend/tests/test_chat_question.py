@@ -146,3 +146,15 @@ def test_site_help_llm_returns_menu_logged_as_site_help():
     assert logged[-1][3] == "site_help_llm"
     assert logged[-1][6] == 350        # the classifier call is metered
     assert logged[-1][-1] is False
+
+
+def test_server_wires_the_conduct_check(monkeypatch, q_client):
+    import server
+    seen = {}
+    def _capture(q, session_token, deps):
+        seen["deps"] = deps
+        return {"mode": "question", "answer": "x", "disclaimer": "y"}, 200
+    monkeypatch.setattr(server, "handle_question", _capture)
+    resp = q_client.post("/api/chat", json={"q": "is Guha hard"}, headers=_auth_headers())
+    assert resp.status_code == 200
+    assert seen["deps"].conduct_check_fn == server._chat_adapter.check_conduct

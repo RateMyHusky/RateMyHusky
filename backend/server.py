@@ -1358,6 +1358,7 @@ def chat():
         keyword_search_fn=lambda qq: keyword_search(qq, query, _professor_search,
                                                     mod_filter=moderation.sql_filter("t")),
         gate_fn=lambda qq: gate(qq, _chat_adapter),
+        conduct_check_fn=_chat_adapter.check_conduct,
         retrieve_fn=lambda qq, hint: retrieve(qq, hint, query, query_one, _professor_search,
                                              embed_query_fn=embed_query, rmp_mod=moderation.sql_filter),
         generate_fn=lambda qq, blocks: generate(qq, blocks, _chat_adapter),

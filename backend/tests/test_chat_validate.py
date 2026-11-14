@@ -286,3 +286,48 @@ class TestValidateOutput:
         result = validate_output("[1]", {})
         assert result["ok"] is False
         assert result["status"] == "validation_failed"
+
+
+# ── Word list vs. the model check ─────────────────────────────────────────
+
+from rag.chat_validate import conduct_check  # noqa: E402
+
+
+@pytest.mark.parametrize("text", [
+    "Some students said he slept with a student [1].",
+    "One comment claims she is dating a student [2].",
+    "A student said he was stalking someone [1].",
+    "Reddit says he molested someone [1].",
+])
+def test_unambiguous_allegations_fail_the_word_list(text):
+    assert validate_output(text, {"comment_count": 3})["ok"] is False
+
+
+@pytest.mark.parametrize("text", [
+    "Some students said Guha is strict about plagiarism and runs MOSS [1].",
+    "Students say she reports cheating to OSCCR quickly [1].",
+    "CRIM 1100 Criminal Justice is a light first-year course [1].",
+    "ACCT 4501 Fraud Examination has a heavy case workload [2].",
+    "He gets fired up about compilers [1].",
+    "Expect some abuse of notation in the proofs [2].",
+])
+def test_everyday_course_wording_is_left_to_the_model(text):
+    assert validate_output(text, {"comment_count": 3})["ok"] is True
+
+
+def test_conduct_check_passes_clean_answers_and_counts_tokens():
+    result, tokens = conduct_check("fair grader [1].", lambda a: {"conduct_claim": False, "error": False,
+                                                                  "tokens_used": 210})
+    assert result["ok"] is True and tokens == 210
+
+
+@pytest.mark.parametrize("verdict", [
+    {"conduct_claim": True, "error": False, "tokens_used": 90},
+    {"conduct_claim": False, "error": True, "tokens_used": 0},
+    {},                                   # no verdict at all
+    {"conduct_claim": None},
+])
+def test_conduct_check_blocks_flags_and_fails_closed(verdict):
+    result, _ = conduct_check("anything", lambda a: verdict)
+    assert result == {"ok": False, "status": "validation_failed",
+                      "message": "Showing the most relevant comments."}

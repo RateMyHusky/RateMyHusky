@@ -4,7 +4,7 @@ from .chat_throttle import (global_budget_hit, session_allowed, minute_capacity_
                             today_ok_count, release_reservation, EST_TOKENS_PER_Q)
 from .chat_abuse import abuse_check
 from .chat_cache import get_cached, set_cached
-from .chat_validate import thin_data_check, validate_output
+from .chat_validate import thin_data_check, validate_output, conduct_check
 from .chat_retrieve import is_course_code
 from .llm_adapter import LLMUnavailable
 from . import site_help
@@ -368,6 +368,16 @@ def handle_question(q, session_token, deps):
                  tokens_used=tokens_used)
             return _safe_fallback(deps, q, banner=validation.get("message")), 200
 
+        # 10b. Model check: the word list above can't read context, so every written answer
+        # also goes past the classifier model before it is shown or cached (a cached answer
+        # reaches everyone who asks the same thing). Fails closed.
+        conduct, conduct_tokens = conduct_check(answer_text, deps.conduct_check_fn)
+        tokens_used += conduct_tokens
+        if not conduct["ok"]:
+            _log("validation_failed", professor_slug=primary_slug, retrieved_count=total_comments,
+                 tokens_used=tokens_used)
+            return _safe_fallback(deps, q, banner=conduct.get("message")), 200
+
         # 11. Success — sources come from the EXACT capped, in-prompt comment list the model
         # numbered (gen["sources_comments"]), so snippet [N] and its entity tag always agree.
         sources_comments = gen.get("sources_comments", [])
@@ -454,6 +464,7 @@ def selftest():
             self.usage_alert_calls.append(1)
         def generate_course_list_fn(self, topic, courses): return {"text": f"Courses about {topic}.", "tokens_used": 20}
         def generate_course_ranking_fn(self, subject, metric, direction, courses): return {"text": f"Top {subject} by {metric}.", "tokens_used": 22}
+        def conduct_check_fn(self, answer): return {"conduct_claim": False, "error": False, "tokens_used": 0}
     Deps.log_fn = staticmethod(_outer_log_fn)
 
     # off-topic gate trip -> refusal logged as off_topic (a strike)
@@ -510,6 +521,34 @@ def selftest():
     payload, code = handle_question("is guha hard", "s", d_gt2)
     check("answer row carries classifier + synth tokens",
           logged[-1][_status_idx()] == "ok" and logged[-1][6] == 450)
+
+    # The model check: a flagged answer is neither shown nor cached, and its tokens count.
+    d_cc = Deps(); d_cc.usage_alert_calls = []; d_cc.cached = []
+    d_cc.cache_set_fn = types.MethodType(lambda self, k, v: self.cached.append(k), d_cc)
+    d_cc.generate_fn = types.MethodType(lambda self, q, r: {
+        "text": "Some students on Reddit said he was let go from his last job [1].", "tokens_used": 50,
+        "num_sources": 5, "sources_comments": [{"body": "x"}] * 5, "source_entities": []}, d_cc)
+    d_cc.conduct_check_fn = types.MethodType(
+        lambda self, a: {"conduct_claim": True, "error": False, "tokens_used": 300}, d_cc)
+    payload, code = handle_question("is guha hard", "s", d_cc)
+    check("flagged answer -> validation_failed keyword fallback, not cached",
+          logged[-1][_status_idx()] == "validation_failed" and payload.get("mode") == "keyword"
+          and "answer" not in payload and d_cc.cached == [])
+    check("flagged answer's row carries synth + check tokens", logged[-1][6] == 350)
+    d_cc.conduct_check_fn = types.MethodType(
+        lambda self, a: {"conduct_claim": True, "error": True, "tokens_used": 0}, d_cc)
+    payload, code = handle_question("is guha hard", "s", d_cc)
+    check("an answer the check could not read is not shown", payload.get("mode") == "keyword")
+
+    # An honest academic-integrity question now gets its answer.
+    d_pl = Deps(); d_pl.usage_alert_calls = []
+    d_pl.generate_fn = types.MethodType(lambda self, q, r: {
+        "text": "Some students said Guha is strict about plagiarism and runs every submission "
+                "through MOSS [1].", "tokens_used": 50, "num_sources": 5,
+        "sources_comments": [{"body": "x"}] * 5, "source_entities": []}, d_pl)
+    payload, code = handle_question("Is Professor Guha strict about plagiarism?", "s", d_pl)
+    check("plagiarism-policy answer is shown", payload.get("mode") == "question"
+          and "plagiarism" in payload.get("answer", "") and logged[-1][_status_idx()] == "ok")
 
     # Over the account's daily cap: stopped before the classifier, nothing logged.
     d_cap = Deps()

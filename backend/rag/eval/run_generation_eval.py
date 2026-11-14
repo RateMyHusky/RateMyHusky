@@ -44,6 +44,7 @@ def build_deps(query_fn, query_one_fn, prof_search, adapter, num_keys, log_calls
         cache_set_fn=lambda k, v: None,       # never poison the (in-memory) cache either
         keyword_search_fn=lambda qq: {"comments": [], "professors": []},
         gate_fn=lambda qq: gate(qq, adapter),
+        conduct_check_fn=adapter.check_conduct,
         retrieve_fn=lambda qq, hint: retrieve(qq, hint, query_fn, query_one_fn,
                                               prof_search, embed_query_fn=embed_query),
         generate_fn=generate_fn,
