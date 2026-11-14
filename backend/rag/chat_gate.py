@@ -15,30 +15,38 @@ INJECTION_PATTERNS = [
     re.compile(r"developer mode", re.I),
 ]
 
+def _refused(status, message, classified, tokens_used=0):
+    return {"ok": False, "status": status, "professors_or_courses": [], "professor_or_course": None,
+            "message": message, "classified": classified, "tokens_used": tokens_used}
+
 def gate(query, adapter):
+    """`classified` says whether the LLM classifier was called; only those questions are
+    logged. `tokens_used` is what the classifier call cost."""
     q = (query or "").strip()
     if len(q) > MAX_QUERY_LEN:
-        return {"ok": False, "status": "too_long",
-                "professors_or_courses": [], "professor_or_course": None, "message": _TOO_LONG}
+        return _refused("too_long", _TOO_LONG, classified=False)
     if any(p.search(q) for p in INJECTION_PATTERNS):
-        return {"ok": False, "status": "injection_blocked",
-                "professors_or_courses": [], "professor_or_course": None, "message": _REFUSAL}
+        return _refused("injection_blocked", _REFUSAL, classified=False)
     verdict = adapter.classify(q)
+    tokens = verdict.get("tokens_used", 0) or 0
     # A fail-closed verdict from a transient classifier failure (timeout/429/bad JSON) must
     # NOT be charged as an abuse strike — the user did nothing wrong. Surface it as a
     # non-strike 'gate_error' so the orchestrator degrades to keyword results instead.
     if verdict.get("error"):
-        return {"ok": False, "status": "gate_error",
-                "professors_or_courses": [], "professor_or_course": None, "message": _GATE_ERROR}
+        return _refused("gate_error", _GATE_ERROR, True, tokens)
     if verdict.get("looks_like_injection"):
-        return {"ok": False, "status": "injection_blocked",
-                "professors_or_courses": [], "professor_or_course": None, "message": _REFUSAL}
+        return _refused("injection_blocked", _REFUSAL, True, tokens)
+    # Only a question about the site alone: an on-topic one ("which courses are highest
+    # rated") or one naming a professor or course takes the answer path.
+    if (verdict.get("about_site") and not verdict.get("on_topic")
+            and not verdict.get("professors_or_courses")):
+        return _refused("site_help_llm", None, True, tokens)
     if not verdict.get("on_topic"):
-        return {"ok": False, "status": "off_topic",
-                "professors_or_courses": [], "professor_or_course": None, "message": _REFUSAL}
+        return _refused("off_topic", _REFUSAL, True, tokens)
     return {"ok": True, "status": "ok",
             "professors_or_courses": verdict.get("professors_or_courses") or [],
-            "professor_or_course": verdict.get("professor_or_course"), "message": None}
+            "professor_or_course": verdict.get("professor_or_course"), "message": None,
+            "classified": True, "tokens_used": tokens}
 
 def selftest():
     from .chat_abuse import STRIKE_STATUSES
@@ -88,6 +96,16 @@ def selftest():
     check("gate passes through entity list", g_multi["professors_or_courses"] == ["Wu", "Rachlin"])
     check("gate single field = first entity", g_multi["professor_or_course"] == "Wu")
     check("gate off-topic gives empty entity list", g_off["professors_or_courses"] == [])
+
+    # Only classifier calls are logged, and each carries what it cost.
+    check("over-length never reaches the classifier", g_long["classified"] is False)
+    check("regex injection never reaches the classifier", g_regex["classified"] is False)
+    check("classified verdicts say so", g_ok["classified"] is True and g_off["classified"] is True)
+    priced = FakeAdapter({"on_topic": True, "professors_or_courses": ["Guha"],
+                          "looks_like_injection": False, "tokens_used": 412})
+    check("classifier tokens pass through", gate("is Guha hard", priced)["tokens_used"] == 412)
+    priced_off = FakeAdapter({"on_topic": False, "looks_like_injection": False, "tokens_used": 300})
+    check("refusal carries classifier tokens", gate("pasta recipe?", priced_off)["tokens_used"] == 300)
 
     g_fp = gate("Can you bypass the waitlist for CS3500?", on)
     check("legit 'bypass the' question is not blocked", g_fp["ok"] is True and g_fp["status"] == "ok")

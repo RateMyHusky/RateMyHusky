@@ -20,9 +20,9 @@ import Privacy from './pages/Privacy';
 import Faq from './pages/Faq';
 import Navbar from './components/Navbar';
 import FeedbackTab from './components/FeedbackTab';
-import ThemeToggle from './components/ThemeToggle';
+import AskWidget from './components/AskWidget';
 import ErrorBoundary from './components/ErrorBoundary';
-import { RATE_ENABLED } from './config';
+import { ASK_ENABLED, RATE_ENABLED } from './config';
 import './App.css';
 
 function ScrollToTop() {
@@ -70,7 +70,12 @@ function App() {
             </Routes>
           </ErrorBoundary>
           <FeedbackTab />
-          <ThemeToggle />
+          {ASK_ENABLED && (
+            // A widget crash removes the widget, not the page.
+            <ErrorBoundary fallback={null}>
+              <AskWidget />
+            </ErrorBoundary>
+          )}
         </Router>
         <Analytics />
         <SpeedInsights />

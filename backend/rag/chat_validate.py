@@ -5,9 +5,16 @@ MIN_TOTAL_WORDS = 200
 CANARY = "RMH-CANARY-7Q"
 _THIN_MSG = "Not enough information to answer this confidently. Showing related comments."
 
+# A cheap first pass: words that, in an answer about a professor, are almost never about
+# teaching. Words with an everyday course meaning ("strict about plagiarism", "Criminal
+# Justice", "abuse of notation", "fired up", "Fraud Examination") are left to the model
+# check (conduct_check below), which reads them in context: on this list they blocked
+# every honest academic-integrity question.
 DEFAMATION_MARKERS = [
-    re.compile(r"\b(arrested|convicted|criminal|lawsuit|sued|fired|harass|abus|assault|"
-               r"fraud|plagiar|racist|sexist|predator)\w*", re.I),
+    re.compile(r"\b(arrested|convicted|lawsuit|sued|harass|assault|predator|molest|rapist|raped|"
+               r"pedophil|racist|sexist|stalk(?:ed|er|ing))\w*", re.I),
+    re.compile(r"\b(?:slept|sleeping|sleeps) with\b|\baffair with\b"
+               r"|\bdat(?:ed|ing|es) (?:a |his |her )?students?\b", re.I),
 ]
 LEAK_MARKERS = [
     re.compile(r"my (real |actual |true )?instructions", re.I),
@@ -58,6 +65,21 @@ def validate_output(answer, retrieval):
     if any(p.search(answer or "") for p in DEFAMATION_MARKERS):
         return fail
     return {"ok": True, "status": "ok", "message": None, "cited": cited}
+
+_CONDUCT_FAIL = {"ok": False, "status": "validation_failed",
+                 "message": "Showing the most relevant comments."}
+
+def conduct_check(answer, check_fn):
+    """The model pass over an answer that cleared validate_output: check_fn(answer) returns
+    {"conduct_claim": bool, "error": bool, "tokens_used": int}. Fails closed: an answer the
+    model flags, or one it could not check, is not shown (or cached). Returns
+    (result, tokens_used), where result has validate_output's shape."""
+    verdict = check_fn(answer or "")
+    tokens = verdict.get("tokens_used", 0) or 0
+    # Only an explicit, error-free False lets the answer through.
+    if verdict.get("error") or verdict.get("conduct_claim") is not False:
+        return dict(_CONDUCT_FAIL), tokens
+    return {"ok": True, "status": "ok", "message": None}, tokens
 
 def selftest():
     fails = []
@@ -119,6 +141,25 @@ def selftest():
 
     defame = validate_output("He was arrested in 2023 [1].", {"comment_count": 3})
     check("defamation marker fails", defame["ok"] is False and defame["status"] == "validation_failed")
+    for text in ("Some students said he slept with a student [1].",
+                 "One comment claims she is dating a student [2].",
+                 "A student said he was stalking someone [1]."):
+        check(f"allegation phrase fails: {text!r}", validate_output(text, {"comment_count": 3})["ok"] is False)
+    # Everyday course wording is left to the model check, not refused outright.
+    for text in ("Some students said Guha is strict about plagiarism and runs MOSS [1].",
+                 "CRIM 1100 Criminal Justice is a light first-year course [1].",
+                 "He gets fired up about compilers [1].",
+                 "Expect some abuse of notation in the proofs [2]."):
+        check(f"course wording passes the stems: {text!r}",
+              validate_output(text, {"comment_count": 3})["ok"] is True)
+
+    ok_v, t = conduct_check("fine", lambda a: {"conduct_claim": False, "error": False, "tokens_used": 120})
+    check("conduct check passes a clean answer and reports tokens", ok_v["ok"] is True and t == 120)
+    flagged, _ = conduct_check("x", lambda a: {"conduct_claim": True, "error": False, "tokens_used": 90})
+    check("conduct check blocks a flagged answer",
+          flagged["ok"] is False and flagged["status"] == "validation_failed")
+    errored, _ = conduct_check("x", lambda a: {"conduct_claim": False, "error": True, "tokens_used": 0})
+    check("conduct check fails closed on an error", errored["ok"] is False)
 
     # Issue 15: after chat_answer expands grouped citations ([1, 2] -> [1] [2]) before
     # validation sees the text, validate_output must extract both ids into "cited".

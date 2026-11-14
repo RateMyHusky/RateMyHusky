@@ -3,7 +3,7 @@
 // Prints PASS/FAIL per check and exits non-zero on any failure.
 import { argv } from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { matchesPin, isPinned, pinnedFirst } from './askPinMatch';
+import { matchesPin, isPinned, pinnedFirst, pinClickKey } from './askPinMatch';
 
 function selftest(): number {
   const fails: string[] = [];
@@ -57,6 +57,18 @@ function selftest(): number {
     matchesPin("Rowe & the TA were great, don't skip", 'Rowe &amp; the TA were great, don&#39;t skip'));
   // Regression: NFKC ligature/superscript normalizes on both sides.
   check('NFKC ligature/superscript match', matchesPin('final exam x2 was difficult', 'ﬁnal exam x² was diﬃcult') || matchesPin('ﬁnal exam x² was diﬃcult', 'final exam x2 was difficult'));
+
+  // The professor page re-applies pins (tab switch + scroll) once per distinct citation click,
+  // so [2] then [3] from the same answer both act.
+  const a = { askedAt: 1700000000000, clicked: { source: 'rmp', snippet: 'hard but fair' } };
+  check('pinClickKey: same click, same key', pinClickKey(a) === pinClickKey({ ...a, clicked: { ...a.clicked } }));
+  check('pinClickKey: another citation in the same answer differs',
+    pinClickKey(a) !== pinClickKey({ ...a, clicked: { source: 'reddit', snippet: 'hard but fair' } })
+    && pinClickKey(a) !== pinClickKey({ ...a, clicked: { source: 'rmp', snippet: 'easy grader' } }));
+  check('pinClickKey: a new answer differs', pinClickKey(a) !== pinClickKey({ ...a, askedAt: a.askedAt + 1 }));
+  check('pinClickKey: no delimiter collision',
+    pinClickKey({ askedAt: 1, clicked: { source: 'a|b', snippet: 'c' } }) !== pinClickKey({ askedAt: 1, clicked: { source: 'a', snippet: 'b|c' } }));
+  check('pinClickKey: never the empty "nothing applied" sentinel', pinClickKey({ askedAt: 0, clicked: { source: null, snippet: '' } }) !== '');
 
   console.log(fails.length ? `${fails.length} FAIL(s): ` + fails.join(', ') : 'ALL PASS');
   return fails.length ? 1 : 0;

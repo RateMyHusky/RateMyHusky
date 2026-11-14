@@ -14,7 +14,7 @@ import { tagLabel } from '../utils/tagLabels';
 import type { ProfessorPage, ProfessorCourse, RatingDistribution, RedditMention, TeachingAward } from '../api/api';
 import { RATE_ENABLED, SHOW_SURVEY_STATS } from '../config';
 import { relativeTerm, seasonYear, termSortKey } from '../utils/termUtils';
-import { isPinned, pinnedFirst } from '../utils/askPinMatch';
+import { isPinned, pinnedFirst, pinClickKey } from '../utils/askPinMatch';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
 import BookmarkButton from '../components/BookmarkButton';
 import FitText from '../components/FitText';
@@ -286,13 +286,15 @@ const Professor = () => {
       return st?.askPins?.sources ?? [];
     }
   );
-  // Sentinel 0 (never a real Date.now() askedAt) so the apply-pins effect's "already applied"
-  // guard is false on first mount and actually performs the tab-switch + scroll. The effect
-  // sets this ref to the real askedAt once it applies.
-  const pinnedAskedAt = useRef<number>(0);
-  // Tracks the askedAt we have already scrolled for, so the scroll fires exactly once per new
-  // pin set — even though the apply-guard above trips on the effect's second run.
-  const scrolledAskedAt = useRef<number>(0);
+  // Keyed per citation click (pinClickKey: askedAt + clicked source + snippet), so with the
+  // widget open on this page, clicking [2] then [3] from the same answer re-applies each time.
+  // Sentinel '' (never a real key) so the apply-pins effect's "already applied" guard is false
+  // on first mount and actually performs the tab-switch + scroll. The effect sets this ref to
+  // the click's key once it applies.
+  const pinnedClickKey = useRef<string>('');
+  // Tracks the click we have already scrolled for, so the scroll fires exactly once per click
+  // — even though the apply-guard above trips on the effect's second run.
+  const scrolledClickKey = useRef<string>('');
 
   /* ── review pill ── */
   const updateReviewPill = useCallback(() => {
@@ -397,25 +399,26 @@ const Professor = () => {
       // a previous question's sources don't ride along and mis-pin rows on this page.
       if (pinnedSources.length > 0) {
         setPinnedSources([]);
-        pinnedAskedAt.current = 0;
-        scrolledAskedAt.current = 0;
+        pinnedClickKey.current = '';
+        scrolledClickKey.current = '';
       }
       return;
     }
 
-    // Apply the pins + tab switch once per new askedAt.
-    if (pins.askedAt !== pinnedAskedAt.current) {
-      pinnedAskedAt.current = pins.askedAt;
+    // Apply the pins + tab switch once per citation click.
+    const clickKey = pinClickKey(pins);
+    if (clickKey !== pinnedClickKey.current) {
+      pinnedClickKey.current = clickKey;
       setPinnedSources(pins.sources);
       const tab: ReviewTab = pins.clicked.source === 'rmp' ? 'rmp' : 'reddit';
       setReviewTab(tab);
     }
 
-    // Scroll once per askedAt, but only after reviews have rendered (loading false).
+    // Scroll once per citation click, but only after reviews have rendered (loading false).
     // On first mount loading starts true; this effect re-runs when it flips false
     // (it's in the deps) and the scroll fires then.
-    if (!loading && scrolledAskedAt.current !== pins.askedAt) {
-      scrolledAskedAt.current = pins.askedAt;
+    if (!loading && scrolledClickKey.current !== clickKey) {
+      scrolledClickKey.current = clickKey;
       setTimeout(() => reviewsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
     }
   }, [location.state, loading]);

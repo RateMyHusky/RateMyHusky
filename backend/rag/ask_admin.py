@@ -24,7 +24,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from rag.chat_abuse import STRIKE_STATUSES, _CAPS
+from rag.chat_abuse import STRIKE_STATUSES, _CAPS, account_data_counts, delete_account_data
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 URL = os.getenv("ORACLE_DATABASE_URL")
@@ -32,9 +32,10 @@ if not URL:
     sys.exit("Need ORACLE_DATABASE_URL in backend/.env")
 
 ALL_STATUSES = (
-    "ok", "ok_cached", "kill_switch", "rate_limited", "off_topic",
+    "ok", "ok_cached", "rate_limited", "off_topic",
     "injection_blocked", "too_long", "gate_error", "ambiguous", "out_of_scope",
-    "thin_data", "llm_error", "validation_failed",
+    "thin_data", "llm_error", "validation_failed", "site_help", "site_help_llm",
+    "site_help_choice", "site_help_pick", "site_help_other",
 )
 
 app = Flask(__name__)
@@ -114,6 +115,22 @@ def execute(sql, params=()):
             rowcount = cur.rowcount
         conn.commit()
     return rowcount
+
+
+def transact(fn):
+    """Run fn(cursor) in one transaction and commit, returning its result. On any psycopg2
+    error, recovers the shared connection and retries once (a failed attempt rolled back)."""
+    global conn
+    for attempt in range(2):
+        try:
+            with conn.cursor() as cur:
+                result = fn(cur)
+            conn.commit()
+            return result
+        except psycopg2.Error as e:
+            if attempt:
+                raise
+            _recover(e)
 
 
 def ladder_state(strikes_7d):
@@ -230,8 +247,7 @@ def api_users():
                 count(*) FILTER (WHERE result_status IN ('ok', 'ok_cached')) AS ok_count,
                 count(*) FILTER (WHERE result_status = ANY(%s)) AS strike_count_range,
                 coalesce(sum(tokens_used), 0) AS tokens_used,
-                max(created_at) AS last_seen,
-                array_agg(DISTINCT ip_hash) FILTER (WHERE ip_hash IS NOT NULL) AS ip_hashes
+                max(created_at) AS last_seen
             FROM ask_log
             {where_sql}
             GROUP BY session_token
@@ -315,25 +331,31 @@ def api_clear_strikes(sub):
     return jsonify({"deleted": n})
 
 
-@app.route("/api/users/<sub>/purge", methods=["POST"])
-def api_purge(sub):
-    dry_run = _dry_run_from_body()
-    if dry_run:
-        rows = query("SELECT count(*) AS c FROM ask_log WHERE session_token = %s", (sub,))
-        brows = query("SELECT count(*) AS c FROM bookmarks WHERE user_sub = %s", (sub,))
-        return jsonify({"deleted": rows[0]["c"] if rows else 0,
-                        "bookmarks_deleted": brows[0]["c"] if brows else 0})
+def _delete_for(sub, keep_standing):
+    if _dry_run_from_body():
+        c = transact(lambda cur: account_data_counts(cur, sub))
+        kept = c["live_strikes"] if keep_standing else 0
+        return jsonify({"deleted": c["ask_rows"] - kept, "kept_strikes": kept,
+                        "bookmarks_deleted": c["bookmarks"]})
+    return jsonify(transact(lambda cur: delete_account_data(cur, sub, keep_standing)))
 
-    n = execute("DELETE FROM ask_log WHERE session_token=%s", (sub,))
-    nb = execute("DELETE FROM bookmarks WHERE user_sub=%s", (sub,))
-    return jsonify({"deleted": n, "bookmarks_deleted": nb})
+
+@app.route("/api/users/<sub>/delete_data", methods=["POST"])
+def api_delete_data(sub):
+    """A data deletion: questions and bookmarks go, the account's Ask standing stays."""
+    return _delete_for(sub, keep_standing=True)
+
+
+@app.route("/api/users/<sub>/delete_account", methods=["POST"])
+def api_delete_account(sub):
+    """An account deletion: everything goes, strikes and any ban included."""
+    return _delete_for(sub, keep_standing=False)
 
 
 def _num_groq_keys():
-    keys = os.getenv("GROQ_API_KEYS")
-    if not keys:
-        return 0
-    return len([k for k in keys.split(",") if k.strip()])
+    # The server's own reader, so the admin page counts the keys Ask actually uses.
+    from rag.key_pool import load_entries
+    return len(load_entries())
 
 
 @app.route("/api/usage")

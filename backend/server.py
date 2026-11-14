@@ -6,7 +6,7 @@ Install deps:  pip install flask flask-cors flask-limiter psycopg2-binary pyjwt 
 Run:           python server.py
 """
 
-import os, re, unicodedata, json, hashlib, hmac, random, secrets
+import os, re, unicodedata, json, hmac, random, secrets
 import html as _html
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
@@ -30,6 +30,7 @@ from threading import Lock, Thread
 import time
 from rag.chat_search import keyword_search
 from rag.chat_question import handle_question
+from rag import site_help
 from rag.llm_adapter import GroqAdapter
 from rag.key_pool import KeyPool
 from rag.chat_gate import gate
@@ -54,17 +55,11 @@ load_dotenv()
 
 import types as _types
 
-CHAT_ENABLED = os.getenv("CHAT_ENABLED", "false").lower() == "true"
-# The ip_hash in ask_log is only as private as this salt: with a known one, every
-# IPv4 hash can be reversed by trying all 2^32 addresses.
-_IP_SALT = os.getenv("ASK_IP_SALT", "")
-if CHAT_ENABLED and not _IP_SALT:
-    raise RuntimeError("ASK_IP_SALT must be set when CHAT_ENABLED is true")
+# Backend off switch for Ask questions (no deploy needed): false makes question mode return
+# 503 while site help, which never calls the LLM, keeps working.
+CHAT_ENABLED = os.getenv("CHAT_ENABLED", "true").strip().lower() != "false"
 _chat_pool = KeyPool()
 _chat_adapter = GroqAdapter(_chat_pool)
-
-def _hash_ip(ip):
-    return hmac.new(_IP_SALT.encode(), (ip or "").encode(), hashlib.sha256).hexdigest()[:16]
 
 
 # ──────────────────────────────────────────────
@@ -745,7 +740,7 @@ def _chat_write_rc(sql, params=None):
     conn.commit()
     return cur.rowcount
 
-# ask_log keeps each question with its account id and ip_hash; rows older than this
+# ask_log keeps each question with its account id (no IP); rows older than this
 # are deleted. The abuse ladder only reads the last STRIKE_WINDOW_DAYS (7) and the
 # budget only today's, so 30 days leaves room for appeals and debugging.
 ASK_LOG_RETENTION_DAYS = 30
@@ -768,12 +763,16 @@ def _claim_ask_log_purge(now=None):
 def delete_old_ask_log(write_fn=None):
     """Delete a batch of ask_log rows past retention; best-effort, since _chat_write
     logs a failure and the next hour retries."""
+    write = write_fn or _chat_write
     # Postgres has no DELETE ... LIMIT, so the batch is picked in a subquery
     # (by created_at, which al_created indexes).
-    (write_fn or _chat_write)(
+    write(
         "DELETE FROM ask_log WHERE id IN (SELECT id FROM ask_log "
         "WHERE created_at < now() - %s * INTERVAL '1 day' LIMIT %s)",
         (ASK_LOG_RETENTION_DAYS, ASK_LOG_PURGE_BATCH))
+    # Ask stopped storing IPs; rows written before that keep an ip_hash until this clears
+    # it, so the Privacy Policy's "no IP address" holds from the first purge after deploy.
+    write("UPDATE ask_log SET ip_hash = NULL WHERE ip_hash IS NOT NULL", ())
 
 
 def purge_old_ask_log(write_fn=None, now=None):
@@ -1307,9 +1306,18 @@ def chat():
         body = request.get_json(silent=True)
         q = body.get("q") if isinstance(body, dict) else None
         q = q.strip() if isinstance(q, str) else ""
+        help_id = body.get("help_id") if isinstance(body, dict) else None
+        # "No, other" on the site-help prompt: send the question to the LLM without matching.
+        skip_help = isinstance(body, dict) and body.get("skip_help") is True
         mode = "question"
+        if help_id is not None:
+            entry = site_help.get(help_id) if isinstance(help_id, str) else None
+            if entry is None:
+                return jsonify({"mode": "error", "message": "Unknown help topic."}), 404
+            return jsonify(site_help.payload(entry))
     else:
         q = (request.args.get("q") or "").strip()
+        skip_help = False
         mode = request.args.get("mode", "keyword")
         if mode != "keyword":
             return jsonify({"mode": "error", "message": "Ask questions must be sent as a POST."}), 405
@@ -1323,21 +1331,34 @@ def chat():
         data = keyword_search(q, query, _professor_search, limit=limit,
                               mod_filter=moderation.sql_filter("t"))
         return jsonify({"mode": "keyword", "results": data["comments"], "professors": data["professors"]})
+    # Site questions ("how do bookmarks work") are handled for everyone, signed in or not,
+    # with no LLM call and nothing logged: a bare "help" gets the topic menu, and a question
+    # with a topic keyword gets a prompt offering those topics plus "No, other".
+    if not skip_help:
+        if site_help.is_menu_request(q):
+            return jsonify(site_help.payload(site_help.get("menu")))
+        hits = site_help.matches(q)
+        if hits:
+            return jsonify(site_help.choice_payload(hits))
+    if not CHAT_ENABLED:
+        return jsonify({"mode": "error", "message": "Ask is turned off for now. Try again later."}), 503
     # 'question' mode is account-gated: identity comes from the verified JWT (not a spoofable
     # header), so the abuse ladder keys on a server-trusted user id that can't be forged or omitted.
+    # Only questions that reach the LLM are logged (in handle_question), so only signed-in ones.
     _claims = decode_session_token(_get_auth_token())
     if _claims is None:
         return jsonify({"mode": "error", "message": "Sign in to use Ask mode."}), 401
     deps = _types.SimpleNamespace(
-        chat_enabled=CHAT_ENABLED,
         num_keys=len(_chat_pool.entries) or 1,
         query_fn=query,
         query_one_fn=query_one,
         prof_search_fn=_professor_search,
         cache_get_fn=cache_get,
         cache_set_fn=cache_set,
-        keyword_search_fn=lambda qq: keyword_search(qq, query, _professor_search),
+        keyword_search_fn=lambda qq: keyword_search(qq, query, _professor_search,
+                                                    mod_filter=moderation.sql_filter("t")),
         gate_fn=lambda qq: gate(qq, _chat_adapter),
+        conduct_check_fn=_chat_adapter.check_conduct,
         retrieve_fn=lambda qq, hint: retrieve(qq, hint, query, query_one, _professor_search,
                                              embed_query_fn=embed_query, rmp_mod=moderation.sql_filter),
         generate_fn=lambda qq, blocks: generate(qq, blocks, _chat_adapter),
@@ -1350,8 +1371,7 @@ def chat():
     session_token = _claims.get("sub")  # verified account id — unspoofable, never None
     if not session_token:
         return jsonify({"mode": "error", "message": "Sign in to use Ask mode."}), 401
-    ip_hash = _hash_ip(get_real_ip())
-    payload, code = handle_question(q, session_token, ip_hash, deps)
+    payload, code = handle_question(q, session_token, deps)
     return jsonify(payload), code
 
 
@@ -2393,7 +2413,7 @@ def submit_feedback():
         lines.append(f"Verify:      {verify_note}")
     if feedback_type in _ACCOUNT_FEEDBACK_TYPES:
         # surface the session_token to act on via clear_ask_strikes.py
-        # (--account <sub> for appeals, --purge-account <sub> for data deletion)
+        # (--account <sub> for appeals, --delete-account <sub> for an Account Deletion request)
         lines.append(f"Account:     {appeal_account or 'not signed in / token invalid'}")
     lines += ["", "Description:", description]
     body = "\n".join(lines)

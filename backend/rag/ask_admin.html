@@ -471,7 +471,6 @@
           <th>OK count</th>
           <th>Tokens</th>
           <th>Last seen</th>
-          <th>IP hashes</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -519,16 +518,17 @@
   "use strict";
 
   var ALL_STATUSES = [
-    "ok", "ok_cached", "kill_switch", "rate_limited", "off_topic",
+    "ok", "ok_cached", "rate_limited", "off_topic",
     "injection_blocked", "too_long", "gate_error", "ambiguous", "out_of_scope",
-    "thin_data", "llm_error", "validation_failed"
+    "thin_data", "llm_error", "validation_failed", "site_help_llm"
   ];
   var STRIKE_WORTHY = ["injection_blocked", "off_topic"];
   var ERROR_STATUSES = ["gate_error", "llm_error", "validation_failed"];
   var RED_STATUSES = ["injection_blocked", "off_topic"];
-  var GREEN_STATUSES = ["ok", "ok_cached"];
+  // site_help_llm: the classifier saw a site question and the help menu was shown.
+  var GREEN_STATUSES = ["ok", "ok_cached", "site_help_llm"];
   var AMBER_STATUSES = [
-    "kill_switch", "rate_limited", "too_long", "gate_error", "ambiguous",
+    "rate_limited", "too_long", "gate_error", "ambiguous",
     "out_of_scope", "thin_data", "llm_error", "validation_failed"
   ];
 
@@ -871,8 +871,6 @@
       }
       tr.appendChild(el("td", { text: lastSeenText }));
 
-      var ipText = (row.ip_hashes && row.ip_hashes.length) ? row.ip_hashes.join(", ") : "";
-      tr.appendChild(el("td", { className: "truncate", text: truncate(ipText, 30), title: ipText }));
 
       var tdActions = el("td", { className: "row-actions" });
       var viewBtn = el("button", { text: "View logs" });
@@ -885,14 +883,22 @@
         e.stopPropagation();
         openConfirmModal("clear_strikes", row.session_token);
       });
-      var purgeBtn = el("button", { className: "danger", text: "Purge account" });
-      purgeBtn.addEventListener("click", function (e) {
+      // A data deletion keeps the account's Ask standing (live strikes, text removed);
+      // an account deletion removes everything, any ban included.
+      var dataBtn = el("button", { className: "danger", text: "Delete data" });
+      dataBtn.addEventListener("click", function (e) {
         e.stopPropagation();
-        openConfirmModal("purge", row.session_token);
+        openConfirmModal("delete_data", row.session_token);
+      });
+      var accountBtn = el("button", { className: "danger", text: "Delete account" });
+      accountBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        openConfirmModal("delete_account", row.session_token);
       });
       tdActions.appendChild(viewBtn);
       tdActions.appendChild(clearBtn);
-      tdActions.appendChild(purgeBtn);
+      tdActions.appendChild(dataBtn);
+      tdActions.appendChild(accountBtn);
       tr.appendChild(tdActions);
 
       tr.addEventListener("click", function () {
@@ -955,15 +961,30 @@
       });
   }
 
-  // ---- Destructive confirm modal (shared by clear_strikes + purge) ----
+  // ---- Destructive confirm modal (shared by clear_strikes, delete_data, delete_account) ----
 
   var modalState = { kind: null, token: null };
+  var MODAL_TITLES = {
+    clear_strikes: "Clear strikes",
+    delete_data: "Delete data (keeps Ask standing)",
+    delete_account: "Delete account"
+  };
+
+  function deletionSummary(data, token, done) {
+    var parts = [(done ? "Deleted " : "") + data.deleted + " Ask row(s)" + (done ? "" : " will be deleted")];
+    if (data.bookmarks_deleted != null) parts.push(data.bookmarks_deleted + " bookmark(s)");
+    var line = parts.join(" and ") + " for " + token + ".";
+    if (data.kept_strikes) {
+      line += " " + data.kept_strikes + " live strike(s) " + (done ? "were" : "will be") +
+        " kept with their text removed, so the account's warning, cap or ban stays.";
+    }
+    return line;
+  }
 
   function openConfirmModal(kind, token) {
     modalState.kind = kind;
     modalState.token = token;
-    var title = kind === "purge" ? "Purge account" : "Clear strikes";
-    document.getElementById("modal-title").textContent = title;
+    document.getElementById("modal-title").textContent = MODAL_TITLES[kind] || kind;
     document.getElementById("modal-body").textContent = "Checking...";
     document.getElementById("modal-confirm-input").value = "";
     document.getElementById("modal-confirm").disabled = true;
@@ -978,8 +999,7 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (modalState.kind !== kind || modalState.token !== token) return;
-        document.getElementById("modal-body").textContent =
-          data.deleted + " row(s) will be deleted for " + token;
+        document.getElementById("modal-body").textContent = deletionSummary(data, token, false);
       })
       .catch(function (err) {
         if (modalState.kind !== kind || modalState.token !== token) return;
@@ -1016,7 +1036,7 @@
         .then(function (data) {
           closeConfirmModal();
           var statusLine = document.getElementById("users-status");
-          statusLine.textContent = "Deleted " + data.deleted + " row(s) for " + token;
+          statusLine.textContent = deletionSummary(data, token, true);
           fetchUsers();
         })
         .catch(function (err) {

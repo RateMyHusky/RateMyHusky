@@ -36,7 +36,6 @@ def build_deps(query_fn, query_one_fn, prof_search, adapter, num_keys, log_calls
         return out
 
     return types.SimpleNamespace(
-        chat_enabled=True,
         num_keys=num_keys,
         query_fn=query_fn,
         query_one_fn=query_one_fn,
@@ -45,6 +44,7 @@ def build_deps(query_fn, query_one_fn, prof_search, adapter, num_keys, log_calls
         cache_set_fn=lambda k, v: None,       # never poison the (in-memory) cache either
         keyword_search_fn=lambda qq: {"comments": [], "professors": []},
         gate_fn=lambda qq: gate(qq, adapter),
+        conduct_check_fn=adapter.check_conduct,
         retrieve_fn=lambda qq, hint: retrieve(qq, hint, query_fn, query_one_fn,
                                               prof_search, embed_query_fn=embed_query),
         generate_fn=generate_fn,
@@ -93,7 +93,7 @@ def run(questions, label, run_dir_arg):
         for q in questions:
             last_gen.clear()
             t0 = time.monotonic()
-            payload, http = chat_question.handle_question(q["question"], "eval-runner", "eval-ip", deps)
+            payload, http = chat_question.handle_question(q["question"], "eval-runner", deps)
             latency_ms = int((time.monotonic() - t0) * 1000)
             status = log_calls[-1][3] if log_calls else "no_log"   # params[3] = result_status
             tokens = log_calls[-1][6] if log_calls else 0          # params[6] = tokens_used

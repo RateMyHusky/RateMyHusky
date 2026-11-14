@@ -146,9 +146,58 @@ jobs:
           ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
         run: python -m pipeline.run
 
+      # Ask retrieval searches the evidence table (RMP reviews + Reddit comments),
+      # which nothing else refreshes, so it goes stale the week after it is built.
+      # Runs after "Rebuild read models" because the build reads professors_catalog.
+      # working-directory is scraper/ because the step runs load_evidence.py by bare
+      # filename (its denylist import resolves ../backend from __file__, so it does
+      # not depend on the working directory). --prune drops rows the build no longer produces
+      # (including a comment now under another professor or course). Before writing anything,
+      # for both sources, it refuses (check_prune) an empty build, a prune over 5% of a source,
+      # a rewrite of over 5% of its text, or a build over 10% under the source's peak, so a
+      # broken or slowly draining source table can't wipe the corpus; the real weekly delta is
+      # tens of rows. There is no --force here on purpose.
+      #
+      # The Ask steps don't block the data-store push: they continue on error, and
+      # "Verify Ask corpus" after the push fails the run (and opens the issue) instead.
+      - name: Rebuild Ask corpus
+        id: ask_corpus
+        if: ${{ !inputs.dry_run }}
+        continue-on-error: true
+        working-directory: scraper
+        env:
+          ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
+        run: python load_evidence.py --build-evidence --prune
+
+      # The embedding model comes from the Hugging Face hub; caching it usually saves
+      # the download. GitHub evicts a cache unused for 7 days, so a run can still
+      # miss it, and embed_evidence.py then downloads the model.
+      - name: Cache embedding model
+        if: ${{ !inputs.dry_run }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-bge-small-en-v1.5-onnx
+
+      # Embeds only rows that are missing an embedding or whose text changed, so a
+      # normal week is a few dozen rows. The first run embeds everything (~50k rows;
+      # ~1,100 rows/s on a desktop CPU, slower on a runner).
+      - name: Embed Ask corpus
+        id: ask_embed
+        if: ${{ !inputs.dry_run && steps.ask_corpus.outcome == 'success' }}
+        continue-on-error: true
+        # A normal week takes seconds; a stalled model download or DB call fails
+        # here instead of holding the job until its own timeout.
+        timeout-minutes: 30
+        working-directory: scraper
+        env:
+          ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
+        run: python embed_evidence.py --embed
+
       # Post-write verification: the pre-scrape floors validate the input CSVs;
       # this validates what actually landed in the DB. Runs BEFORE the store
-      # push so a bad DB state also blocks overwriting the data store.
+      # push so a bad DB state also blocks overwriting the data store. The Ask
+      # corpus is checked after the push, in "Verify Ask corpus".
       - name: Verify DB state after write
         if: ${{ !inputs.dry_run }}
         working-directory: backend
@@ -194,6 +243,46 @@ jobs:
             "https://x-access-token:${RMH_DATA_TOKEN}@github.com/${RMH_DATA_REPO}.git" \
             main
 
+      # The Ask steps continue on error so they can't hold back the push above; this
+      # fails the run if either failed, or if the corpus is short or under-embedded.
+      # Runs whenever the corpus rebuild ran, even if the push was skipped; not after an
+      # earlier failure that kept the Ask steps from running at all.
+      - name: Verify Ask corpus
+        if: ${{ !cancelled() && !inputs.dry_run && steps.ask_corpus.outcome != 'skipped' }}
+        working-directory: backend
+        env:
+          ORACLE_DATABASE_URL: ${{ secrets.ORACLE_DATABASE_URL }}
+          CORPUS_OUTCOME: ${{ steps.ask_corpus.outcome }}
+          EMBED_OUTCOME: ${{ steps.ask_embed.outcome }}
+        run: |
+          python - <<'EOF'
+          import os, sys, psycopg2
+          failed = False
+          if os.environ["CORPUS_OUTCOME"] != "success":
+              # The rebuild checks both sources before writing, so a refused build changed nothing.
+              print("::error::Rebuild Ask corpus failed, so embedding was skipped. Ask is serving last week's corpus; see that step's log.")
+              failed = True
+          elif os.environ["EMBED_OUTCOME"] != "success":
+              print("::error::Embed Ask corpus failed. Rows added or changed this week have no embedding yet, so vector search misses them; see that step's log.")
+              failed = True
+          conn = psycopg2.connect(os.environ["ORACLE_DATABASE_URL"], sslmode="require")
+          cur = conn.cursor()
+          cur.execute("SELECT count(*) FROM evidence")
+          n_ev = cur.fetchone()[0]
+          print(f"evidence: {n_ev} rows")
+          if n_ev < 40000:
+              print(f"::error::evidence has only {n_ev} rows after the Ask corpus rebuild (< 40000). Investigate before re-running.")
+              failed = True
+          cur.execute("SELECT count(ee.evidence_id)::float / greatest(count(*), 1) FROM evidence e LEFT JOIN evidence_embeddings ee ON ee.evidence_id = e.id")
+          share = cur.fetchone()[0]
+          print(f"evidence embedded: {share:.1%}")
+          if share < 0.95:
+              print(f"::error::Only {share:.1%} of evidence rows have an embedding (< 95%). Investigate before re-running.")
+              failed = True
+          conn.close()
+          sys.exit(1 if failed else 0)
+          EOF
+
   # A failed refresh can leave prod stale or half-written with nothing on the
   # site to say so, and GitHub's own failure email only reaches whoever started
   # the run. Open an issue instead, so the failure reaches everyone watching the
@@ -225,7 +314,7 @@ jobs:
             -q "[.[] | select(.title == \"$title\")][0].number // empty")
           body="A data refresh run ended as $RESULT: $RUN_URL
 
-          Check which step failed. If it was at or after \"Load fresh RMP rows\", prod may hold partially refreshed data: RMP reviews may already be upserted, and if \"Verify DB state after write\" failed, the site is already serving the data that failed the check. If it failed earlier, prod is untouched and the site keeps serving the last good RMP data."
+          Check which step failed. If it was at or after \"Load fresh RMP rows\", prod may hold partially refreshed data: RMP reviews may already be upserted, and if \"Verify DB state after write\" failed, the site is already serving the data that failed the check. If it failed earlier, prod is untouched and the site keeps serving the last good RMP data. If only \"Verify Ask corpus\" failed, the RMP data and the data store were refreshed; only Ask's corpus is behind."
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"
           else

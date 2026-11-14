@@ -1,3 +1,5 @@
+import { chatBodyOrError } from '../utils/askWidget';
+
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
 /* ---- Types ---- */
@@ -283,21 +285,24 @@ export interface ChatSource {
 export interface ChatProfessorMatch {
   name: string;
   department: string;
+  pick?: string;
 }
 
 export type ChatResponse =
   | { mode: 'question'; answer: string; sources: ChatSource[]; cited?: number[]; professor_slug: string; course_code: string | null; disclaimer: string; entities?: { name: string; professor_slug?: string | null; course_code?: string | null }[] }
-  | { mode: 'disambiguation'; message: string; matches: ChatProfessorMatch[] }
+  | { mode: 'disambiguation'; message: string; matches: ChatProfessorMatch[]; ambiguous?: string }
   | { mode: 'out_of_scope' | 'thin_data' | 'keyword'; banner?: string; message?: string; comments: unknown[]; professors: unknown[] }
   | { mode: 'course_list'; answer: string; topic?: string;
       courses: { code: string; name: string; department?: string; rating?: number | null }[];
       disclaimer: string }
+  | { mode: 'site_help'; id: string; title: string; answer: string; links: { label: string; href: string }[]; menu?: { id: string; title: string }[] }
+  | { mode: 'site_help_choice'; message: string; options: { id: string; title: string }[] }
   | { mode: 'error'; message: string };
 
 /* Ask does its own fetch instead of get<T>(): get() throws on any non-2xx, but Ask must read
    the 401 body and the various 200 modes. Returns a synthetic error on network failure so the
    caller never has to try/catch. */
-export async function askChat(q: string): Promise<{ status: number; body: ChatResponse }> {
+async function postChat(payload: Record<string, string | boolean>): Promise<{ status: number; body: ChatResponse }> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = localStorage.getItem('auth_token');
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -306,16 +311,22 @@ export async function askChat(q: string): Promise<{ status: number; body: ChatRe
     const res = await fetch(`${API_BASE}/api/chat`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ q }),
+      body: JSON.stringify(payload),
       cache: 'no-cache',
     });
     if (maintenanceGuard(res)) throw new Error('Site is under maintenance');
-    const body = (await res.json()) as ChatResponse;
+    const body = chatBodyOrError(await res.json());
     return { status: res.status, body };
   } catch {
     return { status: 0, body: { mode: 'error', message: 'Something went wrong — try again.' } };
   }
 }
+
+/* skipHelp: the user tapped "No, other" on the site-help prompt, so go straight to the LLM. */
+export const askChat = (q: string, skipHelp = false) => postChat(skipHelp ? { q, skip_help: true } : { q });
+
+/* Fetch a canned site-help answer by id. Nothing is logged: it never reaches the LLM. */
+export const askHelp = (id: string) => postChat({ help_id: id });
 
 /* ---- Professor catalog (browse page) ---- */
 export interface CatalogProfessor {

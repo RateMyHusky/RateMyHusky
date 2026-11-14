@@ -46,3 +46,10 @@ export function pinnedFirst<T>(items: T[], getBody: (t: T) => string, snippets: 
   }
   return [...pinned, ...rest];
 }
+
+// Identifies one citation click: the answer it came from (askedAt) plus the cited source.
+// Two citations from the same answer get different keys, so each click re-applies the pins.
+// Never '' — the professor page's "nothing applied yet" sentinel.
+export function pinClickKey(pins: { askedAt: number; clicked: { source: string | null; snippet: string } }): string {
+  return JSON.stringify([pins.askedAt, pins.clicked.source, pins.clicked.snippet]);
+}
