@@ -2,6 +2,8 @@ backend/Better_Scraper/output_data
 scraper/data
 scraper/reddit_data
 .env
+.env.*
+!.env.example
 backend/.env
 .vercel
 backend/backups/

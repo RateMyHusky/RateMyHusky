@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { BANNER_MATCHES, BANNER_ORIGIN, MAX_CRNS } from './messages';
 import type { LookupRequest, LookupResponse, Section } from './messages';
 
@@ -38,8 +39,10 @@ chrome.permissions.onAdded.addListener(() => void syncBannerScript());
 chrome.permissions.onRemoved.addListener(() => void syncBannerScript());
 
 /** Over the site, never the Railway host: only traffic proxied through the
- *  site carries PROXY_SECRET. */
-const API_URL = 'https://ratemyhusky.com/api/banner/sections';
+ *  site carries PROXY_SECRET. `VITE_RMH_API=http://localhost:5001 npm run build`
+ *  points it at a local backend instead, which also needs that origin in the
+ *  manifest's host_permissions. */
+const API_URL = `${import.meta.env.VITE_RMH_API ?? 'https://ratemyhusky.com'}/api/banner/sections`;
 const TIMEOUT_MS = 10_000;
 
 /** Asks the endpoint about one page of CRNs and returns its rows keyed by CRN.
