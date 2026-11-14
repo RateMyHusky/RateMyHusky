@@ -1,10 +1,12 @@
 """
 Build the unified `evidence` corpus (RMP + Reddit) in PostgreSQL for Ask retrieval.
-Idempotent. Reads existing source tables; writes only `evidence` (embeddings are scraper/embed_evidence.py's job).
+Idempotent. Reads existing source tables; writes `evidence` and, on a prune, each source's
+peak row count in `stats_cache` (embeddings are scraper/embed_evidence.py's job).
 
 Usage:
-    python load_evidence.py --selftest        # offline checks, exit
-    python load_evidence.py --build-evidence  # populate evidence (Task 2)
+    python load_evidence.py --selftest                            # offline checks, exit
+    python load_evidence.py --build-evidence --prune              # the weekly rebuild
+    python load_evidence.py --build-evidence --prune --dry-run    # report the plan, write nothing
 """
 import argparse, itertools, os, sys, time, re, hashlib, unicodedata
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
@@ -241,65 +243,124 @@ def upsert_evidence(conn, rows, batch=1000):
         total += len(chunk)
     return total
 
-# A weekly prune that would remove more than this share of a source's rows is
-# treated as a broken build, not as deletions. The real weekly delta is ~0.03%
-# (14 of 41k rmp rows, 0 reddit), so 5% leaves headroom and still stops a
-# partial source table from wiping the corpus.
+# ── Safety guard: plan both sources, check them, and only then write ──
+#
+# Every check runs before the upsert and before any delete, for both sources, so a build
+# that looks broken writes nothing at all. The real weekly delta is tens of rows: ~0.03%
+# stale (14 of 41k rmp rows, 0 reddit) and a few dozen changed bodies.
+#
+# A prune that would remove more than this share of a source's rows is treated as a
+# broken build, not as deletions.
 PRUNE_CEILING = 0.05
+# A build that would rewrite the text of more than this share of a source's existing rows
+# is treated as a broken build too (mangled bodies would otherwise be upserted and
+# re-embedded the same day).
+CHANGE_CEILING = 0.05
+# The weekly ceilings compound: 5% a week is ~40% in ten weeks. So a build may also not
+# fall more than this far below the source's peak, the most rows a pruned build has ever
+# held, kept in stats_cache under PEAK_KEY.
+DRAIN_CEILING = 0.10
+PEAK_KEY = "evidence_peak:{}"
+SOURCES = ("reddit", "rmp")
 
-def check_prune(source: str, n_db: int, n_fresh: int, n_stale: int, force: bool) -> None:
-    """Refuse a prune that looks like a broken build. An empty build is refused even with
-    force (nothing legitimate produces zero rows for a populated source); a prune over
-    PRUNE_CEILING of the source's rows needs force."""
+
+def row_key(source_ref, professor_slug, course_code):
+    """The evidence row's identity: ev_dedupe's columns past `source`. A row whose comment
+    still exists but now belongs to another professor or course is a different row."""
+    return (str(source_ref), professor_slug or "", course_code or "")
+
+
+def check_prune(source: str, n_db: int, n_fresh: int, n_stale: int, force: bool,
+                n_changed: int = 0, peak=None, prune: bool = True) -> None:
+    """Refuse a build that looks broken. An empty build is refused even with force
+    (nothing legitimate produces zero rows for a populated source); a prune over
+    PRUNE_CEILING, a rewrite over CHANGE_CEILING, or a build over DRAIN_CEILING below the
+    source's peak needs force."""
     if n_fresh == 0 and n_db > 0:
         raise SystemExit(
-            f"Refusing to prune {source}: the build produced 0 rows but the database holds "
-            f"{n_db}. The source tables are probably empty or unreadable; nothing was deleted."
+            f"Refusing to write {source}: the build produced 0 rows but the database holds "
+            f"{n_db}. The source tables are probably empty or unreadable; nothing was written."
         )
-    if n_stale > PRUNE_CEILING * n_db and not force:
+    if force:
+        return
+    if prune and n_stale > PRUNE_CEILING * n_db:
         raise SystemExit(
             f"Refusing to prune {source}: {n_stale} of {n_db} rows "
             f"({n_stale / n_db:.1%}) are stale, over the {PRUNE_CEILING:.0%} ceiling. "
-            f"Nothing was deleted. Re-run with --force if this is expected."
+            f"Nothing was written. Re-run with --force if this is expected."
+        )
+    if n_changed > CHANGE_CEILING * n_db:
+        raise SystemExit(
+            f"Refusing to write {source}: the build changes the text of {n_changed} of {n_db} "
+            f"rows ({n_changed / n_db:.1%}), over the {CHANGE_CEILING:.0%} ceiling. "
+            f"Nothing was written. Re-run with --force if this is expected."
+        )
+    if peak and n_fresh < (1 - DRAIN_CEILING) * peak:
+        raise SystemExit(
+            f"Refusing to write {source}: the build has {n_fresh} rows, {1 - n_fresh / peak:.1%} "
+            f"under the source's peak of {peak} (limit {DRAIN_CEILING:.0%}). Small weekly "
+            f"losses add up; nothing was written. Re-run with --force if this is expected."
         )
 
-def prune_evidence(conn, source, fresh_refs, batch=1000, force=False):
-    """Delete evidence rows (and their embeddings) for `source` whose source_ref is not in
-    fresh_refs — cleans up rows orphaned by a Reddit re-score or FP-mention purge. Computes the
-    stale refs (in DB, not in fresh_refs) up front, then batches the DELETEs over just those stale
-    refs so a later batch's rows are never wiped by an earlier batch's NOT-IN scope; deletes
-    embeddings first so no orphan vectors remain."""
-    fresh_set = set(fresh_refs)
-    with conn.cursor() as cur:
-        cur.execute("SELECT source_ref FROM evidence WHERE source = %s", (source,))
-        db_refs = [r[0] for r in cur.fetchall()]
-    stale = [ref for ref in db_refs if ref not in fresh_set]
-    check_prune(source, len(db_refs), len(fresh_set), len(stale), force)
 
-    deleted = 0
-    for start in range(0, len(stale), batch):
-        chunk = stale[start:start + batch]
-        for attempt in range(6):
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "DELETE FROM evidence_embeddings WHERE evidence_id IN "
-                        "(SELECT id FROM evidence WHERE source = %s AND source_ref = ANY(%s))",
-                        (source, chunk),
-                    )
-                    cur.execute(
-                        "DELETE FROM evidence WHERE source = %s AND source_ref = ANY(%s)",
-                        (source, chunk),
-                    )
-                    deleted += cur.rowcount
-                conn.commit()
-                break
-            except psycopg2.errors.SerializationFailure:
-                conn.rollback()
-                if attempt == 5:
-                    raise
-                time.sleep(0.5 * (2 ** attempt))
-    return deleted
+def plan_source(conn, source, rows):
+    """Compare the build's rows for `source` with the database: which rows would go
+    (stale_ids), how many existing rows would get new text, and the source's peak."""
+    fresh = {row_key(r["source_ref"], r.get("professor_slug"), r.get("course_code")): r["body_sha"]
+             for r in rows}
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, source_ref, professor_slug, course_code, body_sha "
+                    "FROM evidence WHERE source = %s", (source,))
+        db_rows = cur.fetchall()
+        cur.execute("SELECT value FROM stats_cache WHERE key = %s", (PEAK_KEY.format(source),))
+        peak_row = cur.fetchone()
+    stale_ids, changed = [], 0
+    for row_id, ref, slug, code, sha in db_rows:
+        key = row_key(ref, slug, code)
+        if key not in fresh:
+            stale_ids.append(row_id)
+        elif fresh[key] != sha:
+            changed += 1
+    return {"source": source, "n_db": len(db_rows), "n_fresh": len(fresh),
+            "stale_ids": stale_ids, "n_changed": changed,
+            "peak": peak_row[0] if peak_row else None}
+
+
+def check_plans(plans, force, prune):
+    for p in plans:
+        check_prune(p["source"], p["n_db"], p["n_fresh"], len(p["stale_ids"]), force,
+                    n_changed=p["n_changed"], peak=p["peak"], prune=prune)
+
+
+def prune_evidence(conn, plans, force=False, batch=1000):
+    """Delete every source's stale rows (embeddings first, so no orphan vectors remain) and
+    record each source's new peak, all in ONE transaction: a failure leaves the corpus as it
+    was, never half-pruned. Returns {source: rows deleted}."""
+    for attempt in range(6):
+        try:
+            deleted = {}
+            with conn.cursor() as cur:
+                for p in plans:
+                    deleted[p["source"]] = 0
+                    ids = p["stale_ids"]
+                    for start in range(0, len(ids), batch):
+                        chunk = ids[start:start + batch]
+                        cur.execute("DELETE FROM evidence_embeddings WHERE evidence_id = ANY(%s::uuid[])", (chunk,))
+                        cur.execute("DELETE FROM evidence WHERE id = ANY(%s::uuid[])", (chunk,))
+                        deleted[p["source"]] += cur.rowcount
+                    # After the prune the source holds exactly the build's rows. --force is how
+                    # a deliberate shrink is accepted, so it also lowers the peak.
+                    peak = p["n_fresh"] if force else max(p["peak"] or 0, p["n_fresh"])
+                    cur.execute("INSERT INTO stats_cache (key, value) VALUES (%s, %s) "
+                                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                                (PEAK_KEY.format(p["source"]), peak))
+            conn.commit()
+            return deleted
+        except psycopg2.errors.SerializationFailure:
+            conn.rollback()
+            if attempt == 5:
+                raise
+            time.sleep(0.5 * (2 ** attempt))
 
 def selftest():
     fails = []
@@ -381,77 +442,49 @@ def selftest():
     for col in ("sentiment", "reddit_score", "permalink", "created_utc", "rmp_meta", "subreddit"):
         check(f"upsert SET-list refreshes {col}", f"{col} = excluded.{col}" in upsert_sql)
 
-    # ── Issue 24: prune_evidence deletes embeddings then evidence, scoped to source + stale refs ──
-    prune_sql_holder = []
-    class _FakePruneCursor:
-        def __init__(self): self.rowcount = 0
+    # ── Prune guard: plan by full row key, check before writing, delete by id in one commit ──
+    class _FakeEvidenceCursor:
+        def __init__(self, conn): self.conn = conn; self.rowcount = 0; self._last = ""
         def __enter__(self): return self
         def __exit__(self, *a): return False
         def execute(self, sql, params=None):
-            if "SELECT source_ref FROM evidence" in sql:
-                return
-            prune_sql_holder.append((sql, params))
-            self.rowcount = 2
-        def fetchall(self):
-            return [("keep1",), ("keep2",), ("stale1",)]
-    class _FakePruneConn:
-        def cursor(self, *a, **k): return _FakePruneCursor()
-        def commit(self): pass
+            self._last = sql
+            self.conn.statements.append((sql, params))
+            if sql.startswith("DELETE FROM evidence WHERE"):
+                self.rowcount = len(params[0])
+        def fetchall(self): return self.conn.db_rows
+        def fetchone(self): return (self.conn.peak,) if self.conn.peak is not None else None
+    class _FakeEvidenceConn:
+        def __init__(self, db_rows, peak=None):
+            self.db_rows, self.peak, self.statements, self.commits = db_rows, peak, [], 0
+        def cursor(self, *a, **k): return _FakeEvidenceCursor(self)
+        def commit(self): self.commits += 1
         def rollback(self): pass
-    deleted = prune_evidence(_FakePruneConn(), "reddit", ["keep1", "keep2"], force=True)
-    check("prune deletes embeddings before evidence", "evidence_embeddings" in prune_sql_holder[0][0])
-    check("prune scopes DELETE to source + stale refs only",
-          prune_sql_holder[1][1][0] == "reddit" and prune_sql_holder[1][1][1] == ["stale1"]
-          and "source_ref = ANY" in prune_sql_holder[1][0] and "NOT" not in prune_sql_holder[1][0])
-    check("prune returns deleted count from cursor.rowcount", deleted == 2)
-    prune_sql_holder.clear()
+    keep = _row("reddit", "c1", "guha-prof", None, "hard but fair, great office hours")
+    moved = _row("reddit", "c2", "lee-prof", None, "the midterm curve was generous this term")
+    db = [(1, "c1", "guha-prof", "", keep["body_sha"]),
+          (2, "c2", "wrong-prof", "", moved["body_sha"]),     # same comment, re-matched to lee-prof
+          (3, "c3", "guha-prof", "", "oldsha")]               # gone from the build
+    plan = plan_source(_FakeEvidenceConn(db, peak=3), "reddit", [keep, moved])
+    check("plan: a comment re-matched to another professor leaves its old row stale",
+          plan["stale_ids"] == [2, 3])
+    check("plan: counts rows and reads the peak", plan["n_db"] == 3 and plan["n_fresh"] == 2 and plan["peak"] == 3)
+    pconn = _FakeEvidenceConn(db)
+    deleted = prune_evidence(pconn, [plan], force=True, batch=1)
+    deletes = [st for st in pconn.statements if st[0].startswith("DELETE")]
+    check("prune deletes embeddings before evidence, by id, per batch",
+          [st[0].split(" WHERE")[0] for st in deletes] == ["DELETE FROM evidence_embeddings",
+                                                            "DELETE FROM evidence"] * 2
+          and [st[1][0] for st in deletes] == [[2], [2], [3], [3]])
+    check("prune commits once and reports per source", pconn.commits == 1 and deleted == {"reddit": 2})
+    check("forced prune resets the peak to the build",
+          any("stats_cache" in st[0] and st[1] == ("evidence_peak:reddit", 2) for st in pconn.statements))
     try:
-        prune_evidence(_FakePruneConn(), "reddit", ["keep1", "keep2"])
+        check_plans([plan], force=False, prune=True)   # 2 of 3 stale: over the ceiling
         refused = False
     except SystemExit:
         refused = True
-    check("prune over the ceiling without force refuses before any DELETE",
-          refused and not prune_sql_holder)
-
-    # ── Critical: prune must batch over STALE refs (DB minus fresh), not fresh refs — batching
-    # over fresh refs means the first chunk's NOT-IN DELETE wipes every fresh row whose ref is in
-    # a LATER chunk, destroying nearly the whole corpus once there's more than one batch. ──
-    prune_multi_sql_holder = []
-    class _FakeMultiBatchCursor:
-        def __init__(self): self.rowcount = 0
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def execute(self, sql, params=None):
-            if "SELECT source_ref FROM evidence" in sql:
-                self._select = True
-            else:
-                self._select = False
-                prune_multi_sql_holder.append((sql, params))
-            self.rowcount = 1
-        def fetchall(self):
-            # DB holds refs spanning MORE than one batch (batch=2): a,b,c,d are fresh; stale1/
-            # stale2/stale3 are stale and span 2 batches of stale refs (2 + 1).
-            return [("a",), ("b",), ("c",), ("d",), ("stale1",), ("stale2",), ("stale3",)]
-    class _FakeMultiBatchConn:
-        def cursor(self, *a, **k): return _FakeMultiBatchCursor()
-        def commit(self): pass
-        def rollback(self): pass
-    fresh_refs_multi = ["a", "b", "c", "d"]
-    deleted_multi = prune_evidence(_FakeMultiBatchConn(), "reddit", fresh_refs_multi, batch=2, force=True)
-    all_delete_params = [p for _, p in prune_multi_sql_holder]
-    all_chunk_refs = [ref for _source, chunk in all_delete_params for ref in chunk]
-    check("prune (multi-batch) never puts a fresh ref in any DELETE param",
-          not any(ref in fresh_refs_multi for ref in all_chunk_refs))
-    check("prune (multi-batch) DELETE params only ever contain stale refs",
-          set(all_chunk_refs) == {"stale1", "stale2", "stale3"})
-    check("prune (multi-batch) issues 2 DELETEs per stale chunk, 2 stale chunks (4 total)",
-          len(prune_multi_sql_holder) == 4)
-    check("prune (multi-batch) deletes embeddings before evidence within each stale chunk",
-          "evidence_embeddings" in prune_multi_sql_holder[0][0]
-          and "evidence_embeddings" not in prune_multi_sql_holder[1][0]
-          and "evidence_embeddings" in prune_multi_sql_holder[2][0]
-          and "evidence_embeddings" not in prune_multi_sql_holder[3][0])
-    check("prune (multi-batch) returns deleted count summed across stale chunks", deleted_multi == 2)
+    check("an over-ceiling plan is refused", refused)
 
     print("ALL PASS" if not fails else f"{len(fails)} FAIL(s): " + ", ".join(fails))
     return 1 if fails else 0
@@ -461,11 +494,18 @@ def main():
     parser.add_argument("--selftest", action="store_true", help="Run offline checks")
     parser.add_argument("--build-evidence", action="store_true", help="Populate evidence from all sources")
     parser.add_argument("--prune", action="store_true",
-                         help="After building, delete evidence rows (+ their embeddings) whose "
-                              "source_ref is no longer produced by the build (requires --build-evidence)")
+                         help="After building, delete evidence rows (+ their embeddings) the build "
+                              "no longer produces: a gone comment or review, or one now under another "
+                              "professor or course (requires --build-evidence)")
     parser.add_argument("--force", action="store_true",
-                         help="Let --prune delete more than the safety ceiling "
-                              f"({PRUNE_CEILING:.0%} of a source's rows); requires --prune")
+                         # argparse %-formats help text, so the percent signs are doubled.
+                         help=(f"Accept a build over the safety ceilings: more than "
+                               f"{PRUNE_CEILING:.0%} of a source's rows stale or "
+                               f"{CHANGE_CEILING:.0%} rewritten, or over {DRAIN_CEILING:.0%} "
+                               "under its peak (also resets the peak); requires --prune"
+                               ).replace("%", "%%"))
+    parser.add_argument("--dry-run", action="store_true",
+                         help="Build and run the checks, print what would change, write nothing")
     args = parser.parse_args()
     if args.force and not args.prune:
         parser.error("--force requires --prune")
@@ -482,16 +522,24 @@ def main():
                 cur.execute(sql, params or ())
                 return cur.fetchall()
 
-        reddit_rows = build_reddit_rows(query_fn)
-        rmp_rows = build_rmp_rows(query_fn)
-        all_rows = reddit_rows + rmp_rows
-        n = upsert_evidence(conn, all_rows)
+        built = {"reddit": build_reddit_rows(query_fn), "rmp": build_rmp_rows(query_fn)}
+        # Both sources are planned and checked before anything is written, so a build that
+        # fails a check (either source) leaves the corpus exactly as it was.
+        plans = [plan_source(conn, source, built[source]) for source in SOURCES]
+        for p in plans:
+            print(f"{p['source']}: {p['n_fresh']} built, {p['n_db']} in the database, "
+                  f"{len(p['stale_ids'])} stale, {p['n_changed']} with new text, peak {p['peak']}")
+        check_plans(plans, force=args.force, prune=args.prune)
+        if args.dry_run:
+            print("Dry run: nothing written")
+            conn.close()
+            sys.exit(0)
+
+        n = upsert_evidence(conn, built["reddit"] + built["rmp"])
         print(f"Upserted {n} evidence rows")
 
         if args.prune:
-            for source, rows in (("reddit", reddit_rows), ("rmp", rmp_rows)):
-                fresh_refs = [r["source_ref"] for r in rows]
-                deleted = prune_evidence(conn, source, fresh_refs, force=args.force)
+            for source, deleted in prune_evidence(conn, plans, force=args.force).items():
                 print(f"Pruned {deleted} stale {source} evidence rows")
 
         conn.close()
