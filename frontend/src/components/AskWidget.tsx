@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { askChat, askHelp } from '../api/api';
-import { loadTranscript, saveTranscript, withName } from '../utils/askWidget';
+import { loadTranscript, saveTranscript, withName, TRANSCRIPT_CLEARED_EVENT } from '../utils/askWidget';
 import type { WidgetMsg } from '../utils/askWidget';
 import AskAnswer from './AskAnswer';
 import type { AskPick } from './AskAnswer';
@@ -41,6 +41,19 @@ const AskWidget = () => {
   useEffect(() => {
     saveTranscript(messages);
   }, [messages]);
+
+  // Sign-out clears the saved transcript; drop the one on screen too, along with any
+  // answer still on its way, so the next message can't save the old conversation back.
+  useEffect(() => {
+    const reset = () => {
+      seq.current += 1;
+      setMessages([GREETING]);
+      setPending(false);
+      setDraft('');
+    };
+    window.addEventListener(TRANSCRIPT_CLEARED_EVENT, reset);
+    return () => window.removeEventListener(TRANSCRIPT_CLEARED_EVENT, reset);
+  }, []);
 
   useEffect(() => {
     const el = logRef.current;
@@ -120,13 +133,14 @@ const AskWidget = () => {
       const r = msg.result;
       const topics = r?.mode === 'site_help' ? r.menu : r?.mode === 'site_help_choice' ? r.options : undefined;
       const title = topics?.find(i => i.id === pick.id)?.title ?? 'How does this site work?';
-      // A topic from the prompt sends its question along so the pick is logged against it.
-      const from = r?.mode === 'site_help_choice' ? msg.question : undefined;
-      void ask(title, () => askHelp(pick.id, from), title);
+      void ask(title, () => askHelp(pick.id), title);
       return;
     }
     const ambiguous = msg.result?.mode === 'disambiguation' ? msg.result.ambiguous : undefined;
-    void send(withName(msg.question ?? '', ambiguous, pick.pick));
+    // A disambiguation reply means the question already went past site help: keep it there,
+    // or a keyword in it ("Lee vs Guha") brings the site-help prompt back.
+    const text = withName(msg.question ?? '', ambiguous, pick.pick);
+    void ask(text, () => askChat(text, true), text);
   };
 
   const renderBot = (m: WidgetMsg) => {

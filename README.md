@@ -163,7 +163,11 @@ FRONTEND_URL=http://localhost:5173
 EXTENSION_ORIGINS=chrome-extension://<your-unpacked-extension-id>
 
 # Optional — AI Ask mode. Without keys, Ask questions that need the LLM fail.
+# Either a comma-separated list, or one key per variable (groq1, groq2, ...),
+# which takes precedence when set. CHAT_ENABLED=false turns Ask questions off
+# (503) without a deploy; site help keeps working.
 GROQ_API_KEYS=<key1>,<key2>
+CHAT_ENABLED=true
 
 # Optional — student rating form. The rating routes return 503 until
 # RATING_SECRET (at least 32 characters) is set.

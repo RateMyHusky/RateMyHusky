@@ -49,7 +49,7 @@ class GroqAdapter:
         # verdict and NOT punish the user with an abuse strike for our own hiccup.
         fail_closed = {"on_topic": False, "about_site": False, "professors_or_courses": [],
                        "professor_or_course": None,
-                       "looks_like_injection": True, "error": True}
+                       "looks_like_injection": True, "error": True, "tokens_used": 0}
         try:
             _entry, client = self._client(est_tokens=300 + self.CLASSIFY_MAX_TOKENS)
             resp = client.chat.completions.create(
@@ -73,6 +73,8 @@ class GroqAdapter:
                 "professor_or_course": entities[0] if entities else None,
                 "looks_like_injection": bool(data.get("looks_like_injection", False)),
                 "error": False,
+                # Logged with the question so the minute guard and the admin page see it.
+                "tokens_used": getattr(getattr(resp, "usage", None), "total_tokens", 0) or 0,
             }
         except Exception:
             return fail_closed
@@ -167,6 +169,8 @@ def selftest():
     # a normal parsed verdict must flag error=False.
     check("classify flags error on failure", cls2.get("error") is True)
     check("classify flags no-error on success", cls.get("error") is False)
+    check("classify reports its token cost", cls.get("tokens_used") == 42)
+    check("failed classify reports no tokens", cls2.get("tokens_used") == 0)
 
     # Scope regression guard: the classify prompt must admit ratings/reviews questions and a
     # bare prof/course name as on-topic (the over-narrow 'teaching/difficulty/grading/workload'

@@ -34,7 +34,11 @@ export function loadTranscript(storage?: Storage): WidgetMsg[] | null {
   }
 }
 
-/** Forgets the saved transcript (on sign-out); storage failures are ignored. */
+/** Fired on window by clearTranscript, so a mounted widget drops the conversation it shows. */
+export const TRANSCRIPT_CLEARED_EVENT = 'ask-transcript-cleared';
+
+/** Forgets the saved transcript (on sign-out) and tells the widget to reset; storage
+    failures are ignored. */
 export function clearTranscript(storage?: Storage): void {
   try {
     const store = storage ?? window.sessionStorage;
@@ -42,6 +46,7 @@ export function clearTranscript(storage?: Storage): void {
   } catch {
     /* ignore */
   }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(TRANSCRIPT_CLEARED_EVENT));
 }
 
 /** Persists the last TRANSCRIPT_MAX messages; storage failures are ignored. */

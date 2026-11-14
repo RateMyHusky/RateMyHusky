@@ -115,7 +115,7 @@ export default function AskAnswer({ result, askedAt, onPick }: { result: ChatRes
               <li key={c.code}>
                 <Link className="ask-source-link" to={`/courses/${c.code.toLowerCase()}`} state={ASK_LINK_STATE}>{c.code}</Link>
                 <span className="ask-source-snippet">
-                  {c.name}{c.rating != null ? ` · ${c.rating.toFixed(1)}★` : ''}
+                  {c.name}{c.rating != null ? ` (${c.rating.toFixed(1)}★)` : ''}
                 </span>
               </li>
             ))}

@@ -90,15 +90,16 @@ const Privacy = () => {
                 </li>
                 {ASK_ENABLED && (
                 <li>
-                  <strong>Ask:</strong> when you send a question to Ask, we store the question,
-                  the answer we gave, the professor or course it was about, how it was handled
-                  (for example answered, refused as off-topic, or limited), and when you asked. If
-                  you are signed in, the question is stored with your Google account id, so Ask
-                  questions are <strong>not anonymous</strong>. Questions about how the site works
-                  can be asked without signing in, and those are stored without an account id. We
-                  do not store your IP address with any Ask question. Stored questions are deleted
-                  30 days after you ask them. Questions that need a written answer are sent to
-                  Groq, without your account id (see <em>Third-Party Services</em>).
+                  <strong>Ask:</strong> when Ask checks your question with its AI model, we store
+                  the question, the answer we gave, the professor or course it was about, how it
+                  was handled (for example answered, refused as off-topic, or limited), and when
+                  you asked. Only signed-in accounts can send those questions, and each is stored
+                  with your Google account id, so Ask questions are <strong>not anonymous</strong>.
+                  Questions about how the site works are answered without the AI model and are not
+                  stored, signed in or not. We do not store your IP address with any Ask question.
+                  Stored questions are deleted 30 days after you ask them. Questions that need a
+                  written answer are sent to Groq, without your account id (see <em>Third-Party
+                  Services</em>).
                 </li>
                 )}
                 {RATE_ENABLED && (
@@ -466,11 +467,6 @@ const Privacy = () => {
                   feedback form: an email address is required, and your signed-in account
                   identifier is included so we can verify your identity and delete the records
                   tied to your account{ASK_ENABLED ? ', including your Ask questions' : ''}.
-                  {ASK_ENABLED && (<>
-                  {' '}Ask questions sent while signed out carry no account id, so we cannot
-                  find them to delete early; they are deleted after 30 days like all Ask
-                  questions.
-                  </>)}
                   {RATE_ENABLED && (<>
                   {' '}To delete ratings, which are not tied to an account,
                   email{' '}

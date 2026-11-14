@@ -68,11 +68,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const popupRef = useRef<Window | null>(null);
+  const userRef = useRef<User | null>(null);
+
+  // The Ask transcript holds the signed-in account's questions: forget it whenever that
+  // account goes away (signed out here or in another tab, or replaced by another account).
+  const applyUser = useCallback((next: User | null) => {
+    const prev = userRef.current;
+    if (prev && prev.email !== next?.email) clearTranscript();
+    userRef.current = next;
+    setUser(next);
+  }, []);
 
   const fetchUser = useCallback(function check(retry = true): Promise<void> {
     const token = getStoredToken();
     if (!token) {
-      setUser(null);
+      applyUser(null);
       return Promise.resolve();
     }
     // A 429 (campus NAT shares one IP's limit), a 5xx or a dropped request says
@@ -98,15 +108,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // change started will answer for the new one.
         if (data === undefined || getStoredToken() !== token) return;
         if (data) {
-          setUser(data);
+          applyUser(data);
         } else {
           // Clearing fires a storage event that signs out every tab: only for a rejected token.
           clearToken();
-          setUser(null);
+          // The transcript may be from this token's account even if this tab never showed it
+          // signed in (an expired token on reload).
+          clearTranscript();
+          applyUser(null);
         }
       })
       .catch(transient);
-  }, []);
+  }, [applyUser]);
 
   // Check for token in URL fragment (mobile redirect flow)
   useEffect(() => {
@@ -198,16 +211,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     const token = getStoredToken();
-    const res = await fetch(`${API_BASE}/api/auth/logout`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    clearToken();
-    // The Ask transcript holds this account's questions: don't leave it for the next person.
-    clearTranscript();
-    setUser(null);
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/api/auth/logout`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+    } finally {
+      // Signed out locally even when the request fails. The Ask transcript holds this
+      // account's questions: don't leave it for the next person.
+      clearToken();
+      clearTranscript();
+      applyUser(null);
+    }
     maintenanceGuard(res);
-  }, []);
+  }, [applyUser]);
 
   return (
     <AuthContext.Provider value={{ user, loading, login, logout }}>

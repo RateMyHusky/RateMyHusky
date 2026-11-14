@@ -27,21 +27,19 @@ def results(monkeypatch):
     return calls
 
 
-def test_site_question_signed_out_gets_choice_and_is_logged(q_client, logged, results):
+# Only questions that reach the LLM are logged; site help never calls it.
+def test_site_question_signed_out_gets_choice_and_is_not_logged(q_client, logged, results):
     resp = q_client.post("/api/chat", json={"q": "how do bookmarks work"}, headers={"Origin": ORIGIN})
     body = resp.get_json()
     assert resp.status_code == 200 and body["mode"] == "site_help_choice"
     assert [o["id"] for o in body["options"]] == ["bookmarks"]
-    params = logged[-1][1]
-    assert params[1] == "site_help" and params[3] == "site_help_choice"   # mode, result_status
-    assert params[5] == "bookmarks:bookmark"                              # which keyword fired
-    assert params[8] is None                                              # session_token (signed out)
+    assert logged == []
 
 
-def test_site_question_signed_in_logs_account(q_client, logged, results):
+def test_site_question_signed_in_is_not_logged(q_client, logged, results):
     resp = q_client.post("/api/chat", json={"q": "how do bookmarks work"}, headers=_auth_headers())
     assert resp.status_code == 200
-    assert logged[-1][1][8] == "user-123"
+    assert logged == []
 
 
 def test_professor_question_with_keyword_gets_choice_not_sign_in(q_client, logged, results):
@@ -53,7 +51,7 @@ def test_menu_request_returns_menu_directly(q_client, logged, results):
     resp = q_client.post("/api/chat", json={"q": "help"}, headers={"Origin": ORIGIN})
     body = resp.get_json()
     assert resp.status_code == 200 and body["mode"] == "site_help" and body["id"] == "menu"
-    assert logged[-1][1][3] == "site_help" and logged[-1][1][5] == "menu"
+    assert logged == []
 
 
 def test_help_id_returns_entry_without_logging(q_client, logged, results):
@@ -63,21 +61,18 @@ def test_help_id_returns_entry_without_logging(q_client, logged, results):
     assert logged == []
 
 
-def test_help_id_picked_from_choice_is_logged(q_client, logged, results):
+def test_help_id_picked_from_choice_is_not_logged(q_client, logged, results):
     resp = q_client.post("/api/chat", json={"help_id": "compare", "q": "Guha vs Lieberherr"},
                          headers={"Origin": ORIGIN})
     assert resp.status_code == 200 and resp.get_json()["id"] == "compare"
-    params = logged[-1][1]
-    assert params[0] == "Guha vs Lieberherr" and params[1] == "site_help"
-    assert params[3] == "site_help_pick" and params[5] == "compare"
+    assert logged == []
 
 
-def test_skip_help_signed_out_needs_sign_in_and_is_logged(q_client, logged, results):
+def test_skip_help_signed_out_needs_sign_in_and_is_not_logged(q_client, logged, results):
     resp = q_client.post("/api/chat", json={"q": "how do bookmarks work", "skip_help": True},
                          headers={"Origin": ORIGIN})
     assert resp.status_code == 401
-    assert results == []
-    assert logged[-1][1][3] == "site_help_other" and logged[-1][1][0] == "how do bookmarks work"
+    assert results == [] and logged == []
 
 
 def test_skip_help_signed_in_goes_to_llm(monkeypatch, q_client, logged):
@@ -91,7 +86,7 @@ def test_skip_help_signed_in_goes_to_llm(monkeypatch, q_client, logged):
                          headers=_auth_headers())
     assert resp.status_code == 200 and resp.get_json()["mode"] == "question"
     assert seen == ["Guha vs Lieberherr"]
-    assert logged[-1][1][3] == "site_help_other" and logged[-1][1][8] == "user-123"
+    assert logged == []   # handle_question logs it, once it reaches the LLM
 
 
 def test_skip_help_must_be_true(q_client, logged, results):
@@ -134,7 +129,26 @@ def test_site_question_with_bad_token_is_answered_as_signed_out(q_client, logged
     resp = q_client.post("/api/chat", json={"q": "how do bookmarks work"},
                          headers={"Origin": ORIGIN, "Authorization": "Bearer " + token})
     assert resp.status_code == 200 and resp.get_json()["mode"] == "site_help_choice"
-    assert logged[-1][1][8] is None                                 # session_token
+    assert logged == []
+
+
+def test_kill_switch_turns_questions_off(monkeypatch, q_client, logged, results):
+    import server
+    monkeypatch.setattr(server, "CHAT_ENABLED", False)
+    for body in ({"q": "is Guha hard"}, {"q": "how do bookmarks work", "skip_help": True}):
+        resp = q_client.post("/api/chat", json=body, headers=_auth_headers())
+        assert resp.status_code == 503 and resp.get_json()["mode"] == "error"
+    assert results == [] and logged == []
+
+
+def test_kill_switch_keeps_site_help(monkeypatch, q_client, logged, results):
+    import server
+    monkeypatch.setattr(server, "CHAT_ENABLED", False)
+    resp = q_client.post("/api/chat", json={"q": "how do bookmarks work"}, headers={"Origin": ORIGIN})
+    assert resp.status_code == 200 and resp.get_json()["mode"] == "site_help_choice"
+    resp = q_client.post("/api/chat", json={"help_id": "menu"}, headers={"Origin": ORIGIN})
+    assert resp.status_code == 200 and resp.get_json()["mode"] == "site_help"
+
 
 
 def test_keyword_fallback_passes_mod_filter(monkeypatch, q_client, logged):

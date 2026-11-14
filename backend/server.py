@@ -29,11 +29,11 @@ from datetime import datetime, timedelta, timezone
 from threading import Lock, Thread
 import time
 from rag.chat_search import keyword_search
-from rag.chat_question import handle_question, log_ask
+from rag.chat_question import handle_question
 from rag import site_help
 from rag.llm_adapter import GroqAdapter
 from rag.key_pool import KeyPool
-from rag.chat_gate import gate, MAX_QUERY_LEN
+from rag.chat_gate import gate
 from rag.chat_retrieve import retrieve, fetch_reddit_mentions
 from rag.query_embedder import embed_query
 from rag.chat_answer import generate, generate_course_list, generate_course_ranking
@@ -55,6 +55,9 @@ load_dotenv()
 
 import types as _types
 
+# Backend off switch for Ask questions (no deploy needed): false makes question mode return
+# 503 while site help, which never calls the LLM, keeps working.
+CHAT_ENABLED = os.getenv("CHAT_ENABLED", "true").strip().lower() != "false"
 _chat_pool = KeyPool()
 _chat_adapter = GroqAdapter(_chat_pool)
 
@@ -760,12 +763,16 @@ def _claim_ask_log_purge(now=None):
 def delete_old_ask_log(write_fn=None):
     """Delete a batch of ask_log rows past retention; best-effort, since _chat_write
     logs a failure and the next hour retries."""
+    write = write_fn or _chat_write
     # Postgres has no DELETE ... LIMIT, so the batch is picked in a subquery
     # (by created_at, which al_created indexes).
-    (write_fn or _chat_write)(
+    write(
         "DELETE FROM ask_log WHERE id IN (SELECT id FROM ask_log "
         "WHERE created_at < now() - %s * INTERVAL '1 day' LIMIT %s)",
         (ASK_LOG_RETENTION_DAYS, ASK_LOG_PURGE_BATCH))
+    # Ask stopped storing IPs; rows written before that keep an ip_hash until this clears
+    # it, so the Privacy Policy's "no IP address" holds from the first purge after deploy.
+    write("UPDATE ask_log SET ip_hash = NULL WHERE ip_hash IS NOT NULL", ())
 
 
 def purge_old_ask_log(write_fn=None, now=None):
@@ -1290,15 +1297,6 @@ def search():
 # ──────────────────────────────────────────────
 #  Reddit RAG chatbot
 # ──────────────────────────────────────────────
-def _log_site_help(q, status, answer, t0):
-    """One ask_log row for the site-help flow. status: site_help (menu shown), site_help_choice
-    (prompt shown; answer = 'topic:keyword ...'), site_help_pick (topic tapped; answer = id),
-    site_help_other ("No, other" tapped)."""
-    log_ask(_chat_write, q[:MAX_QUERY_LEN], "site_help", None, status, 0, answer, 0,
-            int((time.monotonic() - t0) * 1000),
-            (decode_session_token(_get_auth_token()) or {}).get("sub"), False)
-
-
 @app.route("/api/chat", methods=["GET", "POST"])
 @limiter.limit("30 per minute")
 def chat():
@@ -1316,9 +1314,6 @@ def chat():
             entry = site_help.get(help_id) if isinstance(help_id, str) else None
             if entry is None:
                 return jsonify({"mode": "error", "message": "Unknown help topic."}), 404
-            # A topic picked from the prompt carries its question; a menu chip has none.
-            if q:
-                _log_site_help(q, "site_help_pick", entry.id, time.monotonic())
             return jsonify(site_help.payload(entry))
     else:
         q = (request.args.get("q") or "").strip()
@@ -1337,22 +1332,19 @@ def chat():
                               mod_filter=moderation.sql_filter("t"))
         return jsonify({"mode": "keyword", "results": data["comments"], "professors": data["professors"]})
     # Site questions ("how do bookmarks work") are handled for everyone, signed in or not,
-    # with no LLM call: a bare "help" gets the topic menu, and a question with a topic keyword
-    # gets a prompt offering those topics plus "No, other". Logged without ever raising an
-    # abuse strike; the log row names the keywords that fired.
-    t0 = time.monotonic()
-    if skip_help:
-        _log_site_help(q, "site_help_other", None, t0)
-    elif site_help.is_menu_request(q):
-        _log_site_help(q, "site_help", "menu", t0)
-        return jsonify(site_help.payload(site_help.get("menu")))
-    else:
+    # with no LLM call and nothing logged: a bare "help" gets the topic menu, and a question
+    # with a topic keyword gets a prompt offering those topics plus "No, other".
+    if not skip_help:
+        if site_help.is_menu_request(q):
+            return jsonify(site_help.payload(site_help.get("menu")))
         hits = site_help.matches(q)
         if hits:
-            _log_site_help(q, "site_help_choice", site_help.hit_summary(hits), t0)
             return jsonify(site_help.choice_payload(hits))
+    if not CHAT_ENABLED:
+        return jsonify({"mode": "error", "message": "Ask is turned off for now. Try again later."}), 503
     # 'question' mode is account-gated: identity comes from the verified JWT (not a spoofable
     # header), so the abuse ladder keys on a server-trusted user id that can't be forged or omitted.
+    # Only questions that reach the LLM are logged (in handle_question), so only signed-in ones.
     _claims = decode_session_token(_get_auth_token())
     if _claims is None:
         return jsonify({"mode": "error", "message": "Sign in to use Ask mode."}), 401
@@ -2420,7 +2412,7 @@ def submit_feedback():
         lines.append(f"Verify:      {verify_note}")
     if feedback_type in _ACCOUNT_FEEDBACK_TYPES:
         # surface the session_token to act on via clear_ask_strikes.py
-        # (--account <sub> for appeals, --purge-account <sub> for data deletion)
+        # (--account <sub> for appeals, --delete-account <sub> for an Account Deletion request)
         lines.append(f"Account:     {appeal_account or 'not signed in / token invalid'}")
     lines += ["", "Description:", description]
     body = "\n".join(lines)

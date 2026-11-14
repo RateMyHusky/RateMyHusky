@@ -57,13 +57,15 @@ def test_ask_log_purge_runs_at_most_hourly(monkeypatch):
     write = lambda sql, params: calls.append((sql, params))
     server.purge_old_ask_log(write, now=10_000)
     server.purge_old_ask_log(write, now=10_000 + 60)
-    assert len(calls) == 1
+    assert len(calls) == 2          # one run: the delete and the ip_hash clear
     sql, params = calls[0]
     # Postgres has no DELETE ... LIMIT; the batch has to come from a subquery.
     assert sql.startswith("DELETE FROM ask_log WHERE id IN (SELECT id FROM ask_log")
     assert params[0] == server.ASK_LOG_RETENTION_DAYS
+    # Rows from before Ask stopped storing IPs lose their hash.
+    assert calls[1][0] == "UPDATE ask_log SET ip_hash = NULL WHERE ip_hash IS NOT NULL"
     server.purge_old_ask_log(write, now=10_000 + server.ASK_LOG_PURGE_EVERY + 1)
-    assert len(calls) == 2
+    assert len(calls) == 4
 
 
 def test_ask_log_purge_starts_off_the_request_thread_on_railway(monkeypatch):
@@ -86,6 +88,7 @@ def test_ask_log_purge_starts_off_the_request_thread_on_railway(monkeypatch):
 def _disambiguation_deps(**over):
     import types
     base = dict(
+        num_keys=1,
         log_fn=lambda sql, params: None,
         query_one_fn=lambda sql, params=(): None,
         gate_fn=lambda q: {"ok": True, "status": "ok", "professors_or_courses": ["Lee"],
@@ -133,11 +136,13 @@ def test_site_help_llm_returns_menu_logged_as_site_help():
         log_fn=lambda sql, params: logged.append(params),
         query_one_fn=lambda sql, params=(): {"c": 0},
         gate_fn=lambda q: {"ok": False, "status": "site_help_llm", "professors_or_courses": [],
-                           "professor_or_course": None, "message": None})
+                           "professor_or_course": None, "message": None,
+                           "classified": True, "tokens_used": 350})
     payload, code = handle_question("what does this thing do", "user-123", deps)
     assert code == 200
     assert payload["mode"] == "site_help" and payload["id"] == "menu"
     # log_ask params: (query, mode, slug, result_status, ..., flagged)
     assert logged[-1][1] == "site_help"
     assert logged[-1][3] == "site_help_llm"
+    assert logged[-1][6] == 350        # the classifier call is metered
     assert logged[-1][-1] is False

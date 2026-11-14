@@ -20,6 +20,7 @@ class TestGateQueryLength:
             "ok": False, "status": "too_long",
             "professors_or_courses": [], "professor_or_course": None,
             "message": "That question is too long — keep it under 500 characters.",
+            "classified": False, "tokens_used": 0,
         }
         assert not adapter.classify_called
 
@@ -67,6 +68,7 @@ class TestGateInjectionPatterns:
             "ok": False, "status": "injection_blocked",
             "professors_or_courses": [], "professor_or_course": None,
             "message": "I can only answer questions about Northeastern professors and courses.",
+            "classified": False, "tokens_used": 0,
         }
         assert not adapter.classify_called
 
@@ -98,6 +100,7 @@ class TestGateClassifierVerdicts:
             "ok": False, "status": "gate_error",
             "professors_or_courses": [], "professor_or_course": None,
             "message": "Couldn't check that question right now. Try again in a moment.",
+            "classified": True, "tokens_used": 0,
         }
         assert adapter.classify_called
 
@@ -121,6 +124,7 @@ class TestGateClassifierVerdicts:
             "ok": False, "status": "off_topic",
             "professors_or_courses": [], "professor_or_course": None,
             "message": "I can only answer questions about Northeastern professors and courses.",
+            "classified": True, "tokens_used": 0,
         }
         assert adapter.classify_called
 
@@ -136,6 +140,7 @@ class TestGateClassifierVerdicts:
             "professors_or_courses": ["Wu", "Rachlin"],
             "professor_or_course": "Wu",
             "message": None,
+            "classified": True, "tokens_used": 0,
         }
         assert adapter.classify_called
 
@@ -181,7 +186,13 @@ def test_about_site_without_entity_routes_to_site_help():
              "professors_or_courses": [], "looks_like_injection": False}))
     assert r["ok"] is False and r["status"] == "site_help_llm"
     assert r == {"ok": False, "status": "site_help_llm", "professors_or_courses": [],
-                 "professor_or_course": None, "message": None}
+                 "professor_or_course": None, "message": None, "classified": True, "tokens_used": 0}
+
+
+def test_classifier_tokens_are_reported():
+    r = gate("what's a good pasta recipe?", FakeAdapter({"on_topic": False, "looks_like_injection": False,
+                                                        "tokens_used": 380}))
+    assert r["status"] == "off_topic" and r["classified"] is True and r["tokens_used"] == 380
 
 
 def test_about_site_with_entity_takes_answer_path():

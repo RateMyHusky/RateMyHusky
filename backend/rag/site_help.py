@@ -253,11 +253,6 @@ def matches(q: str) -> list[Hit]:
     return hits
 
 
-def hit_summary(hits: list[Hit]) -> str:
-    """'goated:best compare:vs', stored in the log so it shows which keywords fire."""
-    return " ".join(f"{h.entry.id}:{h.keyword}" for h in hits)
-
-
 def choice_payload(hits: list[Hit]) -> dict:
     return {
         "mode": "site_help_choice",

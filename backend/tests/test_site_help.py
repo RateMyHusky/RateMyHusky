@@ -133,11 +133,6 @@ def test_choice_payload_shape():
     assert p["options"] == [{"id": h.entry.id, "title": h.entry.title} for h in hits]
 
 
-def test_hit_summary_names_topic_and_keyword():
-    hits = site_help.matches("Guha vs Lieberherr, who is best")
-    assert site_help.hit_summary(hits) == "goated:best compare:vs"
-
-
 def test_answers_state_no_numbers():
     assert all(not any(ch.isdigit() for ch in e.answer) for e in site_help.ENTRIES)
 

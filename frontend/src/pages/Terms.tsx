@@ -131,11 +131,12 @@ const Terms = () => {
                 </li>
                 {ASK_ENABLED && (
                 <li>
-                  <strong>Ask questions:</strong> we store each question you send to Ask with the
-                  answer it got and how it was handled, for 30 days. Questions sent while signed
-                  in are stored with your Google account id, so they are not anonymous. We do not
-                  store your IP address with them. See our <a href="/privacy">Privacy Policy</a>{' '}
-                  for details.
+                  <strong>Ask questions:</strong> we store each question Ask checks with its AI
+                  model with the answer it got and how it was handled, for 30 days. Only signed-in
+                  accounts can send those questions, and they are stored with your Google account
+                  id, so they are not anonymous. Questions about how the site works are not
+                  stored. We do not store your IP address with them. See our{' '}
+                  <a href="/privacy">Privacy Policy</a> for details.
                 </li>
                 )}
               </ul>

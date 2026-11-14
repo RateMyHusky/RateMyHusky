@@ -325,9 +325,8 @@ async function postChat(payload: Record<string, string | boolean>): Promise<{ st
 /* skipHelp: the user tapped "No, other" on the site-help prompt, so go straight to the LLM. */
 export const askChat = (q: string, skipHelp = false) => postChat(skipHelp ? { q, skip_help: true } : { q });
 
-/* Fetch a canned site-help answer by id. A topic picked from the site-help prompt passes the
-   question it came from, so the server can log which topic the keyword led to. */
-export const askHelp = (id: string, q?: string) => postChat(q ? { help_id: id, q } : { help_id: id });
+/* Fetch a canned site-help answer by id. Nothing is logged: it never reaches the LLM. */
+export const askHelp = (id: string) => postChat({ help_id: id });
 
 /* ---- Professor catalog (browse page) ---- */
 export interface CatalogProfessor {
