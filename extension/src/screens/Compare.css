@@ -1,0 +1,184 @@
+.compare {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── column heads ── */
+
+/* Same grid as .cmp-row, down to the gap and the side padding, so every card
+   sits over its own column of numbers. Centring the cards instead left them
+   offset from their values — badly enough with three professors that the
+   first column read as belonging to the second card. */
+.cmp-heads {
+  display: grid;
+  align-items: stretch;
+  gap: 8px;
+  padding: 0 10px;
+  margin-bottom: 12px;
+}
+
+.cmp-head {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 6px 9px;
+  text-align: center;
+  background: var(--card);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+/* 24px of hit area around a 10px glyph — the old 16px square was a hard
+   target with a mouse and a worse one on a trackpad. */
+.cmp-drop {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cmp-drop:hover {
+  background: var(--bg-sunken);
+  color: var(--fg);
+}
+
+.cmp-drop:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.cmp-face {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--line);
+  object-fit: cover;
+}
+
+.cmp-head b {
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.cmp-head span {
+  font-size: 9.5px;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+/* ── metric rows ── */
+
+.cmp-table {
+  background: var(--card);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.cmp-row {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cmp-row:last-child {
+  border-bottom: 0;
+}
+
+.cmp-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.cmp-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Winner marked by weight as well as colour, so it reads without relying on
+   the red alone. */
+.cmp-cell.win {
+  color: var(--brand);
+  font-weight: 900;
+}
+
+/* Too few ratings to rank. Muted the way the site greys these columns, so
+   "not in the running" doesn't read as "lost every row". */
+.cmp-cell.low {
+  color: var(--muted);
+}
+
+.cmp-note {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+/* A failed slug has no card, so its ✕ sits at the end of its line instead of
+   in a corner. Same button, minus the absolute positioning. */
+.cmp-failed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.cmp-failed .cmp-drop {
+  position: static;
+  flex: none;
+}
+
+/* ── add ── */
+
+.cmp-add {
+  margin-top: 10px;
+  padding: 10px;
+  width: 100%;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--brand);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cmp-add:hover:not(:disabled) {
+  background: var(--brand-wash);
+  border-color: var(--brand);
+}
+
+.cmp-add:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.cmp-add-note {
+  margin-top: 6px;
+  font-size: 11.5px;
+  text-align: center;
+}
