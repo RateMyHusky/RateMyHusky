@@ -9,7 +9,7 @@ from denylist import is_denied_key
 from prof_aliases import rmp_link_key
 
 from .db import chunk_insert
-from .names import get_college, name_to_slug
+from .names import get_college, name_to_slug, tidy_name
 from .rmp_fields import rmp_id
 from .seed import LINK_FIELDS, PROFESSOR_FIELDS
 
@@ -46,7 +46,7 @@ def resolve_roster(pages, links, professors, is_denied=is_denied_key):
         slug = slug_by_key.get(key)
         if slug is None:
             slug = unique_slug(name_to_slug(key), taken)
-            new_professors.append({"slug": slug, "name": page["name"], "name_key": key,
+            new_professors.append({"slug": slug, "name": tidy_name(page["name"]), "name_key": key,
                                    "department": page["department"],
                                    "college": get_college(page["department"]),
                                    "image_url": None, "focus_x": None, "focus_y": None})

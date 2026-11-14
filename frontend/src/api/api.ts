@@ -710,13 +710,8 @@ export interface DepartmentDetail {
   professors: DepartmentProfessor[];
 }
 
-export async function fetchDepartmentDetail(slug: string): Promise<DepartmentDetail | null> {
-  try {
-    return await get<DepartmentDetail>(`/api/departments/${encodeURIComponent(slug)}`);
-  } catch {
-    return null;
-  }
-}
+export const fetchDepartmentDetail = (slug: string) =>
+  fetchWithStatus<DepartmentDetail>(`/api/departments/${encodeURIComponent(slug)}`);
 
 /* Same payload for every visitor, so cached by code alone; failures are not cached. */
 export async function fetchCourseData(code: string): Promise<Fetched<CourseDetail>> {

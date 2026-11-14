@@ -2,7 +2,13 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { ProfessorTag } from '../api/api';
 import { tagLabel } from '../utils/tagLabels';
 import { fetchPopularTags } from '../api/api';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
+import DualRangeSlider from '../components/DualRangeSlider';
+import { useCatalogScroll } from '../utils/useCatalogScroll';
+import { useUrlFilters } from '../utils/useUrlFilters';
+import { useDialog } from '../utils/useDialog';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import {
   FILTER_SEPARATOR,
   fetchProfessorsCatalog,
@@ -105,9 +111,11 @@ function buildSearchParamsFromFilters(filters: Filters): URLSearchParams {
 }
 
 
+// Discrete picks add a history entry; typing and slider drags replace the current one.
+const PUSH_KEYS = new Set<keyof Filters>(['page', 'sort', 'college', 'dept', 'tags']);
+
 export default function ProfessorCatalog() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [filters, setFilters]       = useState<Filters>(() => getFiltersFromSearchParams(searchParams));
+  const { filters, setFilters, searchParams } = useUrlFilters(getFiltersFromSearchParams, buildSearchParamsFromFilters);
   const [colleges]     = useState<string[]>([
     'Business', 'CAMD', 'CSSH', 'Engineering',
     'Health Sciences', 'Khoury', 'Law', 'Professional Studies', 'Science',
@@ -119,6 +127,7 @@ export default function ProfessorCatalog() {
   const [total, setTotal]           = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading]       = useState(true);
+  const [shownFor, setShownFor]     = useState('');   // the URL query the shown results belong to
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [deptOpen, setDeptOpen] = useState(false);
   const [collegeOpen, setCollegeOpen] = useState(false);
@@ -130,19 +139,16 @@ export default function ProfessorCatalog() {
     return () => window.removeEventListener('close-filter-sidebar', close);
   }, []);
 
+  // A touch-scroll outside the drawer closes it.
   useEffect(() => {
-    document.body.style.overflow = sidebarOpen ? 'hidden' : '';
-    if (!sidebarOpen) return () => { document.body.style.overflow = ''; };
+    if (!sidebarOpen) return;
     const handler = (e: TouchEvent) => {
       if (sidebarRef.current && !sidebarRef.current.contains(e.target as Node)) {
         setSidebarOpen(false);
       }
     };
     document.addEventListener('touchmove', handler, { passive: true });
-    return () => {
-      document.body.style.overflow = '';
-      document.removeEventListener('touchmove', handler);
-    };
+    return () => document.removeEventListener('touchmove', handler);
   }, [sidebarOpen]);
 
 
@@ -155,18 +161,23 @@ export default function ProfessorCatalog() {
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const [searchPlaceholder, setSearchPlaceholder] = useState('');
 
   const professorExamples = useMemo(() => [
     "Alan Mislove", "Ravi Sundaram", "Dan Felushko",
     "Cristina Nita-Rotaru", "Stacy Marsella", "Kathleen Durant",
     "Gene Cooperman", "Benjamin Yelle", "Peter Topalov"
   ], []);
+  const searchPlaceholder = useTypingPlaceholder(professorExamples, 'Search professor name…', isSearchFocused || !!filters.q);
 
   const searchWrapperRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sidebarRef = useRef<HTMLElement>(null);
+  const sidebarCloseRef = useRef<HTMLButtonElement>(null);
+  const isDrawer = useMediaQuery('(max-width: 900px)');
+  // At 900px and below the sidebar is a modal drawer: focus moves to its × and back to Filters,
+  // and it gets the Tab trap, Esc and scroll lock.
+  useDialog(sidebarOpen && isDrawer, () => setSidebarOpen(false), sidebarRef, sidebarCloseRef);
 
   const [numCols, setNumCols] = useState(4);
   const [isMeasured, setIsMeasured] = useState(false);
@@ -211,6 +222,7 @@ export default function ProfessorCatalog() {
   useEffect(() => {
     if (viewMode === 'grid' && !isMeasured) return;
     let cancelled = false;   // a slower, older response must not overwrite a newer one
+    const viewKey = buildSearchParamsFromFilters({ ...filters, q: debouncedQ }).toString();
     setLoading(true);
     fetchProfessorsCatalog({
       q:          debouncedQ         || undefined,
@@ -232,39 +244,13 @@ export default function ProfessorCatalog() {
         setTotalPages(data.totalPages);
       })
       .catch(console.error)
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { if (!cancelled) { setLoading(false); setShownFor(viewKey); } });
     return () => { cancelled = true; };
   }, [debouncedQ, filters.college, filters.dept, filters.tags, filters.minRating, filters.maxRating, filters.minReviews, filters.maxReviews, filters.sort, filters.page, pageSize, isMeasured, viewMode]);
 
-  // Keep filters in the URL so the catalog view is shareable/bookmarkable.
-  useEffect(() => {
-    const next = buildSearchParamsFromFilters(filters);
-    if (next.toString() !== searchParams.toString()) {
-      setSearchParams(next, { replace: true });
-    }
-  }, [filters, searchParams, setSearchParams]);
+  // Restore only once the shown results are the ones this URL describes; on Back they are still the old page's.
+  useCatalogScroll(!loading && shownFor === buildSearchParamsFromFilters(getFiltersFromSearchParams(searchParams)).toString());
 
-  // Keep in-memory filters synced when URL changes externally (back/forward/share links).
-  useEffect(() => {
-    const fromUrl = getFiltersFromSearchParams(searchParams);
-    setFilters(prev => {
-      if (
-        prev.q === fromUrl.q &&
-        prev.tags === fromUrl.tags &&
-        prev.college === fromUrl.college &&
-        prev.dept === fromUrl.dept &&
-        prev.minRating === fromUrl.minRating &&
-        prev.maxRating === fromUrl.maxRating &&
-        prev.minReviews === fromUrl.minReviews &&
-        prev.maxReviews === fromUrl.maxReviews &&
-        prev.sort === fromUrl.sort &&
-        prev.page === fromUrl.page
-      ) {
-        return prev;
-      }
-      return fromUrl;
-    });
-  }, [searchParams]);
 
   useEffect(() => {
     setMinRatingDraft(filters.minRating);
@@ -283,14 +269,14 @@ export default function ProfessorCatalog() {
   }, [filters.maxReviews]);
 
   const updateFilter = useCallback(
-    <K extends keyof Filters>(key: K, value: Filters[K]) => {
+    <K extends keyof Filters>(key: K, value: Filters[K], push = PUSH_KEYS.has(key)) => {
       setFilters(f => ({
         ...f,
         [key]: value,
         page: key !== 'page' ? 1 : (value as number),
-      }));
+      }), push);
     },
-    []
+    [setFilters]
   );
 
   // Debounce slider-based filter commits so the catalog doesn't reload on every drag step.
@@ -335,13 +321,15 @@ export default function ProfessorCatalog() {
   }, [maxReviewsDraft, filters.maxReviews, updateFilter]);
 
   const setCollege = useCallback((college: string) => {
-    setFilters(f => ({ ...f, college, page: 1 }));
-  }, []);
+    setFilters(f => ({ ...f, college, page: 1 }), true);
+  }, [setFilters]);
 
-  const clearFilters = () => setFilters(DEFAULT_FILTERS);
+  const clearFilters = () => {
+    setFilters(DEFAULT_FILTERS, true);
+  };
 
   const handleSearchSelect = useCallback((suggestion: ProfessorSuggestion) => {
-    updateFilter('q', suggestion.name);
+    updateFilter('q', suggestion.name, true);
     setShowSearchSuggestions(false);
     setActiveSearchIndex(-1);
   }, [updateFilter]);
@@ -390,43 +378,6 @@ export default function ProfessorCatalog() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
-
-  useEffect(() => {
-    if (isSearchFocused || filters.q) {
-      setSearchPlaceholder('Search professor name…');
-      return;
-    }
-
-    let currentExampleIndex = Math.floor(Math.random() * professorExamples.length);
-    let currentText = '';
-    let isDeleting = false;
-    let typingSpeed = 100;
-
-    const type = () => {
-      const fullText = professorExamples[currentExampleIndex];
-      if (isDeleting) {
-        currentText = fullText.substring(0, currentText.length - 1);
-        typingSpeed = 50;
-      } else {
-        currentText = fullText.substring(0, currentText.length + 1);
-        typingSpeed = 100;
-      }
-      // Between examples the text is empty: show the plain prompt, not `Search for ""`.
-      setSearchPlaceholder(currentText ? `Search for "${currentText}"` : 'Search professor name…');
-      if (!isDeleting && currentText === fullText) {
-        isDeleting = true;
-        typingSpeed = 2000;
-      } else if (isDeleting && currentText === '') {
-        isDeleting = false;
-        currentExampleIndex = (currentExampleIndex + 1) % professorExamples.length;
-        typingSpeed = 500;
-      }
-      timeoutId = setTimeout(type, typingSpeed);
-    };
-
-    let timeoutId = setTimeout(type, typingSpeed);
-    return () => clearTimeout(timeoutId);
-  }, [isSearchFocused, filters.q, professorExamples]);
 
   const hasActiveFilters =
     !!filters.q || !!filters.college || !!filters.dept || filters.minRating > 0 || filters.maxRating < 5 || filters.minReviews > 1 || filters.maxReviews !== null || !!filters.tags;
@@ -491,17 +442,25 @@ export default function ProfessorCatalog() {
                   Clear all
                 </button>
               )}
+              <button type="button" className="sidebar-close" aria-label="Close filters" ref={sidebarCloseRef} onClick={() => setSidebarOpen(false)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
             </div>
 
             {/* Sort */}
             <div className="filter-section">
-              <p className="filter-label">Sort by</p>
+              <p className="filter-label" id="professor-sort-label">Sort by</p>
               <Dropdown
+                ariaLabelledBy="professor-sort-label"
                 options={SORT_OPTIONS}
                 value={filters.sort}
                 onChange={v => updateFilter('sort', v)}
                 onOpenChange={setSortOpen}
               />
+              {(filters.sort === 'rating' || filters.sort === 'rating_asc') && <p className="filter-hint">Weighted by number of ratings</p>}
             </div>
 
             {/* College */}
@@ -580,6 +539,8 @@ export default function ProfessorCatalog() {
                 valueHigh={maxRatingDraft}
                 onChangeLow={v => setMinRatingDraft(v)}
                 onChangeHigh={v => setMaxRatingDraft(v)}
+                labelLow="Minimum rating"
+                labelHigh="Maximum rating"
               />
               <div className="slider-tick-marks">
                 {Array.from({ length: 11 }, (_, i) => {
@@ -618,6 +579,8 @@ export default function ProfessorCatalog() {
                 valueHigh={Math.min(maxReviewsDraft ?? REVIEW_SLIDER_MAX, REVIEW_SLIDER_MAX)}
                 onChangeLow={v => setMinReviewsDraft(v)}
                 onChangeHigh={v => setMaxReviewsDraft(v >= REVIEW_SLIDER_MAX ? null : v)}
+                labelLow="Minimum number of ratings"
+                labelHigh="Maximum number of ratings"
               />
               <div className="reviews-input-row">
                 <input
@@ -626,6 +589,7 @@ export default function ProfessorCatalog() {
                   min="0"
                   value={minReviewsDraft === 0 ? '' : minReviewsDraft}
                   placeholder="Min"
+                  aria-label="Minimum number of ratings"
                   onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }}
                   onChange={e => {
                     const v = parseInt(e.target.value, 10);
@@ -643,6 +607,7 @@ export default function ProfessorCatalog() {
                   min="0"
                   value={maxReviewsDraft ?? ''}
                   placeholder="Max"
+                  aria-label="Maximum number of ratings"
                   onKeyDown={e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); }}
                   onChange={e => {
                     const v = parseInt(e.target.value, 10);
@@ -656,6 +621,7 @@ export default function ProfessorCatalog() {
                 />
               </div>
             </div>
+            <div className="sidebar-results"><button type="button" className="sidebar-results-btn" onClick={() => setSidebarOpen(false)}>{loading ? 'Show results' : total === 1 ? 'Show 1 result' : `Show ${total.toLocaleString()} results`}</button></div>
           </div>
         </aside>
 
@@ -667,6 +633,7 @@ export default function ProfessorCatalog() {
                 ref={searchInputRef}
                 type="text"
                 className="catalog-search"
+                aria-label="Search professors"
                 placeholder={searchPlaceholder}
                 value={filters.q}
                 onChange={e => updateFilter('q', e.target.value)}
@@ -874,70 +841,6 @@ export default function ProfessorCatalog() {
   );
 }
 
-// ── Dual-range slider sub-component ─────────────────────────────────────────
-
-function DualRangeSlider({
-  min,
-  max,
-  step,
-  valueLow,
-  valueHigh,
-  onChangeLow,
-  onChangeHigh,
-}: {
-  min: number;
-  max: number;
-  step: number;
-  valueLow: number;
-  valueHigh: number;
-  onChangeLow: (v: number) => void;
-  onChangeHigh: (v: number) => void;
-}) {
-  const [lastActive, setLastActive] = useState<'low' | 'high'>('low');
-  const range = max - min;
-  const lowPct = ((valueLow - min) / range) * 100;
-  const highPct = ((valueHigh - min) / range) * 100;
-
-  return (
-    <div className="dual-range">
-      <div className="dual-range-track">
-        <div
-          className="dual-range-fill"
-          style={{ left: `${lowPct}%`, width: `${highPct - lowPct}%` }}
-        />
-      </div>
-      <input
-        type="range"
-        className="dual-range-input"
-        style={{ zIndex: lastActive === 'low' ? 4 : 3 }}
-        min={min}
-        max={max}
-        step={step}
-        value={valueLow}
-        onPointerDown={() => setLastActive('low')}
-        onChange={e => {
-          const v = parseFloat(e.target.value);
-          onChangeLow(Math.min(v, valueHigh));
-        }}
-      />
-      <input
-        type="range"
-        className="dual-range-input"
-        style={{ zIndex: lastActive === 'high' ? 4 : 3 }}
-        min={min}
-        max={max}
-        step={step}
-        value={valueHigh}
-        onPointerDown={() => setLastActive('high')}
-        onChange={e => {
-          const v = parseFloat(e.target.value);
-          onChangeHigh(Math.max(v, valueLow));
-        }}
-      />
-    </div>
-  );
-}
-
 // ── Checklist filter sub-component (College, Department, Teaching style) ─────
 // A toggle that opens a search box over a checklist; picks show as chips when it's closed.
 
@@ -1006,7 +909,7 @@ function ChecklistFilter({
       ref={ref}
       // Escape closes, and so does tabbing out (the mousedown listener only catches clicks).
       onKeyDown={e => {
-        if (e.key === 'Escape' && open) { toggle(false); toggleRef.current?.focus(); }
+        if (e.key === 'Escape' && open) { e.preventDefault(); toggle(false); toggleRef.current?.focus(); }
       }}
       onBlur={e => {
         if (open && e.relatedTarget && !ref.current?.contains(e.relatedTarget as Node)) toggle(false);

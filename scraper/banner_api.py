@@ -261,7 +261,7 @@ def parse_faculty(payload):
     seen = {}
     for block in payload.get("fmt") or []:
         for f in block.get("faculty") or []:
-            name = (f.get("displayName") or "").strip()
+            name = html.unescape(f.get("displayName") or "").strip()
             key = normalize_instructor_key(name)
             if not key:
                 continue

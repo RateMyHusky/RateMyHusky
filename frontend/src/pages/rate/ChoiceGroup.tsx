@@ -21,7 +21,7 @@ interface ChoiceGroupProps<T> {
 }
 
 export function BackLink({ onBack, disabled }: { onBack: () => void; disabled?: boolean }) {
-  return <button type="button" className="rate-back" disabled={disabled} onClick={onBack}>‹ Back</button>;
+  return <button type="button" className="rate-back" disabled={disabled} onClick={onBack}><span aria-hidden="true">‹</span> Back</button>;
 }
 
 /* On mobile this renders in place; from 1024px it is the pinned footer, the step's action with the ghost link under it; Back is hidden there because it lives in the top row. */

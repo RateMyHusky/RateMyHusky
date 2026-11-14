@@ -51,6 +51,15 @@ def test_approve_professor_inserts_survey_origin_and_moves_ratings():
     assert "jane-doe" in summary
 
 
+def test_approve_professor_tidies_the_name_but_not_the_slug_or_key():
+    pending = {**PENDING, "name": "JANE DOE", "name_key": "jane doe"}
+    cur = FakeCursor({"FROM survey_pending_professors": [pending],
+                      "ORDER BY slug": [{"slug": "john-doe"}]})
+    rr.approve_professor(cur, "p1")
+    (_, params), = cur.statements("INSERT INTO professors")
+    assert params[:3] == ("jane-doe", "Jane Doe", "jane doe")
+
+
 def test_approve_professor_twice_raises():
     cur = FakeCursor({"FROM survey_pending_professors": [dict(PENDING, status="approved")]})
     with pytest.raises(rr.ReviewError):

@@ -384,13 +384,16 @@
     background: #fff;
     box-shadow: -4px 0 20px rgba(0,0,0,0.1);
     transform: translateX(100%);
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    visibility: hidden;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s 0.3s;
     will-change: transform;
     z-index: 110;
   }
 
   .navbar-right.show {
     transform: translateX(0);
+    visibility: visible;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s;
   }
 
   .nav-links-container {

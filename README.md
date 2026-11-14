@@ -24,7 +24,7 @@ RateMyProfessors ratings, Reddit chatter, and Northeastern's course schedule for
 
 ## Why RateMyHusky?
 
-Choosing classes at Northeastern means juggling RateMyProfessors tabs and Reddit threads — each with a fragment of the picture. RateMyHusky unifies both, along with Northeastern's own course schedule, into a single profile per professor, then layers search and comparison on top. An AI question-answering mode is paused while it's being improved, and an on-site rating form is in testing.
+Choosing classes at Northeastern means juggling RateMyProfessors tabs and Reddit threads — each with a fragment of the picture. RateMyHusky unifies both, along with Northeastern's own course schedule, into a single profile per professor, then layers search and comparison on top. An AI question-answering mode is paused while it's being improved, and students can rate professors through an on-site rating form.
 
 | Source | Scale |
 |---|---|
@@ -61,9 +61,8 @@ Ask is turned off while it's being improved: `ASK_ENABLED` in `frontend/src/conf
 - **Bookmarks page** — `/bookmarks` lists all bookmarked professors and courses, reusing the catalog's card layout
 - Signed-out bookmark clicks prompt Google sign-in instead of failing silently
 
-### Rate (in testing)
+### Rate
 - **Student rating form** — `/rate` takes a professor and course rating with an optional comment, no sign-in needed, behind a Turnstile checkpoint; an accepted rating moves the professor page's numbers right away, while every comment, held ratings and new professors or courses are reviewed before they publish
-- Live on dev (Vercel Preview) and locally only; `RATE_ENABLED` in `frontend/src/config.ts` hides it in production
 
 ### Polished throughout
 - Dark mode, responsive layout, breadcrumb navigation
@@ -170,8 +169,7 @@ GROQ_API_KEYS=<key1>,<key2>
 # Optional — student rating form. The rating routes return 503 until
 # RATING_SECRET (at least 32 characters) is set.
 RATING_SECRET=<generate-with-openssl-rand-hex-32>
-# Professor pages show /rate comments only when true. Turn on with the
-# frontend's RATE_ENABLED at launch.
+# Professor pages show approved /rate comments only when true (on in production).
 SHOW_STUDENT_REVIEWS=false
 IPINFO_TOKEN=<ipinfo-token-for-the-ip-data-fetch-script>
 IP_DATA_DIR=/tmp/ipdata

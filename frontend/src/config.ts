@@ -7,9 +7,9 @@
 // bubble, and Ask session restore — no other code changes needed.
 export const ASK_ENABLED = false;
 
-// Hours per week and comment counts come from the student questionnaire, which does not
-// exist yet. While false, the professor page hides Hrs/Week and Reviews & Mentions and the
-// course page hides Avg Hrs/Week. Flip to true once the questionnaire source is live.
+// Reviews & Mentions on the professor page counts questionnaire comments plus Reddit mentions.
+// Hidden while false. Avg Hrs / Week is always shown on both pages and reads "—" until ratings
+// report hours.
 export const SHOW_SURVEY_STATS = false;
 
 // The first term the course-schedule history covers: scraper/banner_scrape.py's
@@ -17,10 +17,9 @@ export const SHOW_SURVEY_STATS = false;
 // when the backfill floor moves.
 export const BANNER_SINCE = 'Fall 2021';
 
-// The /rate form is live on dev (Vercel Preview) and local dev only. Production (main) hides
-// the route, the professor page's "Rate this professor" button, and the FAQ mentions.
-// VITE_VERCEL_ENV is a Vercel system env var: "production", "preview", or unset locally.
-export const RATE_ENABLED = import.meta.env.VITE_VERCEL_ENV !== 'production';
+// The /rate form, the professor page's rate button, prompts and reviews tab, and the rating text
+// in the FAQ, Privacy Policy and Terms. Live everywhere since the v2.2.0 launch.
+export const RATE_ENABLED = true;
 
 // The day the weekly data refresh runs (.github/workflows/data-refresh.yml cron, 10:00 UTC
 // Sunday). The /rate thank-you step names it; change both together.

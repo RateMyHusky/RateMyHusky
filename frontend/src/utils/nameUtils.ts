@@ -18,6 +18,13 @@ export function stripPrefix(name: string): string {
   return name.replace(/^(Dr\.|Prof\.|Professor|Mr\.|Ms\.|Mrs\.|Mx\.)\s+/i, '').trim();
 }
 
+// Name words without commas or trailing suffixes ("John Smith, Jr." and "Olin Shivers III" keep only the name)
+export function nameParts(name: string): string[] {
+  const parts = name.replace(/,/g, ' ').split(/\s+/).filter(Boolean);
+  while (parts.length > 1 && /^(jr|sr|ii|iii|iv|v|ph\.?d|md|esq)\.?$/i.test(parts[parts.length - 1])) parts.pop();
+  return parts;
+}
+
 export function getInitials(name: string): string {
   return stripPrefix(name)
     .split(' ')

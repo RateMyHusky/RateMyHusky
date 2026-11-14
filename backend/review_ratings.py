@@ -51,7 +51,7 @@ import ratings
 import survey_reviews
 from pipeline.read_models import DATA_VERSION_SQL
 from pipeline.db import connect
-from pipeline.names import get_college, name_to_slug
+from pipeline.names import get_college, name_to_slug, tidy_name
 from pipeline.roster import unique_slug
 
 # `table`: the pending table. `pending`/`final`: the rating columns that hold the
@@ -251,7 +251,7 @@ def approve_professor(cur, entry_id, slug=None):
         raise ReviewError(f"Slug {slug} is taken")
     cur.execute("INSERT INTO professors (slug, name, name_key, department, college, origin) "
                 "VALUES (%s, %s, %s, %s, %s, 'survey')",
-                (slug, row["name"], row["name_key"], row["department"],
+                (slug, tidy_name(row["name"]), row["name_key"], row["department"],
                  get_college(row["department"])))
     moved, held = move_ratings(cur, PROFESSOR, entry_id, slug)
     resolve(cur, PROFESSOR, entry_id, "approved", slug)

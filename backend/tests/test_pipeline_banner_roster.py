@@ -357,3 +357,9 @@ def test_voted_cps_subjects_are_professional_studies_in_the_subject_vote(monkeyp
     profs = [prof("e1", "CSSH", "English")]
     assert br.subject_colleges(rows, profs) == {"ESL": "CSSH"}
     assert br.subject_colleges(rows, profs, br.CPS_SUBJECTS | {"ESL"}) == {"ESL": "Professional Studies"}
+
+
+def test_banner_professor_name_is_unescaped():
+    rows, _ = br.resolve_banner_professors(
+        [bci("jim o'brien", "CS3100", "O&#39;Brien, Jim")], PROFS, DEPTS, never)
+    assert rows[0]["name"] == "Jim O'Brien"

@@ -61,14 +61,15 @@ def test_course_rows_come_from_the_catalog_with_blend_ratings():
     assert (rows["CS2500"]["avg_rating"], rows["CS2500"]["num_ratings"]) == (None, 0)
     assert set(rows["CS3500"]) == {"code", "name", "department", "subject", "search_text",
                                    "avg_rating", "difficulty", "num_ratings"}
-    assert rows["CS3500"]["search_text"] == "cs3500 object-oriented design cs 3500"
+    assert rows["CS3500"]["search_text"] == "cs3500 objectoriented design cs 3500"
 
 
 @pytest.mark.parametrize("code, text, expected", [
-    ("CS3500", "cs3500 object-oriented design", "cs3500 object-oriented design cs 3500"),
+    ("CS3500", "cs3500 object-oriented design", "cs3500 objectoriented design cs 3500"),
     ("CS3500", "cs3500 cs 3500 ood", "cs3500 cs 3500 ood"),  # already spaced: not added twice
     ("CS3500", None, "cs 3500"),
-    ("WEIRD-1", "weird-1 thing", "weird-1 thing"),         # not letters then digits: left as is
+    ("WEIRD-1", "weird-1 thing", "weird1 thing"),          # not letters then digits: no spaced form
+    ("HSCI2000", "hsci2000 co-op for bouvé", "hsci2000 coop for bouve hsci 2000"),
 ])
 def test_course_search_text_holds_the_spaced_code(code, text, expected):
     assert course_search_text(code, text) == expected

@@ -135,8 +135,7 @@ function referrerOrigin(): string {
 
 export function track(event: string, params: Record<string, string>): void {
   try {
-    // Deliberately the opposite of RATE_ENABLED: dev and preview traffic stays out of GA, so these
-    // events start sending when the rate flow launches in production.
+    // Production only: dev and preview traffic stays out of GA.
     if (import.meta.env?.VITE_VERCEL_ENV !== 'production') return;
     if (typeof window.gtag === 'function') {
       window.gtag('event', event, {

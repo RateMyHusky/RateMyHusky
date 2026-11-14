@@ -12,7 +12,6 @@ import { photoThumb, thumbOnError } from '../utils/photoThumb';
 import Breadcrumbs from '../components/Breadcrumbs';
 import Seo from '../components/Seo';
 import BookmarkButton from '../components/BookmarkButton';
-import { SHOW_SURVEY_STATS } from '../config';
 import FitText from '../components/FitText';
 import { relativeTerm, seasonYear, termSortKey } from '../utils/termUtils';
 import { compareHref } from '../utils/compareLink';
@@ -84,7 +83,6 @@ const Course = () => {
 	const [tableSort, setTableSort] = useState<{ key: TableSortKey; dir: 'asc' | 'desc' }>({ key: 'lastTerm', dir: 'desc' });
 	const [showBackToTop, setShowBackToTop] = useState(false);
 	const tableWrapRef = useRef<HTMLDivElement>(null);
-	const professorsRef = useRef<HTMLElement>(null);
 	// Set when "Show N more" reveals the last rows and unmounts itself, so focus moves to
 	// "Show fewer" instead of dropping to <body>; focusShowMore covers the reverse.
 	const focusShowFewer = useRef(false);
@@ -265,7 +263,9 @@ const Course = () => {
 								<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', marginLeft: '4px', opacity: 0.6 }}><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
 							)}
 						</span>
-						<div className="course-stat-extra"><StarRating rating={summary.rating ?? 0} size="lg" /></div>
+						<div className="course-stat-extra">
+							{summary.numRatings ? <StarRating rating={summary.rating ?? 0} size="lg" /> : <span className="course-stat-hint">No ratings yet</span>}
+						</div>
 						{/* One source's score is the overall score, so the breakdown only shows for two or more. */}
 						{breakdown.length > 1 && (
 							<div className="course-stat-breakdown">
@@ -278,24 +278,15 @@ const Course = () => {
 					<DifficultyStatCard value={summary.difficulty} />
 					<StatCard
 						label="Ratings"
-						value={summary.numRatings ? summary.numRatings.toLocaleString() : '—'}
+						value={summary.numRatings.toLocaleString()}
 						hint={breakdown.length > 0 ? `from ${breakdown.map(([source]) => sourceLabel(source)).join(' + ')}` : undefined}
 					/>
-					{/* With no professors the table below is just an empty-state note, so nothing to jump to. */}
-					<StatCard
-						label="Professors"
-						value={professors.length.toLocaleString()}
-						hint={professors.length > 0 ? 'View professors ↓' : undefined}
-						onClick={professors.length > 0 ? () => professorsRef.current?.scrollIntoView({ behavior: 'smooth' }) : undefined}
-					/>
+					<StatCard label="Avg Hrs / Week" value={summary.hoursPerWeek != null ? `${summary.hoursPerWeek.toFixed(1)}h` : '—'} />
 					{history?.lastOffered && (
 						<StatCard label="Last Taught" value={seasonYear(history.lastOffered)} text hint={relativeTerm(history.lastOffered) ?? undefined} />
 					)}
 					{history?.typicalClassSize != null && (
 						<StatCard label="Typical Class Size" value={history.typicalClassSize.toLocaleString()} hint="students per section" />
-					)}
-					{SHOW_SURVEY_STATS && (
-						<StatCard label="Avg Hrs / Week" value={summary.hoursPerWeek != null ? `${summary.hoursPerWeek.toFixed(1)}h` : '—'} />
 					)}
 				</section>
 
@@ -351,7 +342,7 @@ const Course = () => {
 					</section>
 				)}
 
-				<section className="course-panel" ref={professorsRef}>
+				<section className="course-panel">
 					<div className="course-panel-header course-panel-header--action">
 						<h2>All professors</h2>
 						{toCompare.length >= 2 && (
@@ -442,19 +433,11 @@ const Course = () => {
 	);
 };
 
-function StatCard({ label, value, text = false, hint, onClick }: {
-	label: string; value: string; text?: boolean; hint?: string; onClick?: () => void;
+function StatCard({ label, value, text = false, hint }: {
+	label: string; value: string; text?: boolean; hint?: string;
 }) {
 	return (
-		<article
-			className={`course-stat-card${onClick ? ' course-stat-clickable' : ''}`}
-			role={onClick ? 'button' : undefined}
-			tabIndex={onClick ? 0 : undefined}
-			onClick={onClick}
-			onKeyDown={onClick && (e => {
-				if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); }
-			})}
-		>
+		<article className="course-stat-card">
 			<strong className={`course-stat-value${text ? ' course-stat-value--text' : ''}`}>{text ? <FitText>{value}</FitText> : value}</strong>
 			<span className="course-stat-label">{label}</span>
 			<div className="course-stat-extra">{hint && <span className="course-stat-hint">{hint}</span>}</div>
