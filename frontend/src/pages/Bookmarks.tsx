@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useBookmarks } from '../context/BookmarksContext';
 import type { BookmarkedProfessor, BookmarkedCourse } from '../context/BookmarksContext';
+import { removeBookmark } from '../api/api';
 import BookmarkButton from '../components/BookmarkButton';
 import StarRating from '../components/StarRating';
 import SignInModal from '../components/SignInModal';
@@ -155,6 +156,21 @@ export default function Bookmarks() {
 
   // Leaving the page commits any pending removal.
   useEffect(() => () => commitRef.current(), []);
+
+  // A reload or tab close inside the Undo window never runs the unmount flush, so send the
+  // removal on pagehide. keepalive lets the request outlive the page.
+  useEffect(() => {
+    if (!pending) return;
+    const flush = () => {
+      if (pendingTimer.current) {
+        clearTimeout(pendingTimer.current);
+        pendingTimer.current = null;
+      }
+      void removeBookmark(pending.type, pending.key, { keepalive: true }).catch(() => {});
+    };
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+  }, [pending]);
 
   const requestRemove = (type: 'professor' | 'course', key: string, label: string) => {
     commitRef.current(); // a second removal commits the previous one immediately
