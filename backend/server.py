@@ -2184,16 +2184,8 @@ def auth_google_callback():
     if user_info.get("hd") != "husky.neu.edu":
         return fail("invalid_domain")
 
-    payload = {
-        "sub": user_info["id"],
-        "email": user_info["email"],
-        "name": user_info.get("name", ""),
-        "picture": user_info.get("picture", ""),
-        "iss": JWT_ISSUER,
-        "aud": JWT_AUDIENCE,
-        "exp": datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS),
-    }
-    token = pyjwt.encode(payload, JWT_SECRET, algorithm="HS256")
+    token = _session_token(user_info["id"], user_info["email"],
+                           user_info.get("name", ""), user_info.get("picture", ""))
 
     if flow.get("popup") is True:
         # Desktop popup: post message to opener and close
@@ -2208,6 +2200,48 @@ def auth_google_callback():
         return_to = _safe_return_to(flow.get("returnTo"))
         resp = make_response(redirect(f"{frontend}{return_to}#auth_token={token}"))
     return _end_auth_flow(resp, state)
+
+
+def _session_token(sub, email, name, picture):
+    """A signed session token for this account, as every sign-in issues it."""
+    return pyjwt.encode({
+        "sub": sub,
+        "email": email,
+        "name": name,
+        "picture": picture,
+        "iss": JWT_ISSUER,
+        "aud": JWT_AUDIENCE,
+        "exp": datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS),
+    }, JWT_SECRET, algorithm="HS256")
+
+
+# Local-dev sign-in that skips Google, for trying account features without OAuth set
+# up. Off unless DEV_LOGIN=1 and off Railway: Railway sets RAILWAY_ENVIRONMENT itself,
+# so production and the Vercel previews (which share its backend) never have it, and
+# the opt-in keeps it off if that ever stopped being true. Off answers 404, as if the
+# route didn't exist. Its accounts' subs start "dev-login:", which Google's numeric ids
+# never do, so a dev account can't land in a real one's bookmarks or Ask history.
+DEV_LOGIN_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
+
+
+def _dev_login_enabled():
+    return os.getenv("DEV_LOGIN") == "1" and not os.getenv("RAILWAY_ENVIRONMENT")
+
+
+@app.route("/api/auth/dev-login")
+@limiter.limit("10 per minute")
+def auth_dev_login():
+    if not _dev_login_enabled():
+        return jsonify({"error": "Not found"}), 404
+    name = request.args.get("as", "dev")
+    if not DEV_LOGIN_NAME_RE.match(name):
+        return jsonify({"error": "as must be lowercase letters, digits and hyphens"}), 400
+    token = _session_token(f"dev-login:{name}", f"{name}@husky.neu.edu",
+                           "Dev User" if name == "dev" else f"Dev {name}", "")
+    return_to = _safe_return_to(request.args.get("returnTo", "/"))
+    # Same hand-off as the redirect sign-in: the frontend only takes the fragment's
+    # token if this tab started the sign-in.
+    return redirect(f"{FRONTEND_URL}{return_to}#auth_token={token}")
 
 
 def _get_auth_token():

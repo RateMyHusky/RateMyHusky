@@ -16,6 +16,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: () => void;
+  devLogin: (as?: string) => void;
   logout: () => Promise<void>;
 }
 
@@ -23,6 +24,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   login: () => {},
+  devLogin: () => {},
   logout: async () => {},
 });
 
@@ -44,13 +46,20 @@ function clearToken() {
 const PENDING_KEY = 'auth_redirect_started';
 const PENDING_MAX_AGE_MS = 15 * 60 * 1000;
 
-function startRedirectSignIn(returnTo: string) {
+function startRedirectSignIn(returnTo: string, route = '/api/auth/google', extra = '') {
   try {
     sessionStorage.setItem(PENDING_KEY, String(Date.now()));
   } catch {
     // storage blocked: the returning token will be ignored and the user stays signed out
   }
-  window.location.href = `${API_BASE}/api/auth/google?returnTo=${encodeURIComponent(returnTo)}`;
+  window.location.href = `${API_BASE}${route}?returnTo=${encodeURIComponent(returnTo)}${extra}`;
+}
+
+/** Local-dev sign-in that skips Google (backend needs DEV_LOGIN=1; see auth_dev_login).
+ *  `as` picks a separate dev account. Only offered in `npm run dev` builds. */
+function devLogin(as?: string) {
+  const returnTo = window.location.pathname + window.location.search;
+  startRedirectSignIn(returnTo, '/api/auth/dev-login', as ? `&as=${encodeURIComponent(as)}` : '');
 }
 
 function takeRedirectSignIn(): boolean {
@@ -207,7 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, devLogin, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -16,7 +16,7 @@ interface Props {
 }
 
 export default function SignInModal({ open, onClose, reason }: Props) {
-  const { login, user } = useAuth();
+  const { login, devLogin, user } = useAuth();
   const navigate = useNavigate();
   const [closing, setClosing] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -94,6 +94,19 @@ export default function SignInModal({ open, onClose, reason }: Props) {
           </svg>
           Sign in with Google
         </button>
+
+        {import.meta.env.DEV && (
+          <button
+            className="signin-modal-dev-btn"
+            title="Shift-click to sign in as a different dev account"
+            onClick={e => {
+              if (!e.shiftKey) return devLogin();
+              const as = window.prompt('Dev account name (lowercase letters, digits, hyphens):', 'dev');
+              if (as) devLogin(as.trim());
+            }}>
+            Dev sign-in (local only)
+          </button>
+        )}
       </div>
     </div>
   );

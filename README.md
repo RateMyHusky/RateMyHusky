@@ -158,6 +158,12 @@ GOOGLE_CLIENT_ID=<your-google-oauth-client-id>
 GOOGLE_CLIENT_SECRET=<your-google-oauth-client-secret>
 FRONTEND_URL=http://localhost:5173
 
+# Optional — local sign-in without Google. Adds a "Dev sign-in" button to the
+# sign-in modal under `npm run dev` (shift-click it to pick another dev account).
+# Ignored on Railway. Whatever a dev account saves (bookmarks, Ask questions)
+# goes to the database ORACLE_DATABASE_URL points at.
+DEV_LOGIN=1
+
 # Optional — browser extension. Load extension/dist at chrome://extensions and
 # copy the id it shows. Unset means no extension can reach the API.
 EXTENSION_ORIGINS=chrome-extension://<your-unpacked-extension-id>
