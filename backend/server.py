@@ -1535,13 +1535,23 @@ def popular_tags():
     return resp
 
 
+def _filter_list_response(data):
+    """A catalog filter list: it changes only with a data refresh, so the browser keeps it an
+    hour instead of refetching it (a Vercel request + middleware run) on every catalog visit.
+    An empty list isn't kept, so a dropdown that loaded empty fills in on the next visit."""
+    resp = jsonify(data)
+    if data:
+        resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
+
+
 @app.route("/api/departments")
 def departments():
     college = request.args.get("college", "")
     cache_key = f"depts:{college or 'all'}"
     cached = cache_get(cache_key)
     if cached:
-        return jsonify(cached)
+        return _filter_list_response(cached)
     if college and college != "All":
         college_list = split_filter(college)
         if len(college_list) == 1:
@@ -1566,7 +1576,7 @@ def departments():
     result = [r['department'] for r in rows if r['department'] and r['department'] not in BAD_DEPTS]
     if result:   # an unknown college is empty; don't let made-up names fill the cache
         cache_set(cache_key, result)
-    return jsonify(result)
+    return _filter_list_response(result)
 
 
 def department_slug(name):
@@ -1851,7 +1861,7 @@ def professors_catalog():
 def course_departments():
     cached = cache_get("course_depts")
     if cached:
-        return jsonify(cached)
+        return _filter_list_response(cached)
     rows = query("""
         SELECT DISTINCT department FROM course_catalog
         WHERE department IS NOT NULL AND department != ''
@@ -1859,7 +1869,7 @@ def course_departments():
     """)
     result = [r["department"] for r in rows]
     cache_set("course_depts", result)
-    return jsonify(result)
+    return _filter_list_response(result)
 
 
 @app.route("/api/courses-catalog")

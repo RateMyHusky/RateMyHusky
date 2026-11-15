@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigationType } from 'react-router-dom';
-import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 import { AuthProvider } from './context/AuthContext';
 import { BookmarksProvider } from './context/BookmarksContext';
@@ -72,8 +71,9 @@ function App() {
           <FeedbackTab />
           <ThemeToggle />
         </Router>
-        <Analytics />
-        <SpeedInsights />
+        {/* Pageviews are counted by GA; Speed Insights reports from a quarter of page
+            loads, since every report is a request against Vercel's monthly CDN limit. */}
+        <SpeedInsights sampleRate={0.25} />
       </BookmarksProvider>
     </AuthProvider>
   );

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchCourseSuggestions, fetchSearchSuggestions } from '../../api/api';
-import { useDebouncedValue } from '../../utils/useDebouncedValue';
+import { SEARCH_DEBOUNCE_MS, useDebouncedValue } from '../../utils/useDebouncedValue';
 import { ChoiceGroup, StepFoot } from './ChoiceGroup';
 import type { ChoiceOption } from './ChoiceGroup';
 import { formatCode, lastName, ownMatches } from './rateFlow';
@@ -86,7 +86,7 @@ export function OtherCourseStep({ own, rated, slug, onPick, onBack }: OtherCours
   const [newName, setNewName] = useState('');
   const typed = query.trim();
   const term = CODE_LIKE.test(typed) ? typed.replace(/\s+/g, '') : typed;
-  const debounced = useDebouncedValue(term, 200);
+  const debounced = useDebouncedValue(term, SEARCH_DEBOUNCE_MS);
   const [found, setFound] = useState<{ q: string; items: RateCourse[] } | null>(null);
 
   useEffect(() => {
