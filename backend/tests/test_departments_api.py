@@ -13,6 +13,8 @@ def dept_client(monkeypatch):
     monkeypatch.setattr(server, "cache_set", lambda key, data: None, raising=False)
 
     def fake_query(sql, params=()):
+        if "SELECT DISTINCT department" in sql:
+            return [{"department": "Computer Science"}, {"department": "Economics"}]
         if "GROUP BY department" in sql:
             return [
                 {"department": "Computer Science", "cnt": 3, "avg": 4.2},
@@ -69,6 +71,21 @@ def test_department_hub_detail_unknown_slug_is_404(dept_client):
     resp = dept_client.get("/api/departments/not-a-real-department")
     assert resp.status_code == 404
     assert resp.get_json() == {"error": "Department not found"}
+
+
+# The catalogs' filter lists change only with a data refresh, so the browser keeps them an hour
+# instead of refetching on every catalog visit (each fetch is a Vercel request + middleware run).
+@pytest.mark.parametrize("path", ["/api/departments", "/api/course-departments"])
+def test_filter_lists_are_browser_cached_for_an_hour(dept_client, monkeypatch, path):
+    import server
+    fresh = dept_client.get(path)
+    assert fresh.status_code == 200
+    assert fresh.get_json() == ["Computer Science", "Economics"]
+    assert fresh.headers["Cache-Control"] == "public, max-age=3600"
+    monkeypatch.setattr(server, "cache_get", lambda key: ["Economics"], raising=False)
+    cached = dept_client.get(path)
+    assert cached.get_json() == ["Economics"]
+    assert cached.headers["Cache-Control"] == "public, max-age=3600"
 
 
 def test_department_slug_is_deterministic_lowercase_and_ampersand():

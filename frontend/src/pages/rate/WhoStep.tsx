@@ -14,7 +14,7 @@ interface WhoStepProps {
 export function WhoStep({ onPick, onAddNew }: WhoStepProps) {
   const [query, setQuery] = useState('');
   const typed = query.trim();
-  const debounced = useDebouncedValue(typed, 200);
+  const debounced = useDebouncedValue(typed, 300);
   const [found, setFound] = useState<{ q: string; items: RateProfessor[] } | null>(null);
 
   useEffect(() => {

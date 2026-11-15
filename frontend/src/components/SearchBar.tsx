@@ -199,7 +199,7 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
         setSuggestions([]);
         setShowSuggestions(false);
       }
-    }, 200);
+    }, 300);
 
     return () => {
       stale = true;

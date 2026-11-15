@@ -361,7 +361,7 @@ export default function ProfessorCatalog() {
         setSearchSuggestions([]);
         setShowSearchSuggestions(false);
       }
-    }, 200);
+    }, 300);
 
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);

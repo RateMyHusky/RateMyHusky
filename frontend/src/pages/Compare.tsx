@@ -188,7 +188,7 @@ function SlotSearch({
 				setSuggestions([]);
 				setOpen(false);
 			}
-		}, 200);
+		}, 300);
 
 		return () => clearTimeout(timer);
 	}, [query, slug, selectedName, excludeKey]);

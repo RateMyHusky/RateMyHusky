@@ -86,7 +86,7 @@ export function OtherCourseStep({ own, rated, slug, onPick, onBack }: OtherCours
   const [newName, setNewName] = useState('');
   const typed = query.trim();
   const term = CODE_LIKE.test(typed) ? typed.replace(/\s+/g, '') : typed;
-  const debounced = useDebouncedValue(term, 200);
+  const debounced = useDebouncedValue(term, 300);
   const [found, setFound] = useState<{ q: string; items: RateCourse[] } | null>(null);
 
   useEffect(() => {

@@ -270,7 +270,7 @@ export default function Courses() {
 				setSearchSuggestions([]);
 				setShowSearchSuggestions(false);
 			}
-		}, 200);
+		}, 300);
 
 		return () => {
 			if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
