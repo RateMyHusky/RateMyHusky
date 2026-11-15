@@ -2,7 +2,7 @@
 // Run: cd frontend && npx tsx src/utils/askWidget.selftest.ts
 import { argv } from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { withName, loadTranscript, saveTranscript, clearTranscript, chatBodyOrError, TRANSCRIPT_KEY, TRANSCRIPT_MAX } from './askWidget';
+import { withName, loadTranscript, saveTranscript, clearTranscript, chatBodyOrError, isRenderableResult, TRANSCRIPT_KEY, TRANSCRIPT_MAX } from './askWidget';
 import type { WidgetMsg } from './askWidget';
 
 function fakeStorage(init: Record<string, string>): Storage {
@@ -73,6 +73,22 @@ function selftest(): number {
   check('chatBody: array -> fallback', asErr([], fallback));
   check('chatBody: non-string mode -> fallback', asErr({ mode: 7 }, fallback));
   check('chatBody: a body with a mode passes through', (() => { const b = { mode: 'error', message: 'Sign in to use Ask mode.' }; return chatBodyOrError(b) === b; })());
+  // A mode missing the fields AskAnswer reads would crash the widget: it becomes an error.
+  check('chatBody: question with no answer -> fallback', asErr({ mode: 'question', results: [] }, fallback));
+  check('chatBody: disambiguation with no matches -> fallback', asErr({ mode: 'disambiguation', message: 'x' }, fallback));
+
+  // Per-mode shapes, as AskAnswer reads them.
+  check('renderable: answered question', isRenderableResult({ mode: 'question', answer: 'a [1]', sources: [{ source_id: 1 }], cited: [1], course_code: null }));
+  check('renderable: keyword fallback needs only a mode', isRenderableResult({ mode: 'keyword' }));
+  check('renderable: unknown mode needs only a mode', isRenderableResult({ mode: 'something_new' }));
+  check('renderable: site_help with links and menu', isRenderableResult({ mode: 'site_help', answer: 'x', links: [{ label: 'FAQ', href: '/faq' }], menu: [{ id: 'a', title: 'A' }] }));
+  check('not renderable: site_help without links', !isRenderableResult({ mode: 'site_help', answer: 'x' }));
+  check('not renderable: site_help_choice without options', !isRenderableResult({ mode: 'site_help_choice', message: 'x' }));
+  check('not renderable: course_list with a codeless course', !isRenderableResult({ mode: 'course_list', answer: 'x', courses: [{ name: 'n' }] }));
+  check('not renderable: course_list with a string rating', !isRenderableResult({ mode: 'course_list', answer: 'x', courses: [{ code: 'CS1', rating: '4' }] }));
+  check('not renderable: error without a message', !isRenderableResult({ mode: 'error' }));
+  check('load: a saved disambiguation without matches -> null',
+    loadTranscript(fakeStorage({ ask_widget_v1: '[{"id":1,"from":"bot","result":{"mode":"disambiguation","message":"x"}}]' })) === null);
 
   // Old Safari has no lookbehind: building the RegExp throws there, and the pick is prefixed.
   check('withName falls back when RegExp construction throws', (() => {

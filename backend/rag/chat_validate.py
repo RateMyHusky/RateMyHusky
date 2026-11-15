@@ -68,6 +68,10 @@ def validate_output(answer, retrieval):
 
 _CONDUCT_FAIL = {"ok": False, "status": "validation_failed",
                  "message": "Showing the most relevant comments."}
+# The check itself failed (timeout, 429, no key, bad JSON): still not shown, but logged
+# apart from a flagged answer so it isn't charged to the account's daily cap.
+_CONDUCT_ERROR = {"ok": False, "status": "conduct_error",
+                  "message": "Showing the most relevant comments."}
 
 def conduct_check(answer, check_fn):
     """The model pass over an answer that cleared validate_output: check_fn(answer) returns
@@ -77,7 +81,9 @@ def conduct_check(answer, check_fn):
     verdict = check_fn(answer or "")
     tokens = verdict.get("tokens_used", 0) or 0
     # Only an explicit, error-free False lets the answer through.
-    if verdict.get("error") or verdict.get("conduct_claim") is not False:
+    if verdict.get("error"):
+        return dict(_CONDUCT_ERROR), tokens
+    if verdict.get("conduct_claim") is not False:
         return dict(_CONDUCT_FAIL), tokens
     return {"ok": True, "status": "ok", "message": None}, tokens
 
@@ -160,6 +166,8 @@ def selftest():
           flagged["ok"] is False and flagged["status"] == "validation_failed")
     errored, _ = conduct_check("x", lambda a: {"conduct_claim": False, "error": True, "tokens_used": 0})
     check("conduct check fails closed on an error", errored["ok"] is False)
+    check("a failed check is a conduct_error, not a validation failure",
+          errored["status"] == "conduct_error")
 
     # Issue 15: after chat_answer expands grouped citations ([1, 2] -> [1] [2]) before
     # validation sees the text, validate_output must extract both ids into "cited".

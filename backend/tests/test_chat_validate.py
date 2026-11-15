@@ -321,13 +321,14 @@ def test_conduct_check_passes_clean_answers_and_counts_tokens():
     assert result["ok"] is True and tokens == 210
 
 
-@pytest.mark.parametrize("verdict", [
-    {"conduct_claim": True, "error": False, "tokens_used": 90},
-    {"conduct_claim": False, "error": True, "tokens_used": 0},
-    {},                                   # no verdict at all
-    {"conduct_claim": None},
+@pytest.mark.parametrize("verdict, status", [
+    ({"conduct_claim": True, "error": False, "tokens_used": 90}, "validation_failed"),
+    # The check itself failed: still not shown, but our failure, not the answer's.
+    ({"conduct_claim": False, "error": True, "tokens_used": 0}, "conduct_error"),
+    ({}, "validation_failed"),                       # no verdict at all
+    ({"conduct_claim": None}, "validation_failed"),
 ])
-def test_conduct_check_blocks_flags_and_fails_closed(verdict):
+def test_conduct_check_blocks_flags_and_fails_closed(verdict, status):
     result, _ = conduct_check("anything", lambda a: verdict)
-    assert result == {"ok": False, "status": "validation_failed",
+    assert result == {"ok": False, "status": status,
                       "message": "Showing the most relevant comments."}

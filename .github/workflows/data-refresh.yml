@@ -273,11 +273,19 @@ jobs:
           if n_ev < 40000:
               print(f"::error::evidence has only {n_ev} rows after the Ask corpus rebuild (< 40000). Investigate before re-running.")
               failed = True
-          cur.execute("SELECT count(ee.evidence_id)::float / greatest(count(*), 1) FROM evidence e LEFT JOIN evidence_embeddings ee ON ee.evidence_id = e.id")
+          # Only embeddings from the current model, of the row's current text, count: an older
+          # vector is what vector search would mis-rank on (same test as build_ask_corpus.py).
+          sys.path.insert(0, os.path.join("..", "scraper"))
+          from embed_evidence import MODEL_VERSION
+          cur.execute(
+              "SELECT count(ee.evidence_id) FILTER (WHERE ee.model_version = %s "
+              "AND ee.body_sha IS NOT DISTINCT FROM e.body_sha)::float / greatest(count(*), 1) "
+              "FROM evidence e LEFT JOIN evidence_embeddings ee ON ee.evidence_id = e.id",
+              (MODEL_VERSION,))
           share = cur.fetchone()[0]
-          print(f"evidence embedded: {share:.1%}")
+          print(f"evidence embedded with {MODEL_VERSION}: {share:.1%}")
           if share < 0.95:
-              print(f"::error::Only {share:.1%} of evidence rows have an embedding (< 95%). Investigate before re-running.")
+              print(f"::error::Only {share:.1%} of evidence rows have a current embedding (< 95%). Investigate before re-running.")
               failed = True
           conn.close()
           sys.exit(1 if failed else 0)

@@ -14,7 +14,7 @@ const Terms = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Terms &amp; Conditions</h1>
-            <p className="terms-meta">Effective November 12, 2026</p>
+            <p className="terms-meta">Effective November 14, 2026</p>
           </header>
 
           <div className="terms-body">
@@ -134,8 +134,10 @@ const Terms = () => {
                   <strong>Ask questions:</strong> we store each question Ask checks with its AI
                   model with the answer it got and how it was handled, for 30 days. Only signed-in
                   accounts can send those questions, and they are stored with your Google account
-                  id, so they are not anonymous. Questions about how the site works are not
-                  stored. We do not store your IP address with them. See our{' '}
+                  id, so they are not anonymous. A question blocked as an attempt to manipulate
+                  Ask is recorded without its text. Questions about how the site works that Ask
+                  recognizes by their wording are not stored. We do not store your IP address
+                  with them. See our{' '}
                   <a href="/privacy">Privacy Policy</a> for details.
                 </li>
                 )}
@@ -332,8 +334,9 @@ const Terms = () => {
               </p>
               <p>
                 Do not include your own or anyone else's personal information in a question.
-                Questions are stored for 30 days, can be read by our team, and are sent to Groq to
-                be answered, as our <a href="/privacy">Privacy Policy</a> describes.
+                Questions Ask checks with its AI model are stored for 30 days, can be read by our
+                team, and are sent to Groq to be checked and answered, as our{' '}
+                <a href="/privacy">Privacy Policy</a> describes.
               </p>
               <p>
                 Ask is limited to questions about Northeastern professors, courses, and this site.

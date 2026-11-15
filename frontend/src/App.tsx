@@ -23,6 +23,7 @@ import FeedbackTab from './components/FeedbackTab';
 import AskWidget from './components/AskWidget';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ASK_ENABLED, RATE_ENABLED } from './config';
+import { clearTranscript } from './utils/askWidget';
 import './App.css';
 
 function ScrollToTop() {
@@ -71,8 +72,9 @@ function App() {
           </ErrorBoundary>
           <FeedbackTab />
           {ASK_ENABLED && (
-            // A widget crash removes the widget, not the page.
-            <ErrorBoundary fallback={null}>
+            // A widget crash removes the widget, not the page, and drops the saved transcript
+            // so the next load doesn't replay whatever crashed it.
+            <ErrorBoundary fallback={null} onError={clearTranscript}>
               <AskWidget />
             </ErrorBoundary>
           )}

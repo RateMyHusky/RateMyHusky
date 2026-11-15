@@ -9,11 +9,19 @@ interface ErrorBoundaryState {
 // used to unmount the entire React tree (white screen). This catches it and shows a plain
 // reload prompt instead. No logging service — just prevents the blank page.
 // `fallback` replaces the page-sized prompt, e.g. null for a corner widget that should just go away.
-class ErrorBoundary extends Component<{ children: ReactNode; fallback?: ReactNode }, ErrorBoundaryState> {
+// `onError` runs once when a crash is caught, e.g. to drop saved state that would crash again.
+class ErrorBoundary extends Component<
+  { children: ReactNode; fallback?: ReactNode; onError?: () => void },
+  ErrorBoundaryState
+> {
   state: ErrorBoundaryState = { hasError: false };
 
   static getDerivedStateFromError(): ErrorBoundaryState {
     return { hasError: true };
+  }
+
+  componentDidCatch() {
+    this.props.onError?.();
   }
 
   render() {

@@ -9,7 +9,7 @@ const Privacy = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Privacy Policy</h1>
-            <p className="terms-meta">Effective November 12, 2026</p>
+            <p className="terms-meta">Effective November 14, 2026</p>
           </header>
 
           <div className="terms-body">
@@ -95,11 +95,14 @@ const Privacy = () => {
                   was handled (for example answered, refused as off-topic, or limited), and when
                   you asked. Only signed-in accounts can send those questions, and each is stored
                   with your Google account id, so Ask questions are <strong>not anonymous</strong>.
-                  Questions about how the site works are answered without the AI model and are not
-                  stored, signed in or not. We do not store your IP address with any Ask question.
-                  Stored questions are deleted 30 days after you ask them. Questions that need a
-                  written answer are sent to Groq, without your account id (see <em>Third-Party
-                  Services</em>).
+                  A question our filter blocks as an attempt to manipulate Ask never reaches the AI
+                  model: we record that your account sent one, and when, but not its text. Questions
+                  about how the site works that Ask recognizes by their wording are answered without
+                  the AI model and are not stored, signed in or not; one only the AI model
+                  recognizes is stored like any other question. We do not store your IP address
+                  with any Ask question. Stored questions are deleted 30 days after you ask them.
+                  Every question Ask checks with its AI model, and every answer it writes, is sent
+                  to Groq, without your account id (see <em>Third-Party Services</em>).
                 </li>
                 )}
                 {RATE_ENABLED && (
@@ -351,7 +354,7 @@ const Privacy = () => {
                 </li>
                 {(ASK_ENABLED || RATE_ENABLED) && (
                 <li>
-                  <strong>Groq</strong>:{ASK_ENABLED ? ' Ask questions that need a written answer are sent to Groq, which checks each question and writes the answer from the reviews we send with it. Your account id is not sent.' : ''}
+                  <strong>Groq</strong>:{ASK_ENABLED ? ' Every Ask question that reaches the AI model is sent to Groq, which checks it and, when it needs one, writes the answer from the reviews we send with it and then checks that answer. Your account id is not sent.' : ''}
                   {RATE_ENABLED ? ' The text of rating comments may be sent to Groq to check it for abuse, and the answers and comments of ratings held for review, why they were held, and recent ratings and comments for the same professor, are sent to Groq for an automated check.' : ''}
                   {' '}Subject to{' '}
                   <a

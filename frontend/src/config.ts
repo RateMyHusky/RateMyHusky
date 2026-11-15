@@ -1,6 +1,6 @@
 // Ask logs each question with the account id, and no IP (ask_log, deleted after 30 days:
 // ASK_LOG_RETENTION_DAYS in server.py) and sends questions to Groq. The Privacy Policy and
-// Terms don't mention Ask yet, and Groq is only listed there for rating comments.
+// Terms describe Ask while this is true; keep them in step with what ask_log stores.
 // This flag gates the floating Ask widget, the homepage "Try Now" bubble and the
 // ban-appeal feedback option. The backend serves Ask regardless of it.
 export const ASK_ENABLED = true;

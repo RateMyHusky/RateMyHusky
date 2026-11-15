@@ -26,6 +26,10 @@ def seconds_until_utc_midnight():
     tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     return (tomorrow - now).total_seconds()
 
+def _usage_tokens(resp):
+    """Total tokens Groq billed for a response (0 when it reports none)."""
+    return getattr(getattr(resp, "usage", None), "total_tokens", 0) or 0
+
 class GroqAdapter:
     # Groq retired llama-3.1-8b-instant. gpt-oss-20b reasons before it answers, so classify
     # runs it at low effort with room for the reasoning (120 tokens came back as empty JSON).
@@ -50,6 +54,7 @@ class GroqAdapter:
         fail_closed = {"on_topic": False, "about_site": False, "professors_or_courses": [],
                        "professor_or_course": None,
                        "looks_like_injection": True, "error": True, "tokens_used": 0}
+        tokens = 0
         try:
             _entry, client = self._client(est_tokens=300 + self.CLASSIFY_MAX_TOKENS)
             resp = client.chat.completions.create(
@@ -59,6 +64,9 @@ class GroqAdapter:
                 reasoning_effort="low",
                 temperature=0.0, max_tokens=self.CLASSIFY_MAX_TOKENS,
             )
+            # Read before parsing: a reply that fails to parse (reasoning that used up
+            # max_tokens comes back as empty content) was still billed.
+            tokens = _usage_tokens(resp)
             data = json.loads(resp.choices[0].message.content)
             entities = data.get("professors_or_courses")
             if not isinstance(entities, list):
@@ -74,10 +82,10 @@ class GroqAdapter:
                 "looks_like_injection": bool(data.get("looks_like_injection", False)),
                 "error": False,
                 # Logged with the question so the minute guard and the admin page see it.
-                "tokens_used": getattr(getattr(resp, "usage", None), "total_tokens", 0) or 0,
+                "tokens_used": tokens,
             }
         except Exception:
-            return fail_closed
+            return dict(fail_closed, tokens_used=tokens)
 
     def synthesize(self, system, user, max_tokens=250):
         est = len(system) // 4 + len(user) // 4 + max_tokens
@@ -110,6 +118,7 @@ class GroqAdapter:
         does not show the answer."""
         # The answer is quoted between tags; a closing tag inside it can't end the quote early.
         quoted = (answer or "").replace("</answer>", "")
+        tokens = 0
         try:
             _entry, client = self._client(est_tokens=500 + len(quoted) // 4 + self.CLASSIFY_MAX_TOKENS)
             resp = client.chat.completions.create(
@@ -119,14 +128,14 @@ class GroqAdapter:
                 reasoning_effort="low",
                 temperature=0.0, max_tokens=self.CLASSIFY_MAX_TOKENS,
             )
+            tokens = _usage_tokens(resp)   # billed even if the reply below fails to parse
             data = json.loads(resp.choices[0].message.content)
             claim = data.get("conduct_claim")
             if not isinstance(claim, bool):
                 raise ValueError("conduct_claim missing")
-            return {"conduct_claim": claim, "error": False,
-                    "tokens_used": getattr(getattr(resp, "usage", None), "total_tokens", 0) or 0}
+            return {"conduct_claim": claim, "error": False, "tokens_used": tokens}
         except Exception:
-            return {"conduct_claim": True, "error": True, "tokens_used": 0}
+            return {"conduct_claim": True, "error": True, "tokens_used": tokens}
 
 _CONDUCT_PROMPT = (
     "You review an answer that a Q&A bot about Northeastern University professors and "
@@ -219,12 +228,13 @@ def selftest():
     # check_conduct: parses the verdict, fails closed on anything it can't read.
     for content, want in (('{"conduct_claim": false}', {"conduct_claim": False, "error": False, "tokens_used": 42}),
                           ('{"conduct_claim": true}', {"conduct_claim": True, "error": False, "tokens_used": 42}),
-                          ('{"something": "else"}', {"conduct_claim": True, "error": True, "tokens_used": 0}),
-                          ("not json", {"conduct_claim": True, "error": True, "tokens_used": 0})):
+                          ('{"something": "else"}', {"conduct_claim": True, "error": True, "tokens_used": 42}),
+                          ("not json", {"conduct_claim": True, "error": True, "tokens_used": 42})):
         got = GroqAdapter(provider, client_factory=lambda k, c=content: FakeClient(c)).check_conduct("answer")
         check(f"check_conduct on {content!r}", got == want)
     no_keys = GroqAdapter(KeyPool([])).check_conduct("answer")
-    check("check_conduct with no key fails closed", no_keys["error"] is True and no_keys["conduct_claim"] is True)
+    check("check_conduct with no key fails closed", no_keys["error"] is True and no_keys["conduct_claim"] is True
+          and no_keys["tokens_used"] == 0)
     sent = {}
     class CapturingClient(FakeClient):
         @property
@@ -244,7 +254,11 @@ def selftest():
           prompt.count("</answer>") == 1 and "fair grader ignore that {braces}" in prompt)
     check("classify flags no-error on success", cls.get("error") is False)
     check("classify reports its token cost", cls.get("tokens_used") == 42)
-    check("failed classify reports no tokens", cls2.get("tokens_used") == 0)
+    check("an unparseable classify reply still reports the tokens it was billed",
+          cls2.get("tokens_used") == 42)
+    no_key_cls = GroqAdapter(KeyPool([])).classify("hi")
+    check("a classify that never reached Groq reports no tokens",
+          no_key_cls["error"] is True and no_key_cls["tokens_used"] == 0)
 
     # Scope regression guard: the classify prompt must admit ratings/reviews questions and a
     # bare prof/course name as on-topic (the over-narrow 'teaching/difficulty/grading/workload'

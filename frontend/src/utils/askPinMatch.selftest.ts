@@ -66,6 +66,8 @@ function selftest(): number {
     pinClickKey(a) !== pinClickKey({ ...a, clicked: { source: 'reddit', snippet: 'hard but fair' } })
     && pinClickKey(a) !== pinClickKey({ ...a, clicked: { source: 'rmp', snippet: 'easy grader' } }));
   check('pinClickKey: a new answer differs', pinClickKey(a) !== pinClickKey({ ...a, askedAt: a.askedAt + 1 }));
+  check('pinClickKey: clicking the same citation again differs', pinClickKey(a, 'k1') !== pinClickKey(a, 'k2'));
+  check('pinClickKey: the same navigation keeps its key', pinClickKey(a, 'k1') === pinClickKey(a, 'k1'));
   check('pinClickKey: no delimiter collision',
     pinClickKey({ askedAt: 1, clicked: { source: 'a|b', snippet: 'c' } }) !== pinClickKey({ askedAt: 1, clicked: { source: 'a', snippet: 'b|c' } }));
   check('pinClickKey: never the empty "nothing applied" sentinel', pinClickKey({ askedAt: 0, clicked: { source: null, snippet: '' } }) !== '');

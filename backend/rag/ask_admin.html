@@ -520,16 +520,16 @@
   var ALL_STATUSES = [
     "ok", "ok_cached", "rate_limited", "off_topic",
     "injection_blocked", "too_long", "gate_error", "ambiguous", "out_of_scope",
-    "thin_data", "llm_error", "validation_failed", "site_help_llm"
+    "thin_data", "llm_error", "validation_failed", "conduct_error", "site_help_llm"
   ];
   var STRIKE_WORTHY = ["injection_blocked", "off_topic"];
-  var ERROR_STATUSES = ["gate_error", "llm_error", "validation_failed"];
+  var ERROR_STATUSES = ["gate_error", "llm_error", "validation_failed", "conduct_error"];
   var RED_STATUSES = ["injection_blocked", "off_topic"];
   // site_help_llm: the classifier saw a site question and the help menu was shown.
   var GREEN_STATUSES = ["ok", "ok_cached", "site_help_llm"];
   var AMBER_STATUSES = [
     "rate_limited", "too_long", "gate_error", "ambiguous",
-    "out_of_scope", "thin_data", "llm_error", "validation_failed"
+    "out_of_scope", "thin_data", "llm_error", "validation_failed", "conduct_error"
   ];
 
   var PAGE_SIZE = 50;

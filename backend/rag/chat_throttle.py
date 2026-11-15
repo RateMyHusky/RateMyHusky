@@ -10,12 +10,13 @@ CONSTRAINED_SESSION_CAP = 3
 # budget before the 85% threshold switches the tighter cap on.
 SESSION_DAILY_CAP = 20
 
-# Rows that paid for a synth call. An answer that fails output validation cost the same
-# tokens as one that passed, so both count toward the daily budget.
-SYNTH_STATUSES = ("ok", "validation_failed")
+# Rows that paid for a synth call. An answer that fails output validation, or whose conduct
+# check could not run, cost the same synth tokens as one that passed, so all count toward
+# the daily budget.
+SYNTH_STATUSES = ("ok", "validation_failed", "conduct_error")
 # Only questions that reached the LLM are logged, and every one counts toward the account's
-# daily cap except our own failures (classifier or synth unavailable).
-UNCOUNTED_STATUSES = ("gate_error", "llm_error")
+# daily cap except our own failures (classifier, synth or conduct check unavailable).
+UNCOUNTED_STATUSES = ("gate_error", "llm_error", "conduct_error")
 
 # Per-minute (TPM) limits — the real concurrency bottleneck. gpt-oss-120b free tier = 8K tokens/min
 # per key (confirmed from the Groq dashboard). Each answered question costs ~2500 tokens end-to-end
@@ -91,13 +92,13 @@ def _today_ok_count(query_one_fn, today_count_memo=None):
     # the original always-query behavior for any caller that doesn't thread it.
     # Issue 7: this feeds global_budget_hit/projected_daily_usage, which meter synth
     # spend — cache hits ('ok_cached') cost zero synth tokens and must NOT count here,
-    # but a 'validation_failed' answer paid for the whole synth and must.
+    # but a 'validation_failed' or 'conduct_error' answer paid for the whole synth and must.
     if today_count_memo is not None:
         return today_count_memo
     row = query_one_fn(
         "SELECT count(*) AS c FROM ask_log "
         "WHERE created_at >= date_trunc('day', now()) "
-        "AND result_status IN ('ok', 'validation_failed')")
+        "AND result_status IN ('ok', 'validation_failed', 'conduct_error')")
     return (row or {}).get("c", 0) or 0
 
 def today_ok_count(query_one_fn, today_count_memo=None):
@@ -228,7 +229,7 @@ def selftest():
     check("session cap counts across the whole day", "date_trunc('day', now())" in seen_session_sql["sql"])
     check("session cap query has no 60s cutoff param", len(seen_session_sql["params"]) == 2)
     check("session cap counts everything but our own failures",
-          seen_session_sql["params"][1] == ["gate_error", "llm_error"]
+          seen_session_sql["params"][1] == ["gate_error", "llm_error", "conduct_error"]
           and "<> ALL" in seen_session_sql["sql"])
     check("day cap of 3 denies the session", ok3 is False and status3 == "rate_limited")
 
@@ -248,8 +249,9 @@ def selftest():
           _today_ok_count(_count_adapter(q_track)) == 7)
     check("no date_trunc(created_at) in _today_ok_count SQL",
           "date_trunc('day', created_at)" not in seen_daily_sql["sql"])
-    check("_today_ok_count counts ok + validation_failed, not ok_cached",
-          "'ok', 'validation_failed'" in seen_daily_sql["sql"] and "ok_cached" not in seen_daily_sql["sql"])
+    check("_today_ok_count counts every paid synth, not ok_cached",
+          "'ok', 'validation_failed', 'conduct_error'" in seen_daily_sql["sql"]
+          and "ok_cached" not in seen_daily_sql["sql"])
     check("_today_ok_count memo skips the query entirely",
           _today_ok_count(lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not query")), today_count_memo=42) == 42)
 

@@ -55,9 +55,24 @@ load_dotenv()
 
 import types as _types
 
-# Backend off switch for Ask questions (no deploy needed): false makes question mode return
-# 503 while site help, which never calls the LLM, keeps working.
-CHAT_ENABLED = os.getenv("CHAT_ENABLED", "true").strip().lower() != "false"
+# Backend off switch for Ask questions (no deploy needed): off makes question mode return
+# 503 while site help, which never calls the LLM, keeps working. Unset means on (the README
+# documents Ask as served by default); a value that is neither on nor off turns Ask off, so a
+# typo in an incident ("0", "disable") can't leave it running.
+_CHAT_ON = {"true", "1", "yes", "on"}
+_CHAT_OFF = {"false", "0", "no", "off"}
+
+
+def _chat_enabled(raw):
+    value = (raw if raw is not None else "true").strip().lower()
+    if value in _CHAT_ON:
+        return True
+    if value not in _CHAT_OFF:
+        print(f"CHAT_ENABLED={raw!r} is neither on nor off; Ask questions are turned off.")
+    return False
+
+
+CHAT_ENABLED = _chat_enabled(os.getenv("CHAT_ENABLED"))
 _chat_pool = KeyPool()
 _chat_adapter = GroqAdapter(_chat_pool)
 
@@ -711,12 +726,14 @@ def _chat_write(sql, params=None):
     The read-only query()/query_one() call fetchall(), which raises on a non-RETURNING INSERT;
     and the pool is not autocommit, so writes must commit explicitly.
     A logging write must never fail the request that already generated a successful answer:
-    retry once on a stale connection (mirrors query()), then swallow and log any further error."""
+    retry once on a stale connection (mirrors query()), then swallow and log any further error.
+    Returns True if the write committed, False if it was dropped."""
     try:
         conn = get_db()
         cur = conn.cursor()
         cur.execute(sql, params or ())
         conn.commit()
+        return True
     except psycopg2.extensions.QueryCanceledError as e:
         _rollback_after_cancel(conn)
         print(f"_chat_write: log write timed out, dropping: {e}")
@@ -727,10 +744,12 @@ def _chat_write(sql, params=None):
             cur = conn.cursor()
             cur.execute(sql, params or ())
             conn.commit()
+            return True
         except Exception as e:
             print(f"_chat_write: log write failed after retry, dropping: {e}")
     except Exception as e:
         print(f"_chat_write: log write failed, dropping: {e}")
+    return False
 
 def _chat_write_rc(sql, params=None):
     """Like _chat_write but returns the executed statement's rowcount."""
@@ -748,6 +767,7 @@ ASK_LOG_PURGE_EVERY = 3600          # seconds between purge attempts per process
 ASK_LOG_PURGE_BATCH = 5000          # bounded so one DELETE stays inside statement_timeout
 _ask_log_purge = {"last": 0.0}
 _ask_log_purge_lock = Lock()
+_ask_log_ip_cleared = {"done": False}   # see delete_old_ask_log
 
 
 def _claim_ask_log_purge(now=None):
@@ -772,7 +792,11 @@ def delete_old_ask_log(write_fn=None):
         (ASK_LOG_RETENTION_DAYS, ASK_LOG_PURGE_BATCH))
     # Ask stopped storing IPs; rows written before that keep an ip_hash until this clears
     # it, so the Privacy Policy's "no IP address" holds from the first purge after deploy.
-    write("UPDATE ask_log SET ip_hash = NULL WHERE ip_hash IS NOT NULL", ())
+    # Nothing writes an ip_hash any more, so once the clear commits it has nothing left to
+    # do: it runs until it succeeds once per process, not every hour (an unindexed scan).
+    if not _ask_log_ip_cleared["done"]:
+        if write("UPDATE ask_log SET ip_hash = NULL WHERE ip_hash IS NOT NULL", ()) is not False:
+            _ask_log_ip_cleared["done"] = True
 
 
 def purge_old_ask_log(write_fn=None, now=None):

@@ -34,8 +34,7 @@ if not URL:
 ALL_STATUSES = (
     "ok", "ok_cached", "rate_limited", "off_topic",
     "injection_blocked", "too_long", "gate_error", "ambiguous", "out_of_scope",
-    "thin_data", "llm_error", "validation_failed", "site_help", "site_help_llm",
-    "site_help_choice", "site_help_pick", "site_help_other",
+    "thin_data", "llm_error", "validation_failed", "conduct_error", "site_help_llm",
 )
 
 app = Flask(__name__)

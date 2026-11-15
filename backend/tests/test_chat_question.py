@@ -53,6 +53,7 @@ def test_chat_question_over_get_is_refused(q_client):
 def test_ask_log_purge_runs_at_most_hourly(monkeypatch):
     import server
     monkeypatch.setitem(server._ask_log_purge, "last", 0.0)
+    monkeypatch.setitem(server._ask_log_ip_cleared, "done", False)
     calls = []
     write = lambda sql, params: calls.append((sql, params))
     server.purge_old_ask_log(write, now=10_000)
@@ -64,8 +65,22 @@ def test_ask_log_purge_runs_at_most_hourly(monkeypatch):
     assert params[0] == server.ASK_LOG_RETENTION_DAYS
     # Rows from before Ask stopped storing IPs lose their hash.
     assert calls[1][0] == "UPDATE ask_log SET ip_hash = NULL WHERE ip_hash IS NOT NULL"
+    # The next hour only deletes: the clear already committed.
     server.purge_old_ask_log(write, now=10_000 + server.ASK_LOG_PURGE_EVERY + 1)
-    assert len(calls) == 4
+    assert len(calls) == 3 and calls[2][0].startswith("DELETE FROM ask_log")
+
+
+def test_ask_log_ip_clear_retries_until_it_commits(monkeypatch):
+    import server
+    monkeypatch.setitem(server._ask_log_ip_cleared, "done", False)
+    calls = []
+    def failing(sql, params):
+        calls.append(sql)
+        return False                # what _chat_write returns for a dropped write
+    server.delete_old_ask_log(failing)
+    server.delete_old_ask_log(failing)
+    assert sum(s.startswith("UPDATE ask_log SET ip_hash") for s in calls) == 2
+    assert server._ask_log_ip_cleared["done"] is False
 
 
 def test_ask_log_purge_starts_off_the_request_thread_on_railway(monkeypatch):
@@ -158,3 +173,13 @@ def test_server_wires_the_conduct_check(monkeypatch, q_client):
     resp = q_client.post("/api/chat", json={"q": "is Guha hard"}, headers=_auth_headers())
     assert resp.status_code == 200
     assert seen["deps"].conduct_check_fn == server._chat_adapter.check_conduct
+
+
+@pytest.mark.parametrize("raw, on", [
+    (None, True), ("true", True), (" TRUE ", True), ("1", True), ("on", True), ("yes", True),
+    ("false", False), ("0", False), ("off", False), ("no", False),
+    ("disable", False), ("", False), ("ture", False),
+])
+def test_chat_enabled_parses_only_known_values(raw, on):
+    import server
+    assert server._chat_enabled(raw) is on

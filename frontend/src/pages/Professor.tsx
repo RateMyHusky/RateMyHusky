@@ -286,8 +286,8 @@ const Professor = () => {
       return st?.askPins?.sources ?? [];
     }
   );
-  // Keyed per citation click (pinClickKey: askedAt + clicked source + snippet), so with the
-  // widget open on this page, clicking [2] then [3] from the same answer re-applies each time.
+  // Keyed per citation click (pinClickKey: askedAt + clicked source + snippet + location.key),
+  // so with the widget open on this page, clicking [2], [3], or [2] again re-applies each time.
   // Sentinel '' (never a real key) so the apply-pins effect's "already applied" guard is false
   // on first mount and actually performs the tab-switch + scroll. The effect sets this ref to
   // the click's key once it applies.
@@ -406,7 +406,7 @@ const Professor = () => {
     }
 
     // Apply the pins + tab switch once per citation click.
-    const clickKey = pinClickKey(pins);
+    const clickKey = pinClickKey(pins, location.key);
     if (clickKey !== pinnedClickKey.current) {
       pinnedClickKey.current = clickKey;
       setPinnedSources(pins.sources);
@@ -421,7 +421,7 @@ const Professor = () => {
       scrolledClickKey.current = clickKey;
       setTimeout(() => reviewsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
     }
-  }, [location.state, loading]);
+  }, [location.state, location.key, loading]);
 
   /* ── back to top ── */
   useEffect(() => {
