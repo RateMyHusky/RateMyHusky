@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchDepartments, fetchSearchSuggestions } from '../../api/api';
-import { useDebouncedValue } from '../../utils/useDebouncedValue';
+import { SEARCH_DEBOUNCE_MS, useDebouncedValue } from '../../utils/useDebouncedValue';
 import type { RateProfessor } from './rateFlow';
 import { StepFoot } from './ChoiceGroup';
 
@@ -14,7 +14,7 @@ interface WhoStepProps {
 export function WhoStep({ onPick, onAddNew }: WhoStepProps) {
   const [query, setQuery] = useState('');
   const typed = query.trim();
-  const debounced = useDebouncedValue(typed, 300);
+  const debounced = useDebouncedValue(typed, SEARCH_DEBOUNCE_MS);
   const [found, setFound] = useState<{ q: string; items: RateProfessor[] } | null>(null);
 
   useEffect(() => {

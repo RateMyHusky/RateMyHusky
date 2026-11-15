@@ -24,7 +24,7 @@ import StarRating from '../components/StarRating';
 import BookmarkButton from '../components/BookmarkButton';
 import Seo from '../components/Seo';
 import { getInitials, splitProfName, stripPrefix } from '../utils/nameUtils';
-import { useDebouncedValue } from '../utils/useDebouncedValue';
+import { SEARCH_DEBOUNCE_MS, useDebouncedValue } from '../utils/useDebouncedValue';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
 
 import './ProfessorCatalog.css';
@@ -361,7 +361,7 @@ export default function ProfessorCatalog() {
         setSearchSuggestions([]);
         setShowSearchSuggestions(false);
       }
-    }, 300);
+    }, SEARCH_DEBOUNCE_MS);
 
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);

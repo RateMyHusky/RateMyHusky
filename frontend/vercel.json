@@ -35,11 +35,20 @@
       ]
     },
     {
-      "source": "/(photos/.*|favicon\\.png|logo\\.jpg|neu-husky-icon\\.png)",
+      "source": "/photos/(.*)",
       "headers": [
         {
           "key": "Cache-Control",
           "value": "public, max-age=2592000, stale-while-revalidate=604800"
+        }
+      ]
+    },
+    {
+      "source": "/(favicon\\.png|logo\\.jpg|neu-husky-icon\\.png)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400, stale-while-revalidate=604800"
         }
       ]
     },

@@ -88,6 +88,17 @@ def test_filter_lists_are_browser_cached_for_an_hour(dept_client, monkeypatch, p
     assert cached.headers["Cache-Control"] == "public, max-age=3600"
 
 
+# An empty list (e.g. a college with no rated professors) isn't kept, so it fills in next visit.
+@pytest.mark.parametrize("path", ["/api/departments", "/api/course-departments"])
+def test_empty_filter_list_is_not_browser_cached(dept_client, monkeypatch, path):
+    import server
+    monkeypatch.setattr(server, "query", lambda sql, params=(): [], raising=False)
+    resp = dept_client.get(path)
+    assert resp.status_code == 200
+    assert resp.get_json() == []
+    assert "max-age" not in resp.headers.get("Cache-Control", "")
+
+
 def test_department_slug_is_deterministic_lowercase_and_ampersand():
     from server import department_slug
     assert department_slug("Computer Science") == "computer-science"

@@ -1512,9 +1512,11 @@ def popular_tags():
 
 def _filter_list_response(data):
     """A catalog filter list: it changes only with a data refresh, so the browser keeps it an
-    hour instead of refetching it (a Vercel request + middleware run) on every catalog visit."""
+    hour instead of refetching it (a Vercel request + middleware run) on every catalog visit.
+    An empty list isn't kept, so a dropdown that loaded empty fills in on the next visit."""
     resp = jsonify(data)
-    resp.headers["Cache-Control"] = "public, max-age=3600"
+    if data:
+        resp.headers["Cache-Control"] = "public, max-age=3600"
     return resp
 
 

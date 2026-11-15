@@ -16,7 +16,7 @@ import Footer from '../components/Footer';
 import StarRating from '../components/StarRating';
 import BookmarkButton from '../components/BookmarkButton';
 import Seo from '../components/Seo';
-import { useDebouncedValue } from '../utils/useDebouncedValue';
+import { SEARCH_DEBOUNCE_MS, useDebouncedValue } from '../utils/useDebouncedValue';
 import { useCatalogScroll } from '../utils/useCatalogScroll';
 import { useUrlFilters } from '../utils/useUrlFilters';
 import { useDialog } from '../utils/useDialog';
@@ -270,7 +270,7 @@ export default function Courses() {
 				setSearchSuggestions([]);
 				setShowSearchSuggestions(false);
 			}
-		}, 300);
+		}, SEARCH_DEBOUNCE_MS);
 
 		return () => {
 			if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);

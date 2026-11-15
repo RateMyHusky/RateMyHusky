@@ -217,9 +217,9 @@ const Privacy = () => {
                   </a>.
                 </li>
                 <li>
-                  <strong>Vercel Analytics &amp; Speed Insights</strong>: collects anonymous
-                  page view and performance metrics. No personally identifiable information is
-                  included. Subject to{' '}
+                  <strong>Vercel Speed Insights</strong>: collects anonymous performance
+                  metrics, such as how fast pages load. No personally identifiable information
+                  is included. Subject to{' '}
                   <a
                     href="https://vercel.com/legal/privacy-policy"
                     target="_blank"
