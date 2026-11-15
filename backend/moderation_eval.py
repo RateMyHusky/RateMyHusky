@@ -3,7 +3,9 @@
 Runs a local test set (written `live`, `hold` and `either` comments) plus a frozen
 random sample of real approved comments through moderation_groq.check exactly as
 prod calls it, and writes a markdown report. The bar: at least 90% of the real
-sample gets ALLOW, and no clearly-bad `hold` comment gets ALLOW in any run.
+sample and 90% of the written `live` comments get ALLOW, and no clearly-bad `hold`
+comment gets ALLOW in any run. The real sample alone can't show wrong blocks: a
+comment prod's check blocked was never saved, so it can't be drawn.
 
 Keys: calls go on the groq2..groqN keys from backend/.env in turn, never on groq1,
 which prod's comment check uses. Each key must belong to its own Groq org (account),
@@ -35,13 +37,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import moderation_groq
-from rating_checks import rule_block
+from rating_checks import MAX_COMMENT, rule_block
 
 REPORTS_DIR = Path(__file__).resolve().parent / "reports"
 SET_PATH = REPORTS_DIR / "moderation_eval_set.json"
 RESULTS_PATH = REPORTS_DIR / "moderation_eval_results.json"
 TOKEN_CAP = 170_000
-CALL_CEILING = 1_000  # what a call without usage counts toward the cap
+CALL_CEILING = 2_500  # what a call without usage counts toward the cap: above the most a medium-effort call used
 SPACING_SECONDS = 30
 RETRY_WAIT_SECONDS = 60
 MAX_FAILURES = 3
@@ -53,7 +55,7 @@ BAR = 0.90
 
 LABELS = ("live", "hold", "either")
 DECIDED = ("allow", "review", "block")
-ESTIMATE_TOKENS = 700
+ESTIMATE_TOKENS = 850
 
 REAL_SAMPLE_SQL = """SELECT id::text AS id, comment FROM survey_ratings
 WHERE comment_status = 'approved' AND comment IS NOT NULL AND btrim(comment) <> ''
@@ -73,14 +75,19 @@ def load_set(path):
             raise ValueError(f"{id}: label must be one of {LABELS}")
         if not it.get("category"):
             raise ValueError(f"{id}: no category")
+        if it["category"] == "real":
+            raise ValueError(f"{id}: category real is kept for the drawn sample of approved comments")
         if it.get("severity") not in ("clear", "subtle", None):
             raise ValueError(f"{id}: severity must be clear, subtle or null")
         if it["label"] == "hold" and it.get("severity") is None:
             raise ValueError(f"{id}: a hold item needs a severity")
         if not it.get("half") or it["half"] == "all":
             raise ValueError(f"{id}: half must be a name such as tune or held, not empty or all")
-        if not str(it.get("text") or "").strip():
+        text = str(it.get("text") or "")
+        if not text.strip():
             raise ValueError(f"{id}: empty text")
+        if text != text.strip() or len(text) > MAX_COMMENT:
+            raise ValueError(f"{id}: text must be trimmed and at most {MAX_COMMENT} characters, as prod sends it")
     return items
 
 
@@ -93,9 +100,23 @@ def real_sample(cur, n=REAL_SAMPLE, seed=SAMPLE_SEED):
              "half": None, "text": comment} for id, comment in picked]
 
 
+def _sha(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
 def setup_of(policy, model, effort):
-    return {"model": model, "effort": effort,
-            "policy_sha": hashlib.sha256(policy.encode("utf-8")).hexdigest()[:12]}
+    return {"model": model, "effort": effort, "policy_sha": _sha(policy)}
+
+
+def refuse_changed_texts(items, records, variant):
+    """Raises ValueError if an item's text changed since the variant's answers for it,
+    so an old answer never counts for new wording. Records from before text_sha are trusted."""
+    sha = {it["id"]: _sha(it["text"]) for it in items}
+    changed = sorted({r["id"] for r in records if r["variant"] == variant and r["id"] in sha
+                      and r.get("text_sha", sha[r["id"]]) != sha[r["id"]]})
+    if changed:
+        raise ValueError(f"text changed since variant {variant!r} ran: {', '.join(changed)}; "
+                         "give the item a new id or pick a new --variant name")
 
 
 def apply_setup(policy, model, effort):
@@ -122,13 +143,6 @@ def rotating(*clients):
         create=lambda **kw: next(turn).chat.completions.create(**kw))))
 
 
-def _client(key):
-    """Built like moderation_groq.client(): 3 s and no retries."""
-    from openai import OpenAI
-    return OpenAI(api_key=key, base_url=moderation_groq.BASE_URL,
-                  timeout=moderation_groq.TIMEOUT, max_retries=0)
-
-
 def _latest(records, variant):
     """{(id, run): action} from the variant's records, the latest record winning."""
     return {(r["id"], r["run"]): r["action"] for r in records if r["variant"] == variant}
@@ -150,9 +164,20 @@ def pending_calls(items, records, variant):
     return first + second
 
 
+def _counted(r):
+    """What a record counts toward the cap: a ceiling per failed attempt, since a
+    timeout may still have run on Groq, plus the answer's usage (a ceiling without it).
+    Records from before `failures` count MAX_FAILURES for `unavailable`, else none."""
+    failures = r.get("failures", MAX_FAILURES if r["action"] == "unavailable" else 0)
+    spent = CALL_CEILING * failures
+    if r["action"] != "unavailable":
+        spent += CALL_CEILING if r["tokens"] is None else r["tokens"]
+    return spent
+
+
 def tokens_last_day(records, model, now):
     since = now - timedelta(hours=24)
-    return sum(CALL_CEILING if r["tokens"] is None else r["tokens"] for r in records
+    return sum(_counted(r) for r in records
                if r["model"] == model and datetime.fromisoformat(r["at"]) > since)
 
 
@@ -162,27 +187,27 @@ def run(items, records, groq, variant, setup, save, token_cap=TOKEN_CAP, now=Non
     if any({k: r[k] for k in setup} != setup for r in records if r["variant"] == variant):
         raise ValueError(f"variant {variant!r} was run with another policy, model or effort; "
                          "pick a new --variant name")
+    refuse_changed_texts(items, records, variant)
     clock = (lambda: now) if now is not None else (lambda: datetime.now(timezone.utc))
 
-    def add(it, n, action, tokens):
+    def add(it, n, action, tokens, failures=0):
         records.append({"variant": variant, **setup, "id": it["id"], "run": n, "action": action,
-                        "tokens": tokens, "at": clock().isoformat()})
+                        "tokens": tokens, "failures": failures, "text_sha": _sha(it["text"]),
+                        "at": clock().isoformat()})
         save(records)
 
-    made, tried, stopped, dead = 0, set(), "nothing left", 0
+    made, stopped, dead = 0, "nothing left", 0
     for it, n in pending_calls(items, records, variant):
         if n == 1 and rule_block(it["text"]):
             add(it, 1, "rules", 0)
     for phase in (1, 2):
         for it, n in pending_calls(items, records, variant):
-            if n != phase or (it["id"], n) in tried:
+            if n != phase:
                 continue
-            if tokens_last_day(records, setup["model"], clock()) + CALL_CEILING > token_cap:
+            if tokens_last_day(records, setup["model"], clock()) + CALL_CEILING * MAX_FAILURES > token_cap:
                 stopped = f"stopped at the token cap ({token_cap:,}); rerun tomorrow to resume"
                 break
-            tried.add((it["id"], n))
-            if made:
-                sleep(SPACING_SECONDS)
+            sleep(SPACING_SECONDS)  # before the first call too: a rerun may follow a stop on 429s
             failures = limited = 0
             while True:
                 action, reason, tokens = moderation_groq.check(it["text"], groq)
@@ -197,11 +222,11 @@ def run(items, records, groq, variant, setup, save, token_cap=TOKEN_CAP, now=Non
                 else:
                     break
                 sleep(RETRY_WAIT_SECONDS)
-            made += 1
             if limited >= MAX_429S:
                 stopped = f"stopped after {MAX_429S} 429s in a row"
                 break
-            add(it, n, action, tokens)
+            made += 1
+            add(it, n, action, tokens, failures)
             dead = dead + 1 if action == "unavailable" else 0
             if dead >= MAX_UNAVAILABLE:
                 stopped = (f"stopped after {MAX_UNAVAILABLE} comments in a row failed every attempt; "
@@ -221,6 +246,7 @@ def _pct(part, whole):
 def report(items, records, variant, half):
     """Markdown starting with PASS, FAIL or INCOMPLETE, then the numbers and every mistake."""
     items = [it for it in items if in_half(it, half)]
+    refuse_changed_texts(items, records, variant)
     done = _latest(records, variant)
     one = {it["id"]: done.get((it["id"], 1)) for it in items}
     two = {it["id"]: done.get((it["id"], 2)) for it in items}
@@ -231,12 +257,21 @@ def report(items, records, variant, half):
     real_decided = [it for it in real if one[it["id"]] in DECIDED]
     real_allowed = sum(one[it["id"]] == "allow" for it in real_decided)
     share = real_allowed / len(real_decided) if real_decided else 0.0
+    written_decided = [it for it in written if one[it["id"]] in DECIDED]
+    written_share = (sum(one[it["id"]] == "allow" for it in written_decided) / len(written_decided)
+                     if written_decided else 0.0)
     held_allowed = [it for it in by["hold"] if "allow" in (one[it["id"]], two[it["id"]])]
     clear_allowed = [it for it in held_allowed if it["severity"] == "clear"]
 
     if pending_calls(items, records, variant):
         verdict = "INCOMPLETE: calls are still pending; resume the run"
-    elif share >= BAR and not clear_allowed:
+    elif not any(it["severity"] == "clear" for it in by["hold"]):
+        verdict = "NO VERDICT: this half has no clear hold comments, so nothing was tested for letting one through"
+    elif not written:
+        verdict = "NO VERDICT: this half has no written live comments, so nothing was tested for blocking a fair one"
+    elif not real_decided:
+        verdict = "NO VERDICT: no real sample has been drawn yet; `plan` or `run` draws it"
+    elif share >= BAR and written_share >= BAR and not clear_allowed:
         verdict = "PASS"
     else:
         verdict = "FAIL"
@@ -245,11 +280,11 @@ def report(items, records, variant, half):
         decided = [it for it in group if one[it["id"]] in DECIDED]
         return _pct(sum(one[it["id"]] == "allow" for it in decided), len(decided))
 
-    lines = [f"{verdict}", "", f"Variant `{variant}`, half `{half}`, bar {BAR:.0%} real ALLOW and no clear hold allowed.", ""]
+    lines = [f"{verdict}", "", f"Variant `{variant}`, half `{half}`, bar {BAR:.0%} ALLOW on real and on written live comments, and no clear hold allowed.", ""]
     lines += ["## Real live comments (run 1)", "",
               f"- ALLOW: {_pct(real_allowed, len(real_decided))}",
               f"- Unavailable: {sum(one[it['id']] == 'unavailable' for it in real)}", ""]
-    lines += ["## Written live comments (run 1, no bar)", "", f"- Overall ALLOW: {allow_share(written)}"]
+    lines += ["## Written live comments (run 1)", "", f"- Overall ALLOW: {allow_share(written)}"]
     for cat in sorted({it["category"] for it in written}):
         lines.append(f"- {cat}: {allow_share([it for it in written if it['category'] == cat])}")
     lines += ["", "## Hold comments allowed in any run", ""]
@@ -261,7 +296,8 @@ def report(items, records, variant, half):
     counts = Counter(one[it["id"]] for it in by["either"])
     lines.append("- " + (", ".join(f"{a}: {c}" for a, c in sorted(counts.items(), key=lambda x: str(x[0]))) or "none"))
     run_one = [a for a in one.values() if a in DECIDED]
-    calls = [r for r in records if r["variant"] == variant and r["action"] != "rules"]
+    ids = {it["id"] for it in items}
+    calls = [r for r in records if r["variant"] == variant and r["id"] in ids and r["action"] != "rules"]
     lines += ["", "## Usage", "",
               f"- REVIEW rate over run-1 answers: {_pct(run_one.count('review'), len(run_one))}",
               f"- Calls: {len(calls)}",
@@ -289,7 +325,7 @@ def save_results(results):
 
 
 def _connect():
-    """A read-only cursor on the database in DATABASE_URL."""
+    """A read-only cursor on the database in ORACLE_DATABASE_URL (prod)."""
     from pipeline.db import connect
     conn = connect()
     conn.set_session(readonly=True)
@@ -319,7 +355,11 @@ def load_items(connect=True):
     if "real_sample" not in results and connect:
         results["real_sample"] = real_sample(_connect())
         save_results(results)
-    return load_set(SET_PATH) + results.get("real_sample", []), results
+    items = load_set(SET_PATH) + results.get("real_sample", [])
+    twice = sorted(id for id, n in Counter(it["id"] for it in items).items() if n > 1)
+    if twice:
+        raise ValueError(f"ids used twice across the set and the real sample: {', '.join(twice)}")
+    return items, results
 
 
 def main(argv=None):
@@ -340,6 +380,10 @@ def main(argv=None):
 
 def _command(args):
     items, results = load_items(connect=args.command != "report")
+    halves = sorted({it["half"] for it in items if it["half"]})
+    if args.half != "all" and args.half not in halves:
+        print(f"No half {args.half!r} in the set; it has: {', '.join(halves)}", file=sys.stderr)
+        return 1
     items = [it for it in items if in_half(it, args.half)]
     records = results["records"]
 
@@ -361,11 +405,12 @@ def _command(args):
         if not keys:
             print("No groq2..groqN keys in backend/.env (groq1 is prod's).", file=sys.stderr)
             return 1
+        print(f"Using {len(keys)} groqN key(s); each must be from a Groq org other than prod's.")
 
         def save(recs):
             results["records"] = recs
             save_results(results)
-        print(run(items, records, rotating(*map(_client, keys)), args.variant,
+        print(run(items, records, rotating(*map(moderation_groq.client, keys)), args.variant,
                   setup_of(policy, args.model, args.effort), save, token_cap=args.token_cap))
         return 0
 

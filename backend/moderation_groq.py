@@ -80,11 +80,12 @@ def user_message(comment):
     return f"Review to classify (between the markers):\n<<<REVIEW\n{text}\nREVIEW>>>"
 
 
-def client():
+def client(key=None):
     """An OpenAI-package client pointed at Groq: 3 s and no retries, so a slow or
-    rate-limited call fails fast and the comment waits for the queue."""
+    rate-limited call fails fast and the comment waits for the queue. `key` defaults
+    to groq1."""
     from openai import OpenAI
-    return OpenAI(api_key=os.environ["groq1"].strip(), base_url=BASE_URL,
+    return OpenAI(api_key=(key or os.environ["groq1"]).strip(), base_url=BASE_URL,
                   timeout=TIMEOUT, max_retries=0)
 
 

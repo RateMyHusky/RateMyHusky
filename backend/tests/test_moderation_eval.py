@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -47,6 +48,9 @@ def test_load_set_rejects_bad_items(tmp_path):
         [item("no-severity", label="hold")],
         [item("no-half", half=None)],
         [item("no-text", text="   ")],
+        [item("posing-real", category="real")],
+        [item("untrimmed", text=" Hard exams. ")],
+        [item("too-long", text="a" * 2001)],
     ]
     for case in cases:
         path = tmp_path / "set.json"
@@ -83,7 +87,7 @@ def test_run_paces_calls_and_reruns_a_live_mistake_the_same_day(fake_groq):
     summary, sleeps, _ = run(items, records, groq)
     assert [(r["id"], r["run"], r["action"]) for r in records] == [
         ("a", 1, "review"), ("h", 1, "allow"), ("a", 2, "block"), ("h", 2, "block")]
-    assert sleeps == [30, 30, 30]
+    assert sleeps == [30, 30, 30, 30]
     for r in records:
         assert r["variant"] == "v" and r["model"] == mg.MODEL and r["effort"] == "low"
         assert r["policy_sha"] == SETUP["policy_sha"] and r["at"] == NOW.isoformat()
@@ -111,7 +115,7 @@ def test_a_429_waits_a_minute_and_retries_the_same_comment(fake_groq):
     records = []
     groq = fake_groq(fake_groq.RateLimited("429"), "ALLOW")
     _, sleeps, _ = run([item("a")], records, groq)
-    assert sleeps == [60]
+    assert sleeps == [30, 60]
     assert [(r["id"], r["action"]) for r in records] == [("a", "allow")]
 
 
@@ -121,13 +125,14 @@ def test_ten_429s_in_a_row_stop_the_run(fake_groq):
     summary, _, _ = run([item("a"), item("b")], records, groq)
     assert "429" in summary and records == []
     assert len(groq.calls) == me.MAX_429S
+    assert summary.startswith("0 calls made")
 
 
 def test_other_failures_retry_twice_then_record_unavailable(fake_groq):
     records = []
     groq = fake_groq(TimeoutError("3 s"))
     _, sleeps, _ = run([item("a")], records, groq)
-    assert len(groq.calls) == 3 and sleeps == [60, 60]
+    assert len(groq.calls) == 3 and sleeps == [30, 60, 60]
     assert [(r["id"], r["run"], r["action"], r["tokens"]) for r in records] == [("a", 1, "unavailable", None)]
 
 
@@ -141,6 +146,20 @@ def test_the_run_stops_before_passing_the_token_cap(fake_groq):
     assert len(records) == 3
 
 
+def test_the_run_reserves_room_for_a_call_that_fails_every_attempt(fake_groq):
+    records = [rec("x", 1, "allow", tokens=me.TOKEN_CAP - me.CALL_CEILING * me.MAX_FAILURES + 1)]
+    groq = fake_groq(TimeoutError("3 s"))
+    summary, _, _ = run([item("a")], records, groq)
+    assert groq.calls == [] and "cap" in summary
+
+
+def test_failed_attempts_before_an_answer_count_toward_the_cap(fake_groq):
+    records = []
+    run([item("a")], records, fake_groq(TimeoutError("3 s"), TimeoutError("3 s"), "ALLOW"))
+    assert [(r["action"], r["tokens"], r["failures"]) for r in records] == [("allow", 500, 2)]
+    assert me.tokens_last_day(records, mg.MODEL, NOW) == 500 + 2 * me.CALL_CEILING
+
+
 def test_tokens_last_day_counts_only_this_model_in_the_last_24_hours():
     records = [rec("x", 1, "allow", tokens=700), rec("y", 1, "allow", tokens=900, at=NOW - timedelta(hours=25)),
                rec("z", 1, "allow", tokens=800, model="another/model"), rec("r", 1, "rules", tokens=0)]
@@ -149,6 +168,30 @@ def test_tokens_last_day_counts_only_this_model_in_the_last_24_hours():
 
 def test_a_reply_without_usage_counts_a_full_call_toward_the_cap():
     assert me.tokens_last_day([rec("a", 1, "allow", tokens=None)], mg.MODEL, NOW) == me.CALL_CEILING
+
+
+def test_an_unavailable_record_counts_every_failed_attempt_toward_the_cap():
+    records = [rec("a", 1, "unavailable", tokens=None)]
+    assert me.tokens_last_day(records, mg.MODEL, NOW) == me.CALL_CEILING * me.MAX_FAILURES
+
+
+def test_a_changed_item_text_refuses_the_run_and_the_report(fake_groq):
+    records = []
+    run([item("a", text="Old wording.")], records, fake_groq("ALLOW"))
+    assert records[0]["text_sha"] == me._sha("Old wording.")
+    groq = fake_groq("ALLOW")
+    with pytest.raises(ValueError, match="text changed.*a"):
+        run([item("a", text="New wording.")], records, groq)
+    assert groq.calls == []
+    with pytest.raises(ValueError, match="text changed"):
+        me.report([item("a", text="New wording.")], records, "v", "all")
+    run([item("a", text="Old wording.")], records, groq)  # unchanged text still resumes
+    me.report([item("a", text="Old wording.")], [rec("a", 1, "allow")], "v", "all")  # records from before text_sha
+
+
+def test_a_resumed_run_waits_before_its_first_call(fake_groq):
+    _, sleeps, _ = run([item("a"), item("b")], [rec("a", 1, "allow")], fake_groq("ALLOW"))
+    assert sleeps == [me.SPACING_SECONDS]
 
 
 def test_a_resumed_run_skips_finished_calls(fake_groq):
@@ -212,6 +255,16 @@ def test_the_real_sample_is_frozen_in_the_results_file(tmp_path, monkeypatch):
     assert results["records"] == []
 
 
+def test_an_id_shared_by_the_set_and_the_real_sample_is_refused(tmp_path, monkeypatch):
+    set_path, results_path = tmp_path / "set.json", tmp_path / "results.json"
+    set_path.write_text(json.dumps([item("real-1")]), encoding="utf-8")
+    results_path.write_text(json.dumps({"real_sample": [real("real-1")], "records": []}), encoding="utf-8")
+    monkeypatch.setattr(me, "SET_PATH", set_path)
+    monkeypatch.setattr(me, "RESULTS_PATH", results_path)
+    with pytest.raises(ValueError, match="real-1"):
+        me.load_items()
+
+
 def test_a_missing_real_sample_is_drawn_once_and_saved(tmp_path, monkeypatch):
     set_path, results_path = tmp_path / "set.json", tmp_path / "reports" / "results.json"
     set_path.write_text(json.dumps([item("w-live-01")]), encoding="utf-8")
@@ -247,12 +300,14 @@ def test_in_half_keeps_real_items_in_every_half():
     assert all(me.in_half(real("r"), h) for h in ("all", "tune", "held"))
 
 
-def scored_set(clear_hold_answers=("block", "block"), real_allowed=9):
-    items = [real(f"real-{n}") for n in range(10)]
+def scored_set(clear_hold_answers=("block", "block"), real_allowed=9, written_allowed=9):
+    items = [real(f"real-{n}") for n in range(10)] + [item(f"wl-{n}") for n in range(10)]
     items += [item("ch", "hold", category="threat", severity="clear"),
               item("sh", "hold", category="threat", severity="subtle", text="Watch your back after class.")]
     records = [rec(f"real-{n}", 1, "allow" if n < real_allowed else "review") for n in range(10)]
     records += [rec(f"real-{n}", 2, "review") for n in range(real_allowed, 10)]
+    records += [rec(f"wl-{n}", 1, "allow" if n < written_allowed else "block") for n in range(10)]
+    records += [rec(f"wl-{n}", 2, "block") for n in range(written_allowed, 10)]
     records += [rec("ch", 1, clear_hold_answers[0]), rec("ch", 2, clear_hold_answers[1])]
     records += [rec("sh", 1, "allow"), rec("sh", 2, "block")]
     return items, records
@@ -276,10 +331,53 @@ def test_report_fails_below_ninety_percent():
     assert me.report(items, records, "v", "all").startswith("FAIL")
 
 
+def test_report_fails_below_ninety_percent_on_written_live_comments():
+    items, records = scored_set(written_allowed=8)
+    assert me.report(items, records, "v", "all").startswith("FAIL")
+
+
+def test_report_gives_no_verdict_without_a_written_live_comment():
+    items, records = scored_set()
+    items = [it for it in items if not it["id"].startswith("wl-")]
+    assert me.report(items, records, "v", "all").startswith("NO VERDICT")
+
+
+def test_report_gives_no_verdict_without_a_real_sample():
+    items, records = scored_set()
+    items = [it for it in items if it["category"] != "real"]
+    assert me.report(items, records, "v", "all").startswith("NO VERDICT")
+
+
+def test_report_usage_counts_only_the_reported_half():
+    items = [item("t", half="tune"), item("h", half="held")]
+    records = [rec("t", 1, "allow", tokens=700), rec("h", 1, "allow", tokens=400)]
+    text = me.report(items, records, "v", "held")
+    assert "- Calls: 1" in text and "- Tokens: 400 " in text
+
+
 def test_report_is_incomplete_while_calls_are_pending():
     items, records = scored_set()
     records = [r for r in records if not (r["id"] == "ch" and r["run"] == 2)]
     assert me.report(items, records, "v", "all").startswith("INCOMPLETE")
+
+
+def test_report_gives_no_verdict_without_a_clear_hold_comment():
+    items, records = scored_set()
+    items = [it for it in items if it["id"] != "ch"]
+    assert me.report(items, records, "v", "all").startswith("NO VERDICT")
+
+
+def test_an_unknown_half_is_refused(tmp_path, monkeypatch, capsys):
+    set_path, results_path = tmp_path / "set.json", tmp_path / "results.json"
+    set_path.write_text(json.dumps([item("w-live-01", half="held")]), encoding="utf-8")
+    results_path.write_text(json.dumps({"real_sample": [real("real-1")], "records": []}), encoding="utf-8")
+    monkeypatch.setattr(me, "SET_PATH", set_path)
+    monkeypatch.setattr(me, "RESULTS_PATH", results_path)
+    monkeypatch.setattr(me, "REPORTS_DIR", tmp_path)
+    args = SimpleNamespace(command="report", variant="v", half="hled")
+    assert me._command(args) == 1
+    assert "No half 'hled'" in capsys.readouterr().err
+    assert not list(tmp_path.glob("moderation_eval_*.md"))
 
 
 def test_report_held_half_leaves_out_tuning_items():
@@ -301,6 +399,20 @@ def test_the_eval_takes_the_groq2_to_n_keys_in_order_and_never_prods_groq1(monke
         monkeypatch.setenv(f"groq{n}", key)
     monkeypatch.delenv("groq4", raising=False)
     assert me.groq_keys() == ["gsk-b", "gsk-c"]
+
+
+def test_the_real_sample_is_drawn_over_a_read_only_session(monkeypatch):
+    import pipeline.db
+
+    class Conn:
+        def set_session(self, **kw):
+            self.session = kw
+
+        def cursor(self):
+            return "cur"
+    conn = Conn()
+    monkeypatch.setattr(pipeline.db, "connect", lambda: conn)
+    assert me._connect() == "cur" and conn.session == {"readonly": True}
 
 
 def test_each_call_goes_on_the_next_key_in_turn(fake_groq):
