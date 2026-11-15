@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { errorMessage, safeHttpUrl, searchProfessors, type ProfessorSuggestion } from '../api';
+import { errorMessage, searchProfessors, type ProfessorSuggestion } from '../api';
 import { ChevronIcon, ClockIcon, CloseIcon, ScaleIcon, SearchIcon } from '../components/icons';
+import Photo from '../components/Photo';
 import SavedList from '../components/SavedList';
 import { score } from '../utils/format';
 import './Search.css';
@@ -42,18 +43,6 @@ function saveRecents(recents: Recent[]): void {
 /** The face where there is one, initials where there isn't — two "Kim"s are
  *  told apart faster by face than by department. */
 function Avatar({ match }: { match: ProfessorSuggestion }) {
-  const src = safeHttpUrl(match.imageUrl);
-  if (src) {
-    return (
-      <img
-        className="row-avatar"
-        src={src}
-        alt=""
-        loading="lazy"
-        style={{ objectPosition: `${match.focusX ?? 50}% ${match.focusY ?? 30}%` }}
-      />
-    );
-  }
   const initials = match.name
     .split(/\s+/)
     .filter(Boolean)
@@ -62,9 +51,17 @@ function Avatar({ match }: { match: ProfessorSuggestion }) {
     .join('')
     .toUpperCase();
   return (
-    <span className="row-avatar initials" aria-hidden="true">
-      {initials}
-    </span>
+    <Photo
+      key={match.imageUrl ?? ''}
+      url={match.imageUrl}
+      className="row-avatar"
+      style={{ objectPosition: `${match.focusX ?? 50}% ${match.focusY ?? 30}%` }}
+      fallback={
+        <span className="row-avatar initials" aria-hidden="true">
+          {initials}
+        </span>
+      }
+    />
   );
 }
 

@@ -41,7 +41,7 @@ export function readRows(root: ParentNode = document): Row[] {
     if (!/^\d{6}$/.test(term ?? '') || !/^\d+$/.test(crn ?? '')) continue;
     const title = link.closest('td');
     const tr = link.closest('tr');
-    if (!title || !tr) continue;
+    if (!title || !tr || !isSearchResult(tr)) continue;
 
     const instructor = tr.querySelector<HTMLElement>('td[data-property="instructor"]');
     // Footable hides the column at its phone breakpoint, and a badge in a
@@ -54,12 +54,37 @@ export function readRows(root: ParentNode = document): Row[] {
       tr,
       cell: shown ? instructor : title,
       inInstructorCell: !!shown,
-      names: instructor
-        ? [...instructor.querySelectorAll('a.email')].map((a) => a.textContent?.trim() ?? '').filter(Boolean)
-        : null,
+      names: instructor ? readNames(instructor) : null,
     });
   }
   return rows;
+}
+
+/** Columns only the class-search results grid has. Banner draws the student's
+ *  own registered and planned sections — Register for Classes' Summary, Plan
+ *  Ahead's plan — with the same title-cell markup, but those grids fold
+ *  subject, number and section into one Details column. Their CRNs are the
+ *  student's schedule, and the extension never reads that (Privacy §9), so a
+ *  row is only ours when it has one of these. Several, not one, so a student
+ *  hiding a column doesn't switch the badges off. */
+const SEARCH_ONLY = ['subjectDescription', 'courseNumber', 'sequenceNumber']
+  .map((p) => `td[data-property="${p}"]`)
+  .join(', ');
+
+export function isSearchResult(tr: Pick<Element, 'querySelector'>): boolean {
+  return tr.querySelector(SEARCH_ONLY) !== null;
+}
+
+/** The names Banner lists in an Instructor cell, from its mailto links.
+ *  Null when it has none to read — an instructor with no published address
+ *  prints as plain text, and an empty list would tell stillTeaching "nobody
+ *  teaches this", hiding a badge our data and Banner agree on. Null is
+ *  "unknown", and stillTeaching only says no when it knows. */
+export function readNames(cell: Pick<Element, 'querySelectorAll'>): string[] | null {
+  const names = [...cell.querySelectorAll('a.email')]
+    .map((a) => a.textContent?.trim() ?? '')
+    .filter(Boolean);
+  return names.length > 0 ? names : null;
 }
 
 const fold = (name: string) => name.toLowerCase().replace(/\s+/g, ' ').trim();

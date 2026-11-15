@@ -49,7 +49,28 @@ export type LookupRequest = {
 
 export type LookupResponse =
   | { ok: true; sections: Record<string, Section> }
-  | { ok: false; message: string };
+  | {
+      ok: false;
+      message: string;
+      /** Worth asking again later: a 429, a 5xx, a timeout or a dropped
+       *  connection. During registration a whole campus shares a few egress
+       *  IPs, so a 429 is the expected failure, not a permanent one. */
+      retry: boolean;
+      /** The student switched "Show ratings on Banner" off while this tab
+       *  was open. The content script stops and takes its badges down. */
+      disabled?: true;
+    };
+
+/** False once the extension has been updated or reloaded under this page:
+ *  the content script is orphaned, and every chrome.runtime call throws
+ *  "Extension context invalidated" synchronously. */
+export function extensionAlive(): boolean {
+  try {
+    return !!chrome.runtime?.id;
+  } catch {
+    return false;
+  }
+}
 
 /** Content-script side of the call.
  *
@@ -62,11 +83,13 @@ export async function lookup(term: Term, crns: string[]): Promise<LookupResponse
 
   const request: LookupRequest = { type: 'banner:lookup', term, crns };
   try {
-    return (await chrome.runtime.sendMessage(request)) as LookupResponse;
+    const response = (await chrome.runtime.sendMessage(request)) as LookupResponse | undefined;
+    // No listener answered: the worker was mid-restart. Try again later.
+    return response ?? { ok: false, message: 'No response', retry: true };
   } catch (err) {
-    // The worker was asleep, is reloading, or the extension just updated.
-    // Not worth surfacing on the page: no badges is the right failure here.
-    return { ok: false, message: (err as Error).message };
+    // The worker was asleep or reloading (worth another try), or the
+    // extension updated under this page (not: nothing here works any more).
+    return { ok: false, message: (err as Error).message, retry: extensionAlive() };
   }
 }
 
@@ -77,11 +100,22 @@ export const OPEN_KEY = 'rmh:open-professor';
 
 export type OpenRequest = { type: 'banner:open'; slug: string };
 
-/** Content-script side of a badge click. Fire and forget: the worker opens the
- *  popup on that professor, or the site in a new tab if Chrome won't. */
-export function openProfessor(slug: string): void {
+/** Content-script side of a badge click: the worker opens the popup on that
+ *  professor, or the site in a new tab if Chrome won't.
+ *
+ *  Returns whether it took the click. When it can't — the extension updated
+ *  under this page, so sendMessage throws synchronously, before any promise
+ *  exists to .catch — the badge leaves the click alone and its href opens the
+ *  professor's page instead of nothing happening at all. */
+export function openProfessor(slug: string): boolean {
+  if (!extensionAlive()) return false;
   const request: OpenRequest = { type: 'banner:open', slug };
-  chrome.runtime.sendMessage(request).catch(() => {
-    // The worker is reloading. The click does nothing this once.
-  });
+  try {
+    chrome.runtime.sendMessage(request).catch(() => {
+      // The worker is reloading. The click does nothing this once.
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }

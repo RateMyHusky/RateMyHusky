@@ -1,4 +1,5 @@
-import { errorMessage, fetchProfessor, safeHttpUrl, type Professor } from '../api';
+import { errorMessage, fetchProfessor, type Professor } from '../api';
+import Photo from '../components/Photo';
 import StarRating from '../components/StarRating';
 import { buildRows, MIN_RATINGS } from '../utils/compare';
 import { useAsync } from '../utils/useAsync';
@@ -68,7 +69,6 @@ export default function Compare({
             or they stop sitting above their own numbers. */}
         <span aria-hidden="true" />
         {profs.map((p) => {
-          const image = safeHttpUrl(p.identity.imageUrl);
           return (
             <div key={p.identity.slug} className="cmp-head">
               <button
@@ -80,11 +80,12 @@ export default function Compare({
               >
                 ✕
               </button>
-              {image ? (
-                <img className="cmp-face" src={image} alt="" />
-              ) : (
-                <div className="cmp-face" aria-hidden="true" />
-              )}
+              <Photo
+                key={p.identity.imageUrl ?? ''}
+                url={p.identity.imageUrl}
+                className="cmp-face"
+                fallback={<div className="cmp-face" aria-hidden="true" />}
+              />
               <b>{p.identity.name}</b>
               <span>{p.identity.department ?? '—'}</span>
             </div>

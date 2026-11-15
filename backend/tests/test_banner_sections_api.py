@@ -183,3 +183,38 @@ def test_banner_sections_is_post_only(client):
     """CRNs in a query string end up in request logs."""
     response = client.get("/api/banner/sections?term=202730&crns=36973")
     assert response.status_code == 405
+
+
+def test_co_taught_without_unique_primary_names_nobody(client, monkeypatch):
+    """The extension reads `instructor` as one Banner name. A joined "A / B"
+    failed its stale check or showed A alone as unrated, so it's null."""
+    def fake_query(sql, params=None):
+        base = {"crn": "10003", "professor_slug": None, "rating": None,
+                "num_ratings": None, "ambiguous": False, "is_primary": False}
+        return [
+            {**base, "instructor_key": "rachlin john", "instructor_name": "Rachlin, John"},
+            {**base, "instructor_key": "smith jane", "instructor_name": "Smith, Jane"},
+        ]
+
+    monkeypatch.setattr(server, "query", fake_query)
+    response = client.post("/api/banner/sections", json={"term": "202730", "crns": ["10003"]})
+
+    assert response.get_json()["10003"] == {
+        "instructor": None, "slug": None, "rating": None, "numRatings": 0,
+    }
+
+
+def test_lookup_counts_blended_reviews_and_reads_banner_rows_only(client, monkeypatch):
+    """avg_rating is blended, so the count beside it must be too, and the
+    one-off 'import' instructor rows are no basis for a rating."""
+    seen = {}
+
+    def fake_query(sql, params=None):
+        seen["sql"] = " ".join(sql.split())
+        return []
+
+    monkeypatch.setattr(server, "query", fake_query)
+    client.post("/api/banner/sections", json={"term": "202730", "crns": ["36973"]})
+
+    assert "pc.total_reviews AS num_ratings" in seen["sql"]
+    assert "bsi.source = 'banner'" in seen["sql"]

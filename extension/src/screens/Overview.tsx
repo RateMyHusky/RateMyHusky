@@ -1,8 +1,9 @@
-import { fetchProfessor, professorUrl, rateUrl, safeHttpUrl } from '../api';
+import { fetchProfessor, professorUrl, rateUrl } from '../api';
 import StarRating from '../components/StarRating';
 import StatTile from '../components/StatTile';
 import AwardChips from '../components/AwardChips';
 import { ScaleIcon, ReviewsIcon, InfoIcon, BookmarkIcon } from '../components/icons';
+import Photo from '../components/Photo';
 import { useSaved } from '../components/SavedList';
 import { save, unsave } from '../utils/saved';
 import { score, percent, plural } from '../utils/format';
@@ -30,21 +31,17 @@ export default function Overview({
   if (state.status === 'error') return <Failed message={state.message} onRetry={state.retry} />;
 
   const { identity, summary, courses, lastTaught, awards } = state.data;
-  const image = safeHttpUrl(identity.imageUrl);
 
   return (
     <>
       <div className="hero">
-        {image ? (
-          <img
-            className="avatar"
-            src={image}
-            alt=""
-            style={{ objectPosition: `${identity.focusX}% ${identity.focusY}%` }}
-          />
-        ) : (
-          <div className="avatar" aria-hidden="true" />
-        )}
+        <Photo
+          key={identity.imageUrl ?? ''}
+          url={identity.imageUrl}
+          className="avatar"
+          style={{ objectPosition: `${identity.focusX}% ${identity.focusY}%` }}
+          fallback={<div className="avatar" aria-hidden="true" />}
+        />
         <div className="who">
           <h1 className="name">{identity.name}</h1>
           <button

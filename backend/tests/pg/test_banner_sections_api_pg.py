@@ -52,10 +52,10 @@ def test_banner_section_lookup_pg(pg, live_server):
         cur.execute("""
             INSERT INTO professors_catalog
                 (slug, name, name_key,
-                 avg_rating, num_ratings)
+                 avg_rating, num_ratings, total_reviews)
             VALUES
                 ('john-rachlin', 'John Rachlin',
-                 'john rachlin', 4.63, 52)
+                 'john rachlin', 4.63, 40, 52)
         """)
 
     pg.commit()
@@ -104,7 +104,8 @@ def test_banner_section_edge_cases_pg(pg, live_server):
                 ('202730', '10001', 'CS2500'),
                 ('202730', '10002', 'CS2500'),
                 ('202730', '10003', 'CS2500'),
-                ('202730', '10004', 'CS2500')
+                ('202730', '10004', 'CS2500'),
+                ('202730', '10005', 'CS2500')
         """)
 
         cur.execute("""
@@ -124,6 +125,16 @@ def test_banner_section_edge_cases_pg(pg, live_server):
                  'Rachlin, John', TRUE),
                 ('202730', '10004', 'jane smith',
                  'Smith, Jane', FALSE)
+        """)
+
+        # a one-off import row, which nothing else in the system trusts
+        cur.execute("""
+            INSERT INTO banner_section_instructors
+                (term_code, crn, instructor_key,
+                 instructor_name, is_primary, source)
+            VALUES
+                ('202730', '10005', 'jane smith',
+                 'Smith, Jane', TRUE, 'import')
         """)
 
         # the matcher has already resolved this alias
@@ -147,12 +158,12 @@ def test_banner_section_edge_cases_pg(pg, live_server):
 
         cur.execute("""
             INSERT INTO professors_catalog
-                (slug, name, name_key, avg_rating, num_ratings)
+                (slug, name, name_key, avg_rating, num_ratings, total_reviews)
             VALUES
                 ('john-rachlin', 'John Rachlin',
-                 'john rachlin', 4.63, 52),
+                 'john rachlin', 4.63, 52, 52),
                 ('jane-smith', 'Jane Smith',
-                 'jane smith', 4.20, 30)
+                 'jane smith', 4.20, 30, 30)
         """)
 
         # mark one term-level identity as ambiguous
@@ -168,7 +179,7 @@ def test_banner_section_edge_cases_pg(pg, live_server):
 
     response = client.post(
         "/api/banner/sections",
-        json={"term": "202730", "crns": ["10001", "10002", "10003", "10004", "99999"]},
+        json={"term": "202730", "crns": ["10001", "10002", "10003", "10004", "10005", "99999"]},
     )
 
     assert response.status_code == 200
@@ -184,13 +195,20 @@ def test_banner_section_edge_cases_pg(pg, live_server):
     assert data["10002"]["slug"] is None
     assert data["10002"]["rating"] is None
 
-    # two instructors without a unique primary: abstain
+    # two instructors without a unique primary: abstain, naming nobody,
+    # since the extension reads `instructor` as a single Banner name
+    assert data["10003"]["instructor"] is None
     assert data["10003"]["slug"] is None
     assert data["10003"]["rating"] is None
 
     # even a primary instructor must respect the ambiguity flag
     assert data["10004"]["slug"] is None
     assert data["10004"]["rating"] is None
+
+    # import-only instructors are ignored, so the section has nobody on record
+    assert data["10005"] == {
+        "instructor": None, "slug": None, "rating": None, "numRatings": 0,
+    }
 
     # missing CRNs must not invent results
     assert "99999" not in data

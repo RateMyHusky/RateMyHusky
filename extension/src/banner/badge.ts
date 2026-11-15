@@ -63,20 +63,24 @@ function span(className: string, text: string): HTMLSpanElement {
   return el;
 }
 
-/** For an instructor we couldn't match to a professor page. Nothing is claimed
- *  about them — no rating, no guess — just a way to be the first to rate them,
- *  since a gap here is usually a professor nobody's added yet. Under the title
- *  the name comes too, because the grid there doesn't show one. */
+/** For an instructor this section couldn't be tied to a professor page.
+ *
+ *  That's not the same as unrated. The endpoint also abstains on professors
+ *  who do have a page and ratings — a name listed twice in the term's roster,
+ *  mappings that disagree, a co-taught section with no clear primary — so the
+ *  badge claims nothing about them: not "not on RateMyHusky", not "no ratings".
+ *  It only offers to rate. Under the title the name comes too, because the
+ *  grid there doesn't show one. */
 function unmatched(instructor: string, withName: boolean): HTMLElement {
   const a = document.createElement('a');
   a.className = 'badge plain';
   a.href = `${SITE}/rate`;
   a.target = '_blank';
   a.rel = 'noopener noreferrer';
-  a.title = `${instructor} isn't on RateMyHusky yet`;
+  a.title = `Rate ${instructor} on RateMyHusky`;
   if (withName) a.append(span('name', surname(instructor)));
   a.append(span('quiet', 'Rate this professor'));
-  a.setAttribute('aria-label', `Rate ${instructor} on RateMyHusky; no ratings yet`);
+  a.setAttribute('aria-label', `Rate ${instructor} on RateMyHusky`);
   return a;
 }
 
@@ -121,8 +125,9 @@ export type Placement = {
   /** More than one name in the Instructor cell, so the badge has to say whose
    *  rating it is. */
   coTaught: boolean;
-  /** A plain click opens the professor in the popup instead of the site. */
-  onOpen?: () => void;
+  /** A plain click opens the professor in the popup instead of the site.
+   *  Returns false when it couldn't, and the link then opens as a link. */
+  onOpen?: () => boolean;
 };
 
 /** One section's badge, or null when there's nothing to say — the CRN isn't
@@ -154,8 +159,9 @@ export function badgeFor(section: Section | null, key: string, where: Placement)
     const open = where.onOpen;
     body.addEventListener('click', (e) => {
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      e.preventDefault();
-      open();
+      // Only once the popup has taken it: after an extension update the
+      // message can't be sent, and the href is what still works.
+      if (open()) e.preventDefault();
     });
   }
 

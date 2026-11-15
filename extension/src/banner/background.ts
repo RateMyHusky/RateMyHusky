@@ -40,8 +40,34 @@ export async function syncBannerScript(): Promise<void> {
 // own settings page while the browser was closed, which fires no event.
 chrome.runtime.onInstalled.addListener(() => void syncBannerScript());
 chrome.runtime.onStartup.addListener(() => void syncBannerScript());
-chrome.permissions.onAdded.addListener(() => void syncBannerScript());
+chrome.permissions.onAdded.addListener((added) => {
+  void syncBannerScript().then(() => {
+    if (added.origins?.includes(BANNER_ORIGIN)) void injectIntoOpenTabs();
+  });
+});
 chrome.permissions.onRemoved.addListener(() => void syncBannerScript());
+
+/** A registered content script only runs on pages loaded after it was
+ *  registered. Without this, a student with Plan Ahead already open turns the
+ *  setting on, goes back to the tab, and finds nothing — the feature looks
+ *  broken until they think to reload. content.ts stands down if it's already
+ *  running, so a tab that somehow has it gets no second copy. */
+async function injectIntoOpenTabs(): Promise<void> {
+  const tabs = await chrome.tabs.query({ url: BANNER_MATCHES });
+  await Promise.all(
+    tabs.map((tab) =>
+      tab.id == null
+        ? undefined
+        : chrome.scripting
+            .executeScript({ target: { tabId: tab.id }, files: ['content.js'] })
+            // A tab mid-navigation or showing an error page refuses; the
+            // registered script covers it on its next load.
+            .catch(() => undefined),
+    ),
+  );
+}
+
+const bannerGranted = () => chrome.permissions.contains({ origins: [BANNER_ORIGIN] });
 
 /** Over the site, never the Railway host: only traffic proxied through the
  *  site carries PROXY_SECRET. `VITE_RMH_API=http://localhost:5001 npm run build`
@@ -54,14 +80,21 @@ const TIMEOUT_MS = 10_000;
  *  The endpoint 400s anything malformed or over MAX_CRNS, so the same checks
  *  run here first rather than spending a request on an answer we know. */
 async function lookupSections({ term, crns }: LookupRequest): Promise<LookupResponse> {
-  if (!/^\d{6}$/.test(term)) return { ok: false, message: 'Invalid term' };
+  // Switching the setting off unregisters the script for future page loads,
+  // but a Banner tab that's already open keeps the copy it has. Checked on
+  // every lookup, so "turn this off at any time" (Privacy §9) holds for those
+  // tabs too: nothing more leaves the browser, and the tab clears its badges.
+  if (!(await bannerGranted())) {
+    return { ok: false, message: 'Banner access is off', retry: false, disabled: true };
+  }
+  if (!/^\d{6}$/.test(term)) return { ok: false, message: 'Invalid term', retry: false };
   if (
     !Array.isArray(crns) ||
     crns.length === 0 ||
     crns.length > MAX_CRNS ||
     crns.some((crn) => typeof crn !== 'string' || !/^\d{1,10}$/.test(crn))
   ) {
-    return { ok: false, message: 'Invalid CRNs' };
+    return { ok: false, message: 'Invalid CRNs', retry: false };
   }
 
   // A worker that never hears back would leave the content script's request
@@ -79,10 +112,19 @@ async function lookupSections({ term, crns }: LookupRequest): Promise<LookupResp
       credentials: 'omit',
       signal: controller.signal,
     });
-    if (!response.ok) return { ok: false, message: `Rating lookup failed: ${response.status}` };
+    if (!response.ok) {
+      return {
+        ok: false,
+        message: `Rating lookup failed: ${response.status}`,
+        // Rate limited or the server's having a moment: ask again later. A
+        // 4xx otherwise is about the request, and repeating it won't help.
+        retry: response.status === 429 || response.status >= 500,
+      };
+    }
     return { ok: true, sections: (await response.json()) as Record<string, Section> };
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : 'Lookup failed' };
+    // Timed out or the connection dropped.
+    return { ok: false, message: err instanceof Error ? err.message : 'Lookup failed', retry: true };
   } finally {
     clearTimeout(timeout);
   }

@@ -1357,12 +1357,19 @@ def banner_sections_lookup():
             bsi.is_primary,
             pc.slug AS professor_slug,
             pc.avg_rating AS rating,
-            pc.num_ratings,
+            -- total_reviews, not num_ratings: avg_rating is blended over RMP
+            -- and RateMyHusky ratings, and num_ratings counts RMP alone. This
+            -- is the count /api/search and the professor page show.
+            pc.total_reviews AS num_ratings,
             (dup.instructor_key IS NOT NULL) AS ambiguous
         FROM banner_sections bs
+        -- Banner's own rows only. Pre-Fall-2025 terms also hold one-off
+        -- 'import' instructors, which the matcher and the roster checks
+        -- exclude as not Banner data, so a rating mustn't hang off them here.
         LEFT JOIN banner_section_instructors bsi
           ON bsi.term_code = bs.term_code
          AND bsi.crn = bs.crn
+         AND bsi.source = 'banner'
         LEFT JOIN banner_roster_duplicates dup
           ON dup.term_code = bsi.term_code
          AND dup.instructor_key = bsi.instructor_key
@@ -1413,12 +1420,12 @@ def banner_sections_lookup():
         elif len(primary) == 1:
             chosen = primary[0]
         else:
-            # multiple instructors without a unique primary
+            # Several instructors and no unique primary: nothing to say. The
+            # extension reads `instructor` as one Banner name, so a joined
+            # "A / B" either failed its stale check or was shown as A alone,
+            # unrated. Null draws no badge, which is the honest answer here.
             result[crn] = {
-                "instructor": " / ".join(
-                    sorted({sanitize(entries[0]["instructor_name"])
-                            for entries in instructors.values()})
-                ),
+                "instructor": None,
                 "slug": None,
                 "rating": None,
                 "numRatings": 0,

@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { lookup, MAX_CRNS, openProfessor, type Section, type Term } from './messages';
+import { extensionAlive, lookup, MAX_CRNS, openProfessor, type Section, type Term } from './messages';
 import { readRows, stillTeaching, type Row } from './table';
 import { BADGE_TAG, badgeFor, pendingBadge } from './badge';
 import { maybeShowHint } from './hint';
@@ -21,6 +21,13 @@ import { USE_FIXTURES, fixtureLookup } from './fixtures';
 // Dev builds only (`npm run dev:content`), so Banner's console stays clean.
 if (import.meta.env.DEV) console.log('[RateMyHusky] banner content script loaded');
 
+// Turning the setting on injects this into Banner tabs that are already open
+// (background.ts), and a later page load gets the registered copy. Both run in
+// this extension's one isolated world, so the second sees the first's flag and
+// stands down rather than doubling every request.
+const LOADED = '__rmhBannerLoaded';
+const world = globalThis as typeof globalThis & { [LOADED]?: true };
+
 /** Every answer so far, keyed "term:crn", for as long as the page is open. A
  *  sort, or paging back, redraws rows we've already asked about, and those
  *  come from here rather than another request. Null is settled with nothing
@@ -29,25 +36,38 @@ const answers = new Map<string, Section | null>();
 /** Asked and not answered yet, so a redraw mid-request doesn't ask twice. */
 const asking = new Set<string>();
 
+/** A lookup that failed in a way worth retrying (429, 5xx, timeout): how many
+ *  times so far, and not before when. Not cached as "nothing to show", since
+ *  Banner's registration UI is one long-lived page, and a single 429 on a
+ *  campus network would otherwise blank its badges until a reload. */
+const failed = new Map<string, { tries: number; until: number }>();
+const MAX_TRIES = 5;
+/** 2s, 4s, 8s, 16s, then give up for this page. */
+const backoff = (tries: number) => 1000 * 2 ** tries;
+
+/** Set once this script should do nothing more: Banner access was switched
+ *  off, or the extension updated under the page. */
+let stopped = false;
+
 const keyOf = (term: Term, crn: string) => `${term}:${crn}`;
 
 // A title link is the student's explicit choice of a section to inspect.
 // Use it to associate Banner's already-rendered detail dialog with that row.
 let activeDetailKey: string | null = null;
-document.addEventListener('click', (event) => {
+function rememberDetail(event: MouseEvent): void {
   const target = event.target;
   if (!(target instanceof Element)) return;
   const link = target.closest('a.section-details-link[data-attributes]');
   if (!link) return;
   const row = readRows().find((r) => r.tr.contains(link));
   if (row) activeDetailKey = keyOf(row.term, row.crn);
-}, true);
+}
 
 /** If Banner opens a section-detail dialog, add a badge using the selected row.
  *  Do not query Banner or infer identity from modal text. If a different dialog
  *  is open or the instructor has changed, abstain. */
 function decorateDetail(): void {
-  if (!activeDetailKey) return;
+  if (!activeDetailKey || stopped) return;
   const row = readRows().find((r) => keyOf(r.term, r.crn) === activeDetailKey);
   const answer = answers.get(activeDetailKey);
   if (!row || !answer || !answer.instructor ||
@@ -81,7 +101,11 @@ function decorateDetail(): void {
 /** Badges every drawn row it has an answer for, and asks about the rest in
  *  one request per term — never one per row. */
 function decorate(): void {
+  if (stopped) return;
+  if (!extensionAlive()) return stop(false);
+
   const unasked = new Map<Term, string[]>();
+  const now = Date.now();
 
   for (const row of readRows()) {
     const key = keyOf(row.term, row.crn);
@@ -89,7 +113,10 @@ function decorate(): void {
       place(row, key, answers.get(key) ?? null);
       continue;
     }
-    if (!asking.has(key)) {
+    // Waiting out a backoff: the row keeps its shimmer, and the timer set
+    // when it failed brings this pass round again.
+    const wait = failed.get(key);
+    if (!asking.has(key) && !(wait && now < wait.until)) {
       asking.add(key);
       unasked.set(row.term, [...(unasked.get(row.term) ?? []), row.crn]);
     }
@@ -103,16 +130,47 @@ function decorate(): void {
 
 async function ask(term: Term, crns: string[]): Promise<void> {
   const response = USE_FIXTURES ? await fixtureLookup(term, crns) : await lookup(term, crns);
+  if (!response.ok && response.disabled) return stop(true);
+
+  let soonest = Infinity;
   for (const crn of crns) {
     const key = keyOf(term, crn);
     asking.delete(key);
-    // A failure settles as "nothing to show" instead of being retried. Every
-    // redraw fires the observer, so retrying there would hammer a worker
-    // that's already failing; a reload tries again.
-    answers.set(key, response.ok ? (response.sections[crn] ?? null) : null);
+    if (response.ok) {
+      failed.delete(key);
+      answers.set(key, response.sections[crn] ?? null);
+      continue;
+    }
+    // Retried on a timer, never from the observer: every redraw fires it,
+    // and retrying there would hammer a server that's already refusing.
+    const tries = (failed.get(key)?.tries ?? 0) + 1;
+    if (!response.retry || tries > MAX_TRIES) {
+      failed.delete(key);
+      answers.set(key, null);
+    } else {
+      const delay = backoff(tries);
+      failed.set(key, { tries, until: Date.now() + delay });
+      soonest = Math.min(soonest, delay);
+    }
   }
+  if (soonest !== Infinity) window.setTimeout(schedule, soonest);
   decorate();
   decorateDetail();
+}
+
+/** Stops watching the page. With `clear`, also takes every badge down: the
+ *  student switched Banner access off, and what they see should say so. After
+ *  an extension update the badges stay — they're still right, and the new
+ *  version takes over on the next page load. */
+function stop(clear: boolean): void {
+  stopped = true;
+  // Lets the next copy in: switching the setting back on injects one, and it
+  // would otherwise stand down for this stopped one.
+  delete world[LOADED];
+  observer.disconnect();
+  document.removeEventListener('click', rememberDetail, true);
+  removeEventListener('resize', onResize);
+  if (clear) document.querySelectorAll(BADGE_TAG).forEach((b) => b.remove());
 }
 
 /** Leaves a row alone when its badge is already the right one, in the right
@@ -159,7 +217,7 @@ let queued = false;
 /** Folds a burst of mutations — a redraw replaces every row — into one pass
  *  before the next paint. */
 function schedule(): void {
-  if (queued) return;
+  if (queued || stopped) return;
   queued = true;
   requestAnimationFrame(() => {
     queued = false;
@@ -171,14 +229,21 @@ function schedule(): void {
 // The grid is rebuilt on every sort, page and filter, and the first results
 // arrive long after document_idle, so when this runs there's often nothing to
 // decorate yet. Watching the whole body catches all of it.
-new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
-schedule();
+const observer = new MutationObserver(schedule);
 
 // Footable shows and hides columns on resize by changing their style, which
 // the observer above never hears about — and it does so on a short delay of
 // its own, so this waits for it before deciding which cell a badge goes in.
 let resized = 0;
-addEventListener('resize', () => {
+function onResize(): void {
   window.clearTimeout(resized);
   resized = window.setTimeout(schedule, 300);
-});
+}
+
+if (!world[LOADED]) {
+  world[LOADED] = true;
+  document.addEventListener('click', rememberDetail, true);
+  observer.observe(document.body, { childList: true, subtree: true });
+  addEventListener('resize', onResize);
+  schedule();
+}

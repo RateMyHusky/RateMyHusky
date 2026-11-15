@@ -19,15 +19,33 @@ export type ReviewItem = {
   tags: string[];
 };
 
-// Roughly where each term starts. Only the order matters: these sort a
-// "Fall 2025" review against RMP reviews that carry real dates.
-const SEASON_MONTH: Record<string, number> = { spring: 0, summer: 4, fall: 8 };
+// Roughly where each term starts, as a month (0 = January). Only the order
+// matters: these sort a "Fall 2025" review against RMP reviews that carry real
+// dates. Every season ratings._TERM_SEASONS can produce is here — survey_
+// reviews.when() passes the term label through verbatim.
+const SEASON_MONTH: Record<string, number> = {
+  winter: 0,
+  spring: 1,
+  summer: 4, // "Summer 2025" and "Summer Full 2025"
+  'summer 1': 4,
+  'summer 2': 6,
+  'summer full': 4,
+  fall: 8,
+};
 
-/** "Fall 2025" -> 1 Sept 2025. Anything else -> 0, which sorts last. */
+/** "Fall 2025" -> 1 Sept 2025, "Summer 2 2025" -> 1 July 2025. A bare year,
+ *  which small classes get in place of the term so a review can't be traced
+ *  to a section, -> 1 July of it: mid-year, between its terms. Anything else
+ *  -> 0, which sorts last. */
 export function termTime(label: string | null): number {
-  const m = /^(spring|summer|fall)\s+(\d{4})/i.exec(label ?? '');
-  if (!m) return 0;
-  return Date.UTC(Number(m[2]), SEASON_MONTH[m[1].toLowerCase()], 1);
+  const text = (label ?? '').trim();
+  const term = /^(winter|spring|fall|summer(?:\s+(?:1|2|full))?)\s+(\d{4})$/i.exec(text);
+  if (term) {
+    const season = term[1].toLowerCase().replace(/\s+/g, ' ');
+    return Date.UTC(Number(term[2]), SEASON_MONTH[season], 1);
+  }
+  const year = /^(\d{4})$/.exec(text);
+  return year ? Date.UTC(Number(year[1]), 6, 1) : 0;
 }
 
 function monthYear(value: string): string {

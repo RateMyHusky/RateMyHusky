@@ -182,8 +182,12 @@ export type Professor = {
   sources: {
     rmp: { reviews: Review[] };
     /** Ratings left on RateMyHusky itself. Missing from older payloads and
-     *  the fixtures, so optional. */
-    survey?: { reviews: StudentReview[] };
+     *  the fixtures, so optional.
+     *
+     *  The extension never sends cookies, so it's always signed out, and the
+     *  site keeps written RateMyHusky reviews for signed-in students: `reviews`
+     *  arrives empty and `lockedReviews` says how many there are. */
+    survey?: { reviews: StudentReview[]; lockedReviews?: number };
   };
 };
 

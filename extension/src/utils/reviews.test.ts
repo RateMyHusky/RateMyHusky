@@ -28,9 +28,31 @@ describe('termTime', () => {
     expect(termTime('Fall 2025')).toBeLessThan(termTime('Spring 2026'));
   });
 
+  it('reads every season the backend writes, in order', () => {
+    const order = ['Winter 2026', 'Spring 2026', 'Summer 1 2026', 'Summer 2 2026', 'Fall 2026'];
+    const times = order.map(termTime);
+    expect(times.every((t) => t > 0)).toBe(true);
+    expect([...times].sort((a, b) => a - b)).toEqual(times);
+    expect(termTime('Summer 2026')).toBe(termTime('Summer 1 2026'));
+  });
+
+  it('places a bare year mid-year rather than last', () => {
+    expect(termTime('2025')).toBeGreaterThan(termTime('Spring 2025'));
+    expect(termTime('2025')).toBeLessThan(termTime('Fall 2025'));
+  });
+
+  it('sorts a "Summer 1" review by its date, not under years-old RMP ones', () => {
+    const [first] = sortReviews(
+      mergeReviews([rmp({ date: '2012-03-01', comment: 'old' })], [rmh({ when: 'Summer 1 2026', comment: 'new' })]),
+      'newest',
+    );
+    expect(first.comment).toBe('new');
+  });
+
   it('puts anything it cannot read last', () => {
     expect(termTime(null)).toBe(0);
     expect(termTime('Sometime')).toBe(0);
+    expect(termTime('Spring 2026 extra')).toBe(0);
   });
 });
 

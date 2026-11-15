@@ -66,6 +66,10 @@ export default function Reviews({ slug }: { slug: string }) {
 
   const { identity, sources } = state.data;
   const all = mergeReviews(sources.rmp.reviews, sources.survey?.reviews ?? []);
+  // Written RateMyHusky reviews the site only shows signed-in students. The
+  // popup can't sign in, so it says they exist and where to read them, rather
+  // than leaving students to think a professor has none.
+  const locked = sources.survey?.lockedReviews ?? 0;
   // The source filter only earns its row once there's something to choose
   // between; most professors have no RateMyHusky reviews yet.
   const mixed = all.some((r) => r.source === 'rmh') && all.some((r) => r.source === 'rmp');
@@ -100,8 +104,20 @@ export default function Reviews({ slug }: { slug: string }) {
         )}
       </div>
 
+      {locked > 0 && (
+        <a
+          className="rev-locked"
+          href={professorUrl(identity.slug)}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {locked} more {plural(locked, 'review')} from Northeastern students on RateMyHusky — sign
+          in on the site to read {locked === 1 ? 'it' : 'them'}
+        </a>
+      )}
+
       {shown.length === 0 ? (
-        <p className="muted">No reviews yet.</p>
+        <p className="muted">{locked > 0 ? 'No other reviews yet.' : 'No reviews yet.'}</p>
       ) : (
         <ul className="rev-list">
           {shown.map((r) => (

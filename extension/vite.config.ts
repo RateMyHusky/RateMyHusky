@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 // dist as-is, which covers manifest.json and any icons.
 const manifest = fileURLToPath(new URL('./public/manifest.json', import.meta.url));
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     {
@@ -21,7 +21,12 @@ export default defineConfig({
   ],
   build: {
     outDir: 'dist',
-    emptyOutDir: true,
+    // Production builds start clean. Under `npm run dev` this pass rebuilds on
+    // every popup edit, and emptying dist each time deleted the content
+    // script the other watcher (dev:content) had built — whose own sources
+    // hadn't changed, so it never rebuilt, and Banner's badges stopped with no
+    // error anywhere.
+    emptyOutDir: mode !== 'development',
     rollupOptions: {
       input: {
         index: fileURLToPath(new URL('./index.html', import.meta.url)),
@@ -37,4 +42,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));
