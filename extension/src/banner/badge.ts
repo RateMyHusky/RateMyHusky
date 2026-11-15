@@ -37,6 +37,14 @@ const STYLE = `
   .plain { border-color: #dfe2e8; background: #f6f7f9; color: #686d78; font-weight: 400; }
   .star { color: #d99a00; }
   .quiet { color: #686d78; font-weight: 400; }
+  button.save {
+    margin-left: 4px; border: 1px solid #d6394c; border-radius: 5px;
+    padding: 2px 6px; background: white; color: #b82e3f;
+    cursor: pointer; font: 600 11px/1.4 system-ui, sans-serif;
+  }
+  button.save:hover { background: #fdf2f3; }
+  button.save:focus-visible { outline: 2px solid #d6394c; outline-offset: 2px; }
+  button.save:disabled { opacity: .6; cursor: default; }
   .sample {
     padding: 0 3px; border-radius: 3px; background: #686d78; color: #fff;
     font-size: 8px; font-weight: 700; text-transform: uppercase;
@@ -101,6 +109,7 @@ export type Placement = {
   /** More than one name in the Instructor cell, so the badge has to say whose
    *  rating it is. */
   coTaught: boolean;
+  onSave?: () => Promise<void>;
 };
 
 /** One section's badge, or null when there's nothing to say — the CRN isn't
@@ -129,6 +138,27 @@ export function badgeFor(section: Section | null, key: string, where: Placement)
     : plain(instructor);
   if (where.sample) body.append(span('sample', 'sample'));
 
-  host.attachShadow({ mode: 'open' }).append(style, body);
+  const shadow = host.attachShadow({ mode: 'open' });
+  shadow.append(style, body);
+  if (section.slug && where.onSave && !where.sample) {
+    const save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'save';
+    save.textContent = 'Save';
+    save.setAttribute('aria-label', `Save ${instructor} to RateMyHusky`);
+    save.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      save.disabled = true;
+      try {
+        await where.onSave!();
+        save.textContent = 'Saved ✓';
+      } catch {
+        save.textContent = 'Retry save';
+        save.disabled = false;
+      }
+    });
+    shadow.append(save);
+  }
   return host;
 }

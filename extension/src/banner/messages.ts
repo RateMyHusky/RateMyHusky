@@ -69,3 +69,16 @@ export async function lookup(term: Term, crns: string[]): Promise<LookupResponse
     return { ok: false, message: (err as Error).message };
   }
 }
+
+/** Save only a confidently matched professor and the course shown on Banner. */
+export type SavedEntry = {
+  slug: string;
+  name: string;
+  course: string;
+  term: string;
+  crn: string;
+  savedAt: number;
+};
+
+export type SaveRequest = { type: 'banner:save'; entry: SavedEntry };
+export type SaveResponse = { ok: true } | { ok: false; message: string };

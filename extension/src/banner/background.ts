@@ -1,7 +1,13 @@
 /// <reference types="vite/client" />
 import { BANNER_MATCHES, BANNER_ORIGIN, MAX_CRNS } from './messages';
-import type { LookupRequest, LookupResponse, Section } from './messages';
-
+import type {
+  LookupRequest,
+  LookupResponse,
+  SaveRequest,
+  SaveResponse,
+  Section,
+} from './messages';
+import { saveProfessorCourse } from './saved';
 const SCRIPT_ID = 'banner-ratings';
 
 /** Registers the content script at runtime instead of declaring it in the
@@ -79,17 +85,45 @@ async function lookupSections({ term, crns }: LookupRequest): Promise<LookupResp
   }
 }
 
-chrome.runtime.onMessage.addListener((message: LookupRequest, sender, sendResponse) => {
-  if (message?.type !== 'banner:lookup') return false;
-  // onMessage only hears from this extension's own scripts (others arrive on
-  // onMessageExternal), so this never fires today. It's cheap insurance.
-  if (sender.id !== chrome.runtime.id) {
-    sendResponse({ ok: false, message: 'Unauthorized sender' });
-    return false;
+
+chrome.runtime.onMessage.addListener(
+  (message: LookupRequest | SaveRequest, sender, sendResponse) => {
+    if (message?.type !== 'banner:lookup' && message?.type !== 'banner:save') {
+      return false;
+    }
+
+    if (sender.id !== chrome.runtime.id) {
+      sendResponse({ ok: false, message: 'Unauthorized sender' });
+      return false;
+    }
+
+    if (message.type === 'banner:lookup') {
+      void lookupSections(message).then(sendResponse);
+      return true;
+    }
+
+    // only the Banner content script can save entries
+    const origin = sender.url ? new URL(sender.url).origin : '';
+
+    if (origin !== 'https://nubanner.neu.edu') {
+      sendResponse({
+        ok: false,
+        message: 'Only Banner can save professors',
+      } satisfies SaveResponse);
+
+      return false;
+    }
+
+    void saveProfessorCourse(message.entry)
+      .then(() => sendResponse({ ok: true } satisfies SaveResponse))
+      .catch(() =>
+        sendResponse({
+          ok: false,
+          message: 'Could not save professor',
+        } satisfies SaveResponse)
+      );
+
+    // keep the message channel open for the async storage operation
+    return true;
   }
-  // Returning true is what keeps the channel open for an async reply. Without
-  // it the port closes as this listener returns and the content script's
-  // sendMessage resolves undefined — with no error on either side.
-  lookupSections(message).then(sendResponse);
-  return true;
-});
+);

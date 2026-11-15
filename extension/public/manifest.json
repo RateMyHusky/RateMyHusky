@@ -8,9 +8,16 @@
     "default_popup": "index.html",
     "default_title": "RateMyHusky"
   },
-  "permissions": ["scripting"],
-  "host_permissions": ["https://ratemyhusky.com/*"],
-  "optional_host_permissions": ["https://nubanner.neu.edu/*"],
+  "permissions": [
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://ratemyhusky.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://nubanner.neu.edu/*"
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"

@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { SITE_URL } from '../api';
+import { hasBannerAccess, requestBannerAccess, revokeBannerAccess } from '../banner/permission';
 import { THEMES, type Theme } from '../utils/theme';
 import './Settings.css';
 
@@ -22,6 +24,26 @@ export default function Settings({
   onTheme: (theme: Theme) => void;
 }) {
   const version = extensionVersion();
+  const [bannerAccess, setBannerAccess] = useState(false);
+  const [permissionError, setPermissionError] = useState('');
+  const [changing, setChanging] = useState(false);
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.permissions) return;
+    void hasBannerAccess().then(setBannerAccess).catch(() => setPermissionError('Unable to read permission'));
+  }, []);
+
+  async function toggleBanner(): Promise<void> {
+    setChanging(true);
+    setPermissionError('');
+    try {
+      const changed = bannerAccess ? await revokeBannerAccess() : await requestBannerAccess();
+      if (changed) setBannerAccess(!bannerAccess);
+    } catch {
+      setPermissionError('Unable to update Banner permission');
+    } finally {
+      setChanging(false);
+    }
+  }
 
   return (
     <div className="settings">
@@ -52,6 +74,16 @@ export default function Settings({
         </p>
       </section>
 
+      <section>
+        <h2 className="section-label">Banner integration</h2>
+        <label className="banner-toggle">
+          <span>Show RateMyHusky ratings on Banner</span>
+          <input type="checkbox" checked={bannerAccess} disabled={changing || typeof chrome === 'undefined'}
+            onChange={() => void toggleBanner()} />
+        </label>
+        <p className="muted seg-note">Optional. Reads classes already shown in Banner; never requests Banner data.</p>
+        {permissionError && <p role="alert" className="muted">{permissionError}</p>}
+      </section>
       <section>
         <h2 className="section-label">About</h2>
         <dl className="about">

@@ -33,6 +33,41 @@ export type CourseSuggestion = {
   dept: string | null;
 };
 
+export type ProfessorReview = {
+  id?: string | number;
+  course: string;
+  courseCode: string | null;
+  quality: number;
+  difficulty: number;
+  date: string;
+  tags: string;
+  comment: string;
+};
+
+export type ProfessorProfile = {
+  identity: {
+    slug: string;
+    name: string;
+    department: string;
+    imageUrl: string | null;
+  };
+  summary: {
+    rating: number | null;
+    numRatings: number;
+    numComments: number;
+  };
+  sources: {
+    rmp: { reviews: ProfessorReview[]; numRatings: number };
+    survey: {
+      available: boolean;
+      rating: number | null;
+      numRatings: number;
+      ratingDistribution: Record<'1' | '2' | '3' | '4' | '5', number>;
+    };
+  };
+};
+
+
 export type Suggestion = ProfessorSuggestion | CourseSuggestion;
 
 const MAINTENANCE_PATH = '/maintenance.html';
@@ -199,4 +234,13 @@ async function loadProfessor(slug: string): Promise<Professor> {
     return PROFESSOR_FIXTURES[slug] as Professor;
   }
   return get<Professor>(`/api/professors/${encodeURIComponent(slug)}/full`);
+}
+
+/** Detailed reviews used by the original extension Search screen. */
+export async function fetchProfessorProfile(slug: string): Promise<ProfessorProfile> {
+  return get<ProfessorProfile>(`/api/professors/${encodeURIComponent(slug)}/full`);
+}
+
+export function isUnavailable(err: unknown): boolean {
+  return err instanceof Unavailable;
 }

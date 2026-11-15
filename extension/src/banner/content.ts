@@ -1,4 +1,4 @@
-import { lookup, MAX_CRNS, type Section, type Term } from './messages';
+import { lookup, MAX_CRNS, type Section, type Term, type SaveResponse } from './messages';
 import { readRows, stillTeaching, type Row } from './table';
 import { BADGE_TAG, badgeFor } from './badge';
 import { USE_FIXTURES, fixtureLookup } from './fixtures';
@@ -27,6 +27,81 @@ const answers = new Map<string, Section | null>();
 const asking = new Set<string>();
 
 const keyOf = (term: Term, crn: string) => `${term}:${crn}`;
+
+/** Preserve the course label shown in this row, not a guessed course code. */
+function courseOf(row: Row): string {
+  const code = row.tr.querySelector<HTMLElement>(
+    'td[data-property="subjectCourse"], td[data-property="courseNumber"], td[data-property="courseReferenceNumber"]',
+  )?.textContent?.trim();
+  const title = row.tr.querySelector<HTMLElement>('td[data-property="courseTitle"] a.section-details-link')
+    ?.textContent?.trim();
+  return [code, title].filter(Boolean).join(' · ').slice(0, 180) || `CRN ${row.crn}`;
+}
+
+async function saveFromRow(row: Row, section: Section): Promise<void> {
+  if (!section.slug || !section.instructor || !stillTeaching(section.instructor, row.names)) {
+    throw new Error('No verified professor to save');
+  }
+  const response = await chrome.runtime.sendMessage({
+    type: 'banner:save',
+    entry: {
+      slug: section.slug,
+      name: section.instructor,
+      course: courseOf(row),
+      term: row.term,
+      crn: row.crn,
+      savedAt: Date.now(),
+    },
+  }) as SaveResponse;
+  if (!response?.ok) throw new Error('Could not save professor');
+}
+
+// A title link is the student's explicit choice of a section to inspect.
+// Use it to associate Banner's already-rendered detail dialog with that row.
+let activeDetailKey: string | null = null;
+document.addEventListener('click', (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const link = target.closest('a.section-details-link[data-attributes]');
+  if (!link) return;
+  const row = readRows().find((r) => r.tr.contains(link));
+  if (row) activeDetailKey = keyOf(row.term, row.crn);
+}, true);
+
+/** If Banner opens a section-detail dialog, add a badge using the selected row.
+ *  Do not query Banner or infer identity from modal text. If a different dialog
+ *  is open or the instructor has changed, abstain. */
+function decorateDetail(): void {
+  if (!activeDetailKey) return;
+  const row = readRows().find((r) => keyOf(r.term, r.crn) === activeDetailKey);
+  const answer = answers.get(activeDetailKey);
+  if (!row || !answer || !answer.instructor ||
+      !stillTeaching(answer.instructor, row.names)) return;
+  const dialogs = document.querySelectorAll<HTMLElement>(
+    '[role="dialog"], .ui-dialog, .modal.show',
+  );
+  for (const dialog of dialogs) {
+    if (getComputedStyle(dialog).display === 'none' ||
+        dialog.getAttribute('aria-hidden') === 'true' || !dialog.getClientRects().length) continue;
+    // A dialog may be unrelated (e.g. a login prompt). Require section context.
+    const content = dialog.querySelector<HTMLElement>('.ui-dialog-content, .modal-body') ?? dialog;
+    const text = content.textContent ?? '';
+    const title = row.tr.querySelector<HTMLElement>('td[data-property="courseTitle"] a.section-details-link')
+      ?.textContent?.trim() ?? '';
+    if (!text.includes(row.crn) &&
+        !(title.length > 6 && text.includes(title) && text.includes(answer.instructor))) continue;
+    const badgeKey = `detail:${activeDetailKey}`;
+    const existing = content.querySelector(BADGE_TAG);
+    if (existing?.getAttribute('data-key') === badgeKey) continue;
+    content.querySelectorAll(BADGE_TAG).forEach((badge) => badge.remove());
+    const badge = badgeFor(answer, badgeKey, {
+      sample: USE_FIXTURES, inInstructorCell: false, coTaught: false,
+      onSave: () => saveFromRow(row, answer),
+    });
+    if (badge) content.append(badge);
+  }
+}
+
 
 /** Badges every drawn row it has an answer for, and asks about the rest in
  *  one request per term — never one per row. */
@@ -59,6 +134,7 @@ async function ask(term: Term, crns: string[]): Promise<void> {
     answers.set(key, response.ok ? (response.sections[crn] ?? null) : null);
   }
   decorate();
+  decorateDetail();
 }
 
 /** Leaves a row alone when its badge is already the right one, in the right
@@ -82,6 +158,7 @@ function place(row: Row, key: string, answer: Section | null): void {
     sample: USE_FIXTURES,
     inInstructorCell: row.inInstructorCell,
     coTaught: (row.names?.length ?? 0) > 1,
+    onSave: section?.slug ? () => saveFromRow(row, section) : undefined,
   });
   if (badge) row.cell.append(badge);
 }
@@ -96,6 +173,7 @@ function schedule(): void {
   requestAnimationFrame(() => {
     queued = false;
     decorate();
+    decorateDetail();
   });
 }
 
