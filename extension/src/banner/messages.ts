@@ -82,3 +82,19 @@ export type SavedEntry = {
 
 export type SaveRequest = { type: 'banner:save'; entry: SavedEntry };
 export type SaveResponse = { ok: true } | { ok: false; message: string };
+
+/** Where the worker leaves the professor a badge click asked for, for the
+ *  popup to pick up as it opens. Session storage: it's gone when the browser
+ *  closes, and a stale one never opens a professor days later. */
+export const OPEN_KEY = 'rmh:open-professor';
+
+export type OpenRequest = { type: 'banner:open'; slug: string };
+
+/** Content-script side of a badge click. Fire and forget: the worker opens the
+ *  popup on that professor, or the site in a new tab if Chrome won't. */
+export function openProfessor(slug: string): void {
+  const request: OpenRequest = { type: 'banner:open', slug };
+  chrome.runtime.sendMessage(request).catch(() => {
+    // The worker is reloading. The click does nothing this once.
+  });
+}

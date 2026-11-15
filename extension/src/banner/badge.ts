@@ -110,6 +110,8 @@ export type Placement = {
    *  rating it is. */
   coTaught: boolean;
   onSave?: () => Promise<void>;
+  /** A plain click opens the professor in the popup instead of the site. */
+  onOpen?: () => void;
 };
 
 /** One section's badge, or null when there's nothing to say — the CRN isn't
@@ -137,6 +139,18 @@ export function badgeFor(section: Section | null, key: string, where: Placement)
     ? linked(section, section.slug, instructor, !where.inInstructorCell || where.coTaught)
     : plain(instructor);
   if (where.sample) body.append(span('sample', 'sample'));
+
+  // Only a plain left click is taken over. Cmd/Ctrl/Shift-click and the
+  // middle button still do what a link does, so the site stays one gesture
+  // away — and the href is what opens if the popup can't.
+  if (section.slug && where.onOpen && !where.sample) {
+    const open = where.onOpen;
+    body.addEventListener('click', (e) => {
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      open();
+    });
+  }
 
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.append(style, body);

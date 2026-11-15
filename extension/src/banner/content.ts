@@ -1,4 +1,4 @@
-import { lookup, MAX_CRNS, type Section, type Term, type SaveResponse } from './messages';
+import { lookup, MAX_CRNS, openProfessor, type Section, type Term, type SaveResponse } from './messages';
 import { readRows, stillTeaching, type Row } from './table';
 import { BADGE_TAG, badgeFor } from './badge';
 import { USE_FIXTURES, fixtureLookup } from './fixtures';
@@ -97,6 +97,7 @@ function decorateDetail(): void {
     const badge = badgeFor(answer, badgeKey, {
       sample: USE_FIXTURES, inInstructorCell: false, coTaught: false,
       onSave: () => saveFromRow(row, answer),
+      onOpen: answer.slug ? () => openProfessor(answer.slug!) : undefined,
     });
     if (badge) content.append(badge);
   }
@@ -159,6 +160,7 @@ function place(row: Row, key: string, answer: Section | null): void {
     inInstructorCell: row.inInstructorCell,
     coTaught: (row.names?.length ?? 0) > 1,
     onSave: section?.slug ? () => saveFromRow(row, section) : undefined,
+    onOpen: section?.slug ? () => openProfessor(section.slug!) : undefined,
   });
   if (badge) row.cell.append(badge);
 }

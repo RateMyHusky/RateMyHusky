@@ -1,14 +1,20 @@
 /// <reference types="vite/client" />
-import { BANNER_MATCHES, BANNER_ORIGIN, MAX_CRNS } from './messages';
+import { BANNER_MATCHES, BANNER_ORIGIN, MAX_CRNS, OPEN_KEY } from './messages';
 import type {
   LookupRequest,
   LookupResponse,
+  OpenRequest,
   SaveRequest,
   SaveResponse,
   Section,
 } from './messages';
-import { saveProfessorCourse } from './saved';
+import { saveProfessorCourse, SLUG } from './saved';
+
 const SCRIPT_ID = 'banner-ratings';
+/** The fallback page is always the real site, even when VITE_RMH_API points
+ *  the lookups at a local backend. Not imported from api.ts, which would pull
+ *  the popup's fixtures into the worker. */
+const SITE_URL = 'https://ratemyhusky.com';
 
 /** Registers the content script at runtime instead of declaring it in the
  *  manifest.
@@ -86,9 +92,30 @@ async function lookupSections({ term, crns }: LookupRequest): Promise<LookupResp
 }
 
 
+/** Opens the popup on the professor a Banner badge was clicked for. The popup
+ *  reads the slug from session storage as it starts, so it's written first.
+ *  openPopup fails where Chrome won't allow it — older than 127, or the
+ *  window isn't focused — and the professor's page on the site opens in a
+ *  new tab instead, so the click always goes somewhere. */
+async function openFromBanner(slug: string, windowId: number | undefined): Promise<void> {
+  try {
+    await chrome.storage.session.set({ [OPEN_KEY]: slug });
+    await chrome.action.openPopup(windowId != null ? { windowId } : undefined);
+  } catch (err) {
+    // Logged because the fallback looks exactly like the old link working.
+    console.warn('[RateMyHusky] popup did not open, using the site instead:', err);
+    await chrome.storage.session.remove(OPEN_KEY).catch(() => {});
+    await chrome.tabs.create({ url: `${SITE_URL}/professors/${encodeURIComponent(slug)}` });
+  }
+}
+
 chrome.runtime.onMessage.addListener(
-  (message: LookupRequest | SaveRequest, sender, sendResponse) => {
-    if (message?.type !== 'banner:lookup' && message?.type !== 'banner:save') {
+  (message: LookupRequest | SaveRequest | OpenRequest, sender, sendResponse) => {
+    if (
+      message?.type !== 'banner:lookup' &&
+      message?.type !== 'banner:save' &&
+      message?.type !== 'banner:open'
+    ) {
       return false;
     }
 
@@ -102,8 +129,17 @@ chrome.runtime.onMessage.addListener(
       return true;
     }
 
-    // only the Banner content script can save entries
+    // only the Banner content script can save entries or open the popup
     const origin = sender.url ? new URL(sender.url).origin : '';
+
+    if (message.type === 'banner:open') {
+      // The slug ends up in a URL on the fallback path, so it's checked here
+      // rather than trusted from the page's side of the message.
+      if (origin === 'https://nubanner.neu.edu' && SLUG.test(message.slug)) {
+        void openFromBanner(message.slug, sender.tab?.windowId);
+      }
+      return false;
+    }
 
     if (origin !== 'https://nubanner.neu.edu') {
       sendResponse({

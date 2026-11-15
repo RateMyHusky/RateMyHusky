@@ -2,10 +2,13 @@ import type { SavedEntry } from './messages';
 
 export const SAVED_KEY = 'rmh:saved-professor-courses:v1';
 const MAX_SAVED = 100;
+/** What a site slug looks like. Anything from the page is checked against it
+ *  before it's stored or put in a URL. */
+export const SLUG = /^[a-z0-9][a-z0-9-]{0,119}$/;
 const valid = (item: unknown): item is SavedEntry => {
   if (!item || typeof item !== 'object') return false;
   const s = item as Partial<SavedEntry>;
-  return typeof s.slug === 'string' && /^[a-z0-9][a-z0-9-]{0,119}$/.test(s.slug) &&
+  return typeof s.slug === 'string' && SLUG.test(s.slug) &&
     typeof s.name === 'string' && s.name.trim().length > 0 && s.name.length <= 160 &&
     typeof s.course === 'string' && s.course.trim().length > 0 && s.course.length <= 180 &&
     typeof s.term === 'string' && /^\d{6}$/.test(s.term) &&

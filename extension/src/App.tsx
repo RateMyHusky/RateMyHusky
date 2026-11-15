@@ -11,14 +11,16 @@ import { applyTheme, loadTheme, saveTheme, type Theme } from './utils/theme';
 /** `pick` is Search choosing a professor for Compare rather than opening one. */
 type View = 'search' | 'overview' | 'reviews' | 'courses' | 'compare' | 'pick' | 'settings';
 
-export default function App() {
+/** `openSlug` is set when a rating badge on Banner opened the popup: it starts
+ *  on that professor, with Search one Back away like any other visit. */
+export default function App({ openSlug }: { openSlug?: string }) {
   // A stack rather than one view. The gear is live on every screen, so a Back
   // hard-wired to Overview dropped anyone who opened Settings from Compare
   // out of the comparison they were reading. Every screen is reached one way
   // and left by Back, so the stack only ever grows along the path taken.
-  const [stack, setStack] = useState<View[]>(['search']);
+  const [stack, setStack] = useState<View[]>(openSlug ? ['search', 'overview'] : ['search']);
   const [theme, setTheme] = useState<Theme>(loadTheme);
-  const [slug, setSlug] = useState<string | null>(null);
+  const [slug, setSlug] = useState<string | null>(openSlug ?? null);
   const [comparing, setComparing] = useState<string[]>([]);
   // Compare's removed professors live up here because the screen unmounts on
   // every trip to Settings, and remounting brought them all back.
