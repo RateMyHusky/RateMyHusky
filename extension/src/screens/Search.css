@@ -1,329 +1,240 @@
-/* Search and review styles from extension-search, scoped to avoid overriding Nick's popup */
-.legacy-search {
-  color-scheme: light dark;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif;
-  color: #191a1d;
-  background: #fff;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  font-optical-sizing: auto;
-  --fg: #191a1d;
-  --muted: #696b70;
-  --faint: #8b8e93;
-  --line: #e5e5e7;
-  --blue: #3976e8;
-}
-.legacy-search, .legacy-search * {
-  box-sizing: border-box;
-}
-.legacy-search {
-  width: 100%;
-  min-width: 0;
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font-size: 14px;
-  line-height: 1.4;
-  -webkit-font-smoothing: antialiased;
-}
-.legacy-search button, .legacy-search input {
-  font: inherit;
-}
-.legacy-search button {
-  color: inherit;
-}
-.legacy-search.popup {
-  min-height: 440px;
-  background: #fff;
-}
-.legacy-search .bar {
+/* Rows follow Courses' .crs list — hairline dividers, sunken hover, 11.5px
+   titles over 10px meta — so the home screen and the detail screens read as
+   one product. Also styles SavedList, which only appears here. */
+
+.search-box {
   display: flex;
   align-items: center;
-  gap: 9px;
-  height: 60px;
-  padding: 0 16px;
-  border-bottom: 1px solid #eeeeef;
-}
-.legacy-search .brand-icon {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-  flex: 0 0 auto;
-}
-.legacy-search .wordmark {
-  color: #151619;
-  font-size: 18px;
-  font-weight: 760;
-  letter-spacing: -0.55px;
-}
-.legacy-search .icon-button {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #1e2024;
-  cursor: pointer;
-}
-.legacy-search .icon-button svg, .legacy-search .search-box > svg, .legacy-search .recent-row > svg, .legacy-search .result-row > svg {
-  width: 21px;
-  height: 21px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2;
-}
-.legacy-search .body {
-  padding: 14px 16px 24px;
-}
-.legacy-search .search-box {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 41px;
+  gap: 8px;
   padding: 0 10px;
-  border: 1px solid #d8d9dc;
-  border-radius: 9px;
-  background: #fff;
-  color: #24262a;
-  box-shadow: 0 1px 2px rgb(16 24 40 / 5%);
+  height: 40px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-.legacy-search .search-box:focus-within {
-  border-color: #8aaef4;
-  box-shadow: 0 0 0 3px rgb(57 118 232 / 12%);
+
+.search-box:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-wash);
 }
-.legacy-search .search-box > svg {
-  flex: 0 0 auto;
-  color: #33363b;
+
+.search-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--muted);
 }
-.legacy-search .search-box input {
-  width: 100%;
+
+.search-box input {
+  flex: 1;
   min-width: 0;
-  padding: 0;
+  height: 100%;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--fg);
+  font: inherit;
   font-size: 13.5px;
 }
-.legacy-search .search-box input::placeholder {
-  color: #75777c;
-  opacity: 1;
+
+.search-box input::placeholder {
+  color: var(--muted);
 }
-.legacy-search .clear-query {
-  width: 26px;
-  height: 26px;
-  margin-right: -4px;
-  color: #494b50;
-}
-.legacy-search .clear-query svg {
-  width: 20px;
-  height: 20px;
-}
-.legacy-search .recent-section, .legacy-search .results-section {
-  margin-top: 18px;
-}
-.legacy-search .section-heading {
-  display: flex;
+
+.search-clear {
+  display: inline-flex;
+  flex: none;
+  width: 24px;
+  height: 24px;
   align-items: center;
-  justify-content: space-between;
-  min-height: 28px;
-  margin: 0 0 2px;
-}
-.legacy-search .section-heading h1 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: -0.18px;
-}
-.legacy-search .text-button {
-  padding: 4px 0 4px 10px;
+  justify-content: center;
+  padding: 0;
   border: 0;
+  border-radius: 50%;
   background: transparent;
-  color: var(--blue);
+  color: var(--muted);
   cursor: pointer;
-  font-size: 13.5px;
 }
-.legacy-search .recent-list, .legacy-search .results-list {
+
+.search-clear svg {
+  width: 14px;
+  height: 14px;
+}
+
+.search-clear:hover {
+  background: var(--bg-sunken);
+  color: var(--fg);
+}
+
+.search-clear:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.search-section {
+  margin-top: 16px;
+}
+
+.search-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--brand);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+.link-btn:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.search-empty {
+  padding: 4px 4px 0;
+  font-size: 12px;
+}
+
+.row-list {
+  list-style: none;
   margin: 0;
   padding: 0;
-  list-style: none;
 }
-.legacy-search .recent-list li, .legacy-search .results-list li {
+
+.row-list > li {
   border-bottom: 1px solid var(--line);
 }
-.legacy-search .recent-list li:last-child, .legacy-search .results-list li:last-child {
+
+.row-list > li:last-child {
   border-bottom: 0;
 }
-.legacy-search .recent-row, .legacy-search .result-row {
+
+/* A saved row carries a remove button beside the row, not inside it: a
+   button can't hold another button. */
+.row-wrap {
   display: flex;
   align-items: center;
+}
+
+.row {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
   width: 100%;
-  padding: 0;
+  padding: 9px 4px;
   border: 0;
+  border-radius: 8px;
   background: transparent;
+  color: inherit;
+  font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.legacy-search .recent-row {
-  min-height: 46px;
-  gap: 12px;
+
+.row:hover {
+  background: var(--bg-sunken);
 }
-.legacy-search .recent-row > svg {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 auto;
-  color: #777a7f;
-  stroke-width: 1.9;
-}
-.legacy-search .recent-name {
-  overflow: hidden;
-  color: #242529;
-  font-size: 13.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.legacy-search .recent-dept {
-  margin-left: auto;
-  color: #686b70;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.legacy-search .results-section {
-  margin-top: 12px;
-}
-.legacy-search .result-row {
-  min-height: 80px;
-  gap: 13px;
-}
-.legacy-search .avatar {
-  width: 46px;
-  height: 46px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: #d5d6d8;
-}
-.legacy-search .result-copy {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 1px;
-}
-.legacy-search .result-name {
-  overflow: hidden;
-  color: #202125;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.25px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.legacy-search .result-dept {
-  overflow: hidden;
-  color: #73767b;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.legacy-search .result-row > svg {
-  width: 19px;
-  height: 19px;
-  flex: 0 0 auto;
-  color: #85888d;
-  stroke-width: 1.9;
-}
-.legacy-search .empty-state {
-  margin: 0;
-  padding: 18px 2px;
-  color: var(--muted);
-  font-size: 13px;
-}
-.legacy-search .error-state {
-  color: #a3303b;
-}
-.legacy-search .recent-row:hover, .legacy-search .result-row:hover {
-  background: #fafafa;
-}
-.legacy-search .icon-button:focus-visible, .legacy-search .text-button:focus-visible, .legacy-search .recent-row:focus-visible, .legacy-search .result-row:focus-visible {
-  outline: 2px solid #3976e8;
+
+.row:focus-visible {
+  outline: 2px solid var(--brand);
   outline-offset: -2px;
 }
-@media  (prefers-color-scheme: dark)  {.legacy-search {
-    color: #eceef2;
-    background: #1d2026;
-    --fg: #eceef2;
-    --muted: #a2a8b4;
-    --faint: #6f7682;
-    --line: #313640;
-    --blue: #80aaff;
-  }
-.legacy-search, .legacy-search.popup {
-    background: #1d2026;
-    color: #eceef2;
-  }
-.legacy-search .bar {
-    border-color: #313640;
-  }
-.legacy-search .wordmark, .legacy-search .icon-button, .legacy-search .recent-name, .legacy-search .result-name {
-    color: #eceef2;
-  }
-.legacy-search .search-box {
-    border-color: #424752;
-    background: #25292f;
-    color: #eceef2;
-  }
-.legacy-search .search-box input::placeholder, .legacy-search .recent-dept, .legacy-search .result-dept {
-    color: #a2a8b4;
-  }
-.legacy-search .avatar {
-    background: #454a53;
-  }
-.legacy-search .recent-row:hover, .legacy-search .result-row:hover {
-    background: #25292f;
-  }}
-.legacy-search .profile-titlebar { display:flex; align-items:center; min-height:92px; padding:12px 15px; border-bottom:1px solid #ededee; }
-.legacy-search .back-button { display:grid; width:28px; height:36px; flex:0 0 auto; place-items:center; margin-right:12px; padding:0; border:0; background:transparent; cursor:pointer; }
-.legacy-search .back-button svg { width:20px; height:20px; transform:rotate(180deg); fill:none; stroke:currentColor; stroke-linecap:round; stroke-linejoin:round; stroke-width:2.5; }
-.legacy-search .profile-identity { display:flex; min-width:0; align-items:center; gap:12px; }
-.legacy-search .profile-identity > img, .legacy-search .avatar.large { width:56px; height:56px; flex:0 0 auto; border-radius:50%; object-fit:cover; background:#d5d6d8; }
-.legacy-search .profile-identity h1 { margin:0; font-size:18px; line-height:1.25; letter-spacing:-.4px; }
-.legacy-search .profile-identity p { margin:3px 0 0; color:#585a5f; font-size:12.5px; line-height:1.3; }
-.legacy-search .identity-rating { display:block; margin-top:4px; color:#6b6d72; font-size:11px; }
-.legacy-search .identity-rating b { color:var(--blue); }
-.legacy-search .profile-content { padding:15px 16px 22px; }
-.legacy-search .content-heading { display:flex; min-height:34px; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:12px; }
-.legacy-search .content-heading h1 { margin:0; font-size:14px; font-weight:730; letter-spacing:-.15px; }
-.legacy-search .content-heading p { margin:2px 0 0; color:#707278; font-size:11.5px; }
-.legacy-search .count { color:#707278; font-weight:500; }
-.legacy-search .sort-control select { max-width:105px; padding:3px 19px 3px 6px; border:1px solid #e1e1e4; border-radius:6px; background:#fff; color:#515359; font:inherit; font-size:11px; }
-.legacy-search .visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
-.legacy-search .review-list { display:flex; flex-direction:column; gap:10px; }
-.legacy-search .review-card { padding:11px 11px 10px; border:1px solid #e2e2e4; border-radius:9px; background:#fff; box-shadow:0 1px 2px rgb(16 24 40 / 4%); }
-.legacy-search .review-card-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-.legacy-search .stars { display:flex; gap:1px; color:#d9dadd; font-size:18px; line-height:1; }
-.legacy-search .stars .filled { color:#f5a623; }
-.legacy-search .review-date { color:#6f7176; font-size:11.5px; white-space:nowrap; }
-.legacy-search .review-comment { margin:8px 0 7px; color:#24262a; font-size:13px; line-height:1.42; }
-.legacy-search .review-comment.muted { color:#77797f; font-style:italic; }
-.legacy-search .review-details { display:flex; flex-wrap:wrap; gap:5px 12px; color:#77797e; font-size:10.5px; }
-.legacy-search .review-tags { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
-.legacy-search .review-tag { padding:3px 8px; border-radius:12px; background:#f0f0f1; color:#42444a; font-size:10.5px; white-space:nowrap; }
-.legacy-search .profile-empty { margin:0; padding:24px 8px; color:#6d6f75; text-align:center; font-size:13px; }
-.legacy-search .profile-empty.error-state { color:#a43c35; }
-@media  (prefers-color-scheme: dark)  {.legacy-search .profile-titlebar { border-color: var(--line); }
-.legacy-search .profile-identity p, .legacy-search .identity-rating, .legacy-search .content-heading p, .legacy-search .review-date, .legacy-search .review-details, .legacy-search .profile-empty, .legacy-search .count { color: var(--muted); }
-.legacy-search .review-card { border-color: var(--line); background: #25292f; }
-.legacy-search .sort-control select { border-color: #424752; background: #25292f; color: var(--fg); }
-.legacy-search .review-comment, .legacy-search .profile-identity h1 { color: var(--fg); }
-.legacy-search .review-comment.muted { color: var(--muted); }
-.legacy-search .review-tag { background: #30353e; color: #c1c6d0; }}
-.legacy-search { color: var(--fg); --blue: #3976e8; --faint: #8b8e93; min-height: 320px; }
-.legacy-search .legacy-overview-link { padding: 8px 16px; }
-.legacy-search .legacy-overview-link button { border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--fg); cursor: pointer; padding: 6px 10px; }
+
+.row-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--muted);
+}
+
+.row-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.row-meta {
+  overflow: hidden;
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.row-score {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.row-star {
+  margin-right: 2px;
+  color: var(--star);
+}
+
+.row-chev {
+  margin-left: auto;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+
+/* With a score beside it the chevron is no longer the item pushed right. */
+.row-score + .row-chev {
+  margin-left: 0;
+}
+
+.row-remove {
+  display: inline-flex;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.row-remove svg {
+  width: 12px;
+  height: 12px;
+}
+
+.row-remove:hover {
+  background: var(--bg-sunken);
+  color: var(--fg);
+}
+
+.row-remove:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}

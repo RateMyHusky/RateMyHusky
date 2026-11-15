@@ -22,8 +22,3 @@
   height: 12px;
   opacity: 0.6;
 }
-
-.popup-nav { display:flex; gap:8px; padding:10px 16px 0; }
-.popup-nav button { border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:7px; padding:5px 12px; cursor:pointer; font:inherit; font-size:12px; }
-.popup-nav button:disabled { color:var(--muted); cursor:default; }
-.popup-nav button:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }

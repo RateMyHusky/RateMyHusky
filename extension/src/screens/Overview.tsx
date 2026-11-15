@@ -10,10 +10,12 @@ import './Overview.css';
 export default function Overview({
   slug,
   onCompare,
+  onReviews,
   onCourses,
 }: {
   slug: string;
   onCompare?: () => void;
+  onReviews?: () => void;
   onCourses?: () => void;
 }) {
   const state = useAsync(() => fetchProfessor(slug), slug);
@@ -64,17 +66,12 @@ export default function Overview({
           <ScaleIcon />
           Compare
         </button>
-        {/* A real link, not chrome.tabs.create: works in the popup, in any
-            preview, and gives middle/cmd-click for free. */}
-        <a
-          className="btn secondary"
-          href={professorUrl(identity.slug)}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
+        {/* In the popup, not a link out: the reviews are already in the /full
+            payload this screen loaded. Reviews links to the site at its foot. */}
+        <button className="btn secondary" type="button" onClick={onReviews} disabled={!onReviews}>
           <ReviewsIcon />
           View Reviews
-        </a>
+        </button>
       </div>
 
       <p className="section-label">

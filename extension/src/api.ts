@@ -33,7 +33,9 @@ export type CourseSuggestion = {
   dept: string | null;
 };
 
-export type ProfessorReview = {
+/** One RateMyProfessors review as /full sends it. `tags` is one string,
+ *  "--"-separated, the way RMP stores it. */
+export type Review = {
   id?: string | number;
   course: string;
   courseCode: string | null;
@@ -43,30 +45,6 @@ export type ProfessorReview = {
   tags: string;
   comment: string;
 };
-
-export type ProfessorProfile = {
-  identity: {
-    slug: string;
-    name: string;
-    department: string;
-    imageUrl: string | null;
-  };
-  summary: {
-    rating: number | null;
-    numRatings: number;
-    numComments: number;
-  };
-  sources: {
-    rmp: { reviews: ProfessorReview[]; numRatings: number };
-    survey: {
-      available: boolean;
-      rating: number | null;
-      numRatings: number;
-      ratingDistribution: Record<'1' | '2' | '3' | '4' | '5', number>;
-    };
-  };
-};
-
 
 export type Suggestion = ProfessorSuggestion | CourseSuggestion;
 
@@ -177,6 +155,9 @@ export type Professor = {
   courses: Course[];
   lastTaught: string | null;
   awards: TeachingAward[];
+  sources: {
+    rmp: { reviews: Review[] };
+  };
 };
 
 /** Banner history keeps only this many terms per course (`labels[:6]` in
@@ -234,13 +215,4 @@ async function loadProfessor(slug: string): Promise<Professor> {
     return PROFESSOR_FIXTURES[slug] as Professor;
   }
   return get<Professor>(`/api/professors/${encodeURIComponent(slug)}/full`);
-}
-
-/** Detailed reviews used by the original extension Search screen. */
-export async function fetchProfessorProfile(slug: string): Promise<ProfessorProfile> {
-  return get<ProfessorProfile>(`/api/professors/${encodeURIComponent(slug)}/full`);
-}
-
-export function isUnavailable(err: unknown): boolean {
-  return err instanceof Unavailable;
 }

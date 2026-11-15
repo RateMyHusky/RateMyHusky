@@ -1,424 +1,218 @@
-import './Search.css';
 import { useEffect, useRef, useState } from 'react';
-import {
-  isUnavailable,
-  fetchProfessorProfile,
-  searchProfessors,
-  type ProfessorProfile,
-  type ProfessorReview,
-  type ProfessorSuggestion,
-} from '../api';
+import { errorMessage, searchProfessors, type ProfessorSuggestion } from '../api';
+import { ChevronIcon, ClockIcon, CloseIcon, SearchIcon } from '../components/icons';
+import SavedList from '../components/SavedList';
+import { score } from '../utils/format';
+import './Search.css';
 
-type RecentSearch = { name: string; dept: string | null; slug: string };
+type Recent = { name: string; dept: string | null; slug: string };
 
 const RECENTS_KEY = 'rmh-extension-recent-searches';
+const MAX_RECENTS = 6;
+/** Long enough that typing a name sends one request, not one per letter. */
+const DEBOUNCE_MS = 150;
 
-function loadRecents(): RecentSearch[] {
+function loadRecents(): Recent[] {
   try {
-    const saved = localStorage.getItem(RECENTS_KEY);
-    if (!saved) return [];
-    const parsed: unknown = JSON.parse(saved);
-    if (
-      Array.isArray(parsed) &&
-      parsed.every(
-        (item) =>
-          item &&
-          typeof item.name === 'string' &&
-          (typeof item.dept === 'string' || item.dept === null) &&
-          typeof item.slug === 'string',
+    const parsed: unknown = JSON.parse(localStorage.getItem(RECENTS_KEY) ?? '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (r): r is Recent =>
+          !!r &&
+          typeof r.name === 'string' &&
+          typeof r.slug === 'string' &&
+          (typeof r.dept === 'string' || r.dept === null),
       )
-    ) {
-      return parsed.slice(0, 6) as RecentSearch[];
-    }
+      .slice(0, MAX_RECENTS);
   } catch {
-    // A fresh popup should still work if storage is unavailable or malformed.
+    // Storage off or malformed: the popup still works, just without recents.
+    return [];
   }
-  return [];
 }
 
-function SearchIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="10.8" cy="10.8" r="6.6" />
-      <path d="m16 16 4.2 4.2" />
-    </svg>
-  );
+function saveRecents(recents: Recent[]): void {
+  try {
+    localStorage.setItem(RECENTS_KEY, JSON.stringify(recents));
+  } catch {
+    // Same as above: the visible list is still right for this popup.
+  }
 }
 
-function ClockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="M12 7v5l3.2 2" />
-    </svg>
-  );
-}
+type Results =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready'; query: string; matches: ProfessorSuggestion[] }
+  | { status: 'error'; message: string };
 
-function ChevronIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="m9 5 7 7-7 7" />
-    </svg>
-  );
-}
-
-function displayDepartment(dept: string | null): string {
-  if (!dept) return 'Professor';
-  const abbreviations: Record<string, string> = {
-    'Computer Science': 'CS',
-    'Electrical and Computer Engineering': 'ECE',
-    'Mechanical and Industrial Engineering': 'ME',
-  };
-  return abbreviations[dept] ?? dept;
-}
-
-function formatReviewDate(value: string): string {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(date);
-}
-
-function ReviewCard({ review }: { review: ProfessorReview }) {
-  const tags = review.tags.split('--').map((tag) => tag.trim()).filter(Boolean);
-  return (
-    <article className="review-card">
-      <div className="review-card-top">
-        <div className="stars" aria-label={`${review.quality} out of 5 stars`}>
-          {Array.from({ length: 5 }, (_, index) => (
-            <span className={index < Math.round(review.quality) ? 'filled' : ''} key={index}>★</span>
-          ))}
-        </div>
-        <span className="review-date">{formatReviewDate(review.date)}</span>
-      </div>
-      {review.comment ? <p className="review-comment">{review.comment}</p> : (
-        <p className="review-comment muted">No written comment for this rating.</p>
-      )}
-      <div className="review-details">
-        {review.courseCode && <span>{review.courseCode}</span>}
-        <span>Difficulty {review.difficulty}/5</span>
-      </div>
-      {tags.length > 0 && (
-        <div className="review-tags">
-          {tags.map((tag) => <span className="review-tag" key={tag}>{tag}</span>)}
-        </div>
-      )}
-    </article>
-  );
-}
-
-function ProfileAvatar({ imageUrl }: { imageUrl: string | null | undefined }) {
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => setFailed(false), [imageUrl]);
-
-  return imageUrl && !failed ? (
-    <img src={imageUrl} alt="" onError={() => setFailed(true)} />
-  ) : (
-    <span className="avatar large" aria-hidden="true" />
-  );
-}
-
-function ProfileView({ profile }: { profile: ProfessorProfile }) {
-  const [reviewSort, setReviewSort] = useState<'newest' | 'highest' | 'lowest'>('newest');
-  const reviews = profile.sources.rmp.reviews;
-  const orderedReviews = [...reviews].sort((a, b) => {
-    if (reviewSort === 'highest') return b.quality - a.quality;
-    if (reviewSort === 'lowest') return a.quality - b.quality;
-    return (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0);
-  });
-
-  // Build keys from review content because the current API type has no review ID
-  // Include occurrence count so identical reviews still have distinct keys
-  const occurrences = new Map<string, number>();
-  const keyedReviews = orderedReviews.map((review) => {
-    const keyBase = review.id != null
-      ? String(review.id)
-      : JSON.stringify([review.date, review.courseCode, review.course, review.quality,
-        review.difficulty, review.comment, review.tags]);
-    const occurrence = occurrences.get(keyBase) ?? 0;
-    occurrences.set(keyBase, occurrence + 1);
-    return { review, key: `${keyBase}-${occurrence}` };
-  });
-
-  return (
-    <section className="profile-content">
-      <div className="content-heading">
-        <div>
-          <h1>Student Reviews <span className="count">({reviews.length})</span></h1>
-          <p>Ratings and feedback from Rate My Professors</p>
-        </div>
-        <label className="sort-control">
-          <span className="visually-hidden">Sort reviews</span>
-          <select value={reviewSort} onChange={(event) => setReviewSort(event.target.value as typeof reviewSort)}>
-            <option value="newest">Newest</option>
-            <option value="highest">Highest rated</option>
-            <option value="lowest">Lowest rated</option>
-          </select>
-        </label>
-      </div>
-      {keyedReviews.length > 0 ? (
-        <div className="review-list">
-          {keyedReviews.map(({ review, key }) => <ReviewCard key={key} review={review} />)}
-        </div>
-      ) : (
-        <p className="profile-empty">No reviews are available for this professor yet.</p>
-      )}
-    </section>
-  );
-}
-
-export default function Search({ onOverview }: { onOverview: (slug: string) => void }) {
+/** The popup's home screen, and the picker Compare uses to add a professor.
+ *  Both end in onPick: the caller decides whether that opens an Overview or
+ *  joins a comparison, so search itself never navigates. */
+export default function Search({
+  onPick,
+  heading,
+  exclude = [],
+  showSaved = false,
+}: {
+  onPick: (slug: string) => void;
+  /** Shown above the box in picker mode, e.g. "Compare with…". */
+  heading?: string;
+  /** Professors already in the comparison, left out of the results. */
+  exclude?: string[];
+  showSaved?: boolean;
+}) {
   const [query, setQuery] = useState('');
-  const [recents, setRecents] = useState<RecentSearch[]>(loadRecents);
-  const [results, setResults] = useState<ProfessorSuggestion[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [selectedProfessor, setSelectedProfessor] = useState<ProfessorSuggestion | null>(null);
-  const [profile, setProfile] = useState<ProfessorProfile | null>(null);
-  const [profileLoading, setProfileLoading] = useState(false);
-  const [profileError, setProfileError] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-  const profileRequestId = useRef(0);
-  const latestQuery = useRef('');
-  const [resultsQuery, setResultsQuery] = useState('');
+  const [results, setResults] = useState<Results>({ status: 'idle' });
+  const [recents, setRecents] = useState<Recent[]>(loadRecents);
+  const input = useRef<HTMLInputElement>(null);
+
+  const q = query.trim();
 
   useEffect(() => {
-    const normalized = query.trim();
-    setResults([]);
-    setResultsQuery('');
-    if (normalized.length < 2) {
-      setResults([]);
-      setLoading(false);
-      setError('');
+    if (q.length < 2) {
+      setResults({ status: 'idle' });
       return;
     }
-
-    let active = true;
-    setLoading(true);
-    setError('');
-    const timeout = window.setTimeout(() => {
-      searchProfessors(normalized, 8)
-        .then((matches) => {
-          if (active && latestQuery.current === normalized) {
-            setResults(matches);
-            setResultsQuery(normalized);
-          }
-        })
-        .catch((err: unknown) => {
-          if (!active) return;
-          setResults([]);
-          setError(
-            isUnavailable(err)
-              ? 'Search is temporarily unavailable. Try again in a moment.'
-              : 'Could not load search results. Please try again.',
-          );
-        })
-        .finally(() => {
-          if (active) setLoading(false);
-        });
-    }, 120);
-
+    setResults({ status: 'loading' });
+    // A stale response can land after a newer one; the flag drops it.
+    let current = true;
+    const timer = window.setTimeout(() => {
+      searchProfessors(q, 8).then(
+        (matches) => current && setResults({ status: 'ready', query: q, matches }),
+        (err) => current && setResults({ status: 'error', message: errorMessage(err) }),
+      );
+    }, DEBOUNCE_MS);
     return () => {
-      active = false;
-      window.clearTimeout(timeout);
+      current = false;
+      window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [q]);
 
-  function remember(professor: RecentSearch) {
-    const updated = [
-      professor,
-      ...recents.filter((item) => item.slug !== professor.slug),
-    ].slice(0, 6);
-    setRecents(updated);
-    try {
-      localStorage.setItem(RECENTS_KEY, JSON.stringify(updated));
-    } catch {
-      // Search still works when browser storage is disabled.
-    }
+  function pick(p: Recent): void {
+    const next = [p, ...recents.filter((r) => r.slug !== p.slug)].slice(0, MAX_RECENTS);
+    setRecents(next);
+    saveRecents(next);
+    onPick(p.slug);
   }
 
-  function openProfessor(professor: ProfessorSuggestion) {
-    remember({
-      name: professor.name,
-      dept: professor.dept,
-      slug: professor.slug,
-    });
-    setSelectedProfessor(professor);
-    setProfile(null);
-    setProfileError('');
-    setProfileLoading(true);
-    const requestId = ++profileRequestId.current;
-    fetchProfessorProfile(professor.slug)
-      .then((nextProfile) => {
-        if (requestId === profileRequestId.current) setProfile(nextProfile);
-      })
-      .catch((err: unknown) => {
-        if (requestId !== profileRequestId.current) return;
-        setProfileError(
-          isUnavailable(err)
-            ? 'Professor details are temporarily unavailable. Check your connection and try again.'
-            : 'Could not load professor details. Please try again.',
-        );
-      })
-      .finally(() => {
-        if (requestId === profileRequestId.current) setProfileLoading(false);
-      });
-  }
-
-  function clearRecents() {
+  function clearRecents(): void {
     setRecents([]);
-    try {
-      localStorage.setItem(RECENTS_KEY, '[]');
-    } catch {
-      // Clearing the visible list still works without browser storage.
-    }
+    saveRecents([]);
   }
 
-  const trimmedQuery = query.trim();
-  const showRecents = trimmedQuery.length === 0;
+  const matches =
+    results.status === 'ready' ? results.matches.filter((m) => !exclude.includes(m.slug)) : [];
+  const shownRecents = recents.filter((r) => !exclude.includes(r.slug));
 
   return (
-    <div className="legacy-search popup">
+    <div className="search">
+      {heading && <p className="section-label">{heading}</p>}
 
-      {selectedProfessor ? (
-        <>
-          <div className="profile-titlebar">
-            <button className="back-button" type="button" aria-label="Back to search" onClick={() => {
-              profileRequestId.current += 1;
-              setSelectedProfessor(null);
-              setProfile(null);
-              setProfileLoading(false);
-              setProfileError('');
-            }}><ChevronIcon /></button>
-            <div className="profile-identity">
-              <ProfileAvatar imageUrl={profile?.identity.imageUrl} />
-              <div>
-                <h1>{profile?.identity.name ?? selectedProfessor.name}</h1>
-                <p>{profile?.identity.department ?? displayDepartment(selectedProfessor.dept)}</p>
-                {profile?.summary.rating != null && (
-                  <span className="identity-rating"><b>★ {profile.summary.rating.toFixed(1)}</b> / 5 · {profile.summary.numRatings.toLocaleString()} ratings</span>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="legacy-overview-link"><button type="button" onClick={() => onOverview(selectedProfessor.slug)}>View professor overview</button></div>
-          {profileLoading ? <p className="profile-empty">Loading professor details…</p> : profileError ? (
-            <p className="profile-empty error-state">{profileError}</p>
-          ) : profile ? <ProfileView profile={profile} /> : null}
-        </>
-      ) : <main className="body">
-        <form
-          className="search-box"
-          role="search"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!loading && !error && resultsQuery === latestQuery.current && results[0]) {
-              openProfessor(results[0]);
-            }
-          }}
-        >
-          <SearchIcon />
-          <input
-            ref={inputRef}
-            autoFocus
-            aria-label="Search professors"
-            placeholder="Search professors..."
-            value={query}
-            onChange={(event) => {
-              latestQuery.current = event.target.value.trim();
-              setResults([]);
-              setResultsQuery('');
-              setLoading(latestQuery.current.length >= 2);
-              setQuery(event.target.value);
+      <form
+        className="search-box"
+        role="search"
+        onSubmit={(e) => {
+          e.preventDefault();
+          // Enter takes the top result, but only once it's for what's typed.
+          if (results.status === 'ready' && results.query === q && matches[0]) pick(matches[0]);
+        }}
+      >
+        <SearchIcon className="search-icon" />
+        <input
+          ref={input}
+          autoFocus
+          aria-label="Search professors"
+          placeholder="Search professors…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {query && (
+          <button
+            className="search-clear"
+            type="button"
+            aria-label="Clear search"
+            onClick={() => {
+              setQuery('');
+              input.current?.focus();
             }}
-          />
-          {query && (
-            <button
-              className="icon-button clear-query"
-              type="button"
-              aria-label="Clear search"
-              onClick={() => {
-                latestQuery.current = '';
-                setResults([]);
-                setResultsQuery('');
-                setQuery('');
-                inputRef.current?.focus();
-              }}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="m6 6 12 12M18 6 6 18" />
-              </svg>
-            </button>
-          )}
-        </form>
+          >
+            <CloseIcon />
+          </button>
+        )}
+      </form>
 
-        {showRecents ? (
-          <section className="recent-section" aria-label="Recent searches">
-            <div className="section-heading">
-              <h1>Recent Searches</h1>
-              {recents.length > 0 && (
-                <button className="text-button" type="button" onClick={clearRecents}>
+      {q.length === 0 ? (
+        <>
+          {showSaved && <SavedList onOpen={onPick} />}
+
+          <section className="search-section" aria-label="Recent searches">
+            <div className="search-head">
+              <p className="section-label">Recent Searches</p>
+              {shownRecents.length > 0 && (
+                <button className="link-btn" type="button" onClick={clearRecents}>
                   Clear
                 </button>
               )}
             </div>
-            {recents.length > 0 ? (
-              <ul className="recent-list">
-                {recents.map((recent) => (
-                  <li key={recent.slug}>
-                    <button
-                      className="recent-row"
-                      type="button"
-                      onClick={() => openProfessor({
-                        type: 'professor', name: recent.name, dept: recent.dept,
-                        slug: recent.slug, rating: null,
-                      })}
-                    >
-                      <ClockIcon />
-                      <span className="recent-name">{recent.name}</span>
-                      <span className="recent-dept">{recent.dept}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="empty-state">Your recent searches will show up here.</p>
-            )}
-          </section>
-        ) : (
-          <section className="results-section" aria-label="Search results" aria-live="polite">
-            {loading ? (
-              <p className="empty-state">Searching…</p>
-            ) : error ? (
-              <p className="empty-state error-state">{error}</p>
-            ) : trimmedQuery.length < 2 ? (
-              <p className="empty-state">Type at least 2 characters to search.</p>
-            ) : resultsQuery === trimmedQuery && results.length > 0 ? (
-              <ul className="results-list">
-                {results.map((professor) => (
-                  <li key={professor.slug}>
-                    <button
-                      className="result-row"
-                      type="button"
-                      onClick={() => openProfessor(professor)}
-                    >
-                      <span className="avatar" aria-hidden="true" />
-                      <span className="result-copy">
-                        <span className="result-name">{professor.name}</span>
-                        <span className="result-dept">{displayDepartment(professor.dept)}</span>
+            {shownRecents.length > 0 ? (
+              <ul className="row-list">
+                {shownRecents.map((r) => (
+                  <li key={r.slug}>
+                    <button className="row" type="button" onClick={() => pick(r)}>
+                      <ClockIcon className="row-icon" />
+                      <span className="row-main">
+                        <span className="row-title">{r.name}</span>
+                        {r.dept && <span className="row-meta">{r.dept}</span>}
                       </span>
-                      <ChevronIcon />
+                      <ChevronIcon className="row-chev" />
                     </button>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="empty-state">No professors found for “{trimmedQuery}”.</p>
+              <p className="muted search-empty">Professors you open will show up here.</p>
             )}
           </section>
-        )}
-      </main>}
+        </>
+      ) : (
+        <section className="search-section" aria-label="Search results" aria-live="polite">
+          {q.length < 2 ? (
+            <p className="muted search-empty">Keep typing — at least 2 letters.</p>
+          ) : results.status === 'error' ? (
+            <p className="muted search-empty">{results.message}</p>
+          ) : results.status !== 'ready' || results.query !== q ? (
+            <p className="muted search-empty">Searching…</p>
+          ) : matches.length === 0 ? (
+            <p className="muted search-empty">No professors match “{q}”.</p>
+          ) : (
+            <ul className="row-list">
+              {matches.map((m) => (
+                <li key={m.slug}>
+                  <button
+                    className="row"
+                    type="button"
+                    onClick={() => pick({ name: m.name, dept: m.dept, slug: m.slug })}
+                  >
+                    <span className="row-main">
+                      <span className="row-title">{m.name}</span>
+                      {m.dept && <span className="row-meta">{m.dept}</span>}
+                    </span>
+                    {m.rating != null && (
+                      <span className="row-score">
+                        <span className="row-star" aria-hidden="true">
+                          ★
+                        </span>
+                        {score(m.rating)}
+                      </span>
+                    )}
+                    <ChevronIcon className="row-chev" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
     </div>
   );
 }

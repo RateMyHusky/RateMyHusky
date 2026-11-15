@@ -76,13 +76,28 @@ export default function Settings({
 
       <section>
         <h2 className="section-label">Banner integration</h2>
-        <label className="banner-toggle">
-          <span>Show RateMyHusky ratings on Banner</span>
-          <input type="checkbox" checked={bannerAccess} disabled={changing || typeof chrome === 'undefined'}
-            onChange={() => void toggleBanner()} />
+        {/* A real checkbox with role="switch": the browser supplies the
+            keyboard and the on/off announcement; the track is just drawing. */}
+        <label className="switch-row">
+          <span>Show ratings on Banner</span>
+          <input
+            type="checkbox"
+            role="switch"
+            checked={bannerAccess}
+            disabled={changing || typeof chrome === 'undefined'}
+            onChange={() => void toggleBanner()}
+          />
+          <span className="switch" aria-hidden="true" />
         </label>
-        <p className="muted seg-note">Optional. Reads classes already shown in Banner; never requests Banner data.</p>
-        {permissionError && <p role="alert" className="muted">{permissionError}</p>}
+        <p className="muted seg-note">
+          Adds each section’s rating to Banner’s class search. Chrome asks first, and it only reads
+          what Banner already shows you.
+        </p>
+        {permissionError && (
+          <p role="alert" className="muted seg-note">
+            {permissionError}
+          </p>
+        )}
       </section>
       <section>
         <h2 className="section-label">About</h2>

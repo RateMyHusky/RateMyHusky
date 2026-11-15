@@ -1,0 +1,127 @@
+.rev-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.rev-head .section-label {
+  margin: 0 0 6px;
+}
+
+/* Settings' segmented control, scaled down: same track, same raised pill. */
+.rev-sort {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  background: var(--bg-sunken);
+  border-radius: 10px;
+}
+
+.rev-sort-opt {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding: 5px 0;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.rev-sort-opt input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.rev-sort-opt:hover:not(.on) {
+  color: var(--fg);
+}
+
+.rev-sort-opt.on {
+  background: var(--card);
+  color: var(--brand);
+  box-shadow: var(--shadow);
+}
+
+.rev-sort-opt:has(input:focus-visible) {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.rev-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.rev {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.rev-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rev-course {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--brand);
+  font-variant-numeric: tabular-nums;
+}
+
+.rev-date {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.rev-text {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.rev-meta {
+  margin: 5px 0 0;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.rev-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+/* Overview's .chip, in the neutral sunken colour so a column of reviews
+   isn't a wall of red. */
+.rev-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  color: var(--muted);
+}
+
+.rev-more {
+  width: 100%;
+  margin-top: 12px;
+}

@@ -1,33 +1,32 @@
 import { useEffect, useState } from 'react';
 import Header from './components/Header';
+import Search from './screens/Search';
 import Overview from './screens/Overview';
+import Reviews from './screens/Reviews';
 import Compare from './screens/Compare';
 import Courses from './screens/Courses';
 import Settings from './screens/Settings';
-import Saved from './screens/Saved';
-import Search from './screens/Search';
 import { applyTheme, loadTheme, saveTheme, type Theme } from './utils/theme';
 
-// Search lands separately and will pick these; until then the popup opens on
-// a fixed professor and compares a fixed pair.
-const DEMO_SLUG = 'john-rachlin';
-const DEMO_COMPARE = ['john-rachlin', 'david-kaeli'];
-
-type View = 'search' | 'overview' | 'compare' | 'courses' | 'settings' | 'saved';
+/** `pick` is Search choosing a professor for Compare rather than opening one. */
+type View = 'search' | 'overview' | 'reviews' | 'courses' | 'compare' | 'pick' | 'settings';
 
 export default function App() {
   // A stack rather than one view. The gear is live on every screen, so a Back
   // hard-wired to Overview dropped anyone who opened Settings from Compare
-  // out of the comparison they were reading.
+  // out of the comparison they were reading. Every screen is reached one way
+  // and left by Back, so the stack only ever grows along the path taken.
   const [stack, setStack] = useState<View[]>(['search']);
   const [theme, setTheme] = useState<Theme>(loadTheme);
-  const [selectedSlug, setSelectedSlug] = useState(DEMO_SLUG);
+  const [slug, setSlug] = useState<string | null>(null);
+  const [comparing, setComparing] = useState<string[]>([]);
   // Compare's removed professors live up here because the screen unmounts on
   // every trip to Settings, and remounting brought them all back.
   const [dropped, setDropped] = useState<string[]>([]);
 
   const view = stack[stack.length - 1];
   const open = (next: View) => setStack((s) => [...s, next]);
+  const back = () => setStack((s) => s.slice(0, -1));
 
   // main.tsx applies the stored theme before the first paint; this is for the
   // changes the user makes afterwards.
@@ -36,43 +35,67 @@ export default function App() {
     saveTheme(theme);
   }, [theme]);
 
+  function openProfessor(next: string): void {
+    setSlug(next);
+    open('overview');
+  }
+
+  /** Overview's Compare starts a fresh comparison with that professor in it,
+   *  then goes straight to picking the second — one professor isn't a
+   *  comparison. */
+  function startCompare(): void {
+    if (!slug) return;
+    setComparing([slug]);
+    setDropped([]);
+    open('pick');
+  }
+
+  /** Whoever was removed stays removed; the pick joins the rest. The picker
+   *  then gives way to Compare: back onto it when it was already open,
+   *  replacing the picker when this is the comparison's first pick, so Back
+   *  from Compare returns to the Overview it started from. */
+  function addToCompare(next: string): void {
+    setComparing((c) => [...c.filter((s) => !dropped.includes(s) && s !== next), next]);
+    setDropped([]);
+    setStack((s) => {
+      const below = s.slice(0, -1);
+      return below[below.length - 1] === 'compare' ? below : [...below, 'compare'];
+    });
+  }
+
+  const live = comparing.filter((s) => !dropped.includes(s));
+
   return (
     <>
       <Header
-        onBack={stack.length > 1 ? () => setStack((s) => s.slice(0, -1)) : undefined}
+        onBack={stack.length > 1 ? back : undefined}
         // Undefined on the settings screen itself, which greys the gear out —
         // the one place the button has nowhere to go.
         onSettings={view === 'settings' ? undefined : () => open('settings')}
       />
-      <nav className="popup-nav" aria-label="RateMyHusky views">
-        <button type="button" onClick={() => setStack(['search'])} disabled={view === 'search'}>Search</button>
-        <button type="button" onClick={() => open('overview')} disabled={view === 'overview'}>Overview</button>
-        <button type="button" onClick={() => open('saved')} disabled={view === 'saved'}>Saved</button>
-      </nav>
       <main className="body">
-        {view === 'search' && <Search onOverview={(slug) => { setSelectedSlug(slug); open('overview'); }} />}
-        {view === 'overview' && (
+        {view === 'search' && <Search onPick={openProfessor} showSaved />}
+        {view === 'pick' && (
+          <Search onPick={addToCompare} heading="Add to comparison" exclude={live} />
+        )}
+        {view === 'overview' && slug && (
           <Overview
-            slug={selectedSlug}
-            onCompare={selectedSlug === DEMO_SLUG ? () => {
-              // A new comparison starts with nobody removed. Back from
-              // Settings pops the stack instead of coming through here, so a
-              // round trip there keeps the drops.
-              setDropped([]);
-              open('compare');
-            } : undefined}
+            slug={slug}
+            onCompare={startCompare}
+            onReviews={() => open('reviews')}
             onCourses={() => open('courses')}
           />
         )}
+        {view === 'reviews' && slug && <Reviews slug={slug} />}
+        {view === 'courses' && slug && <Courses slug={slug} />}
         {view === 'compare' && (
           <Compare
-            slugs={DEMO_COMPARE}
+            slugs={comparing}
             dropped={dropped}
-            onDrop={(slug) => setDropped((d) => [...d, slug])}
+            onDrop={(s) => setDropped((d) => [...d, s])}
+            onAdd={() => open('pick')}
           />
         )}
-        {view === 'courses' && <Courses slug={selectedSlug} />}
-        {view === 'saved' && <Saved onOpen={(slug) => { setSelectedSlug(slug); open('overview'); }} />}
         {view === 'settings' && <Settings theme={theme} onTheme={setTheme} />}
       </main>
     </>

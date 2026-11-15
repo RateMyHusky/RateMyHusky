@@ -24,14 +24,20 @@ async function loadComparison(slugs: string[]): Promise<Comparison> {
   return { profs, failed };
 }
 
+/** The popup is 380px. Past three columns the names and numbers wrap into
+ *  each other. */
+export const MAX_COMPARE = 3;
+
 export default function Compare({
   slugs,
   dropped,
   onDrop,
+  onAdd,
 }: {
   slugs: string[];
   dropped: string[];
   onDrop: (slug: string) => void;
+  onAdd: () => void;
 }) {
   const state = useAsync(() => loadComparison(slugs), slugs.join(','));
 
@@ -40,7 +46,16 @@ export default function Compare({
 
   const profs = state.data.profs.filter((p) => !dropped.includes(p.identity.slug));
   const failed = state.data.failed.filter((f) => !dropped.includes(f.slug));
-  if (profs.length === 0) return <p className="muted">No professors to compare.</p>;
+  if (profs.length === 0) {
+    return (
+      <div className="compare">
+        <p className="muted">No professors to compare.</p>
+        <button className="cmp-add" type="button" onClick={onAdd}>
+          + Add a Professor
+        </button>
+      </div>
+    );
+  }
 
   const { rows, low } = buildRows(profs);
   const grid = { gridTemplateColumns: `76px repeat(${profs.length}, minmax(0, 1fr))` };
@@ -131,10 +146,19 @@ export default function Compare({
       {/* The reason sits on screen rather than in a title: Chrome doesn't
           reliably fire tooltips on a disabled button, so a title here would
           leave the control looking broken for no stated reason. */}
-      <button className="cmp-add" type="button" disabled>
+      <button
+        className="cmp-add"
+        type="button"
+        onClick={onAdd}
+        disabled={profs.length + failed.length >= MAX_COMPARE}
+      >
         + Add Another Professor
       </button>
-      <p className="muted cmp-add-note">Adding a professor needs the search screen.</p>
+      {profs.length + failed.length >= MAX_COMPARE && (
+        <p className="muted cmp-add-note">
+          {MAX_COMPARE} is as many as fit side by side. Remove one to add another.
+        </p>
+      )}
     </div>
   );
 }

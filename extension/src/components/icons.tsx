@@ -61,3 +61,37 @@ export function BackIcon(props: Props) {
     </Svg>
   );
 }
+
+export function ChevronIcon(props: Props) {
+  return (
+    <Svg {...props}>
+      <path d="M9 18l6-6-6-6" />
+    </Svg>
+  );
+}
+
+export function SearchIcon(props: Props) {
+  return (
+    <Svg {...props}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M21 21l-4.3-4.3" />
+    </Svg>
+  );
+}
+
+export function ClockIcon(props: Props) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </Svg>
+  );
+}
+
+export function CloseIcon(props: Props) {
+  return (
+    <Svg {...props}>
+      <path d="M18 6L6 18M6 6l12 12" />
+    </Svg>
+  );
+}
