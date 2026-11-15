@@ -293,6 +293,12 @@ def test_offering_marks_what_is_on_the_current_schedule():
     assert build_course_offerings(history())[0]["offered_now"] == "Fall 2026"
 
 
+def test_offering_lists_every_term_it_ran_newest_first():
+    # TBA sections have no instructor row, so only the offering keeps their terms.
+    got = build_course_offerings([sec("202630", "1"), sec("202710", "2"), sec("202610", "3")])[0]
+    assert got["term_labels"] == "Fall 2026,Spring 2026,Fall 2025"
+
+
 def test_offering_credit_hours_formats_fixed_and_variable():
     assert build_course_offerings([sec("202610", "1", credits=4.0)])[0]["credit_hours"] == "4"
     variable = sec("202610", "1", credits=1.0)

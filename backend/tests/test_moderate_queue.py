@@ -57,13 +57,13 @@ def test_backoff_doubles_from_ten_minutes_up_to_six_hours():
     assert mq.backoff(30) == timedelta(hours=6)
 
 
-def test_a_run_checks_up_to_fifteen_30_seconds_apart(fake_groq):
-    conn, sleeps = FakeConn(due(15)), []
+def test_a_run_checks_up_to_ten_45_seconds_apart(fake_groq):
+    conn, sleeps = FakeConn(due(10)), []
     summary = mq.run(conn, fake_groq("ALLOW"), now=NOW, sleep=sleeps.append)
-    assert sleeps == [30] * 14
-    assert summary == "15 due: 15 clean, 0 flagged, 0 blocked, 0 failed"
+    assert sleeps == [45] * 9  # ~1,070 tokens a minute, so an 800-token submit still fits in Groq's 2,000
+    assert summary == "10 due: 10 clean, 0 flagged, 0 blocked, 0 failed"
     select = conn.executed[0]
-    assert select[1] == (NOW, 15) and "comment_status = 'pending'" in select[0]
+    assert select[1] == (NOW, 10) and "comment_status = 'pending'" in select[0]
     assert "ORDER BY COALESCE(comment_check_reason = 'over_budget', false), new_device, updated_at" in select[0]
 
 
@@ -86,6 +86,32 @@ def test_a_block_holds_the_rating_and_bumps_the_data_version(fake_groq):
     assert "comment_check = 'review', comment_check_reason = 'blocked'" in sql
     assert "status = 'held'" in sql and "moderation_block" in sql
     assert any(s == mq.DATA_VERSION_SQL for s, p in conn.executed)
+
+
+def test_an_allow_publishes_the_comment_and_bumps_the_data_version(fake_groq):
+    conn = FakeConn(due(1))
+    mq.run(conn, fake_groq("ALLOW"), now=NOW, sleep=lambda s: None)
+    ((sql, params),) = conn.updates()
+    assert mq._PUBLISH in sql  # only a never-edited rating's text, and none a reviewer rejected
+    assert "AND comment = %s AND comment_check = 'unchecked' AND comment_status = 'pending'" in sql
+    assert any(s == mq.DATA_VERSION_SQL for s, p in conn.executed)
+
+
+def test_with_auto_publish_off_an_allow_only_records_the_check(fake_groq, monkeypatch):
+    monkeypatch.setenv("COMMENT_AUTO_PUBLISH", "off")
+    conn = FakeConn(due(1))
+    mq.run(conn, fake_groq("ALLOW"), now=NOW, sleep=lambda s: None)
+    ((sql, params),) = conn.updates()
+    assert params[:2] == ("allow", None) and "comment_status" not in sql.split("WHERE")[0]
+    assert not any(s == mq.DATA_VERSION_SQL for s, p in conn.executed)
+
+
+def test_a_review_leaves_the_comment_waiting(fake_groq):
+    conn = FakeConn(due(1))
+    mq.run(conn, fake_groq("REVIEW"), now=NOW, sleep=lambda s: None)
+    ((sql, params),) = conn.updates()
+    assert "comment_status" not in sql.split("WHERE")[0]
+    assert not any(s == mq.DATA_VERSION_SQL for s, p in conn.executed)
 
 
 def test_a_failure_backs_off_and_the_run_goes_on(fake_groq):
@@ -116,4 +142,4 @@ def test_the_daily_cap_counts_every_call(fake_groq):
 def test_main_does_nothing_without_the_key(monkeypatch, capsys):
     monkeypatch.setattr(mq, "connect", lambda: (_ for _ in ()).throw(AssertionError("no DB")))
     assert mq.main() == 0
-    assert "GROQ_MODERATION_KEY is not set" in capsys.readouterr().out
+    assert "groq1 is not set" in capsys.readouterr().out

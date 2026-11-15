@@ -152,7 +152,7 @@ ALTER TABLE public.survey_pending_courses ADD CONSTRAINT check_survey_pending_co
 
 -- rating_flags
 ALTER TABLE public.rating_flags ADD CONSTRAINT check_rating_flag_kind
-    CHECK (kind IN ('device', 'ip'));
+    CHECK (kind IN ('device', 'ip', 'comment'));
 
 -- professor_aliases
 ALTER TABLE public.professor_aliases ADD CONSTRAINT professor_aliases_key_slug

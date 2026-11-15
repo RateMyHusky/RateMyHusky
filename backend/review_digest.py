@@ -1,9 +1,9 @@
-"""Daily email to ratings@ with the review queue, the day's rating counts and the Resend and Groq usage.
+"""Daily email to ratings@ with the review queue, the day's ratings, failed submits, comment checks and Resend and Groq usage.
 
     python review_digest.py            # send
     python review_digest.py --dry-run  # print the text, write the HTML to the temp dir, send nothing
 
-Runs from .github/workflows/review-digest.yml. HTML plus a text part, always sent, one a day:
+Runs from .github/workflows/review-digest.yml. HTML plus a text part, always sent, twice a day:
 that fits Resend's free 100/day next to the feedback caps and usage alerts (see
 FEEDBACK_DAILY_LIMIT in server.py). Counts, names, course codes, hold reasons and rating ids
 only: no comments, agent reasons, hashes or network data. Reads ORACLE_DATABASE_URL and
@@ -31,6 +31,13 @@ _REASONS = {
     "datacenter": "sent from a data center", "skew_week": "unusual week for this professor",
     "duplicate_comment": "copied comment", "near_duplicate": "copied comment",
     "moderation_block": "comment blocked by the checker", "silent_hold": "device held after an abuse reject",
+}
+_FAILURES = {
+    "invalid": "form didn't validate", "captcha_missing": "no CAPTCHA token", "captcha_failed": "CAPTCHA failed",
+    "captcha_down": "CAPTCHA unavailable", "unknown_professor": "unknown professor",
+    "unknown_course": "unknown course, no name given", "rule_block": "comment caught by the rules",
+    "captcha_unconfigured": "CAPTCHA not set up (TURNSTILE_SECRET_KEY)",
+    "rate_limited": "rate limited", "error": "server error", "error_after_save": "server error after saving",
 }
 _RATE_NOTE = ("Groq bars cover the last 24 hours, and each shows whichever of requests or tokens is "
               "closer to its limit. Bars turn amber at 50% and red at 80%.")
@@ -122,9 +129,10 @@ def _count_label(n, word):
 
 def build_digest(held, approved, pending_professors, pending_courses, now, course_merges=(), professor_merges=(),
                  aliases=(), pending_comments=0,
-                 names=None, ratings=None, meters=None):
+                 names=None, ratings=None, meters=None, failures=(), checker=None):
     """(subject, text, html). Pure."""
     ratings = ratings or {"new": 0, "live": 0, "held": 0, "rejected": 0, "live_all": 0, "comments_all": 0,
+                          "devices": 0, "new_devices": 0, "top_professors": [], "top_courses": [],
                           "days": [(0, 0)] * 14}
     meters = [m for m in (meters or []) if m.get("limit")]
     waiting = len(held) + pending_comments + pending_professors + pending_courses + len(aliases)
@@ -156,8 +164,17 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
     nums = [("New ratings", ratings["new"], "new", "#222"), ("Live ratings", ratings["live"], "live", dh.GREEN),
             ("Held ratings", ratings["held"], "held", dh.AMBER_TEXT),
             ("Blocked at submit", ratings["rejected"], "blocked", "#999")]
-    totals = [("Live ratings, all time", f"{ratings['live_all']:,}"),
+    totals = [("Devices that rated", f"{ratings['devices']:,}"), ("New devices", f"{ratings['new_devices']:,}"),
+              ("Live ratings, all time", f"{ratings['live_all']:,}"),
               ("Comments showing, all time", f"{ratings['comments_all']:,}")]
+    failure_items = [(_FAILURES.get(k, k), str(n)) for k, n in failures]
+    failure_title = f"Failed submissions: {sum(n for _, n in failures)}"
+    top = [("Most rated professors", [(_name(slug, names), str(n)) for slug, n in ratings["top_professors"]]),
+           ("Most rated courses", [(course_label(code), str(n)) for code, n in ratings["top_courses"]])]
+    checker_items = [] if checker is None else [
+        ("Passed", str(checker["allow"])), ("Flagged for a reviewer", str(checker["review"])),
+        ("Blocked", str(checker["block"])), ("Check failed", str(checker["unavailable"])),
+        ("Not checked yet", str(checker["waiting"])), ("Failed 3+ checks", str(checker["stuck"]))]
 
     needs = dh.tiles(tile_items) + dh.rows(reason_items, "Why they're waiting")
     if attacks:
@@ -170,12 +187,15 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
         f'<table {dh._TABLE}><tr valign="bottom"><td class="col" width="52%">'
         f'{dh.numbers([(n, short_label, c) for _, n, short_label, c in nums])}</td>'
         f'<td class="col col-chart" width="48%" style="padding-left:16px;">{dh.day_bars(ratings["days"])}</td>'
-        f"</tr></table>" + dh.rows(totals))
+        f"</tr></table>" + dh.rows(failure_items, failure_title) + dh.rows(totals)
+        + "".join(dh.rows(items, title) for title, items in top))
     agent_html = (f'<div style="font-size:12px;color:#444;margin-bottom:8px;">{escape(agent_line)}</div>'
                   + dh.stacked_bar([(n, bar) for n, _, bar, _ in agent_parts])
                   + dh.legend([(n, label, legend) for n, label, _, legend in agent_parts]))
     sections = (dh.section("Needs you", needs, first=True) + dh.section("Ratings", ratings_html)
                 + dh.section("Review agent", agent_html))
+    if checker_items:
+        sections += dh.section("Comment checker", dh.rows(checker_items))
     if meters:
         meter_rows = "".join(dh.meter(m["label"], m["used"], m["limit"], _meter_shown(m)) for m in meters)
         sections += dh.section(
@@ -195,8 +215,16 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
         text += [""] + [f"{label}: {value}" for label, value in short]
     if aliases:
         text += ["", "python review_ratings.py approve-alias ID"]
-    text += ["", "Ratings"] + [f"{label}: {n}" for label, n, _, _ in nums] + [f"{k}: {v}" for k, v in totals]
+    text += ["", "Ratings"] + [f"{label}: {n}" for label, n, _, _ in nums]
+    if failure_items:
+        text += ["", failure_title] + [f"{k}: {v}" for k, v in failure_items]
+    text += [""] + [f"{k}: {v}" for k, v in totals]
+    for title, items in top:
+        if items:
+            text += ["", title] + [f"{k}: {v}" for k, v in items]
     text += ["", "Review agent", agent_line] + [f"{label}: {n}" for n, label, _, _ in agent_parts]
+    if checker_items:
+        text += ["", "Comment checker"] + [f"{k}: {v}" for k, v in checker_items]
     if meters:
         text += ["", "Usage limits"] + [f"{m['label']}: {_meter_shown(m)}" for m in meters]
     text += ["", "Full queue: python review_ratings.py list", "No comment text, hashes or network data in this email."]
@@ -205,10 +233,9 @@ def build_digest(held, approved, pending_professors, pending_courses, now, cours
 RESEND_LIMITS = (100, 3000)  # free plan: emails per UTC day, per month
 CHECKER_LIMITS = (1000, 200_000)
 AGENT_LIMITS_PER_KEY = (1000, 200_000)
+# The last 24 hours. For the agent that is the run before this digest and the one 12 hours earlier, plus
+# the one before that when cron fired later yesterday: those tokens were spent in the window too.
 _DAY = "now() - interval '1 day'"
-# The agent runs once a day, so a rolling day could hold yesterday's run too, depending on when cron fires.
-# Today's run plus a rolling day of chat is the last 24 hours, the same window as the checker.
-_UTC_DAY = "date_trunc('day', now(), 'UTC')"
 
 
 def rating_stats(conn, now):
@@ -219,6 +246,8 @@ def rating_stats(conn, now):
                count(*) FILTER (WHERE created_at >= {_DAY} AND status = 'held') AS held,
                (SELECT count(*) FROM moderation_calls
                 WHERE called_at >= {_DAY} AND source = 'submit' AND outcome = 'block') AS rejected,
+               count(DISTINCT device_hash) FILTER (WHERE created_at >= {_DAY}) AS devices,
+               count(DISTINCT device_hash) FILTER (WHERE created_at >= {_DAY} AND new_device) AS new_devices,
                count(*) FILTER (WHERE status = 'accepted') AS live_all,
                count(*) FILTER (WHERE status = 'accepted' AND comment_status = 'approved') AS comments_all
         FROM survey_ratings""")
@@ -229,8 +258,39 @@ def rating_stats(conn, now):
                count(*) FILTER (WHERE status = 'accepted') AS live, count(*) FILTER (WHERE status = 'held') AS held
         FROM survey_ratings WHERE created_at >= %s GROUP BY 1""",
         (datetime.combine(first, datetime.min.time(), timezone.utc),))}
+    # Pending professors share a NULL slug, so they'd read as one professor: left out. Live ratings only,
+    # so a held burst on one professor doesn't top the list.
+    top = {col: [(r["key"], int(r["n"])) for r in fetch_all(
+        conn, f"SELECT {col} AS key, count(*) AS n FROM survey_ratings WHERE created_at >= {_DAY} "
+              f"AND status = 'accepted' AND {col} IS NOT NULL GROUP BY 1 ORDER BY n DESC, 1 LIMIT 3")]
+           for col in ("professor_slug", "course_code")}
     return {**{k: int(v) for k, v in row.items()},
+            "top_professors": top["professor_slug"], "top_courses": top["course_code"],
             "days": [by_day.get(first + timedelta(days=i), (0, 0)) for i in range(14)]}
+
+
+def failure_counts(conn):
+    """The `failures` list of build_digest: (reason, n), most first. Only whole hours, the 24 before
+    this one, so a run that fires late still covers a full day."""
+    return [(r["reason"], int(r["n"])) for r in fetch_all(conn, """
+        SELECT reason, sum(n) AS n FROM rating_failures
+        WHERE hour >= date_trunc('hour', now()) - interval '1 day' AND hour < date_trunc('hour', now())
+        GROUP BY reason ORDER BY n DESC, reason""")]
+
+
+def checker_stats(conn):
+    """The `checker` dict of build_digest: the last day's check outcomes, submit and queue alike,
+    and the comments moderate_queue.py will still check. Duplicates and bursts are never queued
+    (rating_checks.comment_check_fields), so they wait for a reviewer, not here."""
+    (calls,) = fetch_all(conn, f"""
+        SELECT count(*) FILTER (WHERE outcome = 'allow') AS allow, count(*) FILTER (WHERE outcome = 'review') AS review,
+               count(*) FILTER (WHERE outcome = 'block') AS block,
+               count(*) FILTER (WHERE outcome = 'unavailable') AS unavailable
+        FROM moderation_calls WHERE called_at >= {_DAY}""")
+    (queue,) = fetch_all(conn, """
+        SELECT count(*) AS waiting, count(*) FILTER (WHERE comment_check_attempts >= 3) AS stuck FROM survey_ratings
+        WHERE comment_status = 'pending' AND comment_check = 'unchecked' AND comment_next_check_at IS NOT NULL""")
+    return {k: int(v) for k, v in {**calls, **queue}.items()}
 
 
 def usage_meters(conn):
@@ -240,9 +300,9 @@ def usage_meters(conn):
     meters = [{"label": "Resend today", "used": int(sends["day"]), "limit": RESEND_LIMITS[0], "unit": ""},
               {"label": "Resend month", "used": int(sends["month"]), "limit": RESEND_LIMITS[1], "unit": ""}]
     (agent,) = fetch_all(conn, f"""
-        SELECT (SELECT COALESCE(sum(requests), 0) FROM review_agent_runs WHERE ran_at >= {_UTC_DAY})
+        SELECT (SELECT COALESCE(sum(requests), 0) FROM review_agent_runs WHERE ran_at >= {_DAY})
                  + (SELECT count(*) FROM ask_log WHERE created_at >= {_DAY} AND tokens_used > 0) AS requests,
-               (SELECT COALESCE(sum(tokens), 0) FROM review_agent_runs WHERE ran_at >= {_UTC_DAY})
+               (SELECT COALESCE(sum(tokens), 0) FROM review_agent_runs WHERE ran_at >= {_DAY})
                  + (SELECT COALESCE(sum(tokens_used), 0) FROM ask_log WHERE created_at >= {_DAY}) AS tokens,
                (SELECT keys FROM review_agent_runs WHERE keys > 0 ORDER BY ran_at DESC LIMIT 1) AS keys""")
     # The agent step records its keys just before the digest, so 1 only before any run has had a key.
@@ -284,17 +344,19 @@ def main(argv=None, now=None):
                                       "AND agent_reviewed_at >= now() - interval '1 day' ORDER BY agent_reviewed_at")
         aliases = fetch_all(conn, "SELECT id, alias_key, slug, source FROM professor_aliases "
                                   "WHERE status = 'pending' ORDER BY id")
+        now = now or datetime.now(timezone.utc)
+        ratings = rating_stats(conn, now)
         slugs = sorted({r["professor_slug"] for r in (*held, *approved) if r["professor_slug"]}
+                       | {slug for slug, _ in ratings["top_professors"]}
                        | {m["resolved_slug"] for m in prof_merges if m["resolved_slug"]}
                        | {a["slug"] for a in aliases if a["slug"]})
         names = {r["slug"]: r["name"] for r in fetch_all(
             conn, "SELECT slug, name FROM professors WHERE slug = ANY(%s)", (slugs,))}
-        now = now or datetime.now(timezone.utc)
-        ratings = rating_stats(conn, now)
         meters = usage_meters(conn)
         subject, text, html = build_digest(held, approved, professors[0]["n"], courses[0]["n"], now, merges,
                                            prof_merges, aliases, pending_comments=comments[0]["n"],
-                                           names=names, ratings=ratings, meters=meters)
+                                           names=names, ratings=ratings, meters=meters,
+                                           failures=failure_counts(conn), checker=checker_stats(conn))
         if args.dry_run:
             path = os.path.join(tempfile.gettempdir(), "review-digest.html")
             with open(path, "w", encoding="utf-8") as f:

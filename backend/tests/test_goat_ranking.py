@@ -151,6 +151,25 @@ def test_prior_falls_back_when_nothing_is_well_evidenced():
         pytest.approx(server.FALLBACK_PRIOR)
 
 
+def test_cached_prior_is_measured_once_per_data_version(monkeypatch):
+    # The board and both rating sorts share one measurement; a catalog reload
+    # bumps data_version and the next request measures again.
+    version = {"v": 1}
+    calls = []
+    monkeypatch.setattr(server, "data_version", lambda: version["v"])
+    monkeypatch.setattr(server, "query_one", lambda sql, params: calls.append(1) or {"prior": 4.2})
+    server._cache.clear()
+    try:
+        assert server.cached_ranking_prior() == pytest.approx(4.2)
+        assert server.cached_ranking_prior() == pytest.approx(4.2)
+        assert len(calls) == 1
+        version["v"] = 2
+        server.cached_ranking_prior()
+        assert len(calls) == 2
+    finally:
+        server._cache.clear()
+
+
 def test_prior_is_not_college_specific():
     # A per-college prior ranks professors against their own college, which is
     # department-relative ranking under another name — considered and rejected;
@@ -178,9 +197,10 @@ def test_cache_key_was_versioned():
     # A stale entry would serve the previous ordering after deploy — bumped for
     # the shrunk score, again when the prior changed, again for the single review
     # floor plus the name tiebreak, again for the Law/Professional Studies floor,
-    # again when rows gained a slug (a cached v6 row has none, so its link breaks).
+    # again when rows gained a slug (a cached v6 row has none, so its link breaks),
+    # again when rows gained rmhRating.
     import inspect
-    assert 'goat:v7:' in inspect.getsource(server.goat_professors)
+    assert 'goat:v8:' in inspect.getsource(server.goat_professors)
 
 
 # ── the review floor ────────────────────────────────────────────────────────
@@ -314,7 +334,7 @@ def test_board_reads_the_stored_comment_count(monkeypatch):
 
 def test_board_row_has_exactly_these_keys(monkeypatch):
     out, _ = _run_leaderboard(monkeypatch, [ROW])
-    assert set(out["Olin Guha"]) == {"slug", "name", "dept", "rmpRating", "avgRating",
+    assert set(out["Olin Guha"]) == {"slug", "name", "dept", "rmpRating", "rmhRating", "avgRating",
                                      "totalReviews", "totalComments"}
 
 
@@ -358,5 +378,16 @@ def test_the_limit_is_clamped_and_the_floor_is_not_a_parameter(monkeypatch, args
     monkeypatch.setattr(server, "cache_set", lambda key, val: None)
     with server.app.test_request_context(f"/api/goat-professors?college=Khoury&{args}&min_reviews=1"):
         server.goat_professors()
-    assert seen == [f"goat:v7:Khoury:{limit}",
+    assert seen == [f"goat:v8:Khoury:{limit}", "ranking_prior",
                     ("Khoury", server.BOARD_FILL_MIN_REVIEWS, C, server.BOARD_MIN_REVIEWS, C, limit)]
+
+
+def test_board_row_carries_the_rmh_rating_its_average_blends(monkeypatch):
+    out, seen = _run_leaderboard(monkeypatch, [{**ROW, "rmh_rating": 4.333}])
+    assert out["Olin Guha"]["rmhRating"] == 4.33
+    assert "source = 'survey'" in seen[0]
+
+
+def test_board_row_without_rmh_ratings_has_none(monkeypatch):
+    out, _ = _run_leaderboard(monkeypatch, [ROW])
+    assert out["Olin Guha"]["rmhRating"] is None

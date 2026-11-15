@@ -130,7 +130,10 @@ CREATE TABLE IF NOT EXISTS public.professor_tags (
 );
 CREATE INDEX IF NOT EXISTS professor_tags_tag ON public.professor_tags (tag ASC, review_count DESC);
 ALTER TABLE public.professors ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'rmp';
+ALTER TABLE public.banner_course_offerings ADD COLUMN IF NOT EXISTS term_labels TEXT;
 ```
+
+`banner_course_offerings.term_labels` lists every term a course ran, so the course page's Last Taught can skip a term that hasn't started without losing one that ran with only TBA sections. Run the ALTER before deploying: without the column the course-history query fails and the history build's schema check refuses to run. It stays NULL until the next history build fills it, and the page uses its instructors' terms until then.
 
 Banner-only professors record which source first created each professor in `professors.origin` (`'rmp'`, `'banner'`, or `'survey'`, created by `review_ratings.py approve-professor`). It is never updated, so a Banner-created professor that later gains an RMP link keeps `'banner'`. Run the ALTER before deploying: without the column the new `pipeline.run` fails at the Banner insert, after `apply_roster` has already committed.
 
@@ -278,6 +281,21 @@ To undo a wrong flag, run `DELETE FROM rating_flags WHERE kind = 'device' AND va
 IP), which `reject-rating --abuse` deletes with the row, so a reviewer should note it
 from the held row before rejecting.
 
+Auto-published comments added a third kind, `'comment'`: `reject-rating` stores the
+rejected rating's `comment_hash`, so the same text sent again waits for review
+instead of publishing on a Groq ALLOW. Run this before deploying the backend that
+writes it, or `reject-rating` fails on a rating with a comment. It is rerunnable:
+
+```sql
+ALTER TABLE public.rating_flags DROP CONSTRAINT IF EXISTS check_rating_flag_kind;
+ALTER TABLE public.rating_flags ADD CONSTRAINT check_rating_flag_kind
+    CHECK (kind IN ('device', 'ip', 'comment'));
+```
+
+`COMMENT_AUTO_PUBLISH=off`, in the backend's environment and as a repository
+variable for the moderate-queue workflow, stops Groq ALLOWs from publishing
+without turning off `groq1`, which chat and the review agent also use.
+
 The daily review agent added three nullable columns to each of `survey_ratings`,
 `survey_pending_professors` and `survey_pending_courses`. The rate form keeps
 working without them, but `review_agent.py`, `review_ratings.py list` and the
@@ -366,8 +384,10 @@ UPDATE public.survey_ratings SET comment_status = 'pending'
 ```
 
 Comments are then checked by a model (Groq's gpt-oss-safeguard when
-`GROQ_MODERATION_KEY` is set, else OpenAI) as a first pass for the reviewer:
-`backend/moderate_queue.py` retries the ones the submit couldn't check. That
+the `groq1` key is set, else OpenAI). A Groq ALLOW publishes the comment;
+anything else, including an OpenAI allow, waits for `review_ratings.py
+approve-comment`. `backend/moderate_queue.py` retries the ones the submit
+couldn't check. That
 added five nullable columns, all NULL when the rating has no comment, and the
 `moderation_calls` table the per-sender budgets count. Run this after the block
 above and before deploying the backend that writes them, or every rating fails
@@ -467,6 +487,20 @@ CREATE TABLE IF NOT EXISTS public.email_sends (
     CONSTRAINT email_sends_pkey PRIMARY KEY (id)
 );
 CREATE INDEX IF NOT EXISTS email_sends_sent_at ON public.email_sends (sent_at);
+```
+
+The digest counts rate-form submits that failed, by reason and hour, in
+`rating_failures` (no device, IP or form data). Run this before the change reaches
+`main`: the backend's write is best-effort and only drops counts, but the digest
+reads the table and fails without it, so no email goes out. Rerunnable:
+
+```sql
+CREATE TABLE IF NOT EXISTS public.rating_failures (
+    hour TIMESTAMPTZ NOT NULL,
+    reason TEXT NOT NULL,
+    n BIGINT NOT NULL,
+    CONSTRAINT rating_failures_pkey PRIMARY KEY (hour, reason)
+);
 ```
 
 ### Optional cleanup (destructive; take a backup first)

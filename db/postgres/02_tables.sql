@@ -298,6 +298,7 @@ CREATE TABLE public.banner_course_offerings (
     summer2_years BIGINT NOT NULL DEFAULT 0,
     first_term_label TEXT NULL,
     offering_years TEXT NULL,
+    term_labels TEXT NULL,
     CONSTRAINT banner_course_offerings_pkey PRIMARY KEY (subject_course)
 );
 
@@ -485,6 +486,13 @@ CREATE TABLE public.email_sends (
     id UUID NOT NULL DEFAULT gen_random_uuid(),
     sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT email_sends_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE public.rating_failures (
+    hour TIMESTAMPTZ NOT NULL,
+    reason TEXT NOT NULL,
+    n BIGINT NOT NULL,
+    CONSTRAINT rating_failures_pkey PRIMARY KEY (hour, reason)
 );
 
 CREATE TABLE public.survey_pending_professors (

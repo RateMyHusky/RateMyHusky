@@ -1,6 +1,5 @@
-import { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { Analytics } from '@vercel/analytics/react';
+import { useEffect, useRef } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigationType } from 'react-router-dom';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 import { AuthProvider } from './context/AuthContext';
 import { BookmarksProvider } from './context/BookmarksContext';
@@ -27,9 +26,16 @@ import './App.css';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
+  const navType = useNavigationType();
+  const lastPath = useRef<string | null>(null);
   useEffect(() => {
+    if (lastPath.current === pathname) return;
+    lastPath.current = pathname;
+    const path = pathname.replace(/\/$/, '');
+    // Back onto a catalog: useCatalogScroll restores the saved position instead
+    if (navType === 'POP' && (path === '/professors' || path === '/courses')) return;
     window.scrollTo(0, 0);
-  }, [pathname]);
+  }, [pathname, navType]);
   return null;
 }
 
@@ -42,6 +48,7 @@ function App() {
           <ScrollToTop />
           <Navbar />
           <ErrorBoundary>
+            {/* Adding a route? Add it to SPA_ROUTES in frontend/spaRoutes.ts too, or crawlers get a 404 for it (npm run test:routes catches a miss). */}
             <Routes>
               <Route path="/" element={<Homepage />} />
               <Route path="/professors" element={<ProfessorCatalog />} />
@@ -64,8 +71,9 @@ function App() {
           <FeedbackTab />
           <ThemeToggle />
         </Router>
-        <Analytics />
-        <SpeedInsights />
+        {/* Pageviews are counted by GA; Speed Insights reports from a quarter of page
+            loads, since every report is a request against Vercel's monthly CDN limit. */}
+        <SpeedInsights sampleRate={0.25} />
       </BookmarksProvider>
     </AuthProvider>
   );

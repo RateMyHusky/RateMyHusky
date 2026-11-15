@@ -27,6 +27,9 @@
   color: #d6394c;
   text-decoration: none;
   transition: color 0.15s;
+  display: inline-block;
+  padding-block: 4px;
+  margin-block: -4px;
 }
 
 .breadcrumbs-link:hover {

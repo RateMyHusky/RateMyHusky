@@ -79,7 +79,8 @@ def test_search_keeps_a_zero_review_professor_whose_name_starts_with_the_query(m
         *like, starts, word_starts = params
         rows = [r for r in pool if all(p.strip("%") in r["name_key"] for p in like)]
         # Honor the cut the way Postgres would: the ORDER BY decides who survives.
-        assert "ORDER BY (name_key LIKE %s OR name_key LIKE %s) DESC, total_reviews DESC" in sql
+        fold = server.PROFESSOR_KEY_FOLD_SQL
+        assert f"ORDER BY ({fold} LIKE %s OR {fold} LIKE %s) DESC, total_reviews DESC" in sql
         rows.sort(key=lambda r: (
             not (r["name_key"].startswith(starts[:-1]) or (" " + starts[:-1]) in " " + r["name_key"]),
             -r["total_reviews"]))

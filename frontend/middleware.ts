@@ -20,16 +20,20 @@
 //   PROXY_SECRET      — shared secret the backend checks; also set on Railway
 
 import maintenance from './maintenance.config.json';
+import { DETAIL_RE, isUnknownRoute, notFoundPage } from './spaRoutes';
 
 // Share of CSP violation reports forwarded to the backend's /api/csp-report.
 const CSP_REPORT_SAMPLE = 0.1;
 
 // Skip the maintenance page itself, the assets it needs, crawler/AdSense
 // files, Vercel internals (analytics beacons, etc.), and professor photo
-// thumbnails (a catalog page loads dozens; each would be a middleware call).
+// thumbnails (a catalog page loads dozens; each would be a middleware call),
+// and Vite's hashed /assets/ bundles and images (several per page load).
+// File names are anchored with $: unanchored, /favicon.pngx would skip the gate
+// and still be rewritten to the app shell.
 export const config = {
   matcher:
-    '/((?!maintenance\\.html|logo\\.jpg|neu-husky-icon\\.png|robots\\.txt|ads\\.txt|sitemap\\.xml|llms\\.txt|2c426a030622417e4b03f2011ae5959e\\.txt|_vercel|photos/).*)',
+    '/((?!(?:maintenance\\.html|logo\\.jpg|favicon\\.png|neu-husky-icon\\.png|robots\\.txt|ads\\.txt|sitemap\\.xml|llms\\.txt|2c426a030622417e4b03f2011ae5959e\\.txt)$|_vercel/|photos/|assets/).*)',
 };
 
 // Preview hosts /bypass-handoff will redirect to. Not the security boundary
@@ -169,9 +173,6 @@ function isCrawler(ua: string): boolean {
   const lc = ua.toLowerCase();
   return CRAWLER_UAS.some((bot) => lc.includes(bot));
 }
-
-// Matches /professors/<slug>, /courses/<code>, and /departments/<slug> (single trailing segment).
-const DETAIL_RE = /^\/(professors|courses|departments)\/([^/]+)\/?$/;
 
 // Exact non-detail paths that get a server-rendered snapshot for crawlers.
 const STATIC_RENDER: Record<string, string> = {
@@ -324,22 +325,25 @@ export default async function middleware(request: Request): Promise<Response | u
 
   if (
     process.env.PRERENDER_ENABLED === 'true' &&
-    isCrawler(request.headers.get('user-agent') || '') &&
-    (DETAIL_RE.test(url.pathname) || url.pathname in STATIC_RENDER)
+    isCrawler(request.headers.get('user-agent') || '')
   ) {
-    const snapshot = await fetchSnapshot(url.pathname, request.headers.get('x-real-ip'));
-    if (snapshot) {
-      return new Response(snapshot.body, {
-        status: snapshot.status,
-        headers: {
-          'content-type': 'text/html; charset=utf-8',
-          'cache-control': snapshot.headers.get('cache-control') ||
-            'public, max-age=3600, s-maxage=86400',
-          'x-prerendered': '1',
-        },
-      });
+    if (DETAIL_RE.test(url.pathname) || url.pathname in STATIC_RENDER) {
+      const snapshot = await fetchSnapshot(url.pathname, request.headers.get('x-real-ip'));
+      if (snapshot) {
+        return new Response(snapshot.body, {
+          status: snapshot.status,
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': snapshot.headers.get('cache-control') ||
+              'public, max-age=3600, s-maxage=86400',
+            'x-prerendered': '1',
+          },
+        });
+      }
+      // snapshot undefined → fall through to SPA below
+    } else if (isUnknownRoute(url.pathname)) {
+      return notFoundPage();
     }
-    // snapshot undefined → fall through to SPA below
   }
 
   // Fall through to vercel.json rewrites (SPA fallback).

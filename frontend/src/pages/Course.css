@@ -78,7 +78,7 @@
 	animation: courseSlideUp 0.5s 0.2s ease both;
 }
 
-.course-dept-link { color: inherit; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: color 0.15s, text-decoration-color 0.15s; }
+.course-dept-link { color: inherit; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: color 0.15s, text-decoration-color 0.15s; display: inline-block; padding-block: 4px; margin-block: -4px; }
 .course-dept-link:hover, .course-dept-link:focus-visible { color: #d6394c; text-decoration-color: currentColor; }
 
 
@@ -100,6 +100,16 @@
 		grid-auto-flow: column;
 		grid-auto-columns: 1fr;
 	}
+}
+
+/* 541-1279px: 6 tracks, cards span 2. 6 cards: 3 + 3. 5 cards: 3 over 2 halves. 4 cards: 2 + 2. */
+@media (min-width: 541px) and (max-width: 1279px) {
+	.course-stats-grid { grid-template-columns: repeat(6, 1fr); }
+	.course-stat-card { grid-column: span 2; }
+	.course-stat-card:first-child:nth-last-child(4),
+	.course-stat-card:first-child:nth-last-child(4) ~ .course-stat-card,
+	.course-stat-card:nth-child(4):nth-last-child(2),
+	.course-stat-card:nth-child(5):last-child { grid-column: span 3; }
 }
 
 /* Each card's value, label and third row are rows of the shared grid, so a label that wraps
@@ -139,17 +149,9 @@
 
 .course-stat-hint {
 	font-size: 0.72rem;
-	color: #bbb;
+	color: #666;
 	font-weight: 600;
 	transition: color 0.2s;
-}
-
-.course-stat-clickable {
-	cursor: pointer;
-}
-
-.course-stat-clickable:hover .course-stat-hint {
-	color: #d6394c;
 }
 
 .course-stat-breakdown {
@@ -220,7 +222,7 @@
 	font-weight: 700;
 	text-transform: uppercase;
 	letter-spacing: 0.7px;
-	color: #aaa;
+	color: #666;
 	text-align: center;
 }
 
@@ -484,7 +486,8 @@
 .course-sort-btn {
 	background: none;
 	border: none;
-	padding: 0;
+	padding: 4px 0;
+	margin: -4px 0;
 	font: inherit;
 	color: inherit;
 	text-transform: inherit;
@@ -719,6 +722,8 @@
 		gap: 10px;
 	}
 
+	.course-stat-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
 	.course-stat-card {
 		padding: 17px 12px;
 	}
@@ -749,26 +754,74 @@
 		scrollbar-width: none;
 	}
 
-	.instructor-scroll-wrap::before,
+	/* Only the right fade, narrow enough to leave # Rated readable: on the left the pinned
+	   name column and its shadow say "scrolled". */
 	.instructor-scroll-wrap::after {
 		display: block;
+		width: 24px;
 	}
 
-	/* The four columns a student decides on fit without sideways scroll; Last Taught and
-	   Avg Class (in the stat cards above) step aside, as in the sections table. */
+	/* Every column stays; fixed widths make the row wider than the phone so it scrolls
+	   sideways. The four a student decides on (name to # Rated) fit before the first swipe,
+	   and Hrs/Wk, Last Taught and Avg Class are a swipe away. */
 	.instructor-header-row,
 	.instructor-row {
-		gap: 10px;
+		gap: 8px;
+		width: max-content;
+		min-width: 100%;
+		box-sizing: border-box;
 	}
 
-	.instructor-header-row span:nth-child(n+5),
-	.instructor-row span:nth-child(n+5) {
-		display: none;
+	.instructor-row {
+		height: auto;
+		min-height: 48px;
 	}
 
+	.instructor-header-row span,
+	.instructor-row span {
+		flex: 0 0 56px;
+	}
+
+	.instructor-header-row span:nth-child(3),
+	.instructor-row span:nth-child(3),
+	.instructor-header-row span:nth-child(7),
+	.instructor-row span:nth-child(7) {
+		flex-basis: 64px;
+	}
+
+	.instructor-header-row span:nth-child(6),
+	.instructor-row span:nth-child(6) {
+		flex-basis: 100px;
+	}
+
+	/* The name stays put while the numbers scroll under it, so every row keeps its professor. */
 	.instructor-header-row span:first-child,
 	.instructor-row span:first-child {
-		flex: 2;
+		flex: 0 0 104px;
+		position: sticky;
+		left: 0;
+		z-index: 2;
+		align-self: stretch;
+		display: flex;
+		align-items: center;
+		padding-right: 6px;
+		background: #fff;
+		transition: box-shadow 0.2s;
+	}
+
+	.instructor-scroll-wrap.fade-left .instructor-header-row span:first-child,
+	.instructor-scroll-wrap.fade-left .instructor-row span:first-child {
+		box-shadow: 6px 0 8px -6px rgba(0, 0, 0, 0.18);
+	}
+
+	.dark .instructor-header-row span:first-child,
+	.dark .instructor-row span:first-child {
+		background: #232323;
+	}
+
+	.dark .instructor-scroll-wrap.fade-left .instructor-header-row span:first-child,
+	.dark .instructor-scroll-wrap.fade-left .instructor-row span:first-child {
+		box-shadow: 6px 0 8px -6px rgba(0, 0, 0, 0.6);
 	}
 
 	.instructor-header-row {
@@ -783,6 +836,12 @@
 		padding-top: 6px;
 		padding-bottom: 6px;
 		white-space: normal;
+	}
+
+	/* 10.56px header text: 5px each side keeps the button at 24px+ */
+	.course-sort-btn {
+		padding-block: 5px;
+		margin-block: -5px;
 	}
 }
 
@@ -810,15 +869,11 @@
 }
 
 .dark .course-stat-label {
-	color: #777;
+	color: #999;
 }
 
 .dark .course-stat-hint {
-	color: #555;
-}
-
-.dark .course-stat-clickable:hover .course-stat-hint {
-	color: #d6394c;
+	color: #999;
 }
 
 .dark .course-difficulty-bar {

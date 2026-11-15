@@ -31,10 +31,10 @@ const Faq = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Frequently Asked Questions</h1>
-            <p className="terms-meta faq-jump">
-              For students: <a href="#students">using the site</a> &middot; For
-              professors: <a href="#professors">your page</a>
-            </p>
+            <ul className="terms-meta faq-jump">
+              <li>For students: <a href="#students">using the site</a></li>
+              <li>For professors: <a href="#professors">your page</a></li>
+            </ul>
           </header>
 
           <div className="terms-body">
@@ -65,8 +65,9 @@ const Faq = () => {
                 took: you answer a few questions, add an optional comment, and no sign-in is
                 needed. Once accepted, your rating shows up here after the next weekly refresh; a rating
                 that is held, or that names a new professor or course, needs our review first.
-                Comments aren't
-                shown on the site yet. You can still post a review on RateMyProfessors too, and
+                Comments show once they pass a quick check or our team reads them; an edited
+                comment waits for our team.
+                You can still post a review on RateMyProfessors too, and
                 it will show up here after the refresh.
               </p>
               </>)}
