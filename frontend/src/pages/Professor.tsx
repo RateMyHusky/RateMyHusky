@@ -506,7 +506,11 @@ const Professor = () => {
         breakdown: Object.entries(s.bySource)
           .filter(([, v]) => v.rating !== null)
           .map(([k, v]) => [k, v.rating as number] as [string, number]),
-        distribution: profile.sources.rmp.ratingDistribution,
+        // RMP plus the site's own ratings, like the stat cards above.
+        distribution: Object.fromEntries(STARS.map(k => [
+          k,
+          (profile.sources.rmp.ratingDistribution[k] ?? 0) + (profile.sources.survey.ratingDistribution?.[k] ?? 0),
+        ])) as RatingDistribution,
       };
     }
     const rows = courses.filter(c => selectedCourses.has(c.code));
