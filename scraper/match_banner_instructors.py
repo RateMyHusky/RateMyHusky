@@ -244,7 +244,8 @@ CREATE TABLE IF NOT EXISTS banner_course_offerings (
     median_section_size   FLOAT,
     credit_hours          TEXT,
     instructor_count      INT NOT NULL,
-    offered_now           TEXT           -- open term labels, comma-joined
+    offered_now           TEXT,          -- open term labels, comma-joined
+    term_labels           TEXT           -- every term label it ran, newest first, comma-joined
 );
 CREATE TABLE IF NOT EXISTS banner_course_rename_candidates (
     old_code              TEXT NOT NULL,
@@ -269,6 +270,7 @@ HISTORY_ADDED_COLUMNS = (
     ("banner_course_offerings", "summer2_years", "BIGINT NOT NULL DEFAULT 0"),
     ("banner_course_offerings", "first_term_label", "TEXT"),
     ("banner_course_offerings", "offering_years", "TEXT"),
+    ("banner_course_offerings", "term_labels", "TEXT"),
     ("banner_course_instructors", "instructor_keys", "TEXT"),
 )
 
@@ -310,7 +312,7 @@ OFFERING_COLUMNS = (
     "summer2_years", "pattern_window_years",
     "avg_sections_per_term", "avg_section_size", "median_section_size",
     "credit_hours", "instructor_count", "offered_now", "first_term_label",
-    "offering_years")
+    "offering_years", "term_labels")
 
 TEACHING_COLUMNS = ("professor_slug", "name_key", "term_desc", "term_codes",
                     "course_codes", "campuses", "match_method", "scraped_at")

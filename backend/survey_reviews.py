@@ -4,8 +4,9 @@ One statement reads the professor's accepted ratings, newest first. Every one
 counts in the page's numbers as soon as the professor's cached page is dropped,
 not at the weekly pipeline run (live_summary_rows), except the ones that run
 would hold for a weekly surge (fetch_rows). A comment becomes a review
-card only once a reviewer approves it (review_ratings.py approve-comment);
-until then it shows nowhere and counts in no comment total. `grade` feeds only
+card once the model's check allows it or a reviewer approves it
+(review_ratings.py approve-comment); until then it shows nowhere and counts in
+no comment total. `grade` feeds only
 the totals and never goes out with a comment: the form promises that. The term shows next to a comment only when the professor taught at
 least MIN_TERM_ENROLLMENT students in that course that term. Otherwise the year
 shows only when they taught the course in two or more terms that year, since the
@@ -40,7 +41,8 @@ _TAUGHT = """
 def fetch_rows(slug, query, now=None):
     """The professor's accepted ratings, each with its course's catalog name, the
     Banner enrollment of the term it names, and how many terms of that term's year
-    the professor taught the course. `comment` is NULL unless a reviewer approved it.
+    the professor taught the course. `comment` is NULL unless the model's check or a
+    reviewer approved it.
 
     Ratings over the professor's weekly limit (pipeline/survey.surge_ids) are left
     out, so a drip under the route's hourly and daily caps can't move the page

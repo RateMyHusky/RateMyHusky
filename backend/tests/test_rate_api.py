@@ -7,6 +7,7 @@ the FakeGroq in conftest) and the team email.
 
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -44,7 +45,7 @@ def rate(monkeypatch):
 
     state = {"writes": [], "posts": [], "moderation": "allow", "network": "other",
              "turnstile": True, "turnstile_calls": 0, "seen": False, "existing": None,
-             "budget": {"device": 0, "ip": 0, "shared": 0}, "scored": []}
+             "budget": {"device": 0, "ip": 0, "shared": 0}, "scored": [], "failures": []}
 
     def fake_query_one(sql, params=()):
         if "SELECT id, status, hold_reasons, comment, term_label FROM survey_ratings" in sql:
@@ -88,10 +89,19 @@ def rate(monkeypatch):
     monkeypatch.setattr(server, "query", lambda sql, params=None: [], raising=False)
     monkeypatch.setattr(server, "query_one", fake_query_one, raising=False)
     monkeypatch.setattr(server, "_write", fake_write, raising=False)
+    # Each failure written as it happens, so state["failures"] lists them in order.
+    monkeypatch.setattr(server, "RATING_FAILURE_WRITE_EVERY", 0)
+    monkeypatch.setattr(server, "_rating_failures", {})
+    monkeypatch.setattr(server, "_rating_failures_written", {"last": 0.0})
+    monkeypatch.setattr(server, "_chat_write", lambda sql, params=None: state["failures"].append(params[1])
+                        if "rating_failures" in sql else None, raising=False)
     monkeypatch.setattr(server, "_rating_moderation_score", fake_score, raising=False)
     monkeypatch.setattr(server.http_requests, "post", fake_post)
     monkeypatch.setattr(server, "_networks", SimpleNamespace(network_type=lambda ip: state["network"]))
-    return server, server.app.test_client(), state, ri
+    yield server, server.app.test_client(), state, ri
+    import review_digest
+    # A reason the digest has no label for would show there as its raw key.
+    assert set(state["failures"]) <= set(review_digest._FAILURES)
 
 
 def opened_for(ri, device=DEVICE, minted=False):
@@ -229,6 +239,52 @@ def test_moderation_timeout_keeps_the_rating_and_queues_the_comment(rate):
     assert saved(server, params, "comment_next_check_at") is not None
 
 
+def test_an_edit_the_check_missed_is_not_queued_since_a_queue_allow_publishes(rate):
+    server, client, state, ri = rate
+    state["moderation"] = "timeout"
+    state["existing"] = {"id": "r1", "status": "accepted", "hold_reasons": None, "comment": None}
+    assert post(client, ri).status_code == 200
+    (sql, params), = rating_writes(state)
+    assert saved(server, params, "comment_check") == "unchecked"
+    assert saved(server, params, "comment_next_check_at") is None
+    assert saved(server, params, "comment_status") == "pending"
+
+
+def test_an_openai_allow_waits_for_review_since_only_groq_was_measured(rate):
+    server, client, state, ri = rate
+    state["moderation"] = "allow"
+    assert post(client, ri).status_code == 200
+    (sql, params), = rating_writes(state)
+    assert saved(server, params, "comment_check") == "allow"
+    assert saved(server, params, "comment_check_reason") == "openai"
+    assert saved(server, params, "comment_status") == "pending"
+
+
+def test_a_groq_allow_publishes_a_new_ratings_comment_unless_switched_off_or_rejected(rate, monkeypatch, fake_groq):
+    server, client, state, ri = rate
+    monkeypatch.setenv("groq1", "gsk-test")
+    monkeypatch.setattr(server, "_groq_moderation_client", fake_groq("ALLOW"))
+    real_query_one = server.query_one
+
+    def query_one(sql, params=()):
+        if "kind = 'comment'" in sql:  # a reviewer rejected a rating with this text
+            return {"x": 1} if state.get("rejected") else None
+        return real_query_one(sql, params)
+    monkeypatch.setattr(server, "query_one", query_one)
+
+    def status(device, **setup):
+        state.update(setup)
+        assert post(client, ri, device=device * 32).status_code == 200
+        return saved(server, rating_writes(state)[-1][1], "comment_status")
+    assert status("1") == "approved"
+    assert status("2", rejected=True) == "pending"
+    state["rejected"] = False
+    monkeypatch.setenv("COMMENT_AUTO_PUBLISH", "off")
+    assert status("3") == "pending"
+    monkeypatch.delenv("COMMENT_AUTO_PUBLISH")
+    assert status("4", existing={"id": "r1", "status": "accepted", "hold_reasons": None, "comment": None}) == "pending"
+
+
 def test_a_rule_match_is_422_before_any_model_call_or_write(rate):
     server, client, state, ri = rate
     for comment in ("great notes at studyhelp.com", "text me 617-555-0123", "asdfghjkl"):
@@ -252,7 +308,7 @@ def test_an_edit_that_keeps_text_a_later_rule_matches_still_saves(rate):
 
 def test_groq_verdicts_mark_the_comment_and_never_hold_the_rating(rate, monkeypatch, fake_groq):
     server, client, state, ri = rate
-    monkeypatch.setenv("GROQ_MODERATION_KEY", "gsk-test")
+    monkeypatch.setenv("groq1", "gsk-test")
     cases = (("ALLOW", "allow", None), ("REVIEW", "review", "review"), ("Not sure.", "review", "review"),
              (TimeoutError("slow"), "unchecked", "groq_unavailable"),
              (fake_groq.RateLimited("429"), "unchecked", "groq_rate_limited"))
@@ -266,7 +322,7 @@ def test_groq_verdicts_mark_the_comment_and_never_hold_the_rating(rate, monkeypa
             check, reason)
         (call,) = groq.calls
         assert call["model"] == "openai/gpt-oss-safeguard-20b" and call["temperature"] == 0
-        assert call["messages"][1] == {"role": "user", "content": BODY["comment"]}
+        assert call["messages"][1] == {"role": "user", "content": server.moderation_groq.user_message(BODY["comment"])}
     assert state["scored"] == []  # never OpenAI while the Groq key is set
     assert [p[3] for s, p in call_writes(state)] == ["allow", "review", "review", "unavailable", "unavailable"]
     assert [p[7] for s, p in call_writes(state)] == [500, 500, 500, None, None]
@@ -274,7 +330,7 @@ def test_groq_verdicts_mark_the_comment_and_never_hold_the_rating(rate, monkeypa
 
 def test_groq_block_is_422(rate, monkeypatch, fake_groq):
     server, client, state, ri = rate
-    monkeypatch.setenv("GROQ_MODERATION_KEY", "gsk-test")
+    monkeypatch.setenv("groq1", "gsk-test")
     monkeypatch.setattr(server, "_groq_moderation_client", fake_groq("BLOCK"))
     resp = post(client, ri)
     assert resp.status_code == 422 and resp.get_json() == {"error": "comment_blocked"}
@@ -322,7 +378,7 @@ def test_budgets_per_ip_and_on_shared_networks(rate):
     post(client, ri)
     assert len(state["scored"]) == 1
     assert [saved(server, p, "comment_check_reason") for s, p in rating_writes(state)] == [
-        "over_budget", None, "over_budget"]
+        "over_budget", "openai", "over_budget"]
 
 
 def test_an_edit_that_keeps_the_text_keeps_its_check_without_a_call(rate):
@@ -807,3 +863,91 @@ def test_course_suggestions_is_off_with_the_form(rate, monkeypatch):
     monkeypatch.setattr(server, "RATING_SECRET", None)
     resp = client.get("/api/rate/course-suggestions?code=BIO2299")
     assert resp.status_code == 503 and resp.get_json() == {"error": server.RATINGS_UNAVAILABLE}
+
+
+def test_each_failed_submit_is_counted_by_reason_only(rate, monkeypatch):
+    server, client, state, ri = rate
+    client.post("/api/rate", data="[", content_type="application/json")
+    post(client, ri, {"rating": 9})
+    post(client, ri, {"professor": {"slug": "nobody"}})
+    post(client, ri, {"course": {"code": "ZZ9999"}})
+    post(client, ri, {"comment": "asdfghjkl"})
+    state["moderation"] = "block"
+    post(client, ri)  # the checker's blocks are already counted in moderation_calls
+    assert state["failures"] == ["invalid", "invalid", "unknown_professor", "unknown_course", "rule_block"]
+
+
+def test_captcha_failures_are_counted_apart(rate, monkeypatch):
+    server, client, state, ri = rate
+    monkeypatch.setenv("TURNSTILE_SECRET_KEY", "ts-secret")
+    post(client, ri)
+    state["turnstile"] = False
+    post(client, ri, {"turnstileToken": "t"})
+    monkeypatch.setattr(server.http_requests, "post", lambda *a, **k: (_ for _ in ()).throw(
+        server.http_requests.ConnectionError("down")))
+    post(client, ri, {"turnstileToken": "t"})
+    monkeypatch.setattr(server, "_turnstile_unconfigured", lambda: True)
+    assert post(client, ri, {"turnstileToken": "t"}).status_code == 503
+    assert state["failures"] == ["captcha_missing", "captcha_failed", "captcha_down", "captcha_unconfigured"]
+
+
+def test_a_saved_rating_and_the_honeypot_count_no_failure(rate):
+    server, client, state, ri = rate
+    assert post(client, ri).status_code == 200
+    assert post(client, ri, {"website": "x"}).status_code == 200
+    assert state["failures"] == []
+
+
+def test_rate_limits_and_errors_on_submit_are_counted(rate, monkeypatch):
+    server, client, state, ri = rate
+    for _ in range(21):
+        post(client, ri)
+    monkeypatch.setattr(server.course_typos, "banner_candidates", lambda *a: 1 / 0)
+    # Only the submit route counts.
+    assert client.get("/api/rate/course-suggestions?code=CS2500").status_code == 500
+    monkeypatch.setattr(server.ratings, "existing_rating", lambda *a: 1 / 0)
+    server.limiter.reset()
+    assert post(client, ri).status_code == 500
+    assert state["failures"] == ["rate_limited", "error"]
+
+
+def test_an_error_after_the_rating_is_saved_is_counted_apart(rate, monkeypatch):
+    server, client, state, ri = rate
+    monkeypatch.setattr(server.ratings, "huskies_this_term", lambda *a: 1 / 0)
+    assert post(client, ri).status_code == 500
+    assert state["failures"] == ["error_after_save"]
+
+
+def test_failures_are_written_at_most_once_a_minute(rate, monkeypatch):
+    server, client, state, ri = rate
+    writes = []
+    monkeypatch.setattr(server, "RATING_FAILURE_WRITE_EVERY", 60)
+    monkeypatch.setattr(server, "_chat_write", lambda sql, params=None: writes.append(params))
+    hour = datetime(2026, 11, 12, 5, tzinfo=timezone.utc)
+    start = hour.timestamp() + 3590
+    server._record_rating_failure("invalid", now=start)  # the first is written at once
+    for i, reason in enumerate(("invalid", "rate_limited", "invalid")):
+        server._record_rating_failure(reason, now=start + 5 + i)  # 05:59:55 to 05:59:57: held
+    server._record_rating_failure("error", now=start + 61)  # 06:00:51: writes all four, by their hour
+    later = hour + timedelta(hours=1)
+    assert writes == [[hour, "invalid", 1],
+                      [hour, "invalid", 2, hour, "rate_limited", 1, later, "error", 1]]
+
+
+def test_held_failures_go_out_with_the_next_request_or_at_exit(rate, monkeypatch):
+    server, client, state, ri = rate
+    writes = []
+    monkeypatch.setattr(server, "RATING_FAILURE_WRITE_EVERY", 60)
+    monkeypatch.setattr(server, "_chat_write", lambda sql, params=None: writes.append(params))
+    monkeypatch.setattr(server, "Thread", lambda target, args, daemon: SimpleNamespace(start=lambda: target(*args)))
+    now = time.time()
+    server._record_rating_failure("invalid", now=now)  # written at once
+    server._record_rating_failure("rule_block", now=now + 1)  # held
+    client.get("/api/rate/course-suggestions")  # under a minute: still held
+    assert len(writes) == 1
+    server._rating_failures_written["last"] = now - 61
+    client.get("/api/rate/course-suggestions")  # a quiet minute later, any request writes it
+    assert len(writes) == 2 and writes[1][1:] == ["rule_block", 1]
+    server._record_rating_failure("invalid")  # held again, and written at exit inside the minute
+    server._write_rating_failures_at_exit()
+    assert len(writes) == 3 and writes[2][1:] == ["invalid", 1]

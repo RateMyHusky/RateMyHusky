@@ -6,6 +6,7 @@ import type { SearchSuggestion, ChatResponse } from '../api/api';
 import { saveAskSession, loadAskSession, clearAskSession } from '../utils/askSession';
 import { ASK_ENABLED } from '../config';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
+import { SEARCH_DEBOUNCE_MS } from '../utils/useDebouncedValue';
 import './SearchBar.css';
 
 // Navigation state a clicked citation carries so the destination breadcrumb reads "← Ask" and
@@ -199,7 +200,7 @@ const SearchBar = ({ forceAsk, restoreAsk }: SearchBarProps) => {
         setSuggestions([]);
         setShowSuggestions(false);
       }
-    }, 200);
+    }, SEARCH_DEBOUNCE_MS);
 
     return () => {
       stale = true;

@@ -7,6 +7,7 @@ Run:           python server.py
 """
 
 import os, re, unicodedata, json, hashlib, hmac, random, secrets
+import atexit
 import html as _html
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
@@ -390,6 +391,8 @@ def _http_error(e):
     A limiter 429 never names its bucket ("20 per 1 hour"): that tells a client which
     key it hit, and so whether a fresh device token gets around it."""
     if e.code == 429:
+        if request.path == "/api/rate":
+            _record_rating_failure("rate_limited")
         return jsonify({"error": "Rate limit reached. Please try again later."}), 429
     return jsonify({"error": e.description}), e.code
 
@@ -398,6 +401,13 @@ def _http_error(e):
 def _unhandled_error(e):
     """Any uncaught error is logged with its traceback and served as a JSON 500."""
     app.logger.exception("Unhandled error on %s", request.path)
+    if request.path == "/api/rate":
+        if "db" in g:
+            try:
+                g.db.rollback()  # a failed statement aborts the transaction the count would use
+            except Exception:
+                pass
+        _record_rating_failure("error_after_save" if g.get("rating_saved") else "error")
     return jsonify({"error": "Internal server error"}), 500
 
 
@@ -443,10 +453,11 @@ _feedback_count = 0
 _account_feedback_count = 0
 _feedback_by_account = {}
 _feedback_date = None   # "YYYY-MM-DD" UTC, resets counter each day
-FEEDBACK_DAILY_LIMIT = 80
+FEEDBACK_DAILY_LIMIT = 78
 # Requests with a verified account get their own allowance, so anonymous reports can't
-# use up the day and block a data-deletion request. 80 + 15 + 3 usage alerts + 1
-# review digest (review_digest.py) fit Resend's free 100/day.
+# use up the day and block a data-deletion request. 78 + 15 + 3 usage alerts + 2
+# review digests (review_digest.py) fit Resend's free 100/day, with 2 spare for a
+# manual or re-run digest.
 ACCOUNT_FEEDBACK_DAILY_LIMIT = 15
 # One account's share of that allowance, so one user sending from several IPs can't
 # use up the day and block another user's data-deletion request.
@@ -1172,12 +1183,13 @@ def goat_professors():
     # and ratings below the prior left. An unbumped key serves the previous
     # version from the cache after deploy, which looks exactly like the fix not
     # working. v7: rows carry the slug; a cached v6 row has none to link with.
+    # v8: rows carry rmhRating.
     # Unknown colleges are answered before the cache: every value would
     # otherwise store its own [] and push real boards out of the LRU. With
     # limit clamped, a college holds at most 50 entries.
     if college not in BOARD_COLLEGES:
         return jsonify([])
-    cache_key = f"goat:v7:{college}:{limit}"
+    cache_key = f"goat:v8:{college}:{limit}"
     cached = cache_get(cache_key)
     # `is not None`: an empty board is a real answer and must cache too.
     if cached is not None:
@@ -1196,8 +1208,11 @@ def goat_professors():
     # whenever total_reviews is recomputed. The durable property is the one
     # test_measured_claims checks — that no tie reaches a board's top 10, which
     # is the only place the ordering is visible.
+    # The survey row is the RateMyHusky rating avg_rating blends in, for the ⓘ breakdown.
     rows = query(f"""
-        SELECT * FROM professors_catalog
+        SELECT c.*, s.rating AS rmh_rating FROM professors_catalog c
+        LEFT JOIN source_summary s
+               ON s.professor_slug = c.slug AND s.course_code = '' AND s.source = 'survey'
         WHERE college = %s AND total_reviews >= %s AND avg_rating >= %s
         ORDER BY total_reviews >= %s DESC,
                  {RANKING_SCORE_SQL} DESC, total_reviews DESC, name
@@ -1212,6 +1227,7 @@ def goat_professors():
             "name": row["name"],
             "dept": row["department"],
             "rmpRating": round(row["rmp_rating"], 2) if row["rmp_rating"] else None,
+            "rmhRating": round(row["rmh_rating"], 2) if row.get("rmh_rating") else None,
             # Never NULL: `avg_rating >= %s` above drops those rows.
             "avgRating": round(row["avg_rating"], 2),
             # Displayed as "Ratings": the floor above gates on it and
@@ -1595,8 +1611,17 @@ def professor_full(slug):
     hub = _department_hub_map().get(dept_slug)
     has_hub = hub is not None and hub["name"] == identity.get("department")
     data = {**data, "identity": {**identity, "departmentSlug": dept_slug if has_hub else None}}
+    authed = _is_authed()
+    # RateMyHusky comments are for signed-in students: a signed-out page gets only how many there
+    # are, and each one's course so a ?course= filter can count them, so the tab can show its
+    # count behind the sign-in prompt. The numbers stay public.
+    survey = (data.get("sources") or {}).get("survey") or {}
+    if not authed and survey.get("reviews"):
+        data["sources"] = {**data["sources"],
+                           "survey": {**survey, "reviews": [], "lockedReviews": len(survey["reviews"]),
+                                      "lockedCourses": [r.get("course") for r in survey["reviews"]]}}
     resp = jsonify(data)
-    resp.headers["Cache-Control"] = "private, max-age=3600" if _is_authed() else "public, max-age=3600"
+    resp.headers["Cache-Control"] = "private, max-age=3600" if authed else "public, max-age=3600"
     resp.headers["Vary"] = "Authorization"
     return history_cache_control(resp)
 
@@ -1657,13 +1682,23 @@ def popular_tags():
     return resp
 
 
+def _filter_list_response(data):
+    """A catalog filter list: it changes only with a data refresh, so the browser keeps it an
+    hour instead of refetching it (a Vercel request + middleware run) on every catalog visit.
+    An empty list isn't kept, so a dropdown that loaded empty fills in on the next visit."""
+    resp = jsonify(data)
+    if data:
+        resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
+
+
 @app.route("/api/departments")
 def departments():
     college = request.args.get("college", "")
     cache_key = f"depts:{college or 'all'}"
     cached = cache_get(cache_key)
     if cached:
-        return jsonify(cached)
+        return _filter_list_response(cached)
     if college and college != "All":
         college_list = split_filter(college)
         if len(college_list) == 1:
@@ -1688,7 +1723,7 @@ def departments():
     result = [r['department'] for r in rows if r['department'] and r['department'] not in BAD_DEPTS]
     if result:   # an unknown college is empty; don't let made-up names fill the cache
         cache_set(cache_key, result)
-    return jsonify(result)
+    return _filter_list_response(result)
 
 
 def department_slug(name):
@@ -1973,7 +2008,7 @@ def professors_catalog():
 def course_departments():
     cached = cache_get("course_depts")
     if cached:
-        return jsonify(cached)
+        return _filter_list_response(cached)
     rows = query("""
         SELECT DISTINCT department FROM course_catalog
         WHERE department IS NOT NULL AND department != ''
@@ -1981,7 +2016,7 @@ def course_departments():
     """)
     result = [r["department"] for r in rows]
     cache_set("course_depts", result)
-    return jsonify(result)
+    return _filter_list_response(result)
 
 
 @app.route("/api/courses-catalog")
@@ -2331,8 +2366,8 @@ def _get_auth_token():
 
 
 def _is_authed():
-    """True when the request carries a valid session token. Pages serve the same
-    payload either way; only the Cache-Control header differs."""
+    """True when the request carries a valid session token. It sets the page's
+    Cache-Control, and a professor page holds back RateMyHusky comments without it."""
     return decode_session_token(_get_auth_token()) is not None
 
 
@@ -2589,8 +2624,10 @@ def _rating_moderation_score(texts):
 
 
 def _moderate_comment(comment):
-    """(action, reason, tokens) from Groq when GROQ_MODERATION_KEY is set, else from OpenAI.
-    action is "allow" | "review" | "block" | "unavailable"; tokens is None off Groq; never raises."""
+    """(action, reason, tokens) from Groq when the groq1 key is set, else from OpenAI.
+    action is "allow" | "review" | "block" | "unavailable"; tokens is None off Groq; never raises.
+    An OpenAI allow carries the reason "openai", so the reviewer can tell it from Groq's: only
+    Groq's check was measured well enough to publish a comment (rate_submit)."""
     global _groq_moderation_client
     if moderation_groq.enabled():
         try:
@@ -2600,7 +2637,7 @@ def _moderate_comment(comment):
             return "unavailable", "groq_unavailable", None
         return moderation_groq.check(comment, _groq_moderation_client)
     action = rating_checks.moderate(comment, score=_rating_moderation_score)
-    return action, {"allow": None, "review": "review", "block": "blocked"}.get(action, "openai_unavailable"), None
+    return action, {"allow": "openai", "review": "review", "block": "blocked"}.get(action, "openai_unavailable"), None
 
 
 def _rating_limit_key():
@@ -2630,6 +2667,74 @@ RATINGS_UNAVAILABLE = "Ratings are not available right now"
 
 def _rating_unavailable():
     return jsonify({"error": RATINGS_UNAVAILABLE}), 503
+
+
+# Counts failed rate-form submits by reason and hour for the daily digest: no device, IP or form data.
+# Held in memory and written at most once a minute, so a flood of junk or rate-limited submits costs
+# one write a minute, not one each. Counts since the last write go out with the next request after
+# the minute is up, or when the process exits, so a quiet site doesn't leave them in memory.
+RATING_FAILURE_SQL = ("INSERT INTO rating_failures (hour, reason, n) VALUES {} "
+                      "ON CONFLICT (hour, reason) DO UPDATE SET n = rating_failures.n + EXCLUDED.n")
+RATING_FAILURE_WRITE_EVERY = 60  # seconds
+_CAPTCHA_FAILURES = {400: "captcha_missing", 403: "captcha_failed", 503: "captcha_down"}
+_rating_failures = {}  # (hour, reason) -> n not written yet
+_rating_failures_written = {"last": 0.0}
+_rating_failures_lock = Lock()
+
+
+def _take_rating_failures(now, force=False):
+    """The held counts, cleared, once a minute has passed since the last write (or when forced); else None."""
+    with _rating_failures_lock:
+        if not _rating_failures or (not force and now - _rating_failures_written["last"] < RATING_FAILURE_WRITE_EVERY):
+            return None
+        _rating_failures_written["last"] = now
+        counts = list(_rating_failures.items())
+        _rating_failures.clear()
+    return counts
+
+
+def _write_rating_failures(counts):
+    _chat_write(RATING_FAILURE_SQL.format(", ".join(["(%s, %s, %s)"] * len(counts))),
+                [v for (h, r), n in counts for v in (h, r, n)])
+
+
+def _record_rating_failure(reason, now=None):
+    """Best-effort, like ask_log: a lost count never changes the answer the student gets."""
+    now = time.time() if now is None else now
+    hour = datetime.fromtimestamp(now - now % 3600, timezone.utc)
+    with _rating_failures_lock:
+        _rating_failures[(hour, reason)] = _rating_failures.get((hour, reason), 0) + 1
+    counts = _take_rating_failures(now)
+    if counts:
+        _write_rating_failures(counts)
+
+
+def _rating_failures_job(counts):
+    with app.app_context():   # get_db() keeps its connection on flask.g
+        _write_rating_failures(counts)
+
+
+@app.before_request
+def write_rating_failures_in_background():
+    """Writes counts held past the minute from whatever request comes in next, on its own
+    thread like the ask_log purge, so no user waits for it."""
+    counts = _take_rating_failures(time.time())
+    if counts:
+        Thread(target=_rating_failures_job, args=(counts,), daemon=True).start()
+
+
+@atexit.register
+def _write_rating_failures_at_exit():
+    """A redeploy or worker restart writes what's held instead of dropping it."""
+    counts = _take_rating_failures(time.time(), force=True)
+    if counts:
+        _rating_failures_job(counts)
+
+
+def _rating_failure(reason, error, status, token=None):
+    """A failed submit's answer, counted for the digest."""
+    _record_rating_failure(reason)
+    return _rating_response({"error": error}, status, token)
 
 
 def _rating_response(body, status, token=None):
@@ -2708,21 +2813,23 @@ def rate_submit():
     # 3. Validation
     clean, err = rating_checks.validate_submission(body, now.year)
     if err:
-        return _rating_response({"error": err}, 400)
+        return _rating_failure("invalid", err, 400)
 
     # 4. Turnstile
     failed = _turnstile_gate(body.get("turnstileToken"), "rate", RATINGS_UNAVAILABLE)
     if failed:
         status, error = failed
-        return _rating_response({"error": error}, status)
+        # A missing key on Railway is a config error, not Cloudflare being down: both are 503s.
+        reason = "captcha_unconfigured" if _turnstile_unconfigured() else _CAPTCHA_FAILURES[status]
+        return _rating_failure(reason, error, status)
 
     # 5. Existence
     if clean["professor_slug"] and not ratings.professor_exists(clean["professor_slug"], query_one):
-        return _rating_response({"error": "Unknown professor"}, 400)
+        return _rating_failure("unknown_professor", "Unknown professor", 400)
     new_course = None
     if not ratings.course_exists(clean["course_code"], query_one):
         if not clean["new_course_name"]:
-            return _rating_response({"error": "Unknown course code: give the course name"}, 400)
+            return _rating_failure("unknown_course", "Unknown course code: give the course name", 400)
         new_course = clean["new_course_name"]
 
     # 6. Device, hashes, network, fill time
@@ -2758,14 +2865,15 @@ def rate_submit():
     # when it was saved, so a later rule doesn't lock the student out of changing the stars.
     changed = bool(clean["comment"]) and (not existing or existing["comment"] != clean["comment"])
     if changed and rating_checks.rule_block(clean["comment"]):
-        return _rating_response({"error": "comment_blocked"}, 422, device)
+        return _rating_failure("rule_block", "comment_blocked", 422, device)
 
-    # 9. Moderation of new or edited text. A blocked comment stops here; anything else
-    # only marks the comment for the reviewer, so a busy or failed check never holds the
-    # rating. Duplicates (near copies too) and bursts get no call and no queue, or a flood
+    # 9. Moderation of new or edited text. A blocked comment stops here, an allowed one on a
+    # new rating is published (ratings.save_rating), and anything else waits for the reviewer, so a
+    # busy or failed check never holds the rating. Duplicates (near copies too) and bursts get no call and no queue, or a flood
     # would just move its model calls there. Text the edit leaves alone keeps its earlier check
     # (ratings._UPSERT_SQL), so these fields stay unset.
     check = {}
+    publish = False
     if changed:
         shared = _shared_network()
         reason = None
@@ -2781,6 +2889,14 @@ def rate_submit():
             if action == "block":
                 return _rating_response({"error": "comment_blocked"}, 422, device)
         check = rating_checks.comment_check_fields(action, reason, now)
+        if existing:
+            # Not queued: a queue allow publishes, and text on an existing rating never
+            # publishes itself. The reviewer reads it as not yet checked.
+            check["comment_next_check_at"] = None
+        # Only Groq's check was measured well enough to publish, so an OpenAI allow waits.
+        # Text a reviewer rejected along with its rating waits too, from any device.
+        publish = (action == "allow" and not existing and moderation_groq.enabled()
+                   and moderation_groq.auto_publish() and not ratings.comment_rejected(chash, query_one))
 
     # 10. Pending professor / course. No team email: invented names cost nothing to
     # submit, so one email each could flood the inbox and the Resend quota the
@@ -2825,16 +2941,18 @@ def rate_submit():
         "fill_seconds": fill_seconds, "collection": "turnstile+device",
         **{c: check.get(c) for c in ratings.CHECK_COLUMNS},
     }
-    ratings.save_rating(row, existing, _write)
+    ratings.save_rating(row, existing, _write, publish=publish)
+    g.rating_saved = True  # a 500 from here on still kept the rating
     held = ratings.hold_burst(bursts, key, ip_hash, prefix_hash, _write, now) if bursts else set()
     if near:
         ratings.hold_matches(near, "near_duplicate", device_hash, ip_hash, prefix_hash, network_type, _write)
     if skew:
         ratings.hold_skew_week(key, _write, now)
-    # The page's student numbers are live (its comments wait for review_ratings.py
-    # approve-comment). Any save can change them: a new rating, an edit, an accepted
-    # rating edited into a held one, or an edited comment that must come down until it's
-    # read again. A burst also holds ratings on other professors. Dropped after the hold,
+    # The page's student numbers are live, and so are its comments the model allowed
+    # (the rest wait for review_ratings.py approve-comment). Any save can change them:
+    # a new rating, an edit, an accepted rating edited into a held one, a comment the
+    # model allowed, or an edited comment that must come down until it's checked
+    # again. A burst also holds ratings on other professors. Dropped after the hold,
     # so no request between the two writes re-caches rows that are about to be held.
     pages = held | {key["professor_slug"]} if key.get("professor_slug") else held
     if pages:

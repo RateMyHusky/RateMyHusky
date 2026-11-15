@@ -4,6 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { isUnknownRoute, notFoundPage } from './spaRoutes';
 import { RATE_ENABLED } from './src/config';
+import { config as middlewareConfig } from './middleware';
 
 const fails: string[] = [];
 const check = (label: string, cond: boolean) => {
@@ -36,6 +37,25 @@ for (const [line, path] of appRoutes) {
   const live = !line.includes('RATE_ENABLED &&') || RATE_ENABLED;
   check(`App.tsx route ${path}`, isUnknownRoute(path.replace(/:\w+/g, 'x')) === !live);
 }
+
+// The middleware matcher decides which paths skip the maintenance/preview gate. Only the
+// exact static files may skip it; look-alike paths would get the app shell ungated.
+const matcher = new RegExp('^' + middlewareConfig.matcher + '$');
+for (const p of ['/favicon.png', '/logo.jpg', '/maintenance.html', '/robots.txt',
+  '/_vercel/insights/script.js', '/photos/abc.webp', '/assets/index-abc123.js'])
+  check(`skips gate: ${p}`, !matcher.test(p));
+for (const p of ['/', '/professors/x', '/api/stats', '/assets', '/favicon.pngx',
+  '/favicon.png/x', '/logo.jpgfoo', '/robots.txt/a', '/_vercelx', '/photosx'])
+  check(`gated: ${p}`, matcher.test(p));
+
+// A skipped folder path with no file behind it must 404, not hit the SPA rewrite, or it
+// serves the app shell ungated. So every folder the matcher skips is excluded from the rewrite.
+const vercelConfig = JSON.parse(readFileSync(new URL('./vercel.json', import.meta.url), 'utf8'));
+const rewrite = new RegExp('^' + vercelConfig.rewrites[0].source + '$');
+const skippedFolders = [...middlewareConfig.matcher.matchAll(/([\w-]+\/)(?=\||\)\.\*\)$)/g)].map(m => m[1]);
+check('matcher skipped folders found', skippedFolders.length >= 3);
+for (const f of skippedFolders)
+  check(`not rewritten: /${f}missing`, !matcher.test(`/${f}missing`) && !rewrite.test(`/${f}missing`));
 
 const res = notFoundPage();
 check('status 404', res.status === 404);

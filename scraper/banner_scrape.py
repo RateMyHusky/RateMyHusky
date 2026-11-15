@@ -63,22 +63,35 @@ class SanityGateFailed(RuntimeError):
 
 
 def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM,
-               instructors_from=None, sources=None, rescrape=()):
+               instructors_from=None, sources=None, rescrape=(), closed_unopened=()):
     """getTerms rows -> [(term_code, parsed term)] this run should scrape.
 
     `known` is {term_code: closed_when_last_scraped} from banner_terms, and
-    `sources` is {term_code: instructors_source}.
+    `sources` is {term_code: instructors_source}. `closed_unopened` are the
+    stored-closed codes never scraped while open.
 
     mode "current": every open term. Re-scraped each run, because rosters,
     reassignments and enrollment all move until the term closes. A term whose
     last meeting has passed is scraped once more as closed (see scrape_term)
     and then skipped here, even while Banner is slow to mark it View Only.
+    One stored closed before it ever opened is not skipped: that was next
+    term's View Only scrape, stored as finished before upcoming terms were
+    tagged.
 
     mode "backfill": closed terms from `since_term` on that are missing, were
     last scraped while still open, or are at or after `instructors_from` with
     instructors that aren't Banner's (the one-off import, or a sections-only
     scrape). Newest first, so an interrupted backfill has already covered the
-    terms students are likeliest to ask about.
+    terms students are likeliest to ask about. A View Only term newer than
+    every open term of its track (Semester, CPS Quarter, Law Semester; for a
+    track with none open, newer than the oldest open term, the one in
+    progress) is next term before registration
+    opens, since a CPS quarter's code sits above its season's semester: it is planned
+    every run, whatever is stored, since it cannot have finished, but after
+    the rest, so a term that just closed gets its final scrape first.
+
+    Each parsed term carries "upcoming", True for such a term: write_term
+    stores it View Only but not finished.
 
     `rescrape` codes are planned whatever their state, in either mode. One
     that getTerms doesn't list is refused rather than silently skipped.
@@ -88,17 +101,22 @@ def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM,
     """
     rescrape = {str(c) for c in rescrape}
     sources = sources or {}
+    parsed_terms = [(str(t["code"]), p) for t in terms
+                    if t.get("code") is not None and (p := parse_term(t.get("description")))]
+    open_terms = [(p["track"], int(c)) for c, p in parsed_terms if not p["view_only"]]
+    oldest_open = min((c for _, c in open_terms), default=None)
+    newest_open_in = {}
+    for track, c in open_terms:
+        newest_open_in[track] = max(c, newest_open_in.get(track, c))
     picked = []
-    for t in terms:
-        code = t.get("code")
-        parsed = parse_term(t.get("description"))
-        if code is None or parsed is None:
-            continue
-        code = str(code)
+    for code, parsed in parsed_terms:
+        newest = newest_open_in.get(parsed["track"], oldest_open)
+        upcoming = parsed["view_only"] and newest is not None and int(code) > newest
+        parsed = {**parsed, "upcoming": upcoming}
         if code in rescrape:
             picked.append((code, parsed))
         elif mode == "current":
-            if not parsed["view_only"] and known.get(code) is not True:
+            if not parsed["view_only"] and (known.get(code) is not True or code in closed_unopened):
                 picked.append((code, parsed))
         elif mode == "backfill":
             if not parsed["view_only"] or int(code) < int(since_term):
@@ -106,7 +124,7 @@ def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM,
             needs_instructors = (instructors_from is not None
                                  and int(code) >= int(instructors_from)
                                  and sources.get(code) != "banner")
-            if known.get(code) is True and not needs_instructors:   # already finished
+            if known.get(code) is True and not needs_instructors and not upcoming:   # already finished
                 continue
             picked.append((code, parsed))
         else:
@@ -115,7 +133,7 @@ def plan_terms(terms, known, mode, since_term=DEFAULT_SINCE_TERM,
     if missing:
         raise ValueError(f"--rescrape {', '.join(sorted(missing))}: not a term in "
                          f"getTerms that this scraper can read")
-    return sorted(picked, key=lambda p: int(p[0]), reverse=True)
+    return sorted(picked, key=lambda p: (p[1]["upcoming"], -int(p[0])))
 
 
 def _fetch_faculty(client, term_code, crns):
