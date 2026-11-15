@@ -4,6 +4,7 @@ import Dropdown from './Dropdown';
 import { fetchSearchSuggestions } from '../api/api';
 import type { SearchSuggestion } from '../api/api';
 import { useTypingPlaceholder } from '../hooks/useTypingPlaceholder';
+import { SEARCH_DEBOUNCE_MS } from '../utils/useDebouncedValue';
 import './SearchBar.css';
 
 // A course code as a student types it: "cs2500", "CS 2500", "math 1341".
@@ -91,7 +92,7 @@ const SearchBar = () => {
         setSuggestions([]);
         setShowSuggestions(false);
       }
-    }, 200);
+    }, SEARCH_DEBOUNCE_MS);
 
     return () => {
       stale = true;

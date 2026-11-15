@@ -7,6 +7,7 @@ import StarRating from '../components/StarRating';
 import Footer from '../components/Footer';
 import Seo from '../components/Seo';
 import { photoThumb, thumbOnError } from '../utils/photoThumb';
+import { SEARCH_DEBOUNCE_MS } from '../utils/useDebouncedValue';
 import { useBookmarks } from '../context/BookmarksContext';
 import { nameParts, stripPrefix } from '../utils/nameUtils';
 import { METRICS, TIE_POINTS, droppedSentence, joinNames, scoreProfessors, weightsText, winnerSentence } from '../utils/compareScore';
@@ -188,7 +189,7 @@ function SlotSearch({
 				setSuggestions([]);
 				setOpen(false);
 			}
-		}, 200);
+		}, SEARCH_DEBOUNCE_MS);
 
 		return () => clearTimeout(timer);
 	}, [query, slug, selectedName, excludeKey]);

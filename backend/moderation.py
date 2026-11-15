@@ -1,7 +1,7 @@
 """Comment moderation. this is where the scores go.
 
 Only new rating comments get scored (server.py, on submit), and only while
-GROQ_MODERATION_KEY is unset: with it, moderation_groq.py checks them instead and
+the groq1 key is unset: with it, moderation_groq.py checks them instead and
 this is never called. Existing RMP and Reddit comments are left alone, so keep
 MODERATION_ENFORCE unset: turning it on hides every comment that was never
 scored, which is all of them.

@@ -106,8 +106,8 @@ const Terms = () => {
                   servers{RATE_ENABLED ? ', except for the rating form\'s device ID, which is kept there too and sent to us when you use the rating form (see Ratings below)' : ''}.
                 </li>
                 <li>
-                  <strong>Usage data:</strong> Vercel Analytics and Vercel Speed Insights
-                  collect anonymous page view and performance metrics. Google Analytics collects
+                  <strong>Usage data:</strong> Vercel Speed Insights collects anonymous
+                  performance metrics, such as how fast pages load. Google Analytics collects
                   page views, including each page's address (which contains any catalog search
                   you type), using a cookie with a random identifier, so its data is
                   pseudonymous rather than anonymous. We do not send it your name, email, or
@@ -194,8 +194,8 @@ const Terms = () => {
                 </li>
                 </>)}
                 <li>
-                  <strong>Vercel Analytics &amp; Speed Insights</strong>: collects anonymous
-                  performance and usage data to help improve the service.
+                  <strong>Vercel Speed Insights</strong>: collects anonymous performance
+                  data to help improve the service.
                 </li>
                 <li>
                   <strong>Google Analytics</strong>: collects pseudonymous usage data such as

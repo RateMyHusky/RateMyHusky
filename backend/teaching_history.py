@@ -83,6 +83,42 @@ def label_code(label):
     return (int(m.group(2)) + year_offset) * 100 + suffix
 
 
+# What current_term reads. track tells a semester from a CPS quarter.
+TERMS_SQL = "SELECT term_label AS label, view_only, track FROM banner_terms"
+
+
+def current_term_code(terms):
+    """banner_terms rows -> the term in progress in the label_code scheme, or
+    None when no label is readable. It is the earliest open semester (Banner
+    opens next term for registration months before it starts), else the
+    earliest open term, else the newest; labels that don't parse are skipped.
+    A CPS quarter overlaps the semesters (Winter runs inside Spring, Spring's
+    quarter into Summer), so an open one beside an open semester is not it.
+    From 2026 one Summer term (…50) runs both sessions, and its Summer 2
+    sections are labelled with Summer 2's code (…60), so a summer term in
+    progress reaches that code: Summer 2 teaching counts all summer."""
+    readable = [(t["view_only"], "Quarter" in (t.get("track") or ""), label_code(t["label"])) for t in terms]
+    readable = [r for r in readable if r[2]]
+    open_codes = [c for closed, quarter, c in readable if not closed and not quarter] \
+        or [c for closed, _, c in readable if not closed]
+    code = min(open_codes) if open_codes else max((c for *_, c in readable), default=None)
+    return code + 10 if code and code % 100 == 50 else code
+
+
+def current_term(query):
+    """The term in progress (label_code scheme), or None: see current_term_code."""
+    return current_term_code(query(TERMS_SQL))
+
+
+def latest_started(labels, current):
+    """The newest of `labels` that is not after the term in progress, or None.
+    Banner lists next term's sections months ahead, so "last taught" would
+    otherwise name a term that hasn't started. current None leaves labels as is."""
+    codes = [(label_code(t), t) for t in labels]
+    codes = [(c, t) for c, t in codes if c and (current is None or c <= current)]
+    return max(codes)[1] if codes else None
+
+
 def _newest_first(rows):
     """Rows re-sorted on the last term's label, most recent first. The SQL
     orders by last_term_code, but from 2026 Summer 1 and Summer 2 share one
@@ -123,7 +159,7 @@ def course_history(code, query, query_one):
     offering = query_one("""
         SELECT subject_course, course_title, last_term_label, pattern,
                offering_years, first_term_code, first_term_label,
-               median_section_size, credit_hours, offered_now
+               median_section_size, credit_hours, offered_now, term_labels
         FROM banner_course_offerings WHERE subject_course = %s
     """, (code,))
     successor = COURSE_SUCCESSORS.get(code)
@@ -149,6 +185,9 @@ def course_history(code, query, query_one):
         "firstOffered": o.get("first_term_label"),
         "lastOffered": o.get("last_term_label"),
         "offeredNow": _terms(o.get("offered_now")),
+        # Every term it ran, for course_page's Last Taught, which pops it;
+        # [] until the history build stores them.
+        "offeredTerms": _terms(o.get("term_labels")),
         "creditHours": o.get("credit_hours"),
         "typicalClassSize": _whole(o.get("median_section_size")),
         "instructors": [{
