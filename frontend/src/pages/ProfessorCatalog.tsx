@@ -216,7 +216,7 @@ export default function ProfessorCatalog() {
   // most common first; keep any selected tag listed even if it isn't in the popular list
   const tagOptions = [...popularTags.map(p => p.tag), ...selectedTags.filter(t => !popularTags.some(p => p.tag === t))];
 
-  const debouncedQ = useDebouncedValue(filters.q, 250);
+  const debouncedQ = useDebouncedValue(filters.q, SEARCH_DEBOUNCE_MS);
 
   // Fetch professors when any filter changes
   useEffect(() => {

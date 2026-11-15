@@ -168,7 +168,7 @@ export default function Courses() {
 		fetchCourseDepartments().then(setDepartments).catch(console.error);
 	}, []);
 
-	const debouncedQ = useDebouncedValue(filters.q, 250);
+	const debouncedQ = useDebouncedValue(filters.q, SEARCH_DEBOUNCE_MS);
 
 	useEffect(() => {
 		if (!isMeasured) return;
