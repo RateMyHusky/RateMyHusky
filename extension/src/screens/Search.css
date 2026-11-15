@@ -103,6 +103,44 @@
   border-radius: 3px;
 }
 
+/* Saved's heading doubles as its open/close switch: a button wearing
+   .section-label, so it reads like every other group heading. */
+.saved-toggle {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.saved-toggle:hover {
+  color: var(--fg);
+}
+
+.saved-toggle:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.saved-chev {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  transition: transform 0.15s ease;
+}
+
+.saved-chev.open {
+  transform: rotate(90deg);
+}
+
+.saved-count {
+  font-weight: 600;
+  letter-spacing: 0;
+  opacity: 0.8;
+}
+
 .search-empty {
   padding: 4px 4px 0;
   font-size: 12px;

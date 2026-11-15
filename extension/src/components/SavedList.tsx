@@ -8,17 +8,33 @@ import { score } from '../utils/format';
  *  quietly disagree with the professor's page. */
 type Live = { rating: number | null; dept: string | null } | null;
 
-/** Saved professors, on the home screen. Renders nothing until something's
- *  been saved, so it never shows as an empty section. Styled by Search.css,
- *  the only screen it sits on. */
-export default function SavedList({ onOpen }: { onOpen: (slug: string) => void }) {
-  const items = useSaved();
+/** More saved professors than this and the group starts collapsed, so a long
+ *  list doesn't push Recent Searches out of the popup. */
+const OPEN_UP_TO = 4;
+
+/** Saved professors, above Recent Searches on both search screens. Shown even
+ *  with nothing saved, as Saved (0), so the feature is there to discover.
+ *  Styled by Search.css, the screen it sits on. */
+export default function SavedList({
+  onOpen,
+  exclude = [],
+}: {
+  onOpen: (slug: string) => void;
+  /** Professors already in the comparison, left out like Search's results. */
+  exclude?: string[];
+}) {
+  const saved = useSaved();
+  const items = saved.filter((item) => !exclude.includes(item.slug));
   const [live, setLive] = useState<Record<string, Live>>({});
+  // Null until the student opens or closes it: until then the group is open
+  // for a short list and closed for a long one.
+  const [open, setOpen] = useState<boolean | null>(null);
+  const isOpen = open ?? items.length <= OPEN_UP_TO;
 
   useEffect(() => {
     let alive = true;
     // fetchProfessor is cached, so opening one of these afterwards is free.
-    for (const { slug } of items) {
+    for (const { slug } of saved) {
       fetchProfessor(slug).then(
         (p) =>
           alive &&
@@ -32,46 +48,60 @@ export default function SavedList({ onOpen }: { onOpen: (slug: string) => void }
     return () => {
       alive = false;
     };
-  }, [items]);
-
-  if (items.length === 0) return null;
+  }, [saved]);
 
   return (
     <section className="search-section" aria-label="Saved professors">
-      <p className="section-label">Saved</p>
-      <ul className="row-list">
-        {items.map((item) => {
-          const l = live[item.slug];
-          return (
-            <li key={item.slug} className="row-wrap">
-              <button className="row" type="button" onClick={() => onOpen(item.slug)}>
-                <span className="row-main">
-                  <span className="row-title">{item.name}</span>
-                  {l?.dept && <span className="row-meta">{l.dept}</span>}
-                </span>
-                {l?.rating != null && (
-                  <span className="row-score">
-                    <span className="row-star" aria-hidden="true">
-                      ★
+      <button
+        className="section-label saved-toggle"
+        type="button"
+        aria-expanded={isOpen}
+        aria-controls="saved-list"
+        onClick={() => setOpen(!isOpen)}
+      >
+        <ChevronIcon className={isOpen ? 'saved-chev open' : 'saved-chev'} />
+        Saved
+        <span className="saved-count">({items.length})</span>
+      </button>
+      <div id="saved-list" hidden={!isOpen}>
+        {items.length === 0 ? (
+          <p className="muted search-empty">Professors you save will show up here.</p>
+        ) : (
+          <ul className="row-list">
+            {items.map((item) => {
+              const l = live[item.slug];
+              return (
+                <li key={item.slug} className="row-wrap">
+                  <button className="row" type="button" onClick={() => onOpen(item.slug)}>
+                    <span className="row-main">
+                      <span className="row-title">{item.name}</span>
+                      {l?.dept && <span className="row-meta">{l.dept}</span>}
                     </span>
-                    {score(l.rating)}
-                  </span>
-                )}
-                <ChevronIcon className="row-chev" />
-              </button>
-              <button
-                className="row-remove"
-                type="button"
-                onClick={() => void unsave(item.slug)}
-                aria-label={`Remove ${item.name} from saved`}
-                title="Remove"
-              >
-                <CloseIcon />
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+                    {l?.rating != null && (
+                      <span className="row-score">
+                        <span className="row-star" aria-hidden="true">
+                          ★
+                        </span>
+                        {score(l.rating)}
+                      </span>
+                    )}
+                    <ChevronIcon className="row-chev" />
+                  </button>
+                  <button
+                    className="row-remove"
+                    type="button"
+                    onClick={() => void unsave(item.slug)}
+                    aria-label={`Remove ${item.name} from saved`}
+                    title="Remove"
+                  >
+                    <CloseIcon />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }

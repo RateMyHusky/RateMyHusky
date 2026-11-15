@@ -91,7 +91,7 @@ export default function App({ openSlug }: { openSlug?: string }) {
       <main className="body">
         {view === 'search' && <Search onPick={openProfessor} onCompare={startCompare} showSaved />}
         {view === 'pick' && (
-          <Search onPick={addToCompare} heading="Add to comparison" exclude={live} />
+          <Search onPick={addToCompare} heading="Add to comparison" exclude={live} showSaved />
         )}
         {view === 'overview' && slug && (
           <Overview

@@ -92,6 +92,7 @@ export default function Search({
   heading?: string;
   /** Professors already in the comparison, left out of the results. */
   exclude?: string[];
+  /** Lists saved professors above Recent Searches; picking one goes to onPick. */
   showSaved?: boolean;
 }) {
   const [query, setQuery] = useState('');
@@ -183,7 +184,7 @@ export default function Search({
 
       {q.length === 0 ? (
         <>
-          {showSaved && <SavedList onOpen={onPick} />}
+          {showSaved && <SavedList onOpen={onPick} exclude={exclude} />}
 
           <section className="search-section" aria-label="Recent searches">
             <div className="search-head">
