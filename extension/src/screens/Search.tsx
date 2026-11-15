@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { errorMessage, searchProfessors, type ProfessorSuggestion } from '../api';
-import { ChevronIcon, ClockIcon, CloseIcon, SearchIcon } from '../components/icons';
+import { errorMessage, safeHttpUrl, searchProfessors, type ProfessorSuggestion } from '../api';
+import { ChevronIcon, ClockIcon, CloseIcon, ScaleIcon, SearchIcon } from '../components/icons';
 import SavedList from '../components/SavedList';
 import { score } from '../utils/format';
 import './Search.css';
@@ -39,6 +39,35 @@ function saveRecents(recents: Recent[]): void {
   }
 }
 
+/** The face where there is one, initials where there isn't — two "Kim"s are
+ *  told apart faster by face than by department. */
+function Avatar({ match }: { match: ProfessorSuggestion }) {
+  const src = safeHttpUrl(match.imageUrl);
+  if (src) {
+    return (
+      <img
+        className="row-avatar"
+        src={src}
+        alt=""
+        loading="lazy"
+        style={{ objectPosition: `${match.focusX ?? 50}% ${match.focusY ?? 30}%` }}
+      />
+    );
+  }
+  const initials = match.name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+  return (
+    <span className="row-avatar initials" aria-hidden="true">
+      {initials}
+    </span>
+  );
+}
+
 type Results =
   | { status: 'idle' }
   | { status: 'loading' }
@@ -50,11 +79,15 @@ type Results =
  *  joins a comparison, so search itself never navigates. */
 export default function Search({
   onPick,
+  onCompare,
   heading,
   exclude = [],
   showSaved = false,
 }: {
   onPick: (slug: string) => void;
+  /** Starts a comparison from a result row. Left off in picker mode, where
+   *  picking already means comparing. */
+  onCompare?: (slug: string) => void;
   /** Shown above the box in picker mode, e.g. "Compare with…". */
   heading?: string;
   /** Professors already in the comparison, left out of the results. */
@@ -125,6 +158,13 @@ export default function Search({
           placeholder="Search professors…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            // Escape empties the box before it goes back a screen.
+            if (e.key === 'Escape' && query) {
+              e.preventDefault();
+              setQuery('');
+            }
+          }}
         />
         {query && (
           <button
@@ -187,12 +227,13 @@ export default function Search({
           ) : (
             <ul className="row-list">
               {matches.map((m) => (
-                <li key={m.slug}>
+                <li key={m.slug} className="row-wrap">
                   <button
                     className="row"
                     type="button"
                     onClick={() => pick({ name: m.name, dept: m.dept, slug: m.slug })}
                   >
+                    <Avatar match={m} />
                     <span className="row-main">
                       <span className="row-title">{m.name}</span>
                       {m.dept && <span className="row-meta">{m.dept}</span>}
@@ -207,6 +248,17 @@ export default function Search({
                     )}
                     <ChevronIcon className="row-chev" />
                   </button>
+                  {onCompare && (
+                    <button
+                      className="row-remove"
+                      type="button"
+                      onClick={() => onCompare(m.slug)}
+                      aria-label={`Compare ${m.name}`}
+                      title="Compare"
+                    >
+                      <ScaleIcon />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

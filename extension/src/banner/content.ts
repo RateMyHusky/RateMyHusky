@@ -1,6 +1,8 @@
-import { lookup, MAX_CRNS, openProfessor, type Section, type Term, type SaveResponse } from './messages';
+/// <reference types="vite/client" />
+import { lookup, MAX_CRNS, openProfessor, type Section, type Term } from './messages';
 import { readRows, stillTeaching, type Row } from './table';
-import { BADGE_TAG, badgeFor } from './badge';
+import { BADGE_TAG, badgeFor, pendingBadge } from './badge';
+import { maybeShowHint } from './hint';
 import { USE_FIXTURES, fixtureLookup } from './fixtures';
 
 /** Runs on Banner's registration pages and puts each section's rating in the
@@ -16,7 +18,8 @@ import { USE_FIXTURES, fixtureLookup } from './fixtures';
 // script built as an ES module doesn't throw — it never executes at all, and
 // no console anywhere says so. If this line is missing from the page console,
 // the IIFE build pass is what's broken; don't debug anything else first.
-console.log('[RateMyHusky] banner content script loaded');
+// Dev builds only (`npm run dev:content`), so Banner's console stays clean.
+if (import.meta.env.DEV) console.log('[RateMyHusky] banner content script loaded');
 
 /** Every answer so far, keyed "term:crn", for as long as the page is open. A
  *  sort, or paging back, redraws rows we've already asked about, and those
@@ -27,34 +30,6 @@ const answers = new Map<string, Section | null>();
 const asking = new Set<string>();
 
 const keyOf = (term: Term, crn: string) => `${term}:${crn}`;
-
-/** Preserve the course label shown in this row, not a guessed course code. */
-function courseOf(row: Row): string {
-  const code = row.tr.querySelector<HTMLElement>(
-    'td[data-property="subjectCourse"], td[data-property="courseNumber"], td[data-property="courseReferenceNumber"]',
-  )?.textContent?.trim();
-  const title = row.tr.querySelector<HTMLElement>('td[data-property="courseTitle"] a.section-details-link')
-    ?.textContent?.trim();
-  return [code, title].filter(Boolean).join(' · ').slice(0, 180) || `CRN ${row.crn}`;
-}
-
-async function saveFromRow(row: Row, section: Section): Promise<void> {
-  if (!section.slug || !section.instructor || !stillTeaching(section.instructor, row.names)) {
-    throw new Error('No verified professor to save');
-  }
-  const response = await chrome.runtime.sendMessage({
-    type: 'banner:save',
-    entry: {
-      slug: section.slug,
-      name: section.instructor,
-      course: courseOf(row),
-      term: row.term,
-      crn: row.crn,
-      savedAt: Date.now(),
-    },
-  }) as SaveResponse;
-  if (!response?.ok) throw new Error('Could not save professor');
-}
 
 // A title link is the student's explicit choice of a section to inspect.
 // Use it to associate Banner's already-rendered detail dialog with that row.
@@ -96,7 +71,6 @@ function decorateDetail(): void {
     content.querySelectorAll(BADGE_TAG).forEach((badge) => badge.remove());
     const badge = badgeFor(answer, badgeKey, {
       sample: USE_FIXTURES, inInstructorCell: false, coTaught: false,
-      onSave: () => saveFromRow(row, answer),
       onOpen: answer.slug ? () => openProfessor(answer.slug!) : undefined,
     });
     if (badge) content.append(badge);
@@ -113,10 +87,13 @@ function decorate(): void {
     const key = keyOf(row.term, row.crn);
     if (answers.has(key)) {
       place(row, key, answers.get(key) ?? null);
-    } else if (!asking.has(key)) {
+      continue;
+    }
+    if (!asking.has(key)) {
       asking.add(key);
       unasked.set(row.term, [...(unasked.get(row.term) ?? []), row.crn]);
     }
+    showPending(row, key);
   }
 
   for (const [term, crns] of unasked) {
@@ -159,10 +136,22 @@ function place(row: Row, key: string, answer: Section | null): void {
     sample: USE_FIXTURES,
     inInstructorCell: row.inInstructorCell,
     coTaught: (row.names?.length ?? 0) > 1,
-    onSave: section?.slug ? () => saveFromRow(row, section) : undefined,
     onOpen: section?.slug ? () => openProfessor(section.slug!) : undefined,
   });
-  if (badge) row.cell.append(badge);
+  if (badge) {
+    row.cell.append(badge);
+    if (section?.slug) void maybeShowHint();
+  }
+}
+
+/** A shimmer where the badge will go. Keyed like place's badges, so the
+ *  observer pass it sets off finds it already there and leaves it. */
+function showPending(row: Row, key: string): void {
+  const want = `${key}:pending`;
+  const badges = row.tr.querySelectorAll(BADGE_TAG);
+  if (badges.length === 1 && badges[0].getAttribute('data-key') === want && row.cell.contains(badges[0])) return;
+  badges.forEach((b) => b.remove());
+  row.cell.append(pendingBadge(want));
 }
 
 let queued = false;

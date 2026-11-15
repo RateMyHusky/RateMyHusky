@@ -30,6 +30,19 @@ export default function App({ openSlug }: { openSlug?: string }) {
   const open = (next: View) => setStack((s) => [...s, next]);
   const back = () => setStack((s) => s.slice(0, -1));
 
+  // Escape goes back, like the header's arrow. Search's box handles it first
+  // when it has text (clearing that instead), and stops it there.
+  useEffect(() => {
+    if (stack.length < 2) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.preventDefault();
+      back();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [stack.length]);
+
   // main.tsx applies the stored theme before the first paint; this is for the
   // changes the user makes afterwards.
   useEffect(() => {
@@ -45,9 +58,9 @@ export default function App({ openSlug }: { openSlug?: string }) {
   /** Overview's Compare starts a fresh comparison with that professor in it,
    *  then goes straight to picking the second — one professor isn't a
    *  comparison. */
-  function startCompare(): void {
-    if (!slug) return;
-    setComparing([slug]);
+  function startCompare(first: string | null = slug): void {
+    if (!first) return;
+    setComparing([first]);
     setDropped([]);
     open('pick');
   }
@@ -76,14 +89,14 @@ export default function App({ openSlug }: { openSlug?: string }) {
         onSettings={view === 'settings' ? undefined : () => open('settings')}
       />
       <main className="body">
-        {view === 'search' && <Search onPick={openProfessor} showSaved />}
+        {view === 'search' && <Search onPick={openProfessor} onCompare={startCompare} showSaved />}
         {view === 'pick' && (
           <Search onPick={addToCompare} heading="Add to comparison" exclude={live} />
         )}
         {view === 'overview' && slug && (
           <Overview
             slug={slug}
-            onCompare={startCompare}
+            onCompare={() => startCompare()}
             onReviews={() => open('reviews')}
             onCourses={() => open('courses')}
           />

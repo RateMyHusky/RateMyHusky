@@ -30,7 +30,7 @@ const CSP_REPORT_SAMPLE = 0.1;
 // thumbnails (a catalog page loads dozens; each would be a middleware call).
 export const config = {
   matcher:
-    '/((?!maintenance\\.html|logo\\.jpg|neu-husky-icon\\.png|robots\\.txt|ads\\.txt|sitemap\\.xml|llms\\.txt|2c426a030622417e4b03f2011ae5959e\\.txt|_vercel|photos/).*)',
+    '/((?!maintenance\\.html|logo\\.jpg|robots\\.txt|ads\\.txt|sitemap\\.xml|llms\\.txt|2c426a030622417e4b03f2011ae5959e\\.txt|_vercel|photos/).*)',
 };
 
 // Preview hosts /bypass-handoff will redirect to. Not the security boundary

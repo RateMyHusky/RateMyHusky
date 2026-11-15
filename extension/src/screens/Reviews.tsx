@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { fetchProfessor, professorUrl, type Review } from '../api';
+import { fetchProfessor, professorUrl } from '../api';
 import StarRating from '../components/StarRating';
 import { plural } from '../utils/format';
+import { mergeReviews, sortReviews, type Sort, type Source } from '../utils/reviews';
 import { useAsync } from '../utils/useAsync';
+import { Failed, Loading } from '../components/Status';
 import './Reviews.css';
-
-type Sort = 'newest' | 'highest' | 'lowest';
 
 const SORTS: { value: Sort; label: string }[] = [
   { value: 'newest', label: 'Newest' },
@@ -13,103 +13,126 @@ const SORTS: { value: Sort; label: string }[] = [
   { value: 'lowest', label: 'Lowest' },
 ];
 
-function sortReviews(reviews: Review[], sort: Sort): Review[] {
-  const out = [...reviews];
-  if (sort === 'highest') return out.sort((a, b) => b.quality - a.quality);
-  if (sort === 'lowest') return out.sort((a, b) => a.quality - b.quality);
-  return out.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
-}
+type Filter = 'all' | Source;
 
-function monthYear(value: string): string {
-  const d = new Date(value);
-  return Number.isNaN(d.getTime())
-    ? value
-    : d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-}
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'rmh', label: 'RateMyHusky' },
+  { value: 'rmp', label: 'RateMyProfessors' },
+];
 
-/** Older reviews have no id, and two can be word-for-word the same, so the
- *  key falls back to the content plus how many times it's been seen. */
-function keyed(reviews: Review[]): { review: Review; key: string }[] {
-  const seen = new Map<string, number>();
-  return reviews.map((review) => {
-    const base =
-      review.id != null
-        ? String(review.id)
-        : JSON.stringify([review.date, review.courseCode, review.quality, review.comment]);
-    const n = seen.get(base) ?? 0;
-    seen.set(base, n + 1);
-    return { review, key: `${base}-${n}` };
-  });
+const SOURCE_LABEL: Record<Source, string> = { rmh: 'RateMyHusky', rmp: 'RateMyProfessors' };
+
+/** A row of Settings' segmented control, scaled down. Real radios, so the
+ *  arrow keys and the "1 of 3" announcement come from the browser. */
+function Segmented<T extends string>({
+  name,
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  name: string;
+  label: string;
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="rev-seg" role="radiogroup" aria-label={label}>
+      {options.map((o) => (
+        <label key={o.value} className={o.value === value ? 'rev-seg-opt on' : 'rev-seg-opt'}>
+          <input
+            type="radio"
+            name={name}
+            value={o.value}
+            checked={o.value === value}
+            onChange={() => onChange(o.value)}
+          />
+          {o.label}
+        </label>
+      ))}
+    </div>
+  );
 }
 
 export default function Reviews({ slug }: { slug: string }) {
   const state = useAsync(() => fetchProfessor(slug), slug);
   const [sort, setSort] = useState<Sort>('newest');
+  const [filter, setFilter] = useState<Filter>('all');
 
-  if (state.status === 'loading') return <p className="muted">Loading…</p>;
-  if (state.status === 'error') return <p className="muted">{state.message}</p>;
+  if (state.status === 'loading') return <Loading />;
+  if (state.status === 'error') return <Failed message={state.message} onRetry={state.retry} />;
 
   const { identity, sources } = state.data;
-  const reviews = sources.rmp.reviews;
+  const all = mergeReviews(sources.rmp.reviews, sources.survey?.reviews ?? []);
+  // The source filter only earns its row once there's something to choose
+  // between; most professors have no RateMyHusky reviews yet.
+  const mixed = all.some((r) => r.source === 'rmh') && all.some((r) => r.source === 'rmp');
+  const shown = sortReviews(
+    mixed && filter !== 'all' ? all.filter((r) => r.source === filter) : all,
+    sort,
+  );
 
   return (
     <div className="reviews">
       <div className="rev-head">
         <p className="section-label">
-          {identity.name} · {reviews.length} {plural(reviews.length, 'review')}
+          {identity.name} · {all.length} {plural(all.length, 'review')}
         </p>
-        {reviews.length > 1 && (
-          <div className="rev-sort" role="radiogroup" aria-label="Sort reviews">
-            {SORTS.map((s) => (
-              <label key={s.value} className={s.value === sort ? 'rev-sort-opt on' : 'rev-sort-opt'}>
-                <input
-                  type="radio"
-                  name="review-sort"
-                  value={s.value}
-                  checked={s.value === sort}
-                  onChange={() => setSort(s.value)}
-                />
-                {s.label}
-              </label>
-            ))}
-          </div>
+        {mixed && (
+          <Segmented
+            name="review-source"
+            label="Show reviews from"
+            options={FILTERS}
+            value={filter}
+            onChange={setFilter}
+          />
+        )}
+        {shown.length > 1 && (
+          <Segmented
+            name="review-sort"
+            label="Sort reviews"
+            options={SORTS}
+            value={sort}
+            onChange={setSort}
+          />
         )}
       </div>
 
-      {reviews.length === 0 ? (
+      {shown.length === 0 ? (
         <p className="muted">No reviews yet.</p>
       ) : (
         <ul className="rev-list">
-          {keyed(sortReviews(reviews, sort)).map(({ review, key }) => {
-            const tags = review.tags
-              .split('--')
-              .map((t) => t.trim())
-              .filter(Boolean);
-            return (
-              <li key={key} className="rev">
-                <div className="rev-top">
-                  <StarRating rating={review.quality} size="sm" />
-                  {review.courseCode && <span className="rev-course">{review.courseCode}</span>}
-                  <span className="rev-date">{monthYear(review.date)}</span>
+          {shown.map((r) => (
+            <li key={r.key} className="rev">
+              <div className="rev-top">
+                <StarRating rating={r.rating} size="sm" />
+                {r.course && <span className="rev-course">{r.course}</span>}
+                {r.when && <span className="rev-date">{r.when}</span>}
+              </div>
+              {r.comment ? (
+                <p className="rev-text">{r.comment}</p>
+              ) : (
+                <p className="rev-text muted">No written comment.</p>
+              )}
+              <p className="rev-meta">
+                <span className={r.source === 'rmh' ? 'rev-src rmh' : 'rev-src'}>
+                  {SOURCE_LABEL[r.source]}
+                </span>
+                {r.difficulty != null && <span>Difficulty {r.difficulty}/5</span>}
+              </p>
+              {r.tags.length > 0 && (
+                <div className="rev-tags">
+                  {r.tags.map((t) => (
+                    <span key={t} className="rev-tag">
+                      {t}
+                    </span>
+                  ))}
                 </div>
-                {review.comment ? (
-                  <p className="rev-text">{review.comment}</p>
-                ) : (
-                  <p className="rev-text muted">No written comment.</p>
-                )}
-                <p className="rev-meta">Difficulty {review.difficulty}/5</p>
-                {tags.length > 0 && (
-                  <div className="rev-tags">
-                    {tags.map((t) => (
-                      <span key={t} className="rev-tag">
-                        {t.toLowerCase()}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </li>
-            );
-          })}
+              )}
+            </li>
+          ))}
         </ul>
       )}
 

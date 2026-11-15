@@ -71,6 +71,7 @@ jobs:
       # Type-checks and bundles. Without this a broken vite config or a type
       # error in extension/src merges with the rest of CI green.
       - run: npm run build
+      - run: npm test
       - name: dist is loadable by Chrome
         run: |
           test -f dist/manifest.json

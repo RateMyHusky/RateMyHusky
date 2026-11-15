@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import searchFixture from './fixtures/search.json';
 import rachlin from './fixtures/professors/john-rachlin.json';
 import kaeli from './fixtures/professors/david-kaeli.json';
@@ -16,7 +17,10 @@ export const USE_FIXTURES = false;
 // Must be the site, not the backend host: the API only accepts traffic
 // proxied through here, which is what attaches the shared secret.
 export const SITE_URL = 'https://ratemyhusky.com';
-const API_BASE = SITE_URL;
+/** Where data requests go. The same VITE_RMH_API switch as the worker's, so
+ *  one `VITE_RMH_API=http://localhost:5001 npm run build` points the whole
+ *  extension at a local backend. Links students click always go to the site. */
+const API_BASE = import.meta.env.VITE_RMH_API ?? SITE_URL;
 
 export type ProfessorSuggestion = {
   type: 'professor';
@@ -24,6 +28,10 @@ export type ProfessorSuggestion = {
   dept: string | null;
   rating: number | null;
   slug: string;
+  /** Optional: older deploys of /api/search and the fixtures don't send them. */
+  imageUrl?: string | null;
+  focusX?: number;
+  focusY?: number;
 };
 
 export type CourseSuggestion = {
@@ -31,6 +39,16 @@ export type CourseSuggestion = {
   code: string;
   name: string | null;
   dept: string | null;
+};
+
+/** One review left through RateMyHusky's own rating form. `when` is the
+ *  term it was about, e.g. "Fall 2025", not a date. */
+export type StudentReview = {
+  id: string;
+  course: string | null;
+  when: string | null;
+  rating: number;
+  comment: string;
 };
 
 /** One RateMyProfessors review as /full sends it. `tags` is one string,
@@ -113,7 +131,13 @@ export function errorMessage(err: unknown): string {
 }
 
 export function professorUrl(slug: string): string {
-  return `${API_BASE}/professors/${encodeURIComponent(slug)}`;
+  return `${SITE_URL}/professors/${encodeURIComponent(slug)}`;
+}
+
+/** The site's rating form, opened on this professor. Same link the site's
+ *  own "Rate this professor" buttons use (rateHref in frontend/src/utils). */
+export function rateUrl(slug: string): string {
+  return `${SITE_URL}/rate?professor=${encodeURIComponent(slug)}`;
 }
 
 export function courseUrl(code: string): string {
@@ -157,6 +181,9 @@ export type Professor = {
   awards: TeachingAward[];
   sources: {
     rmp: { reviews: Review[] };
+    /** Ratings left on RateMyHusky itself. Missing from older payloads and
+     *  the fixtures, so optional. */
+    survey?: { reviews: StudentReview[] };
   };
 };
 

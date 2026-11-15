@@ -1,10 +1,13 @@
-import { fetchProfessor, professorUrl, safeHttpUrl } from '../api';
+import { fetchProfessor, professorUrl, rateUrl, safeHttpUrl } from '../api';
 import StarRating from '../components/StarRating';
 import StatTile from '../components/StatTile';
 import AwardChips from '../components/AwardChips';
-import { ScaleIcon, ReviewsIcon, InfoIcon } from '../components/icons';
+import { ScaleIcon, ReviewsIcon, InfoIcon, BookmarkIcon } from '../components/icons';
+import { useSaved } from '../components/SavedList';
+import { save, unsave } from '../utils/saved';
 import { score, percent, plural } from '../utils/format';
 import { useAsync } from '../utils/useAsync';
+import { Failed, Loading } from '../components/Status';
 import './Overview.css';
 
 export default function Overview({
@@ -19,9 +22,12 @@ export default function Overview({
   onCourses?: () => void;
 }) {
   const state = useAsync(() => fetchProfessor(slug), slug);
+  const saved = useSaved().some((s) => s.slug === slug);
+  // chrome.storage is missing outside the extension, so there's nowhere to save.
+  const canSave = typeof chrome !== 'undefined' && !!chrome.storage;
 
-  if (state.status === 'loading') return <p className="muted">Loading…</p>;
-  if (state.status === 'error') return <p className="muted">{state.message}</p>;
+  if (state.status === 'loading') return <Loading shape="profile" />;
+  if (state.status === 'error') return <Failed message={state.message} onRetry={state.retry} />;
 
   const { identity, summary, courses, lastTaught, awards } = state.data;
   const image = safeHttpUrl(identity.imageUrl);
@@ -41,6 +47,17 @@ export default function Overview({
         )}
         <div className="who">
           <h1 className="name">{identity.name}</h1>
+          <button
+            className={saved ? 'save-btn on' : 'save-btn'}
+            type="button"
+            disabled={!canSave}
+            aria-pressed={saved}
+            aria-label={saved ? `Remove ${identity.name} from saved` : `Save ${identity.name}`}
+            title={saved ? 'Saved' : 'Save'}
+            onClick={() => void (saved ? unsave(slug) : save(slug, identity.name))}
+          >
+            <BookmarkIcon filled={saved} />
+          </button>
           {identity.department && <p className="dept">{identity.department}</p>}
           {lastTaught && <span className="chip">Last taught {lastTaught}</span>}
           <AwardChips awards={awards} moreHref={professorUrl(identity.slug)} />
@@ -73,6 +90,11 @@ export default function Overview({
           View Reviews
         </button>
       </div>
+      {/* Read, then add one: the popup otherwise only ever takes. A link, not
+          a third button, so it doesn't compete with the two above. */}
+      <a className="rate-link" href={rateUrl(identity.slug)} target="_blank" rel="noopener noreferrer">
+        Taken their class? Rate this professor
+      </a>
 
       <p className="section-label">
         Key Stats

@@ -949,7 +949,8 @@ def _professor_search(q, limit=5, rated_only=False):
     alias_first = "(slug = ANY(%s)) DESC, " if alias_slugs else ""
     alias_params = [sorted(alias_slugs)] if alias_slugs else []
     rows = query(
-        f"SELECT slug, name, name_key, department, avg_rating, total_reviews "
+        f"SELECT slug, name, name_key, department, avg_rating, total_reviews, "
+        f"image_url, focus_x, focus_y "
         f"FROM professors_catalog WHERE {where} "
         f"ORDER BY {alias_first}({PROFESSOR_KEY_FOLD_SQL} LIKE %s OR {PROFESSOR_KEY_FOLD_SQL} LIKE %s) DESC, total_reviews DESC, slug LIMIT 100",
         params + alias_params + [f"{q_fold}%", f"% {q_fold}%"]
@@ -1267,6 +1268,10 @@ def search():
                 "dept": r["department"],
                 "rating": round(r["avg_rating"], 2) if r["avg_rating"] and r["avg_rating"] > 0 else None,
                 "slug": r["slug"],
+                # For the extension's result rows; the site's search box ignores it.
+                "imageUrl": r.get("image_url"),
+                "focusX": r.get("focus_x") if r.get("focus_x") is not None else 50.0,
+                "focusY": r.get("focus_y") if r.get("focus_y") is not None else 30.0,
             })
         return jsonify(results)
 
@@ -1297,23 +1302,35 @@ def search():
 
 # Banner search injection
 
-@app.route("/api/banner/sections")
+@app.route("/api/banner/sections", methods=["POST"])
 def banner_sections_lookup():
-    term = request.args.get("term", "").strip()
-    raw_crns = request.args.get("crns", "").strip()
+    """Ratings for one page of Banner sections, keyed by CRN.
 
-    if not re.fullmatch(r"\d{6}", term):
+    POST with {"term": "202730", "crns": ["30351", ...]} rather than a query
+    string: request logs keep URLs, and a URL listing the CRNs on a student's
+    screen is a record of what they were registering for. Nothing about the
+    request is stored.
+    """
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "Expected a JSON object"}), 400
+
+    term = body.get("term")
+    raw_crns = body.get("crns")
+
+    if not isinstance(term, str) or not re.fullmatch(r"\d{6}", term):
         return jsonify({"error": "Invalid term"}), 400
 
-    crns = list(dict.fromkeys(
-        crn.strip() for crn in raw_crns.split(",")
-    ))
-
     if (
-        not raw_crns
-        or len(crns) > 50
-        or any(not re.fullmatch(r"\d{1,10}", crn) for crn in crns)
+        not isinstance(raw_crns, list)
+        or not raw_crns
+        or any(not isinstance(crn, str) or not re.fullmatch(r"\d{1,10}", crn)
+               for crn in raw_crns)
     ):
+        return jsonify({"error": "Invalid CRNs (maximum 50)"}), 400
+
+    crns = list(dict.fromkeys(raw_crns))
+    if len(crns) > 50:
         return jsonify({"error": "Invalid CRNs (maximum 50)"}), 400
 
     rows = query("""

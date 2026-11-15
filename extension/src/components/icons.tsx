@@ -88,6 +88,15 @@ export function ClockIcon(props: Props) {
   );
 }
 
+/** Filled when the professor is saved, outlined when not. */
+export function BookmarkIcon({ filled, ...props }: Props & { filled?: boolean }) {
+  return (
+    <Svg {...props}>
+      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" fill={filled ? 'currentColor' : 'none'} />
+    </Svg>
+  );
+}
+
 export function CloseIcon(props: Props) {
   return (
     <Svg {...props}>

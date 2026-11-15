@@ -60,8 +60,9 @@ def test_banner_section_lookup_pg(pg, live_server):
 
     pg.commit()
 
-    response = live_server.app.test_client().get(
-        "/api/banner/sections?term=202730&crns=36973,31896"
+    response = live_server.app.test_client().post(
+        "/api/banner/sections",
+        json={"term": "202730", "crns": ["36973", "31896"]},
     )
 
     assert response.status_code == 200
@@ -165,10 +166,9 @@ def test_banner_section_edge_cases_pg(pg, live_server):
 
     client = live_server.app.test_client()
 
-    response = client.get(
-        "/api/banner/sections"
-        "?term=202730"
-        "&crns=10001,10002,10003,10004,99999"
+    response = client.post(
+        "/api/banner/sections",
+        json={"term": "202730", "crns": ["10001", "10002", "10003", "10004", "99999"]},
     )
 
     assert response.status_code == 200

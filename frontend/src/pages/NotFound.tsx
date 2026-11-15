@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import Footer from '../components/Footer';
 
-import huskyIcon from '../assets/neu-husky-icon.png';
+import huskyIcon from '../assets/logo.jpg';
 import './NotFound.css';
 
 interface NotFoundProps {

@@ -9,7 +9,7 @@ const Privacy = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Privacy Policy</h1>
-            <p className="terms-meta">Effective November 2, 2026</p>
+            <p className="terms-meta">Effective November 14, 2026</p>
           </header>
 
           <div className="terms-body">
@@ -545,7 +545,34 @@ const Privacy = () => {
             </section>
 
             <section className="terms-section">
-              <h2>9. Children's Privacy</h2>
+              <h2>9. Browser Extension</h2>
+              <p>
+                The RateMyHusky browser extension lets you search and compare professors from
+                any page. It requests the same professor data the website shows, from
+                ratemyhusky.com, and has no analytics or advertising of its own.
+              </p>
+              <p>
+                <strong>Ratings on Banner.</strong> The extension can also show ratings inside
+                Northeastern's Banner class search. This is off until you turn it on in the
+                extension's settings, and Chrome asks for your permission first. Once it is on,
+                the extension reads the term and CRN of each class in the search results on
+                your screen, and the instructor names shown beside them, and sends the term and
+                CRNs to our server to look up ratings. We use them only to answer that request:
+                they are not saved, and they are not tied to you or to a Google account. The
+                extension does not read anything else in Banner, such as your schedule, plans,
+                registration, grades, or account details. You can turn this off at any time in
+                the extension's settings, which also removes the permission.
+              </p>
+              <p>
+                <strong>Stored on your device.</strong> Professors you save, your recent
+                searches, your theme, and whether you have seen the one-time tip on Banner are
+                kept in your browser's extension storage and are never sent to our servers. Saving keeps only the professor, not the class or
+                section you were looking at. Removing the extension deletes all of it.
+              </p>
+            </section>
+
+            <section className="terms-section">
+              <h2>10. Children's Privacy</h2>
               <p>
                 RateMyHusky is intended for Northeastern University students (aged 18 and
                 older) and is not directed at children. We do not knowingly collect personal
@@ -556,7 +583,7 @@ const Privacy = () => {
             </section>
 
             <section className="terms-section">
-              <h2>10. Changes to This Policy</h2>
+              <h2>11. Changes to This Policy</h2>
               <p>
                 We may update this Privacy Policy from time to time. The effective date at the
                 top of this page will be updated when changes are made. Continued use of
@@ -566,7 +593,7 @@ const Privacy = () => {
             </section>
 
             <section className="terms-section terms-section--last">
-              <h2>11. Contact</h2>
+              <h2>12. Contact</h2>
               <p>
                 If you have questions about this Privacy Policy or want to report a concern,
                 please email us at{' '}

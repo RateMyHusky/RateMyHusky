@@ -15,8 +15,53 @@
 }
 
 .who {
+  position: relative;
+  flex: 1;
   min-width: 0;
   padding-top: 2px;
+  padding-right: 30px;
+}
+
+/* Top-right of the hero, beside the name: saving is about this professor,
+   not one of the actions below. Only the professor is kept — see saved.ts. */
+.save-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.save-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.save-btn:hover:not(:disabled) {
+  background: var(--bg-sunken);
+  color: var(--fg);
+}
+
+.save-btn.on {
+  color: var(--brand);
+}
+
+.save-btn:disabled {
+  display: none;
+}
+
+.save-btn:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 
 .name {
@@ -75,7 +120,27 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 9px;
-  margin: 16px 0;
+  margin: 16px 0 8px;
+}
+
+.rate-link {
+  display: block;
+  margin-bottom: 16px;
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
+.rate-link:hover {
+  text-decoration: underline;
+}
+
+.rate-link:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .tiles {

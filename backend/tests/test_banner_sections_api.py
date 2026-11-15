@@ -44,8 +44,9 @@ def client(monkeypatch):
 
 
 def test_banner_sections_returns_ratings(client):
-    response = client.get(
-        "/api/banner/sections?term=202730&crns=31896,36973"
+    response = client.post(
+        "/api/banner/sections",
+        json={"term": "202730", "crns": ["31896", "36973"]},
     )
 
     assert response.status_code == 200
@@ -64,13 +65,17 @@ def test_banner_sections_returns_ratings(client):
     assert data["31896"]["rating"] is None
 
 
-@pytest.mark.parametrize("url", [
-    "/api/banner/sections?term=abc&crns=31896",
-    "/api/banner/sections?term=202730&crns=",
-    "/api/banner/sections?term=202730&crns=hello",
+@pytest.mark.parametrize("body", [
+    {"term": "abc", "crns": ["31896"]},
+    {"term": "202730", "crns": []},
+    {"term": "202730", "crns": ["hello"]},
+    {"term": "202730", "crns": [31896]},
+    {"term": "202730", "crns": "31896"},
+    {"term": "202730", "crns": [str(10000 + i) for i in range(51)]},
+    ["202730", ["31896"]],
 ])
-def test_banner_sections_rejects_invalid_input(client, url):
-    response = client.get(url)
+def test_banner_sections_rejects_invalid_input(client, body):
+    response = client.post("/api/banner/sections", json=body)
     assert response.status_code == 400
 
 def test_ambiguous_instructor_has_no_rating(client, monkeypatch):
@@ -88,8 +93,9 @@ def test_ambiguous_instructor_has_no_rating(client, monkeypatch):
 
     monkeypatch.setattr(server, "query", fake_query)
 
-    response = client.get(
-        "/api/banner/sections?term=202730&crns=36973"
+    response = client.post(
+        "/api/banner/sections",
+        json={"term": "202730", "crns": ["36973"]},
     )
 
     assert response.status_code == 200
@@ -116,8 +122,9 @@ def test_instructor_name_is_unescaped(client, monkeypatch):
 
     monkeypatch.setattr(server, "query", fake_query)
 
-    response = client.get(
-        "/api/banner/sections?term=202730&crns=30351"
+    response = client.post(
+        "/api/banner/sections",
+        json={"term": "202730", "crns": ["30351"]},
     )
 
     assert response.status_code == 200
@@ -150,8 +157,9 @@ def test_conflicting_professor_matches_return_no_rating(client, monkeypatch):
 
     monkeypatch.setattr(server, "query", fake_query)
 
-    response = client.get(
-        "/api/banner/sections?term=202730&crns=36973"
+    response = client.post(
+        "/api/banner/sections",
+        json={"term": "202730", "crns": ["36973"]},
     )
 
     assert response.status_code == 200
@@ -161,3 +169,17 @@ def test_conflicting_professor_matches_return_no_rating(client, monkeypatch):
     assert result["slug"] is None
     assert result["rating"] is None
     assert result["numRatings"] == 0
+
+
+def test_banner_sections_accepts_fifty_crns(client):
+    response = client.post(
+        "/api/banner/sections",
+        json={"term": "202730", "crns": [str(10000 + i) for i in range(50)]},
+    )
+    assert response.status_code == 200
+
+
+def test_banner_sections_is_post_only(client):
+    """CRNs in a query string end up in request logs."""
+    response = client.get("/api/banner/sections?term=202730&crns=36973")
+    assert response.status_code == 405

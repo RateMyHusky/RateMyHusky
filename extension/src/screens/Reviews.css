@@ -1,16 +1,16 @@
 .rev-head {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
   margin-bottom: 10px;
 }
 
 .rev-head .section-label {
-  margin: 0 0 6px;
+  margin: 0;
 }
 
 /* Settings' segmented control, scaled down: same track, same raised pill. */
-.rev-sort {
+.rev-seg {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 3px;
@@ -19,7 +19,7 @@
   border-radius: 10px;
 }
 
-.rev-sort-opt {
+.rev-seg-opt {
   position: relative;
   display: flex;
   justify-content: center;
@@ -32,7 +32,7 @@
   transition: background 0.15s, color 0.15s;
 }
 
-.rev-sort-opt input {
+.rev-seg-opt input {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -41,17 +41,17 @@
   pointer-events: none;
 }
 
-.rev-sort-opt:hover:not(.on) {
+.rev-seg-opt:hover:not(.on) {
   color: var(--fg);
 }
 
-.rev-sort-opt.on {
+.rev-seg-opt.on {
   background: var(--card);
   color: var(--brand);
   box-shadow: var(--shadow);
 }
 
-.rev-sort-opt:has(input:focus-visible) {
+.rev-seg-opt:has(input:focus-visible) {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
 }
@@ -98,9 +98,21 @@
 }
 
 .rev-meta {
+  display: flex;
+  gap: 8px;
   margin: 5px 0 0;
   font-size: 10.5px;
   color: var(--muted);
+}
+
+/* Which site the review came from. RateMyHusky's own reviews in the accent,
+   since they're the ones only this extension and the site have. */
+.rev-src {
+  font-weight: 700;
+}
+
+.rev-src.rmh {
+  color: var(--brand);
 }
 
 .rev-tags {

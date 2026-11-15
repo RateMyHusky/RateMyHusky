@@ -25,8 +25,8 @@ export type Section = {
    *  escaped ("O&#39;Connell"), so the endpoint has to unescape it or every
    *  apostrophe surname reads as stale. Null when no instructor is on record. */
   instructor: string | null;
-  /** Null wherever the matcher abstained, and the badge then shows the name
-   *  with no rating. Guessing here would publish one professor's rating under
+  /** Null wherever the matcher abstained, and the badge then offers a link to
+   *  rate them instead of a rating. Guessing here would publish one professor's rating under
    *  another's name, which is the one failure in this feature we can't take
    *  back. */
   slug: string | null;
@@ -69,19 +69,6 @@ export async function lookup(term: Term, crns: string[]): Promise<LookupResponse
     return { ok: false, message: (err as Error).message };
   }
 }
-
-/** Save only a confidently matched professor and the course shown on Banner. */
-export type SavedEntry = {
-  slug: string;
-  name: string;
-  course: string;
-  term: string;
-  crn: string;
-  savedAt: number;
-};
-
-export type SaveRequest = { type: 'banner:save'; entry: SavedEntry };
-export type SaveResponse = { ok: true } | { ok: false; message: string };
 
 /** Where the worker leaves the professor a badge click asked for, for the
  *  popup to pick up as it opens. Session storage: it's gone when the browser

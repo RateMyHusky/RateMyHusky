@@ -9,6 +9,7 @@ backend/.env
 backend/backups/
 backend/reports/
 __pycache__/
+.venv/
 *.pyc
 docs/
 node_modules/

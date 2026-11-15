@@ -162,6 +162,26 @@
   color: var(--muted);
 }
 
+/* Overview's .avatar, shrunk to a row. */
+.row-avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--line);
+  object-fit: cover;
+}
+
+.row-avatar.initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-wash);
+  color: var(--brand);
+  font-size: 11px;
+  font-weight: 900;
+}
+
 .row-main {
   min-width: 0;
   display: flex;
@@ -225,8 +245,8 @@
 }
 
 .row-remove svg {
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
 }
 
 .row-remove:hover {

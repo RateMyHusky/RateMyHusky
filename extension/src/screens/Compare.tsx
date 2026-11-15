@@ -2,6 +2,7 @@ import { errorMessage, fetchProfessor, safeHttpUrl, type Professor } from '../ap
 import StarRating from '../components/StarRating';
 import { buildRows, MIN_RATINGS } from '../utils/compare';
 import { useAsync } from '../utils/useAsync';
+import { Failed, Loading } from '../components/Status';
 import './Compare.css';
 
 /** A slug that didn't load, kept beside the ones that did so the student can
@@ -41,8 +42,8 @@ export default function Compare({
 }) {
   const state = useAsync(() => loadComparison(slugs), slugs.join(','));
 
-  if (state.status === 'loading') return <p className="muted">Loading…</p>;
-  if (state.status === 'error') return <p className="muted">{state.message}</p>;
+  if (state.status === 'loading') return <Loading />;
+  if (state.status === 'error') return <Failed message={state.message} onRetry={state.retry} />;
 
   const profs = state.data.profs.filter((p) => !dropped.includes(p.identity.slug));
   const failed = state.data.failed.filter((f) => !dropped.includes(f.slug));

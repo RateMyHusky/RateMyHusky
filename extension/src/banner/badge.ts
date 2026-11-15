@@ -35,20 +35,20 @@ const STYLE = `
   a.badge:hover { border-color: #d6394c; }
   a.badge:focus-visible { outline: 2px solid #d6394c; outline-offset: 1px; }
   .plain { border-color: #dfe2e8; background: #f6f7f9; color: #686d78; font-weight: 400; }
+  a.plain:hover { border-color: #b9bec8; }
   .star { color: #d99a00; }
   .quiet { color: #686d78; font-weight: 400; }
-  button.save {
-    margin-left: 4px; border: 1px solid #d6394c; border-radius: 5px;
-    padding: 2px 6px; background: white; color: #b82e3f;
-    cursor: pointer; font: 600 11px/1.4 system-ui, sans-serif;
-  }
-  button.save:hover { background: #fdf2f3; }
-  button.save:focus-visible { outline: 2px solid #d6394c; outline-offset: 2px; }
-  button.save:disabled { opacity: .6; cursor: default; }
   .sample {
     padding: 0 3px; border-radius: 3px; background: #686d78; color: #fff;
     font-size: 8px; font-weight: 700; text-transform: uppercase;
   }
+  .pending {
+    display: block; width: 72px; height: 16px; border-radius: 6px;
+    background: linear-gradient(90deg, #f1f2f4 0%, #e3e5e9 50%, #f1f2f4 100%);
+    background-size: 200% 100%; animation: rmh-shimmer 1.2s ease-in-out infinite;
+  }
+  @keyframes rmh-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+  @media (prefers-reduced-motion: reduce) { .pending { animation: none; } }
 `;
 
 const plural = (n: number, one: string) => (n === 1 ? one : `${one}s`);
@@ -63,12 +63,21 @@ function span(className: string, text: string): HTMLSpanElement {
   return el;
 }
 
-/** A name and nothing claimed about it, for when the matcher abstained. */
-function plain(instructor: string): HTMLElement {
-  const el = span('badge plain', '');
-  el.title = instructor;
-  el.append(span('name', instructor));
-  return el;
+/** For an instructor we couldn't match to a professor page. Nothing is claimed
+ *  about them — no rating, no guess — just a way to be the first to rate them,
+ *  since a gap here is usually a professor nobody's added yet. Under the title
+ *  the name comes too, because the grid there doesn't show one. */
+function unmatched(instructor: string, withName: boolean): HTMLElement {
+  const a = document.createElement('a');
+  a.className = 'badge plain';
+  a.href = `${SITE}/rate`;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.title = `${instructor} isn't on RateMyHusky yet`;
+  if (withName) a.append(span('name', surname(instructor)));
+  a.append(span('quiet', 'Rate this professor'));
+  a.setAttribute('aria-label', `Rate ${instructor} on RateMyHusky; no ratings yet`);
+  return a;
 }
 
 /** Built with textContent throughout, never innerHTML: the names come from a
@@ -79,7 +88,10 @@ function linked(s: Section, slug: string, instructor: string, withName: boolean)
   a.href = `${SITE}/professors/${encodeURIComponent(slug)}`;
   a.target = '_blank';
   a.rel = 'noopener noreferrer';
-  a.title = instructor;
+  // Says what a click does, since it opens the popup rather than following
+  // the link. The full name rides along, as the badge may show only the
+  // surname.
+  a.title = `Open ${instructor} in RateMyHusky`;
   // Surname only, which keeps "Rachlin ★ 4.6 (52)" to one line in a cell
   // that can hold it. The full name is in the label and on hover.
   if (withName) a.append(span('name', surname(instructor)));
@@ -109,20 +121,15 @@ export type Placement = {
   /** More than one name in the Instructor cell, so the badge has to say whose
    *  rating it is. */
   coTaught: boolean;
-  onSave?: () => Promise<void>;
   /** A plain click opens the professor in the popup instead of the site. */
   onOpen?: () => void;
 };
 
 /** One section's badge, or null when there's nothing to say — the CRN isn't
- *  in our data, no instructor is on record for it, or the only thing to add is
- *  a name the cell already shows. */
+ *  in our data, or no instructor is on record for it. */
 export function badgeFor(section: Section | null, key: string, where: Placement): HTMLElement | null {
   const instructor = section?.instructor;
   if (!section || !instructor) return null;
-  // No slug means the matcher abstained. Under the title the name still says
-  // something the grid doesn't; in the Instructor cell Banner just said it.
-  if (!section.slug && where.inInstructorCell) return null;
 
   const host = document.createElement(BADGE_TAG);
   host.setAttribute('data-key', key);
@@ -137,7 +144,7 @@ export function badgeFor(section: Section | null, key: string, where: Placement)
   // so the badge leaves it off — unless there's more than one name there.
   const body = section.slug
     ? linked(section, section.slug, instructor, !where.inInstructorCell || where.coTaught)
-    : plain(instructor);
+    : unmatched(instructor, !where.inInstructorCell || where.coTaught);
   if (where.sample) body.append(span('sample', 'sample'));
 
   // Only a plain left click is taken over. Cmd/Ctrl/Shift-click and the
@@ -154,25 +161,18 @@ export function badgeFor(section: Section | null, key: string, where: Placement)
 
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.append(style, body);
-  if (section.slug && where.onSave && !where.sample) {
-    const save = document.createElement('button');
-    save.type = 'button';
-    save.className = 'save';
-    save.textContent = 'Save';
-    save.setAttribute('aria-label', `Save ${instructor} to RateMyHusky`);
-    save.addEventListener('click', async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      save.disabled = true;
-      try {
-        await where.onSave!();
-        save.textContent = 'Saved ✓';
-      } catch {
-        save.textContent = 'Retry save';
-        save.disabled = false;
-      }
-    });
-    shadow.append(save);
-  }
+  return host;
+}
+
+/** Holds a row's place while its lookup is in flight, so a slow connection
+ *  reads as loading rather than as a row with nothing to show. Replaced by
+ *  the real badge, or removed, when the answer lands. */
+export function pendingBadge(key: string): HTMLElement {
+  const host = document.createElement(BADGE_TAG);
+  host.setAttribute('data-key', key);
+  host.setAttribute('aria-hidden', 'true');
+  const style = document.createElement('style');
+  style.textContent = STYLE;
+  host.attachShadow({ mode: 'open' }).append(style, span('pending', ''));
   return host;
 }
