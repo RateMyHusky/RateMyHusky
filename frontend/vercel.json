@@ -44,7 +44,7 @@
       ]
     },
     {
-      "source": "/(favicon\\.png|logo\\.jpg|neu-husky-icon\\.png)",
+      "source": "/(favicon\\.png|logo\\.jpg)",
       "headers": [
         {
           "key": "Cache-Control",

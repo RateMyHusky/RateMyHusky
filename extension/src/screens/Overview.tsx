@@ -1,44 +1,60 @@
-import { fetchProfessor, professorUrl, safeHttpUrl } from '../api';
+import { fetchProfessor, professorUrl, rateUrl } from '../api';
 import StarRating from '../components/StarRating';
 import StatTile from '../components/StatTile';
 import AwardChips from '../components/AwardChips';
-import { ScaleIcon, ReviewsIcon, InfoIcon } from '../components/icons';
+import { ScaleIcon, ReviewsIcon, InfoIcon, BookmarkIcon } from '../components/icons';
+import Photo from '../components/Photo';
+import { useSaved } from '../components/SavedList';
+import { save, unsave } from '../utils/saved';
 import { score, percent, plural } from '../utils/format';
 import { useAsync } from '../utils/useAsync';
+import { Failed, Loading } from '../components/Status';
 import './Overview.css';
 
 export default function Overview({
   slug,
   onCompare,
+  onReviews,
   onCourses,
 }: {
   slug: string;
   onCompare?: () => void;
+  onReviews?: () => void;
   onCourses?: () => void;
 }) {
   const state = useAsync(() => fetchProfessor(slug), slug);
+  const saved = useSaved().some((s) => s.slug === slug);
+  // chrome.storage is missing outside the extension, so there's nowhere to save.
+  const canSave = typeof chrome !== 'undefined' && !!chrome.storage;
 
-  if (state.status === 'loading') return <p className="muted">Loading…</p>;
-  if (state.status === 'error') return <p className="muted">{state.message}</p>;
+  if (state.status === 'loading') return <Loading shape="profile" />;
+  if (state.status === 'error') return <Failed message={state.message} onRetry={state.retry} />;
 
   const { identity, summary, courses, lastTaught, awards } = state.data;
-  const image = safeHttpUrl(identity.imageUrl);
 
   return (
     <>
       <div className="hero">
-        {image ? (
-          <img
-            className="avatar"
-            src={image}
-            alt=""
-            style={{ objectPosition: `${identity.focusX}% ${identity.focusY}%` }}
-          />
-        ) : (
-          <div className="avatar" aria-hidden="true" />
-        )}
+        <Photo
+          key={identity.imageUrl ?? ''}
+          url={identity.imageUrl}
+          className="avatar"
+          style={{ objectPosition: `${identity.focusX}% ${identity.focusY}%` }}
+          fallback={<div className="avatar" aria-hidden="true" />}
+        />
         <div className="who">
           <h1 className="name">{identity.name}</h1>
+          <button
+            className={saved ? 'save-btn on' : 'save-btn'}
+            type="button"
+            disabled={!canSave}
+            aria-pressed={saved}
+            aria-label={saved ? `Remove ${identity.name} from saved` : `Save ${identity.name}`}
+            title={saved ? 'Saved' : 'Save'}
+            onClick={() => void (saved ? unsave(slug) : save(slug, identity.name))}
+          >
+            <BookmarkIcon filled={saved} />
+          </button>
           {identity.department && <p className="dept">{identity.department}</p>}
           {lastTaught && <span className="chip">Last taught {lastTaught}</span>}
           <AwardChips awards={awards} moreHref={professorUrl(identity.slug)} />
@@ -64,18 +80,18 @@ export default function Overview({
           <ScaleIcon />
           Compare
         </button>
-        {/* A real link, not chrome.tabs.create: works in the popup, in any
-            preview, and gives middle/cmd-click for free. */}
-        <a
-          className="btn secondary"
-          href={professorUrl(identity.slug)}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
+        {/* In the popup, not a link out: the reviews are already in the /full
+            payload this screen loaded. Reviews links to the site at its foot. */}
+        <button className="btn secondary" type="button" onClick={onReviews} disabled={!onReviews}>
           <ReviewsIcon />
           View Reviews
-        </a>
+        </button>
       </div>
+      {/* Read, then add one: the popup otherwise only ever takes. A link, not
+          a third button, so it doesn't compete with the two above. */}
+      <a className="rate-link" href={rateUrl(identity.slug)} target="_blank" rel="noopener noreferrer">
+        Taken their class? Rate this professor
+      </a>
 
       <p className="section-label">
         Key Stats

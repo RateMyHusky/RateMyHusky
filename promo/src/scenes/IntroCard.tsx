@@ -8,7 +8,7 @@ import {
 } from 'remotion';
 import { FONT, RED, TAGLINE } from '../branding';
 
-export const IntroCard: React.FC = () => {
+export const IntroCard: React.FC<{ tagline?: string }> = ({ tagline = TAGLINE }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const logoS = spring({ frame, fps, config: { damping: 12, mass: 0.6 } });
@@ -63,7 +63,7 @@ export const IntroCard: React.FC = () => {
           padding: '0 120px',
         }}
       >
-        {TAGLINE}
+        {tagline}
       </div>
     </AbsoluteFill>
   );

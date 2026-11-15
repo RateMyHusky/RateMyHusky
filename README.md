@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="frontend/public/neu-husky-icon.png" alt="RateMyHusky" width="90" />
+<img src="frontend/public/logo.jpg" alt="RateMyHusky" width="90" />
 
 # RateMyHusky
 
