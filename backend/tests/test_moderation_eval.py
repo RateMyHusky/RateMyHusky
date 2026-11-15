@@ -99,7 +99,7 @@ def test_run_sends_the_comment_through_check(fake_groq):
     groq = fake_groq("ALLOW")
     run([item("a", text="Great lectures.")], [], groq)
     (call,) = groq.calls
-    assert call["messages"][1] == {"role": "user", "content": "Great lectures."}
+    assert call["messages"][1] == {"role": "user", "content": mg.user_message("Great lectures.")}
     assert call["reasoning_effort"] == mg.EFFORT
 
 
@@ -394,20 +394,11 @@ def test_report_held_half_leaves_out_tuning_items():
     assert "real-9" in text
 
 
-def test_the_eval_takes_the_groq1_to_n_keys_in_order(monkeypatch):
-    for n, key in ((1, "gsk-a"), (2, "gsk-b"), (4, "gsk-d")):
+def test_the_eval_takes_the_groq2_to_n_keys_in_order_and_never_prods_groq1(monkeypatch):
+    for n, key in ((1, "gsk-a"), (2, "gsk-b"), (3, "gsk-c"), (5, "gsk-e")):
         monkeypatch.setenv(f"groq{n}", key)
-    monkeypatch.delenv("groq3", raising=False)
-    monkeypatch.delenv("GROQ_MODERATION_KEY", raising=False)
-    assert me.groq_keys() == ["gsk-a", "gsk-b"]
-
-
-def test_the_eval_never_takes_prods_key(monkeypatch):
-    for n, key in ((1, "gsk-a"), (2, "gsk-b")):
-        monkeypatch.setenv(f"groq{n}", key)
-    monkeypatch.delenv("groq3", raising=False)
-    monkeypatch.setenv("GROQ_MODERATION_KEY", " gsk-a ")
-    assert me.groq_keys() == ["gsk-b"]
+    monkeypatch.delenv("groq4", raising=False)
+    assert me.groq_keys() == ["gsk-b", "gsk-c"]
 
 
 def test_the_real_sample_is_drawn_over_a_read_only_session(monkeypatch):

@@ -7,12 +7,11 @@ sample and 90% of the written `live` comments get ALLOW, and no clearly-bad `hol
 comment gets ALLOW in any run. The real sample alone can't show wrong blocks: a
 comment prod's check blocked was never saved, so it can't be drawn.
 
-Keys: calls go on the groq1..groqN keys from backend/.env in turn, never on prod's
-GROQ_MODERATION_KEY. Each groqN key must come from a Groq org other than prod's: the
-limits are per org, so a key in prod's org spends prod's quota and live comments get
-429s. Quota: Groq's free plan gives this model 3 requests and 2,000 tokens a minute,
-200,000 tokens a day per org, so calls go about 2 a minute and the run stops before
-170,000 tokens in 24 hours. A stopped run resumes the next day without
+Keys: calls go on the groq2..groqN keys from backend/.env in turn, never on groq1,
+which prod's comment check uses. Each key must belong to its own Groq org (account),
+not groq1's, or a run spends prod's daily tokens anyway. Quota: Groq's free plan gives this model 3 requests and 2,000
+tokens a minute, 200,000 tokens a day per org, so calls go about 2 a minute and the
+run stops before 170,000 tokens in 24 hours. A stopped run resumes the next day without
 redoing finished calls: results are saved after every call.
 
 It writes nothing to prod: a read-only session draws the real sample once, and no
@@ -129,14 +128,12 @@ def in_half(item, half):
 
 
 def groq_keys():
-    """The groq1, groq2, ... keys from the environment, stopping at the first gap,
-    minus prod's GROQ_MODERATION_KEY. Each must be from an org other than prod's,
-    since Groq's limits are per org; this can't check that."""
+    """The groq2, groq3, ... keys from the environment, stopping at the first gap.
+    Never groq1: prod's comment check runs on it, on this same model."""
     keys = []
-    while os.getenv(f"groq{len(keys) + 1}", "").strip():
-        keys.append(os.environ[f"groq{len(keys) + 1}"].strip())
-    prod = os.getenv("GROQ_MODERATION_KEY", "").strip()
-    return [k for k in keys if k != prod]
+    while os.getenv(f"groq{len(keys) + 2}", "").strip():
+        keys.append(os.environ[f"groq{len(keys) + 2}"].strip())
+    return keys
 
 
 def rotating(*clients):
@@ -406,7 +403,7 @@ def _command(args):
         apply_setup(policy, args.model, args.effort)
         keys = groq_keys()
         if not keys:
-            print("No groq1..groqN keys in backend/.env.", file=sys.stderr)
+            print("No groq2..groqN keys in backend/.env (groq1 is prod's).", file=sys.stderr)
             return 1
         print(f"Using {len(keys)} groqN key(s); each must be from a Groq org other than prod's.")
 
