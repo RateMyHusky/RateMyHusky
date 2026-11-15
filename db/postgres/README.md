@@ -130,7 +130,10 @@ CREATE TABLE IF NOT EXISTS public.professor_tags (
 );
 CREATE INDEX IF NOT EXISTS professor_tags_tag ON public.professor_tags (tag ASC, review_count DESC);
 ALTER TABLE public.professors ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'rmp';
+ALTER TABLE public.banner_course_offerings ADD COLUMN IF NOT EXISTS term_labels TEXT;
 ```
+
+`banner_course_offerings.term_labels` lists every term a course ran, so the course page's Last Taught can skip a term that hasn't started without losing one that ran with only TBA sections. Run the ALTER before deploying: without the column the course-history query fails and the history build's schema check refuses to run. It stays NULL until the next history build fills it, and the page uses its instructors' terms until then.
 
 Banner-only professors record which source first created each professor in `professors.origin` (`'rmp'`, `'banner'`, or `'survey'`, created by `review_ratings.py approve-professor`). It is never updated, so a Banner-created professor that later gains an RMP link keeps `'banner'`. Run the ALTER before deploying: without the column the new `pipeline.run` fails at the Banner insert, after `apply_roster` has already committed.
 

@@ -1171,12 +1171,13 @@ def goat_professors():
     # and ratings below the prior left. An unbumped key serves the previous
     # version from the cache after deploy, which looks exactly like the fix not
     # working. v7: rows carry the slug; a cached v6 row has none to link with.
+    # v8: rows carry rmhRating.
     # Unknown colleges are answered before the cache: every value would
     # otherwise store its own [] and push real boards out of the LRU. With
     # limit clamped, a college holds at most 50 entries.
     if college not in BOARD_COLLEGES:
         return jsonify([])
-    cache_key = f"goat:v7:{college}:{limit}"
+    cache_key = f"goat:v8:{college}:{limit}"
     cached = cache_get(cache_key)
     # `is not None`: an empty board is a real answer and must cache too.
     if cached is not None:
@@ -1195,8 +1196,11 @@ def goat_professors():
     # whenever total_reviews is recomputed. The durable property is the one
     # test_measured_claims checks — that no tie reaches a board's top 10, which
     # is the only place the ordering is visible.
+    # The survey row is the RateMyHusky rating avg_rating blends in, for the ⓘ breakdown.
     rows = query(f"""
-        SELECT * FROM professors_catalog
+        SELECT c.*, s.rating AS rmh_rating FROM professors_catalog c
+        LEFT JOIN source_summary s
+               ON s.professor_slug = c.slug AND s.course_code = '' AND s.source = 'survey'
         WHERE college = %s AND total_reviews >= %s AND avg_rating >= %s
         ORDER BY total_reviews >= %s DESC,
                  {RANKING_SCORE_SQL} DESC, total_reviews DESC, name
@@ -1211,6 +1215,7 @@ def goat_professors():
             "name": row["name"],
             "dept": row["department"],
             "rmpRating": round(row["rmp_rating"], 2) if row["rmp_rating"] else None,
+            "rmhRating": round(row["rmh_rating"], 2) if row.get("rmh_rating") else None,
             # Never NULL: `avg_rating >= %s` above drops those rows.
             "avgRating": round(row["avg_rating"], 2),
             # Displayed as "Ratings": the floor above gates on it and
@@ -1448,8 +1453,17 @@ def professor_full(slug):
     hub = _department_hub_map().get(dept_slug)
     has_hub = hub is not None and hub["name"] == identity.get("department")
     data = {**data, "identity": {**identity, "departmentSlug": dept_slug if has_hub else None}}
+    authed = _is_authed()
+    # RateMyHusky comments are for signed-in students: a signed-out page gets only how many there
+    # are, and each one's course so a ?course= filter can count them, so the tab can show its
+    # count behind the sign-in prompt. The numbers stay public.
+    survey = (data.get("sources") or {}).get("survey") or {}
+    if not authed and survey.get("reviews"):
+        data["sources"] = {**data["sources"],
+                           "survey": {**survey, "reviews": [], "lockedReviews": len(survey["reviews"]),
+                                      "lockedCourses": [r.get("course") for r in survey["reviews"]]}}
     resp = jsonify(data)
-    resp.headers["Cache-Control"] = "private, max-age=3600" if _is_authed() else "public, max-age=3600"
+    resp.headers["Cache-Control"] = "private, max-age=3600" if authed else "public, max-age=3600"
     resp.headers["Vary"] = "Authorization"
     return history_cache_control(resp)
 
@@ -2184,8 +2198,8 @@ def _get_auth_token():
 
 
 def _is_authed():
-    """True when the request carries a valid session token. Pages serve the same
-    payload either way; only the Cache-Control header differs."""
+    """True when the request carries a valid session token. It sets the page's
+    Cache-Control, and a professor page holds back RateMyHusky comments without it."""
     return decode_session_token(_get_auth_token()) is not None
 
 

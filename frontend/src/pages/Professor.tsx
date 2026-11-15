@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import Footer from '../components/Footer';
 import NotFound from './NotFound';
 import LoadError from '../components/LoadError';
@@ -204,7 +205,7 @@ function deduplicateByText<T>(items: T[], getText: (item: T) => string): T[] {
 }
 
 /* Display names for summary.bySource keys; an unlisted source shows its key. */
-const SOURCE_LABELS: Record<string, string> = { rmp: 'RMP' };
+const SOURCE_LABELS: Record<string, string> = { rmp: 'RMP', survey: 'RMH' };
 
 /* A review's course as the backend groups it (whitespace stripped, uppercased); codes the backend rejects never appear in courses[]. */
 const courseCode = (raw: string) => raw.replace(/\s+/g, '').toUpperCase();
@@ -245,6 +246,14 @@ const groupAwards = (awards: TeachingAward[]) => {
 
 const COURSES_COLLAPSED_LIMIT = 5;
 const MAX_VISIBLE_TERMS = 3;
+
+/* What each review tab has to show, and the RateMyHusky comments held back behind sign-in: defaultTab's inputs. */
+const tabCounts = (data: ProfessorPage) => ({
+  students: RATE_ENABLED ? (data.sources.survey.reviews ?? []).length : 0,
+  rmp: data.sources.rmp.reviews.filter(r => r.comment?.trim()).length,
+  reddit: data.redditMentions.length,
+});
+const lockedCount = (data: ProfessorPage) => RATE_ENABLED ? data.sources.survey.lockedReviews ?? 0 : 0;
 
 const Professor = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -351,11 +360,7 @@ const Professor = () => {
         setActiveTag(null);
         // An Ask citation picks its own tab (the pins effect); otherwise open on the first with entries.
         if (!(location.state as { askPins?: unknown } | null)?.askPins) {
-          setReviewTab(defaultTab({
-            students: RATE_ENABLED ? (res.data.sources.survey.reviews ?? []).length : 0,
-            rmp: res.data.sources.rmp.reviews.filter(r => r.comment?.trim()).length,
-            reddit: res.data.redditMentions.length,
-          }));
+          setReviewTab(defaultTab(tabCounts(res.data), lockedCount(res.data)));
         }
       }
       else setLoadError(res.status === 404 ? 'not_found' : 'failed');
@@ -374,6 +379,26 @@ const Professor = () => {
     fetchProfessorTags(slug).then((t) => { if (!cancelled) setTags(t); });
     return () => { cancelled = true; };
   }, [slug]);
+
+  /* ── signing in or out on this page: refetch once, so the held-back RateMyHusky comments
+     appear on sign-in and leave the page on sign-out. Signing in on a tab with nothing in it
+     moves to the first tab that now has entries; a tab with entries is left alone. ── */
+  const { user, loading: authLoading } = useAuth();
+  const locked = (profile?.sources.survey.lockedReviews ?? 0) > 0;
+  const hasRmhComments = (profile?.sources.survey.reviews?.length ?? 0) > 0;
+  useEffect(() => {
+    if (!slug || authLoading || (user ? !locked : !hasRmhComments)) return;
+    let cancelled = false;
+    fetchProfessorFull(slug).then((res) => {
+      if (cancelled || !res.ok) return;
+      setProfile(res.data);
+      if (user) {
+        const counts = tabCounts(res.data);
+        setReviewTab(t => counts[t] > 0 ? t : defaultTab(counts, lockedCount(res.data)));
+      }
+    });
+    return () => { cancelled = true; };
+  }, [user, authLoading, slug, locked, hasRmhComments]);
 
   const reviews = useMemo(() => profile?.sources.rmp.reviews ?? [], [profile]);
   const redditMentions = useMemo(() => profile?.redditMentions ?? [], [profile]);
@@ -650,6 +675,16 @@ const Professor = () => {
   // Ratings, not reviews: reviews[] holds approved comments only. There is no survey-only count per
   // course (courses[].numRatings mixes in RMP), so a course filter gets the link, not a counted card.
   const surveyCount = profile.sources.survey.numRatings;
+  // Signed out, the API holds RateMyHusky comments back and sends only how many there are.
+  const lockedReviews = profile.sources.survey.lockedReviews ?? 0;
+  // The tab counts the course filter's share of them, as the RMP tab does; the sign-in card keeps
+  // the total, since signing in shows them all. No lockedCourses (a page cached before it): the total.
+  const lockedCourses = profile.sources.survey.lockedCourses;
+  const lockedInFilter = lockedCourses
+    ? filterByCourses(lockedCourses.map(course => ({ course })), selectedCourses).length : lockedReviews;
+  const openRmhSignIn = () => window.dispatchEvent(new CustomEvent('open-signin', {
+    detail: { reason: 'Sign in to read RateMyHusky comments from other Huskies.' },
+  }));
   const profLast = lastName(identity.name);
   const rateCourse = selectedCourses.size === 1 ? [...selectedCourses][0] : null;
   const showRateCard = RATE_ENABLED && !ratedHere && unfiltered && surveyCount < 5;
@@ -1101,9 +1136,9 @@ const Professor = () => {
               }} 
             />
             {RATE_ENABLED && (
-              <button className={`prof-review-tab ${reviewTab === 'students' ? 'active' : ''}`} onClick={() => setReviewTab('students')}>
-                <span className="prof-review-tab-full">RateMyHusky ({filteredStudentReviews.length})</span>
-                <span className="prof-review-tab-short">RateMyHusky ({filteredStudentReviews.length})</span>
+              <button className={`prof-review-tab ${reviewTab === 'students' ? 'active' : ''}`} onClick={() => { setReviewTab('students'); if (locked) openRmhSignIn(); }}>
+                <span className="prof-review-tab-full">RateMyHusky ({locked ? lockedInFilter : filteredStudentReviews.length})</span>
+                <span className="prof-review-tab-short">RateMyHusky ({locked ? lockedInFilter : filteredStudentReviews.length})</span>
               </button>
             )}
             <button className={`prof-review-tab ${reviewTab === 'rmp' ? 'active' : ''}`} onClick={() => setReviewTab('rmp')}>
@@ -1119,9 +1154,9 @@ const Professor = () => {
 
         {reviewTab === 'students' && (
           <>
-            {((canFilter && ratedCourses.length > 1) || showRateLink) && (
+            {((canFilter && ratedCourses.length > 1 && !locked) || showRateLink) && (
               <div className="prof-reviews-filters">
-                {canFilter && ratedCourses.length > 1 && (
+                {canFilter && ratedCourses.length > 1 && !locked && (
                   <Dropdown
                     ariaLabel="Filter reviews by course"
                     className="feedback-dropdown"
@@ -1136,7 +1171,7 @@ const Professor = () => {
                 )}
               </div>
             )}
-            {!unfiltered && (
+            {!unfiltered && !locked && (
               <div className="prof-active-filter">
                 Showing {filteredStudentReviews.length} review{filteredStudentReviews.length === 1 ? '' : 's'} for <strong>{selectedLabel}</strong>
                 <button className="prof-action-link" onClick={() => setSelectedCourses(new Set())}>Show all</button>
@@ -1152,7 +1187,15 @@ const Professor = () => {
                 <Link to={rateHref(identity.slug, surveyCount === 0 ? 'tab_empty' : 'tab_few')} className="prof-rate-btn">Rate this professor</Link>
               </div>
             )}
-            <div className="prof-reviews-list">
+            {locked && (
+              <div className="prof-rate-card">
+                <p className="prof-rate-card-text">
+                  Sign in to read {lockedReviews} RateMyHusky {lockedReviews === 1 ? 'comment' : 'comments'}.
+                </p>
+                <button className="prof-rate-btn" onClick={openRmhSignIn}>Sign In</button>
+              </div>
+            )}
+            {!locked && <div className="prof-reviews-list">
               {filteredStudentReviews.length === 0 ? (
                 !(showRateCard && surveyCount === 0) && (
                 <p className="prof-no-reviews">
@@ -1190,7 +1233,7 @@ const Professor = () => {
                   </div>
                 ))
               )}
-            </div>
+            </div>}
             {visibleStudentReviews < filteredStudentReviews.length && (
               <button className="prof-load-more" onClick={() => setVisibleStudentReviews(v => v + 10)}>
                 Load More
