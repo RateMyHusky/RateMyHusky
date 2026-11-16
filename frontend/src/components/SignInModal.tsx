@@ -19,6 +19,7 @@ export default function SignInModal({ open, onClose, reason }: Props) {
   const { login, devLogin, user } = useAuth();
   const navigate = useNavigate();
   const [closing, setClosing] = useState(false);
+  const [devError, setDevError] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const googleBtnRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
@@ -28,6 +29,7 @@ export default function SignInModal({ open, onClose, reason }: Props) {
   // the effect below instead and keeps it for BookmarksContext to save.
   const animatedClose = (callback?: () => void) => {
     clearPendingBookmark();
+    setDevError(null);
     setClosing(true);
     setTimeout(() => {
       setClosing(false);
@@ -99,14 +101,19 @@ export default function SignInModal({ open, onClose, reason }: Props) {
           <button
             className="signin-modal-dev-btn"
             title="Shift-click to sign in as a different dev account"
-            onClick={e => {
-              if (!e.shiftKey) return devLogin();
-              const as = window.prompt('Dev account name (lowercase letters, digits, hyphens):', 'dev');
-              if (as) devLogin(as.trim());
+            onClick={async e => {
+              let as: string | undefined;
+              if (e.shiftKey) {
+                const typed = window.prompt('Dev account name (letters, digits, hyphens):', 'dev');
+                if (typed === null) return;
+                as = typed.trim().toLowerCase();
+              }
+              setDevError(await devLogin(as));
             }}>
             Dev sign-in (local only)
           </button>
         )}
+        {devError && <p className="signin-modal-dev-error" role="alert">{devError}</p>}
       </div>
     </div>
   );

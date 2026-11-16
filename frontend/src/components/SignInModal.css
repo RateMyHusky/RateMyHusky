@@ -166,6 +166,16 @@
   color: #e0c060;
 }
 
+.signin-modal-dev-error {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  color: #b3261e;
+}
+
+.dark .signin-modal-dev-error {
+  color: #f2b8b5;
+}
+
 .google-icon {
   width: 20px;
   height: 20px;

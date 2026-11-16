@@ -161,7 +161,9 @@ FRONTEND_URL=http://localhost:5173
 # Optional — local sign-in without Google. Adds a "Dev sign-in" button to the
 # sign-in modal under `npm run dev` (shift-click it to pick another dev account).
 # Ignored on Railway. Whatever a dev account saves (bookmarks, Ask questions)
-# goes to the database ORACLE_DATABASE_URL points at.
+# goes to the database ORACLE_DATABASE_URL points at. Only works from a frontend
+# at http://localhost:5173 or FRONTEND_URL: the backend's origin check refuses any
+# other origin, e.g. when Vite falls back to 5174 because 5173 is taken.
 DEV_LOGIN=1
 
 # Optional — browser extension. Load extension/dist at chrome://extensions and
