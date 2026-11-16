@@ -97,9 +97,26 @@ class TestLoadEntries:
         monkeypatch.setenv("groq3", "ccc")
         assert [e["key"] for e in load_entries()] == ["aaa"]
 
+    def test_comma_separated_groq_api_keys(self, monkeypatch, tmp_path):
+        for n in range(1, 5):
+            monkeypatch.delenv("groq%d" % n, raising=False)
+        monkeypatch.setattr(key_pool, "KEY_STORE", str(tmp_path / "missing.json"))
+        monkeypatch.setenv("GROQ_API_KEYS", " aaa, bbb ,,")
+        monkeypatch.setenv("GROQ_API_KEY", "solo")
+        entries = load_entries()
+        assert [e["key"] for e in entries] == ["aaa", "bbb"]
+        assert entries[0]["tpd_limit"] == DEFAULT_TPD
+
+    def test_numbered_keys_win_over_groq_api_keys(self, monkeypatch):
+        monkeypatch.setenv("groq1", "aaa")
+        monkeypatch.delenv("groq2", raising=False)
+        monkeypatch.setenv("GROQ_API_KEYS", "zzz")
+        assert [e["key"] for e in load_entries()] == ["aaa"]
+
     def test_json_store_fallback(self, monkeypatch, tmp_path):
         for n in range(1, 5):
             monkeypatch.delenv("groq%d" % n, raising=False)
+        monkeypatch.delenv("GROQ_API_KEYS", raising=False)
         monkeypatch.delenv("GROQ_API_KEY", raising=False)
         store = tmp_path / "keys.json"
         store.write_text(json.dumps({"keys": [_entry("fromfile")]}))
@@ -109,6 +126,7 @@ class TestLoadEntries:
     def test_single_env_key_last_resort(self, monkeypatch, tmp_path):
         for n in range(1, 5):
             monkeypatch.delenv("groq%d" % n, raising=False)
+        monkeypatch.delenv("GROQ_API_KEYS", raising=False)
         monkeypatch.setattr(key_pool, "KEY_STORE", str(tmp_path / "missing.json"))
         monkeypatch.setenv("GROQ_API_KEY", "solo")
         assert [e["key"] for e in load_entries()] == ["solo"]
@@ -116,6 +134,7 @@ class TestLoadEntries:
     def test_no_keys_anywhere_returns_empty(self, monkeypatch, tmp_path):
         for n in range(1, 5):
             monkeypatch.delenv("groq%d" % n, raising=False)
+        monkeypatch.delenv("GROQ_API_KEYS", raising=False)
         monkeypatch.delenv("GROQ_API_KEY", raising=False)
         monkeypatch.setattr(key_pool, "KEY_STORE", str(tmp_path / "missing.json"))
         assert load_entries() == []

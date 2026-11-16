@@ -8,8 +8,10 @@ python-dotenv
 gunicorn
 psycopg2-binary
 openai
-onnxruntime
-tokenizers
-huggingface_hub
+# Same pins as requirements-data.txt: query vectors (rag/query_embedder.py) must stay
+# comparable with the corpus vectors the weekly refresh writes. Bump both files together.
+onnxruntime>=1.31,<1.32
+tokenizers>=0.23,<0.24
+huggingface_hub>=2.4,<2.5
 numpy
 maxminddb

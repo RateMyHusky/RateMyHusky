@@ -43,6 +43,46 @@ def abuse_check(session_token, query_one_fn):
         return {"allowed": True, "banned": False, "message": _WARN}
     return {"allowed": True, "banned": False, "message": None}
 
+# What a kept strike's question becomes after a data deletion.
+DELETED_TEXT = "[deleted at the user's request]"
+_LIVE_STRIKE = ("result_status = ANY(%s) AND created_at > now() - %s * INTERVAL '1 day'")
+
+def account_data_counts(cur, account):
+    """What delete_account_data would touch: all Ask rows, the strikes that still count,
+    and bookmarks."""
+    cur.execute(
+        "SELECT count(*), count(*) FILTER (WHERE " + _LIVE_STRIKE + ") "
+        "FROM ask_log WHERE session_token = %s",
+        (list(STRIKE_STATUSES), STRIKE_WINDOW_DAYS, account))
+    rows, strikes = cur.fetchone()
+    cur.execute("SELECT count(*) FROM bookmarks WHERE user_sub = %s", (account,))
+    return {"ask_rows": rows, "live_strikes": strikes, "bookmarks": cur.fetchone()[0]}
+
+def delete_account_data(cur, account, keep_standing):
+    """Erase one account's Ask questions and bookmarks; the caller commits.
+
+    keep_standing=True is a data deletion: the account stays, and so does its Ask standing.
+    The strikes that still count are kept with their text removed, so a warning, cap or
+    ban carries on and lapses on its usual STRIKE_WINDOW_DAYS schedule. keep_standing=False
+    is an account deletion: every row goes, strikes and any ban included."""
+    kept = 0
+    if keep_standing:
+        cur.execute(
+            "UPDATE ask_log SET query = %s, answer_text = NULL, professor_slug = NULL, ip_hash = NULL "
+            "WHERE session_token = %s AND " + _LIVE_STRIKE,
+            (DELETED_TEXT, account, list(STRIKE_STATUSES), STRIKE_WINDOW_DAYS))
+        kept = cur.rowcount
+        # now() is fixed for the transaction, so this spares exactly the rows kept above.
+        # IS NOT TRUE, not NOT: a row with a NULL created_at must be deleted too.
+        cur.execute(
+            "DELETE FROM ask_log WHERE session_token = %s AND (" + _LIVE_STRIKE + ") IS NOT TRUE",
+            (account, list(STRIKE_STATUSES), STRIKE_WINDOW_DAYS))
+    else:
+        cur.execute("DELETE FROM ask_log WHERE session_token = %s", (account,))
+    deleted = cur.rowcount
+    cur.execute("DELETE FROM bookmarks WHERE user_sub = %s", (account,))
+    return {"deleted": deleted, "kept_strikes": kept, "bookmarks_deleted": cur.rowcount}
+
 def selftest():
     fails = []
     def check(label, cond):

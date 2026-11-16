@@ -46,3 +46,14 @@ export function pinnedFirst<T>(items: T[], getBody: (t: T) => string, snippets: 
   }
   return [...pinned, ...rest];
 }
+
+// Identifies one citation click: the answer it came from (askedAt), the cited source, and the
+// navigation that carried it (React Router's location.key, new on every click). Two citations
+// from the same answer get different keys, and so does clicking the same one again, so each
+// click re-applies the pins. Never '' — the professor page's "nothing applied yet" sentinel.
+export function pinClickKey(
+  pins: { askedAt: number; clicked: { source: string | null; snippet: string } },
+  navKey = '',
+): string {
+  return JSON.stringify([pins.askedAt, pins.clicked.source, pins.clicked.snippet, navKey]);
+}

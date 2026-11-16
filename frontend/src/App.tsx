@@ -19,9 +19,10 @@ import Privacy from './pages/Privacy';
 import Faq from './pages/Faq';
 import Navbar from './components/Navbar';
 import FeedbackTab from './components/FeedbackTab';
-import ThemeToggle from './components/ThemeToggle';
+import AskWidget from './components/AskWidget';
 import ErrorBoundary from './components/ErrorBoundary';
-import { RATE_ENABLED } from './config';
+import { ASK_ENABLED, RATE_ENABLED } from './config';
+import { clearTranscript } from './utils/askWidget';
 import './App.css';
 
 function ScrollToTop() {
@@ -69,7 +70,13 @@ function App() {
             </Routes>
           </ErrorBoundary>
           <FeedbackTab />
-          <ThemeToggle />
+          {ASK_ENABLED && (
+            // A widget crash removes the widget, not the page, and drops the saved transcript
+            // so the next load doesn't replay whatever crashed it.
+            <ErrorBoundary fallback={null} onError={clearTranscript}>
+              <AskWidget />
+            </ErrorBoundary>
+          )}
         </Router>
         {/* Pageviews are counted by GA; Speed Insights reports from a quarter of page
             loads, since every report is a request against Vercel's monthly CDN limit. */}

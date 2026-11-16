@@ -19,6 +19,10 @@ def load_entries():
         n += 1
     if env_keys:
         return env_keys
+    # Or one comma-separated GROQ_API_KEYS (what the README documents).
+    listed = [k.strip() for k in (os.getenv("GROQ_API_KEYS") or "").split(",") if k.strip()]
+    if listed:
+        return [_entry(k) for k in listed]
     # Fallback: gitignored JSON store.
     if os.path.exists(KEY_STORE):
         with open(KEY_STORE, encoding="utf-8") as f:

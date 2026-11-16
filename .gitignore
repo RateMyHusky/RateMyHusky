@@ -14,6 +14,7 @@ __pycache__/
 docs/
 node_modules/
 .DS_Store
+.claude
 
 backend/groq_keys.local.json
 *.local.json

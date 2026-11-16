@@ -47,9 +47,9 @@ Choosing classes at Northeastern means juggling RateMyProfessors tabs and Reddit
 - **GOATED leaderboard** — top-rated professors by college
 - **Search that keeps up** — instant autocomplete across professors and courses, plus a shuffle wheel for serendipity
 
-### Ask (AI, paused)
+### Ask (AI)
 
-Ask is turned off while it's being improved: `ASK_ENABLED` in `frontend/src/config.ts` and `CHAT_ENABLED` on the backend.
+The floating Ask widget is shown while `ASK_ENABLED` in `frontend/src/config.ts` is true. The backend always serves it.
 
 - **Ask a real question** — *"Is Rachlin a fair grader?"* — and get a cited, single-shot answer grounded in actual student reviews
 - **Hybrid retrieval** — full-text search + 384-dim [BGE-small](https://huggingface.co/BAAI/bge-small-en-v1.5) embeddings fused with Reciprocal Rank Fusion over review excerpts from RMP and Reddit
@@ -162,9 +162,12 @@ FRONTEND_URL=http://localhost:5173
 # copy the id it shows. Unset means no extension can reach the API.
 EXTENSION_ORIGINS=chrome-extension://<your-unpacked-extension-id>
 
-# Optional — AI Ask mode (off unless CHAT_ENABLED=true)
-CHAT_ENABLED=true
+# Optional — AI Ask mode. Without keys, Ask questions that need the LLM fail.
+# Either a comma-separated list, or one key per variable (groq1, groq2, ...),
+# which takes precedence when set. CHAT_ENABLED=false turns Ask questions off
+# (503) without a deploy; site help keeps working.
 GROQ_API_KEYS=<key1>,<key2>
+CHAT_ENABLED=true
 
 # Optional — student rating form. The rating routes return 503 until
 # RATING_SECRET (at least 32 characters) is set.
