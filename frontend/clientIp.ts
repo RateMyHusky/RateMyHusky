@@ -4,7 +4,7 @@
 // Cloudflare, x-real-ip is a Cloudflare edge address and the student's is in
 // CF-Connecting-IP. Anyone can send that header straight to a *.vercel.app host, so it is
 // believed only when the request also carries CF_SHARED_SECRET in x-rmh-cf-secret, which
-// a Cloudflare Transform Rule adds (see docs/cloudflare-fronting.md). Otherwise it is
+// a Cloudflare Transform Rule adds (see frontend/CLOUDFLARE_FRONTING.md). Otherwise it is
 // ignored and x-real-ip is used, exactly as before.
 // Run the selftest: cd frontend && npm run test:clientip
 
