@@ -18,8 +18,11 @@
 //                       Preview must use the same value as Production, or
 //                       every handoff fails to redeem and lands on handoff=none.
 //   PROXY_SECRET      — shared secret the backend checks; also set on Railway
+//   CF_SHARED_SECRET  — optional; only when Cloudflare proxies the site. Cloudflare adds it
+//                       as x-rmh-cf-secret, which makes CF-Connecting-IP trusted (clientIp.ts).
 
 import maintenance from './maintenance.config.json';
+import { trustedClientIp } from './clientIp';
 import { DETAIL_RE, isUnknownRoute, notFoundPage } from './spaRoutes';
 
 // Share of CSP violation reports forwarded to the backend's /api/csp-report.
@@ -138,10 +141,12 @@ async function proxyToBackend(request: Request, url: URL): Promise<Response> {
   // Railway appends the Vercel edge's own address to X-Forwarded-For, so the
   // last entry is Vercel, not the student. Vercel overwrites x-real-ip, so
   // pass it on as the one client IP the backend trusts; drop any client copy.
-  // No Cloudflare sits in front of us, so a CF-Connecting-IP is always client-sent.
+  // CF-Connecting-IP is client-sent unless Cloudflare proves it added it (clientIp.ts), so
+  // it never reaches the backend as-is.
   headers.delete('x-rmh-client-ip');
   headers.delete('cf-connecting-ip');
-  const clientIp = request.headers.get('x-real-ip');
+  headers.delete('x-rmh-cf-secret');
+  const clientIp = trustedClientIp(request.headers, process.env.CF_SHARED_SECRET);
   if (clientIp) headers.set('x-rmh-client-ip', clientIp);
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
@@ -328,7 +333,7 @@ export default async function middleware(request: Request): Promise<Response | u
     isCrawler(request.headers.get('user-agent') || '')
   ) {
     if (DETAIL_RE.test(url.pathname) || url.pathname in STATIC_RENDER) {
-      const snapshot = await fetchSnapshot(url.pathname, request.headers.get('x-real-ip'));
+      const snapshot = await fetchSnapshot(url.pathname, trustedClientIp(request.headers, process.env.CF_SHARED_SECRET));
       if (snapshot) {
         return new Response(snapshot.body, {
           status: snapshot.status,
