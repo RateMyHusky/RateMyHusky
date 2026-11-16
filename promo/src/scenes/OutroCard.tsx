@@ -8,7 +8,7 @@ import {
 } from 'remotion';
 import { CTA, DARK, FONT, RED } from '../branding';
 
-export const OutroCard: React.FC = () => {
+export const OutroCard: React.FC<{ cta?: string }> = ({ cta = CTA }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const logoS = spring({ frame, fps, config: { damping: 200 } });
@@ -61,7 +61,7 @@ export const OutroCard: React.FC = () => {
           borderRadius: 999,
         }}
       >
-        {CTA}
+        {cta}
       </div>
     </AbsoluteFill>
   );

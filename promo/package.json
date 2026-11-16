@@ -5,7 +5,8 @@
     "capture": "node capture/record-scenes.mjs",
     "studio": "remotion studio src/index.ts",
     "compositions": "remotion compositions src/index.ts",
-    "render": "remotion render src/index.ts PromoVideo out/ratemyhusky-promo.mp4"
+    "render": "remotion render src/index.ts PromoVideo out/ratemyhusky-promo.mp4",
+    "render:extension": "remotion render src/index.ts ExtensionDemo out/ratemyhusky-extension.mp4"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.0",

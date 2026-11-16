@@ -199,7 +199,7 @@ async function injectAuth(scene) {
     const resp = await route.fetch();
     const json = await resp.json();
     json.name = 'Husky';
-    json.picture = 'https://www.ratemyhusky.com/neu-husky-icon.png';
+    json.picture = 'https://www.ratemyhusky.com/logo.jpg';
     await route.fulfill({ response: resp, json });
   });
 }

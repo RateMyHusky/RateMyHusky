@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { SITE_URL } from '../api';
+import { hasBannerAccess, requestBannerAccess, revokeBannerAccess } from '../banner/permission';
 import { THEMES, type Theme } from '../utils/theme';
 import './Settings.css';
 
@@ -22,6 +24,26 @@ export default function Settings({
   onTheme: (theme: Theme) => void;
 }) {
   const version = extensionVersion();
+  const [bannerAccess, setBannerAccess] = useState(false);
+  const [permissionError, setPermissionError] = useState('');
+  const [changing, setChanging] = useState(false);
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.permissions) return;
+    void hasBannerAccess().then(setBannerAccess).catch(() => setPermissionError('Unable to read permission'));
+  }, []);
+
+  async function toggleBanner(): Promise<void> {
+    setChanging(true);
+    setPermissionError('');
+    try {
+      const changed = bannerAccess ? await revokeBannerAccess() : await requestBannerAccess();
+      if (changed) setBannerAccess(!bannerAccess);
+    } catch {
+      setPermissionError('Unable to update Banner permission');
+    } finally {
+      setChanging(false);
+    }
+  }
 
   return (
     <div className="settings">
@@ -52,6 +74,31 @@ export default function Settings({
         </p>
       </section>
 
+      <section>
+        <h2 className="section-label">Banner integration</h2>
+        {/* A real checkbox with role="switch": the browser supplies the
+            keyboard and the on/off announcement; the track is just drawing. */}
+        <label className="switch-row">
+          <span>Show ratings on Banner</span>
+          <input
+            type="checkbox"
+            role="switch"
+            checked={bannerAccess}
+            disabled={changing || typeof chrome === 'undefined'}
+            onChange={() => void toggleBanner()}
+          />
+          <span className="switch" aria-hidden="true" />
+        </label>
+        <p className="muted seg-note">
+          Adds each section’s rating to Banner’s class search. Chrome asks first, and it only reads
+          what Banner already shows you.
+        </p>
+        {permissionError && (
+          <p role="alert" className="muted seg-note">
+            {permissionError}
+          </p>
+        )}
+      </section>
       <section>
         <h2 className="section-label">About</h2>
         <dl className="about">

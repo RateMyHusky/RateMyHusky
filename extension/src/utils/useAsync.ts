@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { errorMessage } from '../api';
 
 /** Loading, loaded, or failed with a sentence the screen can print as-is. */
@@ -13,8 +13,12 @@ export type Async<T> =
  *
  *  `key` is the dependency rather than `load`: callers pass a fresh closure on
  *  every render, and depending on that would refetch on every render. */
-export function useAsync<T>(load: () => Promise<T>, key: string): Async<T> {
+export function useAsync<T>(load: () => Promise<T>, key: string): Async<T> & { retry: () => void } {
   const [state, setState] = useState<Async<T>>({ status: 'loading' });
+  // Bumped by retry to rerun the effect for the same key. fetchProfessor drops
+  // a failed request from its cache, so the rerun really asks again.
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   useEffect(() => {
     // Cleared on unmount and on a key change, so a slow response for the
@@ -29,7 +33,7 @@ export function useAsync<T>(load: () => Promise<T>, key: string): Async<T> {
     return () => {
       live = false;
     };
-  }, [key]);
+  }, [key, attempt]);
 
-  return state;
+  return { ...state, retry };
 }

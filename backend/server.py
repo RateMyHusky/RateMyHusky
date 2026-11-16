@@ -960,7 +960,8 @@ def _professor_search(q, limit=5, rated_only=False):
     alias_first = "(slug = ANY(%s)) DESC, " if alias_slugs else ""
     alias_params = [sorted(alias_slugs)] if alias_slugs else []
     rows = query(
-        f"SELECT slug, name, name_key, department, avg_rating, total_reviews "
+        f"SELECT slug, name, name_key, department, avg_rating, total_reviews, "
+        f"image_url, focus_x, focus_y "
         f"FROM professors_catalog WHERE {where} "
         f"ORDER BY {alias_first}({PROFESSOR_KEY_FOLD_SQL} LIKE %s OR {PROFESSOR_KEY_FOLD_SQL} LIKE %s) DESC, total_reviews DESC, slug LIMIT 100",
         params + alias_params + [f"{q_fold}%", f"% {q_fold}%"]
@@ -1283,6 +1284,10 @@ def search():
                 "dept": r["department"],
                 "rating": round(r["avg_rating"], 2) if r["avg_rating"] and r["avg_rating"] > 0 else None,
                 "slug": r["slug"],
+                # For the extension's result rows; the site's search box ignores it.
+                "imageUrl": r.get("image_url"),
+                "focusX": r.get("focus_x") if r.get("focus_x") is not None else 50.0,
+                "focusY": r.get("focus_y") if r.get("focus_y") is not None else 30.0,
             })
         return jsonify(results)
 
@@ -1309,6 +1314,155 @@ def search():
                 "dept": r["department"],
             })
         return jsonify(results)
+
+
+# Banner search injection
+
+@app.route("/api/banner/sections", methods=["POST"])
+def banner_sections_lookup():
+    """Ratings for one page of Banner sections, keyed by CRN.
+
+    POST with {"term": "202730", "crns": ["30351", ...]} rather than a query
+    string: request logs keep URLs, and a URL listing the CRNs on a student's
+    screen is a record of what they were registering for. Nothing about the
+    request is stored.
+    """
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "Expected a JSON object"}), 400
+
+    term = body.get("term")
+    raw_crns = body.get("crns")
+
+    if not isinstance(term, str) or not re.fullmatch(r"\d{6}", term):
+        return jsonify({"error": "Invalid term"}), 400
+
+    if (
+        not isinstance(raw_crns, list)
+        or not raw_crns
+        or any(not isinstance(crn, str) or not re.fullmatch(r"\d{1,10}", crn)
+               for crn in raw_crns)
+    ):
+        return jsonify({"error": "Invalid CRNs (maximum 50)"}), 400
+
+    crns = list(dict.fromkeys(raw_crns))
+    if len(crns) > 50:
+        return jsonify({"error": "Invalid CRNs (maximum 50)"}), 400
+
+    rows = query("""
+        SELECT
+            bs.crn,
+            bsi.instructor_key,
+            bsi.instructor_name,
+            bsi.is_primary,
+            pc.slug AS professor_slug,
+            pc.avg_rating AS rating,
+            -- total_reviews, not num_ratings: avg_rating is blended over RMP
+            -- and RateMyHusky ratings, and num_ratings counts RMP alone. This
+            -- is the count /api/search and the professor page show.
+            pc.total_reviews AS num_ratings,
+            (dup.instructor_key IS NOT NULL) AS ambiguous
+        FROM banner_sections bs
+        -- Banner's own rows only. Pre-Fall-2025 terms also hold one-off
+        -- 'import' instructors, which the matcher and the roster checks
+        -- exclude as not Banner data, so a rating mustn't hang off them here.
+        LEFT JOIN banner_section_instructors bsi
+          ON bsi.term_code = bs.term_code
+         AND bsi.crn = bs.crn
+         AND bsi.source = 'banner'
+        LEFT JOIN banner_roster_duplicates dup
+          ON dup.term_code = bsi.term_code
+         AND dup.instructor_key = bsi.instructor_key
+        LEFT JOIN banner_course_instructors bci
+        ON bci.subject_course = bs.subject_course
+        AND bsi.instructor_key = ANY(
+            string_to_array(
+                COALESCE(bci.instructor_keys, bci.instructor_key),
+                '|'
+            )
+        )
+        LEFT JOIN professors_catalog pc
+          ON pc.slug = bci.professor_slug
+        WHERE bs.term_code = %s
+          AND bs.crn = ANY(%s)
+        ORDER BY bs.crn, bsi.is_primary DESC NULLS LAST,
+                 bsi.instructor_key
+    """, (term, crns))
+
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row["crn"], []).append(row)
+
+    result = {}
+    for crn, section_rows in grouped.items():
+        instructors = {}
+        for row in section_rows:
+            key = row["instructor_key"]
+            if key is not None:
+                instructors.setdefault(key, []).append(row)
+
+        if not instructors:
+            result[crn] = {
+                "instructor": None,
+                "slug": None,
+                "rating": None,
+                "numRatings": 0,
+            }
+            continue
+
+        primary = [
+            entries for entries in instructors.values()
+            if any(entry["is_primary"] for entry in entries)
+        ]
+
+        if len(instructors) == 1:
+            chosen = next(iter(instructors.values()))
+        elif len(primary) == 1:
+            chosen = primary[0]
+        else:
+            # Several instructors and no unique primary: nothing to say. The
+            # extension reads `instructor` as one Banner name, so a joined
+            # "A / B" either failed its stale check or was shown as A alone,
+            # unrated. Null draws no badge, which is the honest answer here.
+            result[crn] = {
+                "instructor": None,
+                "slug": None,
+                "rating": None,
+                "numRatings": 0,
+            }
+            continue
+
+        # all candidate mappings must agree on exactly one slug
+        slugs = {
+            row["professor_slug"] for row in chosen
+        }
+
+        safe = (
+            len(slugs) == 1
+            and None not in slugs
+            and not any(row["ambiguous"] for row in chosen)
+        )
+
+        match = chosen[0] if safe else None
+
+        result[crn] = {
+            # Stored still HTML-escaped (O&#39;Connell). The extension compares
+            # this with the name Banner prints, so an escaped one reads as a
+            # different instructor and the badge is hidden as stale.
+            "instructor": sanitize(chosen[0]["instructor_name"]),
+            "slug": match["professor_slug"] if match else None,
+            "rating": (
+                round(float(match["rating"]), 2)
+                if match and match["rating"] is not None
+                else None
+            ),
+            "numRatings": (
+                int(match["num_ratings"] or 0)
+                if match else 0
+            ),
+        }
+
+    return jsonify(result)
 
 
 # ──────────────────────────────────────────────

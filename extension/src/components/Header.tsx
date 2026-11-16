@@ -15,7 +15,7 @@ export default function Header({
           <BackIcon />
         </button>
       )}
-      <img className="mark" src="neu-husky-icon.png" alt="" width={22} height={22} />
+      <img className="mark" src="logo.png" alt="" width={22} height={22} />
       <span className="wordmark">
         <span>Rate</span>MyHusky
       </span>

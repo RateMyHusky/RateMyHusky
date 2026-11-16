@@ -1,6 +1,7 @@
 import { courseUrl, fetchProfessor, RECENT_TERMS_CAP } from '../api';
 import { plural } from '../utils/format';
 import { useAsync } from '../utils/useAsync';
+import { Failed, Loading } from '../components/Status';
 import './Courses.css';
 
 /** A full list means "at least this many", since Banner history stops at the
@@ -14,8 +15,8 @@ function termCount(n: number): string | null {
 export default function Courses({ slug }: { slug: string }) {
   const state = useAsync(() => fetchProfessor(slug), slug);
 
-  if (state.status === 'loading') return <p className="muted">Loading…</p>;
-  if (state.status === 'error') return <p className="muted">{state.message}</p>;
+  if (state.status === 'loading') return <Loading />;
+  if (state.status === 'error') return <Failed message={state.message} onRetry={state.retry} />;
 
   // In the order /full sends them — taught courses most recent first, then
   // the rated-only ones most-rated first. Re-sorting here undid that, and got

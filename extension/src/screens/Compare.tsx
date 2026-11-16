@@ -1,7 +1,9 @@
-import { errorMessage, fetchProfessor, safeHttpUrl, type Professor } from '../api';
+import { errorMessage, fetchProfessor, type Professor } from '../api';
+import Photo from '../components/Photo';
 import StarRating from '../components/StarRating';
 import { buildRows, MIN_RATINGS } from '../utils/compare';
 import { useAsync } from '../utils/useAsync';
+import { Failed, Loading } from '../components/Status';
 import './Compare.css';
 
 /** A slug that didn't load, kept beside the ones that did so the student can
@@ -24,23 +26,38 @@ async function loadComparison(slugs: string[]): Promise<Comparison> {
   return { profs, failed };
 }
 
+/** The popup is 380px. Past three columns the names and numbers wrap into
+ *  each other. */
+export const MAX_COMPARE = 3;
+
 export default function Compare({
   slugs,
   dropped,
   onDrop,
+  onAdd,
 }: {
   slugs: string[];
   dropped: string[];
   onDrop: (slug: string) => void;
+  onAdd: () => void;
 }) {
   const state = useAsync(() => loadComparison(slugs), slugs.join(','));
 
-  if (state.status === 'loading') return <p className="muted">Loading…</p>;
-  if (state.status === 'error') return <p className="muted">{state.message}</p>;
+  if (state.status === 'loading') return <Loading />;
+  if (state.status === 'error') return <Failed message={state.message} onRetry={state.retry} />;
 
   const profs = state.data.profs.filter((p) => !dropped.includes(p.identity.slug));
   const failed = state.data.failed.filter((f) => !dropped.includes(f.slug));
-  if (profs.length === 0) return <p className="muted">No professors to compare.</p>;
+  if (profs.length === 0) {
+    return (
+      <div className="compare">
+        <p className="muted">No professors to compare.</p>
+        <button className="cmp-add" type="button" onClick={onAdd}>
+          + Add a Professor
+        </button>
+      </div>
+    );
+  }
 
   const { rows, low } = buildRows(profs);
   const grid = { gridTemplateColumns: `76px repeat(${profs.length}, minmax(0, 1fr))` };
@@ -52,7 +69,6 @@ export default function Compare({
             or they stop sitting above their own numbers. */}
         <span aria-hidden="true" />
         {profs.map((p) => {
-          const image = safeHttpUrl(p.identity.imageUrl);
           return (
             <div key={p.identity.slug} className="cmp-head">
               <button
@@ -64,11 +80,12 @@ export default function Compare({
               >
                 ✕
               </button>
-              {image ? (
-                <img className="cmp-face" src={image} alt="" />
-              ) : (
-                <div className="cmp-face" aria-hidden="true" />
-              )}
+              <Photo
+                key={p.identity.imageUrl ?? ''}
+                url={p.identity.imageUrl}
+                className="cmp-face"
+                fallback={<div className="cmp-face" aria-hidden="true" />}
+              />
               <b>{p.identity.name}</b>
               <span>{p.identity.department ?? '—'}</span>
             </div>
@@ -131,10 +148,19 @@ export default function Compare({
       {/* The reason sits on screen rather than in a title: Chrome doesn't
           reliably fire tooltips on a disabled button, so a title here would
           leave the control looking broken for no stated reason. */}
-      <button className="cmp-add" type="button" disabled>
+      <button
+        className="cmp-add"
+        type="button"
+        onClick={onAdd}
+        disabled={profs.length + failed.length >= MAX_COMPARE}
+      >
         + Add Another Professor
       </button>
-      <p className="muted cmp-add-note">Adding a professor needs the search screen.</p>
+      {profs.length + failed.length >= MAX_COMPARE && (
+        <p className="muted cmp-add-note">
+          {MAX_COMPARE} is as many as fit side by side. Remove one to add another.
+        </p>
+      )}
     </div>
   );
 }
