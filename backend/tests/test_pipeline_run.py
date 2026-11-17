@@ -233,3 +233,47 @@ def test_a_retired_course_keeps_its_reviews_and_gets_a_row(captured, monkeypatch
         codes=[c["code"] for c in courses], summaries={r["course_code"] for r in summary_rows}))
     assert run.main([]) == 0
     assert "CS2500" in out["codes"] and "CS2500" in out["summaries"]
+
+
+def test_a_nickname_duplicate_merges_into_one_professor(writes, monkeypatch):
+    """"Ant Woodall" and "Anthony Woodall" were two RMP pages and two professors;
+    RMP_MANUAL_LINKS joins them. Reviews, survey ratings and the photo follow,
+    and the merge is written in the catalog's transaction."""
+    def page(name, pid, n):
+        return {"name": name, "department": "Communication Studies", "rating": 4.0 if n else None,
+                "num_ratings": n, "would_take_again_pct": None, "level_of_difficulty": None,
+                "professor_url": URL + str(pid)}
+
+    def prof(slug, key, name, image=None):
+        return {"slug": slug, "name": name, "name_key": key, "department": "Communication Studies",
+                "college": "CAMD", "image_url": image, "focus_x": 50.0, "focus_y": 30.0, "origin": "rmp"}
+
+    monkeypatch.setitem(TABLES, "rmp_professors", [page("Ant  Woodall", 1, 2), page("Anthony Woodall", 2, 0)])
+    monkeypatch.setitem(TABLES, "rmp_links", [
+        {"rmp_id": pid, "rmp_name": n, "rmp_department": "Communication Studies", "professor_url": URL + str(pid),
+         "slug": s, "match_method": "frozen"}
+        for pid, n, s in [(1, "Ant  Woodall", "ant-woodall"), (2, "Anthony Woodall", "anthony-woodall")]])
+    monkeypatch.setitem(TABLES, "professors", [prof("ant-woodall", "ant woodall", "Ant Woodall", "ant.jpg"),
+                                               prof("anthony-woodall", "anthony woodall", "Anthony Woodall")])
+    monkeypatch.setitem(TABLES, "rmp_reviews", [
+        {"id": i, "professor_name": "Ant  Woodall", "department": "Communication Studies", "name_key": "ant woodall",
+         "course": None, "quality": 4.0, "difficulty": 2.0, "grade": None, "comment": "great", "visible": True}
+        for i in (10, 11)])
+    # A survey rating filed against the old slug must not vanish with it.
+    monkeypatch.setitem(TABLES, "survey_ratings", [dict(TABLES["survey_ratings"][0], professor_slug="ant-woodall")])
+    for table in ("banner_course_instructors", "track_sections"):
+        monkeypatch.setitem(TABLES, table, [])
+    monkeypatch.setattr(run.roster, "apply_merges", lambda conn, m, merged, photos: writes.append(
+        ("merges", m, merged, photos)))
+    monkeypatch.setattr(run.read_models, "verify", lambda *a: [])
+    assert run.main([]) == 0
+
+    order = [c[0] for c in writes]
+    assert order.index("merges") == order.index("read_models") - 1        # same transaction as the catalog
+    by = {c[0]: c for c in writes}
+    assert by["merges"][1:3] == ({1: ("ant-woodall", "anthony-woodall")}, {"ant-woodall": "anthony-woodall"})
+    assert by["merges"][3]["anthony-woodall"]["image_url"] == "ant.jpg"
+    assert by["name_keys"][1] == [(10, "anthony woodall"), (11, "anthony woodall")]
+    [only] = by["read_models"][1]                                          # one profile, not two
+    assert (only["slug"], only["image_url"]) == ("anthony-woodall", "ant.jpg")
+    assert (only["num_ratings"], only["total_reviews"]) == (2, 3)           # 2 RMP + the survey rating
