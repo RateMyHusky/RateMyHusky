@@ -12,6 +12,59 @@
   gap: 16px;
 }
 
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.footer-social {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.footer-social .social-link-instagram {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: #666;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.footer-social .social-link-instagram:hover {
+  color: #d6394c;
+  background: #fdecee;
+}
+
+.footer-social .social-link-chrome {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #444;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.footer-social .social-link-chrome:hover {
+  border-color: #d6394c;
+  color: #d6394c;
+}
+
+.footer-social .social-link:focus-visible {
+  outline: 2px solid #d6394c;
+  outline-offset: 2px;
+}
+
 .footer-brand {
   display: flex;
   align-items: center;
@@ -97,6 +150,11 @@
   .footer-links {
     justify-content: center;
   }
+
+  .footer-left {
+    flex-direction: column;
+    gap: 8px;
+  }
 }
 
 /* ---------- dark theme ---------- */
@@ -119,4 +177,23 @@
 
 .dark .footer-links a:hover {
   color: #d6394c;
+}
+
+.dark .footer-social .social-link-instagram {
+  color: #aaa;
+}
+
+.dark .footer-social .social-link-instagram:hover {
+  color: #ef5466;
+  background: #2c1e20;
+}
+
+.dark .footer-social .social-link-chrome {
+  border-color: #3a3a3a;
+  color: #ccc;
+}
+
+.dark .footer-social .social-link-chrome:hover {
+  border-color: #ef5466;
+  color: #ef5466;
 }

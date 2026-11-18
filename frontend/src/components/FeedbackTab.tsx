@@ -5,6 +5,7 @@ import { submitFeedback } from '../api/api';
 import { useAuth } from '../context/AuthContext';
 import { useDialog } from '../utils/useDialog';
 import { ASK_ENABLED } from '../config';
+import './FloatingButton.css';
 import './FeedbackTab.css';
 
 declare global {

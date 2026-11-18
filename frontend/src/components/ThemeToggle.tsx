@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import './FloatingButton.css';
 import './ThemeToggle.css';
 
 const ThemeToggle = () => {
@@ -34,7 +35,7 @@ const ThemeToggle = () => {
 
   return (
     <button
-      className="theme-toggle"
+      className="floating-corner floating-btn theme-toggle"
       onClick={() => setIsDark(prev => !prev)}
       aria-label="Toggle dark mode"
     >

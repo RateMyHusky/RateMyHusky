@@ -1,0 +1,57 @@
+/* The controls pinned to the screen's bottom corners: ThemeToggle (right) and
+   SocialLinks (left, homepage). .floating-corner pins an element; .floating-btn
+   is the shared round-button look. The feedback tab stacks against the same
+   variables, so the corner stays laid out as one. */
+:root {
+  --floating-inset: 24px;   /* distance from the screen edges */
+  --floating-size: 42px;    /* button height (and width when round) */
+  --floating-gap: 20px;     /* space between stacked bottom-corner controls */
+}
+
+.floating-corner {
+  position: fixed;
+  bottom: calc(var(--floating-inset) + env(safe-area-inset-bottom, 0px));
+  z-index: 200;
+}
+
+.floating-btn {
+  height: var(--floating-size);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #ddd;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.3s, border-color 0.3s, color 0.3s;
+}
+
+.floating-btn:hover {
+  border-color: #d6394c;
+}
+
+.floating-btn:focus-visible {
+  outline: 2px solid #d6394c;
+  outline-offset: 2px;
+}
+
+.dark .floating-btn {
+  background: #2a2a2a;
+  border-color: #555;
+}
+
+.dark .floating-btn:hover {
+  border-color: #d6394c;
+}
+
+/* Phones and small tablets: the bottom corners belong to page UI (sheets,
+   drawers, toasts), so the floating controls step aside. */
+@media (max-width: 768px) {
+  /* `html` raises specificity so this wins over a component's own `display`
+     (e.g. .social-links { display: flex }) whatever order the CSS loads in. */
+  html .floating-corner {
+    display: none;
+  }
+}
