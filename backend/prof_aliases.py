@@ -151,17 +151,30 @@ ALIAS_MAP = {
 # recount in the pipeline would then publish 0 ratings under the new key.
 # rmp_link_key() is the single place both sides resolve through.
 #
-# This is also how two profiles of one person are merged: an entry here is the
-# only thing that moves an already-linked RMP page (pipeline.roster.plan_relinks),
-# and the professor it leaves with no page drops out of the catalog, its
+# This is also how two profiles of one person are merged by hand: an entry here
+# moves an already-linked RMP page (pipeline.roster.plan_relinks), and the
+# professor it leaves with no page drops out of the catalog, its
 # bookmarks, photo, survey ratings and Banner rows following to the target
 # (stored as rmp_links.match_method = 'manual'). Confirm it's the same person
 # first: the target must be one professor's name_key, or nothing moves.
 #
-# Add entries here by hand when a reviewer finds a wrong link.
+# Sure nickname pairs ("Tom"/"Thomas", same last name and department) merge on
+# their own every run (pipeline.duplicates); add an entry here for a pair it
+# only lists for review (python -m pipeline.duplicates), or for any other wrong
+# link a reviewer finds.
 RMP_MANUAL_LINKS = {
     "ant woodall": "anthony woodall",   # RMP's "Ant  Woodall" page held his ratings
 }
+
+
+# Pairs of name_keys a reviewer checked and found to be two different people.
+# pipeline.duplicates never merges these. For a merge it already made, the next
+# run moves the RMP pages (and their reviews) back, and warns: survey ratings,
+# bookmarks, Banner rows and a photo the merge moved stay on the survivor and
+# need moving by hand. Add a pair here when an automatic nickname merge was
+# wrong, e.g. {"tom smith", "thomas smith"}.
+NOT_DUPLICATES = [
+]
 
 
 def _normalize_name(name: str) -> str:
@@ -174,6 +187,7 @@ def _normalize_name(name: str) -> str:
 # Ensure keys/values match normalize_name() used by server.py and the pipeline.
 ALIAS_MAP = {_normalize_name(k): _normalize_name(v) for k, v in ALIAS_MAP.items()}
 RMP_MANUAL_LINKS = {_normalize_name(k): _normalize_name(v) for k, v in RMP_MANUAL_LINKS.items()}
+NOT_DUPLICATES = {frozenset(_normalize_name(n) for n in pair) for pair in NOT_DUPLICATES}
 
 
 def rmp_link_key(name):

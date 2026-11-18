@@ -263,8 +263,8 @@ def test_a_nickname_duplicate_merges_into_one_professor(writes, monkeypatch):
     monkeypatch.setitem(TABLES, "survey_ratings", [dict(TABLES["survey_ratings"][0], professor_slug="ant-woodall")])
     for table in ("banner_course_instructors", "track_sections"):
         monkeypatch.setitem(TABLES, table, [])
-    monkeypatch.setattr(run.roster, "apply_merges", lambda conn, m, merged, photos: writes.append(
-        ("merges", m, merged, photos)))
+    monkeypatch.setattr(run.roster, "apply_merges", lambda conn, m, merged, photos, kept=None: writes.append(
+        ("merges", m, merged, photos, kept)))
     monkeypatch.setattr(run.read_models, "verify", lambda *a: [])
     assert run.main([]) == 0
 
@@ -277,3 +277,40 @@ def test_a_nickname_duplicate_merges_into_one_professor(writes, monkeypatch):
     [only] = by["read_models"][1]                                          # one profile, not two
     assert (only["slug"], only["image_url"]) == ("anthony-woodall", "ant.jpg")
     assert (only["num_ratings"], only["total_reviews"]) == (2, 3)           # 2 RMP + the survey rating
+
+
+def test_a_sure_nickname_pair_merges_with_no_manual_entry(writes, monkeypatch):
+    """"Tom Kelley" (an RMP-only profile) and "Thomas Kelley" (Banner) in one
+    department fold into Thomas, found by pipeline.duplicates alone. The moved
+    link keeps its stored match_method."""
+    def page(name, pid):
+        return {"name": name, "department": "Physics", "rating": 4.0, "num_ratings": 1,
+                "would_take_again_pct": None, "level_of_difficulty": None, "professor_url": URL + str(pid)}
+
+    def prof(slug, key, name, origin):
+        return {"slug": slug, "name": name, "name_key": key, "department": "Physics", "college": "COS",
+                "image_url": None, "focus_x": 50.0, "focus_y": 30.0, "origin": origin}
+
+    monkeypatch.setitem(TABLES, "rmp_professors", [page("Tom Kelley", 1)])
+    monkeypatch.setitem(TABLES, "rmp_links", [{"rmp_id": 1, "rmp_name": "Tom Kelley", "rmp_department": "Physics",
+                                               "professor_url": URL + "1", "slug": "tom-kelley",
+                                               "match_method": "frozen"}])
+    monkeypatch.setitem(TABLES, "professors", [prof("tom-kelley", "tom kelley", "Tom Kelley", "rmp"),
+                                               prof("thomas-kelley", "thomas kelley", "Thomas Kelley", "banner")])
+    monkeypatch.setitem(TABLES, "rmp_reviews", [
+        {"id": 10, "professor_name": "Tom Kelley", "department": "Physics", "name_key": "tom kelley",
+         "course": None, "quality": 4.0, "difficulty": 2.0, "grade": None, "comment": "good", "visible": True}])
+    monkeypatch.setitem(TABLES, "survey_ratings", [])
+    for table in ("banner_course_instructors", "track_sections"):
+        monkeypatch.setitem(TABLES, table, [])
+    monkeypatch.setattr(run.roster, "apply_merges", lambda conn, m, merged, photos, kept=None: writes.append(
+        ("merges", m, merged, photos, kept)))
+    monkeypatch.setattr(run.read_models, "verify", lambda *a: [])
+    assert run.main([]) == 0
+
+    by = {c[0]: c for c in writes}
+    assert by["merges"][1:3] == ({}, {"tom-kelley": "thomas-kelley"})
+    assert by["merges"][4] == {1: ("tom-kelley", "thomas-kelley")}
+    assert by["name_keys"][1] == [(10, "thomas kelley")]
+    [only] = by["read_models"][1]
+    assert (only["slug"], only["num_ratings"]) == ("thomas-kelley", 1)

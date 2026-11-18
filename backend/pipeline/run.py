@@ -13,7 +13,8 @@ from datetime import datetime, timezone
 import moderation
 from teaching_history import COURSE_SUCCESSORS
 
-from . import banner_roster, course_codes, name_keys, read_models, review_tags, roster, summaries, survey
+from . import (banner_roster, course_codes, duplicates, name_keys, read_models, review_tags, roster, summaries,
+               survey)
 from .blend import blend
 from .db import connect, fetch_all
 from .rmp_fields import rmp_id
@@ -56,14 +57,29 @@ def main(argv=None):
             conn, "SELECT subject_course, course_title FROM banner_course_offerings "
                   f"WHERE subject_course IN ({retired})")})
 
-    # RMP_MANUAL_LINKS merges: move the links, then follow every merged-away slug.
+    # One professor under two names: RMP_MANUAL_LINKS entries and sure nickname
+    # pairs (pipeline.duplicates). Move the links, then follow every merged-away slug.
     moves, relink_skipped = roster.plan_relinks(pages, links, professors)
     links = roster.relink(links, moves)
-    merged = roster.merged_slugs(professors, links, moves)
+    earlier = roster.merged_slugs(professors, links, moves)
+    nickname, for_review = duplicates.nickname_merges(
+        [p for p in professors if p["slug"] not in earlier],
+        pinned={l["slug"] for l in links if l["match_method"] == "manual"})
+    nickname_moves, reverts = roster.plan_nickname_relinks(pages, links, professors, nickname)
+    links = roster.relink(links, {**nickname_moves, **reverts}, method=None)
+    merged = roster.merged_slugs(professors, links, {**moves, **nickname_moves}, nickname)
     professors, photos = roster.carry_photos(professors, merged)
-    new_links, new_professors, counts = roster.resolve_roster(pages, links, professors)
-    _print("roster", {**counts, "relinked": len(moves), "merged_away": len(merged),
+    new_links, new_professors, counts = roster.resolve_roster(pages, links, professors, hidden=merged)
+    _print("roster", {**counts, "relinked": len(moves), "nickname_relinked": len(nickname_moves),
+                      "not_duplicates_reverted": len(reverts), "merged_away": len(merged),
+                      "possible_duplicates_for_review": len(for_review),
                       **{f"relink_skipped_{k}": v for k, v in relink_skipped.items()}})
+    for old, new in sorted(set(reverts.values())):
+        print(f"::warning::NOT_DUPLICATES sent pages from {old} back to {new}; survey ratings, bookmarks, "
+              f"Banner rows and a photo the merge moved are still on {old} and need moving by hand")
+    if for_review:
+        print(f"::notice::{len(for_review)} pairs of professors may be one person under two names; "
+              "see python -m pipeline.duplicates")
     links, professors = links + new_links, professors + new_professors
     bci = roster.remap_slugs(fetch_all(conn, "SELECT subject_course, instructor_key, instructor_name, "
                                              "professor_slug, match_method, terms_taught, sections, "
@@ -167,8 +183,8 @@ def main(argv=None):
     print(f"name keys changed: {name_keys.apply_name_keys(conn, key_pairs)}")
     review_tags.rebuild_if_present(conn)  # tags follow name_key remaps, pruned reviews, moderation
     print(f"survey ratings held as a weekly surge: {survey.apply_surge_holds(conn, surge)}")
-    if moves or merged:
-        roster.apply_merges(conn, moves, merged, photos)   # uncommitted: lands with the catalog below
+    if moves or nickname_moves or reverts or merged:   # uncommitted: lands with the catalog below
+        roster.apply_merges(conn, moves, merged, photos, {**nickname_moves, **reverts})
     read_models.write(conn, catalog, courses, rows, counts)
     print("replaced professors_catalog, course_catalog, source_summary; data_version bumped")
     survey.mark_surge_checked(conn, now)

@@ -160,3 +160,24 @@ def test_the_order_by_puts_alias_hits_ahead_of_the_100_row_cut(monkeypatch):
     monkeypatch.setattr(server, "_approved_aliases", lambda: {})
     server._professor_search("herc")
     assert "slug = ANY" not in seen[1][0]
+
+
+def test_a_nickname_and_last_name_find_the_formal_profile(stub, monkeypatch):
+    """"Tony Russo" finds Anthony Russo: each nickname word also matches the
+    formal names it stands for (pipeline.duplicates.NICKNAMES)."""
+    anthony = {"slug": "anthony-russo", "name": "Anthony Russo", "name_key": "anthony russo",
+               "department": "Accounting", "avg_rating": 4.1, "total_reviews": 64}
+    mary = {"slug": "mary-russo", "name": "Mary Russo", "name_key": "mary russo",
+            "department": "Accounting", "avg_rating": 3.0, "total_reviews": 90}
+    seen = {}
+
+    def fake_query(sql, params=None):
+        if "professor_aliases" in sql:
+            return []
+        seen["params"] = params
+        return [anthony, mary]          # the stub can't run SQL; ranking still has to pick Anthony first
+
+    monkeypatch.setattr(server, "query", fake_query)
+    rows = server._professor_search("Tony Russo")
+    assert "%anthony%" in seen["params"] and "%tony%" in seen["params"]
+    assert rows[0]["slug"] == "anthony-russo"

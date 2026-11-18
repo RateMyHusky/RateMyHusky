@@ -1,16 +1,18 @@
 """Match RMP pages to professors (spec §5.3.1).
 
 A page already in rmp_links keeps its frozen slug. A new page links to the
-professor whose name_key its name resolves to, else becomes a new professor.
+professor whose name_key its name resolves to, else to the one professor its
+name is a nickname of (pipeline.duplicates), else becomes a new professor.
 Existing slugs and names are never changed.
 """
 
 from collections import Counter, defaultdict
 
 from denylist import is_denied_key
-from prof_aliases import rmp_link_key
+from prof_aliases import NOT_DUPLICATES, rmp_link_key
 
 from .db import chunk_insert
+from .duplicates import NicknameIndex, survivor
 from .names import get_college, name_to_slug, tidy_name
 from .rmp_fields import rmp_id
 from .seed import LINK_FIELDS, PROFESSOR_FIELDS
@@ -25,13 +27,19 @@ def unique_slug(base, taken):
     return f"{base}-{n}"
 
 
-def resolve_roster(pages, links, professors, is_denied=is_denied_key):
-    """(new link rows, new professor rows, counts). Pure; inputs are not modified."""
+def resolve_roster(pages, links, professors, is_denied=is_denied_key, hidden=()):
+    """(new link rows, new professor rows, counts). Pure; inputs are not modified.
+
+    `hidden` is the slugs merged away (merged_slugs), never a nickname target.
+    counts["created"] is the new professors that will be listed; one whose page
+    went to an existing professor by nickname is counted in "nickname" instead.
+    """
     known = {l["rmp_id"] for l in links}
     slug_by_key = {p["name_key"]: p["slug"] for p in professors}
     taken = {p["slug"] for p in professors}
     new_links, new_professors = [], []
-    counts = dict.fromkeys(("known", "exact", "created", "no_rmp_id", "denied"), 0)
+    nicknames = NicknameIndex([p for p in professors if p["slug"] not in hidden])
+    counts = dict.fromkeys(("known", "exact", "created", "nickname", "no_rmp_id", "denied"), 0)
     denied_ids = {rmp_id(p["professor_url"]) for p in pages if is_denied(rmp_link_key(p["name"])[0])} - {None}
     for page in pages:
         pid = rmp_id(page["professor_url"])
@@ -48,18 +56,33 @@ def resolve_roster(pages, links, professors, is_denied=is_denied_key):
         slug = slug_by_key.get(key)
         if slug is None:
             slug = unique_slug(name_to_slug(key), taken)
-            new_professors.append({"slug": slug, "name": tidy_name(page["name"]), "name_key": key,
-                                   "department": page["department"],
-                                   "college": get_college(page["department"]),
-                                   "image_url": None, "focus_x": None, "focus_y": None})
+            created = {"slug": slug, "name": tidy_name(page["name"]), "name_key": key,
+                       "department": page["department"], "college": get_college(page["department"]),
+                       "image_url": None, "focus_x": None, "focus_y": None}
+            new_professors.append(created)
+            nicknames.add(created)
             slug_by_key[key] = slug
             taken.add(slug)
-            counts["created"] += 1
         else:
             counts["exact"] += 1
         known.add(pid)
         new_links.append({"rmp_id": pid, "rmp_name": page["name"], "rmp_department": page["department"],
                           "professor_url": page["professor_url"], "slug": slug, "match_method": "exact"})
+    # Decided once every new professor is indexed, so "Tom X" and "Thomas X"
+    # arriving in one run still end up one profile. A professor whose page goes
+    # elsewhere is still created, so its name_key isn't created again and
+    # NOT_DUPLICATES can send the page back to it; it just never shows.
+    by_slug = {p["slug"]: p for p in new_professors}
+    for l in new_links:
+        created = by_slug.get(l["slug"])
+        if created is None:
+            continue
+        existing = nicknames.target(created["name_key"], created["department"], created["slug"])
+        if existing and survivor(created, existing)[0] is existing:
+            l["slug"] = existing["slug"]
+    linked = {l["slug"] for l in new_links}
+    counts["created"] = sum(1 for p in new_professors if p["slug"] in linked)
+    counts["nickname"] = len(new_professors) - counts["created"]
     return new_links, new_professors, counts
 
 
@@ -115,31 +138,84 @@ def plan_relinks(pages, links, professors):
     return moves, dict(skipped)
 
 
-def relink(links, moves):
-    """`links` with each moved page pointing at its new professor. Pure."""
-    return [{**l, "slug": moves[l["rmp_id"]][1], "match_method": "manual"} if l["rmp_id"] in moves else l
-            for l in links]
+def plan_nickname_relinks(pages, links, professors, nickname):
+    """(moves, reverts), each {rmp_id: (old slug, new slug)}, for the nickname
+    merges pipeline.duplicates found. Pure.
+
+    `nickname` is {merged-away slug: surviving slug}. Every page of a merged-away
+    professor moves to the survivor. A pair later put in NOT_DUPLICATES is no
+    longer in `nickname`, and each of its pages moves back to the professor its
+    own name resolves to (a revert). Only pages move back: the bookmarks, survey
+    ratings, Banner rows and photo the merge moved can't be told apart from the
+    survivor's own, so run.py warns and a person moves them. A page an RMP_MANUAL_LINKS entry or a
+    reviewer ('manual' in the database) settled is never touched. Unlike a
+    manual move, these keep their stored match_method, since the decision is
+    recomputed from the data every run.
+    """
+    link_by_id = {l["rmp_id"]: l for l in links}
+    slugs_by_key = _slugs_by_key(professors)
+    key_by_slug = {p["slug"]: p["name_key"] for p in professors}
+    moves, reverts = {}, {}
+    for page in pages:
+        link = link_by_id.get(rmp_id(page["professor_url"]))
+        if link is None or link["match_method"] == "manual":
+            continue
+        key, method = rmp_link_key(page["name"])
+        if method == "manual":
+            continue
+        if link["slug"] in nickname:
+            moves[link["rmp_id"]] = (link["slug"], nickname[link["slug"]])
+            continue
+        homes = slugs_by_key.get(key, [])
+        if len(homes) == 1 and homes[0] != link["slug"] \
+                and frozenset((key, key_by_slug.get(link["slug"]))) in NOT_DUPLICATES:
+            reverts[link["rmp_id"]] = (link["slug"], homes[0])
+    return moves, reverts
 
 
-def merged_slugs(professors, links_after, moves):
+def relink(links, moves, method="manual"):
+    """`links` with each moved page pointing at its new professor, stored as
+    `method` (None keeps the stored one). Pure."""
+    return [{**l, "slug": moves[l["rmp_id"]][1], "match_method": method or l["match_method"]}
+            if l["rmp_id"] in moves else l for l in links]
+
+
+def merged_slugs(professors, links_after, moves, nickname=None):
     """{old slug: slug it merged into} for every RMP professor an RMP_MANUAL_LINKS
-    entry left with no page: this run's moves and every earlier one. Pure.
+    entry or a nickname merge (`nickname`, from pipeline.duplicates) left with no
+    page: this run's moves and every earlier one. Pure.
 
     Recomputed each run, so a row that points at the old slug later (a Banner
     match, a survey rating) still follows the merge. The old professor stays in
     `professors`, so its name_key isn't created again; it just never shows.
-    Chains (a -> b -> c) resolve to their end.
+    A merge stays known as long as the pages under the old professor's own name
+    sit on one other professor, even once the rule that made it no longer
+    finds the pair. Chains (a -> b -> c) resolve to their end.
     """
     linked = {l["slug"] for l in links_after}
     slugs_by_key = _slugs_by_key(professors)
+    key_by_slug = {p["slug"]: p["name_key"] for p in professors}
+    nickname = nickname or {}
+    pages_now = defaultdict(set)        # name_key a page was filed under -> where it sits
+    for l in links_after:
+        key, method = rmp_link_key(l.get("rmp_name") or "")
+        if method != "manual":
+            pages_now[key].add(l["slug"])
     merged = {old: new for old, new in moves.values() if old not in linked}
     for p in professors:
         if p.get("origin", "rmp") != "rmp" or p["slug"] in linked or p["slug"] in merged:
+            continue
+        if p["slug"] in nickname:
+            merged[p["slug"]] = nickname[p["slug"]]
             continue
         key, method = rmp_link_key(p["name_key"])
         targets = slugs_by_key.get(key, [])
         if method == "manual" and len(targets) == 1 and targets[0] != p["slug"]:
             merged[p["slug"]] = targets[0]
+            continue
+        [*where] = pages_now.get(p["name_key"], ())
+        if len(where) == 1 and frozenset((p["name_key"], key_by_slug.get(where[0]))) not in NOT_DUPLICATES:
+            merged[p["slug"]] = where[0]
 
     def end(slug, seen):
         while slug in merged and slug not in seen:
@@ -189,9 +265,10 @@ SLUG_TABLES = (
 SURVEY_KEY = ("pending_professor_id", "course_code", "pending_course_id")
 
 
-def apply_merges(conn, moves, merged, photos):
-    """Write the moves, the carried photos, and every row that still names a
-    merged-away slug. Does not commit: run.py calls it just before
+def apply_merges(conn, moves, merged, photos, kept_method=None):
+    """Write the moves (as 'manual'), the `kept_method` moves (nickname merges
+    and reverts, keeping their stored match_method), the carried photos, and
+    every row that still names a merged-away slug. Does not commit: run.py calls it just before
     read_models.write, so it lands in the same transaction as the catalog that
     stops listing the old slug. Idempotent, so a run with nothing left to move
     changes nothing."""
@@ -199,6 +276,8 @@ def apply_merges(conn, moves, merged, photos):
     for pid, (old, new) in moves.items():
         cur.execute("UPDATE rmp_links SET slug = %s, match_method = 'manual' WHERE rmp_id = %s AND slug = %s",
                     (new, pid, old))
+    for pid, (old, new) in (kept_method or {}).items():
+        cur.execute("UPDATE rmp_links SET slug = %s WHERE rmp_id = %s AND slug = %s", (new, pid, old))
     for slug, p in photos.items():
         cur.execute("UPDATE professors SET image_url = %s, focus_x = %s, focus_y = %s WHERE slug = %s",
                     (p["image_url"], p["focus_x"], p["focus_y"], slug))

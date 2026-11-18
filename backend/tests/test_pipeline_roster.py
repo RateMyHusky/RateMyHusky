@@ -1,5 +1,6 @@
-from pipeline.roster import (carry_photos, merged_slugs, plan_relinks, recollege, relink, remap_slugs,
-                             resolve_roster, unique_slug)
+from pipeline import roster
+from pipeline.roster import (carry_photos, merged_slugs, plan_nickname_relinks, plan_relinks, recollege, relink,
+                             remap_slugs, resolve_roster, unique_slug)
 
 URL = "https://www.ratemyprofessors.com/professor/{}"
 
@@ -192,3 +193,80 @@ def test_a_merge_never_replaces_the_survivors_own_photo():
     anthony = {**prof("anthony-woodall", "anthony woodall"), "image_url": "anthony.jpg"}
     profs, photos = carry_photos([ant, anthony], {"ant-woodall": "anthony-woodall"})
     assert photos == {} and {p["slug"]: p["image_url"] for p in profs}["anthony-woodall"] == "anthony.jpg"
+
+
+# ── Nickname merges found by pipeline.duplicates ──────────────────────────────
+def test_every_page_of_a_nickname_profile_moves_and_keeps_its_method():
+    links = [link(1, "tom-x"), link(2, "tom-x"), link(3, "thomas-x")]
+    profs = [prof("tom-x", "tom x"), prof("thomas-x", "thomas x")]
+    moves, reverts = plan_nickname_relinks([page("Tom X", 1), page("Tommy X", 2), page("Thomas X", 3)],
+                                           links, profs, {"tom-x": "thomas-x"})
+    assert (moves, reverts) == ({1: ("tom-x", "thomas-x"), 2: ("tom-x", "thomas-x")}, {})
+    after = relink(links, moves, method=None)
+    assert {l["match_method"] for l in after} == {"frozen"}
+    assert merged_slugs(profs, after, moves, {"tom-x": "thomas-x"}) == {"tom-x": "thomas-x"}
+    # Next week nothing moves, and the merge is still known.
+    assert plan_nickname_relinks([page("Tom X", 1)], after, profs, {"tom-x": "thomas-x"}) == ({}, {})
+    assert merged_slugs(profs, after, {}, {"tom-x": "thomas-x"}) == {"tom-x": "thomas-x"}
+
+
+def test_a_settled_link_is_never_moved_by_a_nickname_merge():
+    links = [{**link(1, "tom-x"), "match_method": "manual"}]
+    assert plan_nickname_relinks([page("Tom X", 1)], links, [prof("tom-x", "tom x")],
+                                 {"tom-x": "thomas-x"}) == ({}, {})
+
+
+def test_not_duplicates_sends_the_pages_back(monkeypatch):
+    monkeypatch.setattr(roster, "NOT_DUPLICATES", {frozenset(("tom x", "thomas x"))})
+    profs = [prof("tom-x", "tom x"), prof("thomas-x", "thomas x")]
+    links = [link(1, "thomas-x"), link(3, "thomas-x")]          # page 1 was merged last week
+    moves, reverts = plan_nickname_relinks([page("Tom X", 1), page("Thomas X", 3)], links, profs, {})
+    assert (moves, reverts) == ({}, {1: ("thomas-x", "tom-x")})
+    after = relink(links, reverts, method=None)
+    assert merged_slugs(profs, after, moves, {}) == {}           # neither profile is merged away
+
+
+def test_a_new_nickname_page_links_to_the_existing_professor():
+    thomas = {**prof("thomas-x", "thomas x"), "origin": "banner"}
+    links, profs, counts = resolve_roster([page("Tom X", 9)], [], [thomas], NO_DENY)
+    assert [l["slug"] for l in links] == ["thomas-x"]
+    assert [p["slug"] for p in profs] == ["tom-x"]               # kept so the key isn't created again
+    assert (counts["created"], counts["nickname"]) == (0, 1)   # nothing new is listed
+
+
+def test_a_new_formal_page_does_not_link_to_a_nickname_profile():
+    # Thomas is the one that stays; the next run folds Tom's pages into it.
+    links, _, counts = resolve_roster([page("Thomas X", 9)], [], [prof("tom-x", "tom x")], NO_DENY)
+    assert [l["slug"] for l in links] == ["thomas-x"] and counts["nickname"] == 0
+
+
+def test_a_new_nickname_page_in_another_department_is_its_own_professor():
+    thomas = {**prof("thomas-x", "thomas x"), "origin": "banner"}
+    links, _, _ = resolve_roster([page("Tom X", 9, dept="Law")], [], [thomas], NO_DENY)
+    assert [l["slug"] for l in links] == ["tom-x"]
+
+
+def test_a_nickname_and_formal_page_new_in_one_run_become_one_profile():
+    links, profs, counts = resolve_roster([page("Tom X", 1), page("Thomas X", 2)], [], [], NO_DENY)
+    assert [l["slug"] for l in links] == ["thomas-x", "thomas-x"]
+    assert (counts["created"], counts["nickname"]) == (1, 1)
+
+
+def test_a_merged_away_profile_is_never_a_nickname_target():
+    tom = prof("tom-x", "tom x")
+    links, _, _ = resolve_roster([page("Thomas X", 1)], [], [tom], NO_DENY, hidden={"tom-x": "thomas-y"})
+    assert [l["slug"] for l in links] == ["thomas-x"]
+
+
+def test_a_nickname_merge_stays_known_once_the_rule_stops_finding_it():
+    # Tom X's page sits on thomas-x; even with no rule naming the pair any more, rows
+    # naming tom-x keep following it.
+    profs = [prof("tom-x", "tom x"), prof("thomas-x", "thomas x"), prof("tommy-x", "tommy x")]
+    after = [link(1, "thomas-x", "Tom X"), link(2, "thomas-x", "Thomas X"), link(3, "tommy-x", "Tommy X")]
+    assert merged_slugs(profs, after, {}) == {"tom-x": "thomas-x"}
+
+
+def test_a_vetoed_pair_is_not_kept_merged_by_its_pages(monkeypatch):
+    monkeypatch.setattr(roster, "NOT_DUPLICATES", {frozenset(("tom x", "thomas x"))})
+    profs = [prof("tom-x", "tom x"), prof("thomas-x", "thomas x")]
+    assert merged_slugs(profs, [link(1, "thomas-x", "Tom X")], {}) == {}

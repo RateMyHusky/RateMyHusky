@@ -15,6 +15,7 @@ from psycopg2.extras import RealDictCursor
 from functools import lru_cache
 from dotenv import load_dotenv
 from prof_aliases import ALIAS_MAP
+from pipeline.duplicates import NICKNAMES
 from pipeline.names import COLLEGE_MAP, search_fold, search_squash
 from flask import Flask, g, jsonify, request, redirect, make_response
 from flask.json.provider import DefaultJSONProvider
@@ -179,6 +180,11 @@ for _from, _to in ALIAS_MAP.items():
         clean = re.sub(r'[^a-z0-9\-]', '', w)
         if clean:
             _WORD_ALIAS[clean] = _to_words - _from_words
+# A nickname also finds the formal name it stands for, so "Tony Russo" finds
+# Anthony Russo and "Tom Kelley" finds Thomas Kelley. The same table the
+# pipeline merges nickname duplicates with (pipeline.duplicates).
+for _nick, _formal_names in NICKNAMES.items():
+    _WORD_ALIAS[_nick] = _WORD_ALIAS.get(_nick, set()) | _formal_names
 
 
 def resolve_alias(q):
@@ -970,6 +976,8 @@ def _professor_search(q, limit=5, rated_only=False):
     # Rank in Python for proper tiered relevance (use resolved query)
     q_rank = q_fold
     words_rank = folded_words
+    # Each word with the formal names it can stand for ("tony" -> anthony).
+    alts_rank = [{w} | {f for f in (search_fold(a) for a in _WORD_ALIAS.get(w, ())) if f} for w in words_rank]
 
     def rank_match(row):
         nk = search_fold(row['name_key'])
@@ -987,8 +995,9 @@ def _professor_search(q, limit=5, rated_only=False):
         # Tier 3: q is a substring of the full name
         if q_rank in nk:
             return 3
-        # Tier 4: multi-word: each word prefixes a name part
-        if len(words_rank) >= 2 and all(any(p.startswith(w) for p in parts) for w in words_rank):
+        # Tier 4: multi-word: each word (or the formal name a nickname stands
+        # for) prefixes a name part
+        if len(words_rank) >= 2 and all(any(p.startswith(w) for p in parts for w in alts) for alts in alts_rank):
             return 4
         # Tier 5: multi-word: each word is substring of any name part
         if len(words_rank) >= 2 and all(any(w in p for p in parts) for w in words_rank):
