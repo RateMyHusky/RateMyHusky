@@ -41,6 +41,11 @@ const ProgramPicker = ({ label, programs, selected, onChange, addLabel, otherLab
     addRef.current?.focus();
   }, [selected]);
 
+  // The menu has a max-height, so keep the highlighted option visible.
+  useEffect(() => {
+    document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: 'nearest' });
+  }, [active, listId, flat.length]);
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown' && flat.length) {
       e.preventDefault();
