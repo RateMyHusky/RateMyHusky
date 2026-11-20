@@ -44,7 +44,7 @@
       ]
     },
     {
-      "source": "/(favicon\\.png|logo\\.jpg)",
+      "source": "/(favicon\\.png|favicon\\.ico|logo\\.jpg)",
       "headers": [
         {
           "key": "Cache-Control",

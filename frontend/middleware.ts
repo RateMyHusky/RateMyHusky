@@ -32,8 +32,11 @@ const CSP_REPORT_SAMPLE = 0.1;
 // File names are anchored with $: unanchored, /favicon.pngx would skip the gate
 // and still be rewritten to the app shell.
 export const config = {
+  // Edge bundles the JSON and spaRoutes imports. The Node runtime loads them
+  // unbundled as ESM and crashes every request (ERR_IMPORT_ATTRIBUTE_MISSING).
+  runtime: 'edge',
   matcher:
-    '/((?!(?:maintenance\\.html|logo\\.jpg|favicon\\.png|robots\\.txt|ads\\.txt|sitemap\\.xml|llms\\.txt|2c426a030622417e4b03f2011ae5959e\\.txt)$|_vercel/|photos/|assets/).*)',
+    '/((?!(?:maintenance\\.html|logo\\.jpg|favicon\\.png|favicon\\.ico|robots\\.txt|ads\\.txt|sitemap\\.xml|llms\\.txt|2c426a030622417e4b03f2011ae5959e\\.txt)$|_vercel/|photos/|assets/).*)',
 };
 
 // Preview hosts /bypass-handoff will redirect to. Not the security boundary
@@ -41,7 +44,7 @@ export const config = {
 // their target origin and only redeemable there, so a code sent to a
 // look-alike host is useless. That host does still see the bypass name and
 // expiry inside the code.
-const PREVIEW_ORIGIN_RE = /^https:\/\/rate-my-husky-(?:git-[a-z0-9-]+|[a-z0-9]+)-grain-is-grainys-projects\.vercel\.app$/;
+const PREVIEW_ORIGIN_RE = /^https:\/\/ratemyhusky-(?:git-[a-z0-9-]+|[a-z0-9]+)-bleeneu-7973\.vercel\.app$/;
 const HANDOFF_TTL_SECONDS = 60;
 
 async function hmacHex(key: string, message: string): Promise<string> {
