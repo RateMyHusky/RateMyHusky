@@ -12,6 +12,8 @@ import { Celebration } from './rate/Celebration';
 import { ChoiceGroup, StepFoot } from './rate/ChoiceGroup';
 import { ProgressBar } from './rate/ProgressBar';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { useAuth } from '../context/AuthContext';
+import SignInModal from '../components/SignInModal';
 import type { ChoiceOption } from './rate/ChoiceGroup';
 import {
   DIFFICULTY, GRADES, HOURS, OVERALL, answer, buildSubmission, contextTags, courseGroups, depth, firstStep, formatCode,
@@ -21,6 +23,7 @@ import type { Answers, RateCourse, RateProfessor, StepId } from './rate/rateFlow
 import { clearRateDraft, keepOpened, loadRateDraft, saveRateDraft } from './rate/rateDraft';
 import type { RateDraft } from './rate/rateDraft';
 import { markRatedNow, parseFrom, track } from '../utils/ratePrompt';
+import './Bookmarks.css';
 import './Rate.css';
 
 const PICK_DELAY_MS = 200;
@@ -45,6 +48,7 @@ function writeMirror(token: string) {
 
 const FAILURE_MESSAGES: Record<number, string> = {
   400: "Something in this rating didn't go through. Check your answers and try again.",
+  401: 'Your sign-in expired. Sign in again to submit; your answers are saved.',
   403: "We couldn't check you're human. Try again.",
   422: "This comment can't be posted. Edit it or skip it.",
   429: 'Too many ratings from this device for now. Try again later.',
@@ -65,7 +69,8 @@ const gradeAria = (g: string) => `Grade ${g.replace('+', ' plus').replace('-', '
 const toRateCourses = (page: ProfessorPage): RateCourse[] =>
   page.courses.map((c) => toRateCourse(c, new Date()));
 
-export default function Rate() {
+function RateForm() {
+  const { logout } = useAuth();
   const [params] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -198,7 +203,7 @@ export default function Rate() {
             // A prefilled rated course opens in update mode, so wait for the context before the first screen.
             s = await visit;
             // A failed call stays null, so the context effect fetches it again rather than keep an empty list.
-            if (s) prefetched = await fetchRateContext(identity.slug, s.deviceToken).then((c) => c?.ratedCourses ?? [], () => null);
+            if (s) prefetched = await fetchRateContext(identity.slug).then((c) => c?.ratedCourses ?? [], () => null);
             const course = prefillCourse(res.data.courses, prefetched ?? [], code, new Date());
             if (course) initial = pickCourse(initial, course, prefetched ?? [], new Date());
           }
@@ -243,7 +248,7 @@ export default function Rate() {
       return;
     }
     let cancelled = false;
-    fetchRateContext(slug, start.deviceToken)
+    fetchRateContext(slug)
       .then((c) => { if (!cancelled) setContext({ slug, rated: c?.ratedCourses ?? [] }); })
       // No "Already rated" group, so every course shows as not rated.
       .catch(() => { if (!cancelled) setContext({ slug, rated: [] }); });
@@ -285,6 +290,7 @@ export default function Rate() {
       // Turnstile tokens are single-use, so every retry needs a fresh one.
       reset();
       setSubmitError(FAILURE_MESSAGES[res.status] ?? (res.error || NETWORK_MESSAGE));
+      if (res.status === 401) logout();
     });
   };
 
@@ -671,6 +677,30 @@ export default function Rate() {
           {ready && <Fragment key={step}>{renderStep()}</Fragment>}
         </div>
       </div>
+    </div>
+  );
+}
+
+export default function Rate() {
+  const { user, loading } = useAuth();
+  const [showSignIn, setShowSignIn] = useState(false);
+
+  if (loading) return null;
+  if (user) return <RateForm />;
+
+  return (
+    <div className="rate-page bookmarks-page">
+      <div className="bm-signin-wrap">
+        <div className="bm-signin-gate">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="bm-lock-icon">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <p>Sign in with your <span className="husky-email">husky.neu.edu</span> account to rate a professor.</p>
+          <button className="bm-signin-btn" onClick={() => setShowSignIn(true)}>Sign In</button>
+        </div>
+      </div>
+      <SignInModal open={showSignIn} onClose={() => setShowSignIn(false)} reason="Sign in to rate a professor." />
     </div>
   );
 }
