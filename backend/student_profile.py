@@ -96,11 +96,16 @@ def validate_view(data):
             "reached_section": reached, "course_filter": course_filter}, None
 
 
-def record_view(user_sub, view, query_one, write):
+def record_view(user_sub, viewer_hash, view, query_one, write):
     """Stores one page view. Returns "ignored" (no profile or opted out: nothing
     else is queried or written), "not_found" (item not in the catalog), or "ok".
 
-    A course filter is kept only on professor views and only if it is a real course code."""
+    A course filter is kept only on professor views and only if it is a real course code.
+    The row stores viewer_hash (rating_identity.keyed_hash(secret, "viewer", sub)), never the sub.
+
+    The profile check is repeated inside the INSERT with FOR SHARE: that row lock makes the
+    insert wait for, or be refused by, a concurrent opt-out, so a view can't land after the
+    opt-out has deleted that student's views. The early check above just skips the item lookups."""
     profile = profile_status(user_sub, query_one)
     if not profile["exists"] or profile["optedOut"]:
         return "ignored"
@@ -110,8 +115,10 @@ def record_view(user_sub, view, query_one, write):
     if view["item_type"] != "professor" or not (course_filter and item_exists("course", course_filter, query_one)):
         course_filter = None
     write(
-        "INSERT INTO page_views (user_sub, item_type, item_key, visible_seconds, reached_section, course_filter) "
-        "VALUES (%s, %s, %s, %s, %s, %s)",
-        (user_sub, view["item_type"], view["item_key"], view["visible_seconds"], view["reached_section"], course_filter),
+        "INSERT INTO page_views (viewer_hash, item_type, item_key, visible_seconds, reached_section, course_filter) "
+        "SELECT %s, %s, %s, %s, %s, %s WHERE EXISTS "
+        "(SELECT 1 FROM student_profiles WHERE user_sub = %s AND NOT tracking_opt_out FOR SHARE)",
+        (viewer_hash, view["item_type"], view["item_key"], view["visible_seconds"], view["reached_section"],
+         course_filter, user_sub),
     )
     return "ok"

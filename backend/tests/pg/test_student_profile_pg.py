@@ -1,9 +1,22 @@
 """student_profiles reads and upserts against real PostgreSQL."""
 
+import os
+import threading
+
+import psycopg2
 import pytest
 
+os.environ.setdefault("ORACLE_DATABASE_URL", "postgresql://stub")   # rag.clear_ask_strikes needs it at import
+
+import rating_identity
+from rag.clear_ask_strikes import opt_out, purge_account
 from student_profile import profile_status, rater_profile, record_view, save_profile
-from tests.pg.pgutil import query_fn, rows, truncate
+from tests.pg.pgutil import query_fn, rows, scalar, truncate
+
+SECRET = "rating-secret-0123456789abcdefghijklmnop"  # gitleaks:allow
+VIEWER = rating_identity.keyed_hash(SECRET, "viewer", "u1")
+VIEW = {"item_type": "professor", "item_key": "alice-smith", "visible_seconds": 42,
+        "reached_section": True, "course_filter": None}
 
 
 @pytest.fixture(autouse=True)
@@ -57,12 +70,12 @@ def test_record_view_inserts_one_row(pg):
     pg.commit()
     write = run_write(pg)
     save_profile("u1", {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
-    view = {"item_type": "professor", "item_key": "alice-smith", "visible_seconds": 42,
-            "reached_section": True, "course_filter": None}
-    assert record_view("u1", view, one(pg), write) == "ok"
+    assert record_view("u1", VIEWER, VIEW, one(pg), write) == "ok"
     got = rows(pg, "SELECT * FROM page_views")
     assert len(got) == 1
-    assert (got[0]["user_sub"], got[0]["item_type"], got[0]["item_key"]) == ("u1", "professor", "alice-smith")
+    assert (got[0]["viewer_hash"], got[0]["item_type"], got[0]["item_key"]) == (VIEWER, "professor", "alice-smith")
+    assert "user_sub" not in got[0] and "u1" not in {str(v) for v in got[0].values()}
+    assert VIEWER != rating_identity.keyed_hash(SECRET, "account", "u1")
     assert got[0]["visible_seconds"] == 42 and got[0]["reached_section"] is True
     assert got[0]["course_filter"] is None and got[0]["viewed_at"] is not None
 
@@ -131,7 +144,7 @@ def test_collect_counts(pg):
         cur.execute("UPDATE student_profiles SET tracking_opt_out = true WHERE user_sub = 'u3'")
         for sub, kind, key in [("u1", "professor", "alice-smith"), ("u1", "professor", "alice-smith"),
                                ("u2", "course", "CS2500"), ("u2", "professor", "alice-smith")]:
-            cur.execute("INSERT INTO page_views (user_sub, item_type, item_key, visible_seconds, reached_section)"
+            cur.execute("INSERT INTO page_views (viewer_hash, item_type, item_key, visible_seconds, reached_section)"
                         " VALUES (%s, %s, %s, 5, false)", (sub, kind, key))
     pg.commit()
     for i, (level, year) in enumerate([("undergrad", 2028), ("grad", None), (None, None)]):
@@ -149,3 +162,85 @@ def test_collect_counts(pg):
     assert got["views_per_student"] == 2.0
     assert (got["ratings_undergrad"], got["ratings_grad"], got["ratings_unknown"]) == (1, 1, 1)
     assert got["ratings_by_grad_year"] == {"2028": 1}
+
+
+def seed_catalog_and_profile(pg):
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professors_catalog (slug, name, name_key) VALUES ('alice-smith', 'Alice Smith', 'alice smith')")
+    pg.commit()
+    save_profile("u1", {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, run_write(pg))
+
+
+def view_count(pg):
+    return scalar(pg, "SELECT count(*) FROM page_views WHERE viewer_hash = %s", (VIEWER,))
+
+
+def opted_out(pg):
+    return scalar(pg, "SELECT tracking_opt_out FROM student_profiles WHERE user_sub = 'u1'")
+
+
+def test_opt_out_waits_for_a_view_in_flight_and_then_deletes_it(pg, pg_url):
+    seed_catalog_and_profile(pg)
+    a = psycopg2.connect(pg_url)
+    b = psycopg2.connect(pg_url)
+    try:
+        # A: record_view's insert, transaction still open, holding the profile row lock
+        def write_in_open_transaction(sql, params=None):
+            a.cursor().execute(sql, params)
+        assert record_view("u1", VIEWER, VIEW, one(pg), write_in_open_transaction) == "ok"
+        done = threading.Event()
+
+        def run_opt_out():
+            opt_out(b, b.cursor(), "u1", False, SECRET)
+            done.set()
+        t = threading.Thread(target=run_opt_out)
+        t.start()
+        assert not done.wait(1.5)   # blocked on A's lock
+        a.commit()
+        t.join(15)
+        assert done.is_set()
+        assert view_count(pg) == 0 and opted_out(pg) is True
+    finally:
+        a.close()
+        b.close()
+
+
+def test_a_view_in_flight_when_the_opt_out_commits_inserts_nothing(pg, pg_url):
+    seed_catalog_and_profile(pg)
+    b = psycopg2.connect(pg_url)
+    try:
+        q = one(pg)
+
+        def profile_check_passes_then_the_opt_out_lands(sql, params=None):
+            row = q(sql, params)
+            if "FROM student_profiles" in sql:
+                opt_out(b, b.cursor(), "u1", False, SECRET)   # commits between the check and the insert
+            return row
+        assert record_view("u1", VIEWER, VIEW, profile_check_passes_then_the_opt_out_lands, run_write(pg)) == "ok"
+        assert opted_out(pg) is True and view_count(pg) == 0
+    finally:
+        b.close()
+
+
+def test_purge_keeps_an_opted_out_account_opted_out(pg, capsys):
+    seed_catalog_and_profile(pg)
+    record_view("u1", VIEWER, VIEW, one(pg), run_write(pg))
+    other = rating_identity.keyed_hash(SECRET, "viewer", "u2")
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO page_views (viewer_hash, item_type, item_key, visible_seconds, reached_section) "
+                    "VALUES (%s, 'course', 'CS2500', 5, false)", (other,))
+    pg.commit()
+    opt_out(pg, pg.cursor(), "u1", False, SECRET)
+    purge_account(pg, pg.cursor(), "u1", False, SECRET)
+    got = rows(pg, "SELECT user_sub, level, majors, tracking_opt_out FROM student_profiles")
+    assert got == [{"user_sub": "u1", "level": None, "majors": [], "tracking_opt_out": True}]
+    assert view_count(pg) == 0 and scalar(pg, "SELECT count(*) FROM page_views") == 1   # u2's view stays
+    assert record_view("u1", VIEWER, VIEW, one(pg), run_write(pg)) == "ignored"
+    assert "opt-out still holds" in capsys.readouterr().out
+
+
+def test_purge_of_an_account_that_never_opted_out_removes_the_profile(pg):
+    seed_catalog_and_profile(pg)
+    record_view("u1", VIEWER, VIEW, one(pg), run_write(pg))
+    purge_account(pg, pg.cursor(), "u1", False, SECRET)
+    assert scalar(pg, "SELECT count(*) FROM student_profiles") == 0 and view_count(pg) == 0

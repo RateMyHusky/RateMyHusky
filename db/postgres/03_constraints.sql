@@ -22,7 +22,8 @@ CREATE INDEX ev_course ON public.evidence (course_code);
 CREATE UNIQUE INDEX ev_dedupe ON public.evidence (source, source_ref, professor_slug, course_code);
 
 -- page_views
-CREATE INDEX idx_page_views_user ON public.page_views (user_sub, viewed_at);
+CREATE INDEX idx_page_views_viewer ON public.page_views (viewer_hash, viewed_at);
+CREATE INDEX idx_page_views_viewed_at ON public.page_views (viewed_at);
 CREATE INDEX idx_page_views_item ON public.page_views (item_type, item_key);
 ALTER TABLE public.page_views ADD CONSTRAINT page_views_check_item_type CHECK (item_type IN ('professor', 'course'));
 

@@ -26,7 +26,7 @@ def collect(query, since):
     by_major = query(
         "SELECT m AS k, count(*) AS n FROM student_profiles, unnest(majors) AS m "
         "WHERE NOT tracking_opt_out GROUP BY m")
-    views = one("SELECT count(*) AS views, count(DISTINCT user_sub) AS students, "
+    views = one("SELECT count(*) AS views, count(DISTINCT viewer_hash) AS students, "
                 "count(DISTINCT item_key) FILTER (WHERE item_type = 'professor') AS professors, "
                 "count(DISTINCT item_key) FILTER (WHERE item_type = 'course') AS courses "
                 "FROM page_views")

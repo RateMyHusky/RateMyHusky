@@ -5,8 +5,10 @@ import os
 import pytest
 
 import programs
+import rating_identity
 from tests.test_bookmarks_api import TEST_SECRET, auth_headers  # noqa: F401
 
+RATING_SECRET = "rating-secret-0123456789abcdefghijklmnop"  # gitleaks:allow
 M1 = sorted(programs.MAJORS)[0]
 
 
@@ -16,6 +18,7 @@ def pf_client(monkeypatch):
     os.environ.setdefault("JWT_SECRET", "test-secret")
     import server
     monkeypatch.setattr(server, "JWT_SECRET", TEST_SECRET, raising=False)
+    monkeypatch.setattr(server, "RATING_SECRET", RATING_SECRET, raising=False)
     monkeypatch.setattr(server, "_get_pool", lambda: (_ for _ in ()).throw(AssertionError("no DB in test")), raising=False)
 
     state = {"row": None, "writes": []}
@@ -129,7 +132,40 @@ def test_view_with_a_profile_is_204_and_stores_one_row(view_client):
     state["row"] = {"tracking_opt_out": False}
     resp = client.post("/api/views", headers=auth_headers(sub="u-3"), json=VIEW)
     assert resp.status_code == 204 and resp.data == b""
-    assert len(state["writes"]) == 1 and state["writes"][0][1][0] == "u-3"
+    assert len(state["writes"]) == 1
+    # stored under its own keyed hash, never the sub, and never the rating account hash
+    viewer = rating_identity.keyed_hash(RATING_SECRET, "viewer", "u-3")
+    assert state["writes"][0][1][0] == viewer
+    assert "u-3" not in state["writes"][0][1][:-1]
+    assert viewer != rating_identity.keyed_hash(RATING_SECRET, "account", "u-3")
+
+
+def test_view_without_a_rating_secret_is_503_and_stores_nothing(view_client, monkeypatch):
+    import server
+    client, state = view_client
+    state["row"] = {"tracking_opt_out": False}
+    for secret in (None, "too-short"):
+        monkeypatch.setattr(server, "RATING_SECRET", secret)
+        resp = client.post("/api/views", headers=auth_headers(), json=VIEW)
+        assert resp.status_code == 503 and resp.get_json()["error"]
+    assert state["writes"] == []
+
+
+def test_views_have_a_daily_cap_per_student(view_client, monkeypatch):
+    import server
+    monkeypatch.setattr(server.limiter, "enabled", True)
+    server.limiter.reset()
+    client, state = view_client
+    state["row"] = {"tracking_opt_out": False}
+    # past the per-minute cap, so only the per-day cap (500) can be what stops a student
+    now = [1000.0]
+    monkeypatch.setattr("time.time", lambda: now[0])
+    codes = []
+    for i in range(501):
+        now[0] += 2
+        codes.append(client.post("/api/views", headers=auth_headers(sub="u-flood"), json=VIEW).status_code)
+    assert codes[:500] == [204] * 500 and codes[500] == 429
+    server.limiter.reset()
 
 
 def test_view_of_an_unknown_item_is_400(view_client):

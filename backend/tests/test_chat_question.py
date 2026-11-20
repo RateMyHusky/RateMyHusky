@@ -84,6 +84,27 @@ def test_ask_log_purge_runs_at_most_hourly(monkeypatch):
     assert len(calls) == 2
 
 
+def test_page_view_purge_deletes_a_bounded_batch_past_retention():
+    import server
+    calls = []
+    server.delete_old_page_views(lambda sql, params: calls.append((sql, params)))
+    sql, params = calls[0]
+    assert sql.startswith("DELETE FROM page_views WHERE id IN (SELECT id FROM page_views WHERE viewed_at < now()")
+    assert params == (server.PAGE_VIEW_RETENTION_DAYS, server.ASK_LOG_PURGE_BATCH)
+    assert server.PAGE_VIEW_RETENTION_DAYS == 180
+
+
+def test_hourly_job_purges_page_views_too(monkeypatch):
+    import server
+    ran = []
+    monkeypatch.setattr(server, "delete_old_ask_log", lambda: ran.append("ask_log"))
+    monkeypatch.setattr(server, "delete_old_page_views", lambda: ran.append("page_views"))
+    # a failed ask_log delete must not leave the shared connection aborted for the next one
+    monkeypatch.setattr(server, "get_db", lambda: type("C", (), {"rollback": lambda self: ran.append("rollback")})())
+    server._purge_ask_log_job()
+    assert ran == ["ask_log", "rollback", "page_views"]
+
+
 def test_ask_log_purge_starts_off_the_request_thread_on_railway(monkeypatch):
     import types
     import server

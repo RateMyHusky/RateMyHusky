@@ -795,9 +795,25 @@ def purge_old_ask_log(write_fn=None, now=None):
         delete_old_ask_log(write_fn)
 
 
+# page_views are product analytics, not an audit trail: a flood or a forgotten table
+# shouldn't keep them forever. Same hourly job and batch size as ask_log.
+PAGE_VIEW_RETENTION_DAYS = 180
+
+
+def delete_old_page_views(write_fn=None):
+    """Delete a batch of page_views past retention (idx_page_views_viewed_at serves the
+    scan); best-effort like delete_old_ask_log."""
+    (write_fn or _chat_write)(
+        "DELETE FROM page_views WHERE id IN (SELECT id FROM page_views "
+        "WHERE viewed_at < now() - %s * INTERVAL '1 day' LIMIT %s)",
+        (PAGE_VIEW_RETENTION_DAYS, ASK_LOG_PURGE_BATCH))
+
+
 def _purge_ask_log_job():
     with app.app_context():   # get_db() keeps its connection on flask.g
         delete_old_ask_log()
+        get_db().rollback()   # a failed delete above leaves the transaction aborted; don't skip this one
+        delete_old_page_views()
 
 
 @app.before_request
@@ -2545,15 +2561,19 @@ def profile_put():
 
 
 @app.route("/api/views", methods=["POST"])
-@limiter.limit("60 per minute", key_func=_profile_limit_key)
+@limiter.limit("60 per minute;500 per day", key_func=_profile_limit_key)
 def views_post():
     user_sub = _require_bookmarks_auth()
     if not user_sub:
         return jsonify({"error": "Sign in required"}), 401
+    # Views are stored under a keyed hash, never the raw sub; without the secret, off like the rate form.
+    if not (RATING_SECRET and len(RATING_SECRET) >= _MIN_RATING_SECRET):
+        return _rating_unavailable()
     clean, error = student_profile.validate_view(_json_object())
     if error:
         return jsonify({"error": error}), 400
-    if student_profile.record_view(user_sub, clean, query_one, _write) == "not_found":
+    viewer_hash = rating_identity.keyed_hash(RATING_SECRET, "viewer", user_sub)
+    if student_profile.record_view(user_sub, viewer_hash, clean, query_one, _write) == "not_found":
         return jsonify({"error": "Not found"}), 400
     return "", 204
 

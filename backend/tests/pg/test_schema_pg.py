@@ -52,7 +52,7 @@ def test_profile_constraints(pg):
             cur.execute(sql)
     pg.rollback()
     with pytest.raises(psycopg2.errors.CheckViolation):
-        cur.execute("INSERT INTO page_views (user_sub, item_type, item_key, visible_seconds, reached_section) "
+        cur.execute("INSERT INTO page_views (viewer_hash, item_type, item_key, visible_seconds, reached_section) "
                     "VALUES ('u', 'department', 'x', 5, false)")
     pg.rollback()
 
