@@ -12,6 +12,7 @@ import { photoThumb, thumbOnError } from '../utils/photoThumb';
 import Breadcrumbs from '../components/Breadcrumbs';
 import Seo from '../components/Seo';
 import BookmarkButton from '../components/BookmarkButton';
+import ProfilePopup from '../components/ProfilePopup';
 import FitText from '../components/FitText';
 import { relativeTerm, seasonYear, termSortKey } from '../utils/termUtils';
 import { compareHref } from '../utils/compareLink';
@@ -458,6 +459,7 @@ const Course = () => {
 				</svg>
 			</button>
 			<Footer />
+			<ProfilePopup key={course.code} sectionRef={tableWrapRef} gate="clear" />
 		</div>
 	);
 };

@@ -20,6 +20,8 @@ import { photoThumb, thumbOnError } from '../utils/photoThumb';
 import BookmarkButton from '../components/BookmarkButton';
 import FitText from '../components/FitText';
 import RatePopup from '../components/RatePopup';
+import ProfilePopup from '../components/ProfilePopup';
+import type { RateGate } from '../utils/profilePrompt';
 import { defaultTab, filterByCourses, reportDescription, type ReviewTab } from './professor/studentReviews';
 import { rateHref, loadState, hasRated } from '../utils/ratePrompt';
 import { lastName } from './rate/rateFlow';
@@ -489,6 +491,15 @@ const Professor = () => {
   const filteredStudentReviews = useMemo(
     () => filterByCourses(studentReviews, selectedCourses), [studentReviews, selectedCourses]);
   const profSlug = profile?.identity.slug;
+  // Whether the rate popup showed, for the profile popup. It restarts when the slug changes, as RatePopup remounts.
+  const [rateGate, setRateGate] = useState<RateGate>(RATE_ENABLED ? 'pending' : 'clear');
+  const [profileShown, setProfileShown] = useState(false);
+  const [gateSlug, setGateSlug] = useState(profSlug);
+  if (gateSlug !== profSlug) {
+    setGateSlug(profSlug);
+    setProfileShown(false);
+    setRateGate(RATE_ENABLED ? 'pending' : 'clear');
+  }
   const ratedHere = useMemo(() => {
     const s = loadState();
     return s !== null && profSlug !== undefined && hasRated(s, profSlug);
@@ -1393,7 +1404,8 @@ const Professor = () => {
       </section>
 
       <Footer />
-      {RATE_ENABLED && <RatePopup key={identity.slug} slug={identity.slug} profName={identity.name} reviewsRef={reviewsRef} cardRef={rateCardRef} />}
+      {RATE_ENABLED && <RatePopup key={identity.slug} slug={identity.slug} profName={identity.name} reviewsRef={reviewsRef} cardRef={rateCardRef} suppressed={profileShown} onDecided={shown => setRateGate(shown ? 'shown' : 'clear')} />}
+      <ProfilePopup key={identity.slug} sectionRef={reviewsRef} gate={rateGate} onOpen={() => setProfileShown(true)} />
       <button
         className={`prof-back-to-top ${showBackToTop ? 'visible' : ''}`} 
         onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} 
