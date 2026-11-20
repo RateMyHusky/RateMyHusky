@@ -63,7 +63,7 @@ from pipeline.roster import unique_slug
 
 # `table`: the pending table. `pending`/`final`: the rating columns that hold the
 # pending id and the resolved value. `rest`: the other key columns of the
-# one-per-device unique index.
+# one-per-account and one-per-device unique indexes.
 PROFESSOR = {"label": "professor", "table": "survey_pending_professors",
              "pending": "pending_professor_id", "final": "professor_slug",
              "resolved": "resolved_slug",
@@ -91,7 +91,9 @@ def load_pending(cur, kind, entry_id):
 def move_ratings(cur, kind, entry_id, value):
     """Point the entry's ratings at `value`; return (moved, held). A device that
     already rated `value` under the same remaining key keeps only its newer rating:
-    the loser is deleted first, so the one-per-device index never sees two rows.
+    the loser is deleted first, so the unique indexes never see two rows. Rows are the
+    same rater when they share an account_hash, or when both are anonymous and share a
+    device_hash, matching the two partial indexes.
 
     The form skips the pair check while either side is pending, and approving or
     merging an entry is a judgment about it, not about who taught the course. So a
@@ -99,7 +101,8 @@ def move_ratings(cur, kind, entry_id, value):
     a, b = kind["rest"]
     cur.execute(
         f"DELETE FROM survey_ratings d USING survey_ratings o "
-        f"WHERE d.id <> o.id AND d.device_hash = o.device_hash "
+        f"WHERE d.id <> o.id AND (d.account_hash = o.account_hash "
+        f"OR (d.account_hash IS NULL AND o.account_hash IS NULL AND d.device_hash = o.device_hash)) "
         f"AND d.{a} IS NOT DISTINCT FROM o.{a} AND d.{b} IS NOT DISTINCT FROM o.{b} "
         f"AND ((d.{kind['pending']} = %s AND o.{kind['final']} = %s) "
         f"OR (d.{kind['final']} = %s AND o.{kind['pending']} = %s)) "

@@ -609,10 +609,18 @@ export async function startRating(deviceMirror: string | null): Promise<RateStar
   return res.json();
 }
 
-/* The device cookie doesn't reach a cross-site API, so the token also goes in the header. */
-export async function fetchRateContext(slug: string, deviceToken: string): Promise<RateProfessorContext | null> {
-  const res = await rateGet(`${API_BASE}/api/rate/professors/${encodeURIComponent(slug)}`, { "X-Rmh-Device": deviceToken });
+function rateAuthHeaders(): Record<string, string> {
+  const token = localStorage.getItem('auth_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/* The rate calls' 401: the session ended, so the form signs the student out and keeps the draft. */
+export class SignInExpired extends Error {}
+
+export async function fetchRateContext(slug: string): Promise<RateProfessorContext | null> {
+  const res = await rateGet(`${API_BASE}/api/rate/professors/${encodeURIComponent(slug)}`, rateAuthHeaders());
   if (maintenanceGuard(res)) throw new Error("Site is under maintenance");
+  if (res.status === 401) throw new SignInExpired("API 401");
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
@@ -637,7 +645,7 @@ export async function submitRating(body: RateSubmission): Promise<RateSubmitResu
   try {
     res = await fetch(`${API_BASE}/api/rate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...rateAuthHeaders() },
       body: JSON.stringify(body),
     });
   } catch {

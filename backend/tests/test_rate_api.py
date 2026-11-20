@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import jwt
 import pytest
 
 from tests.razzaq_bomb import BOMB
@@ -108,10 +109,23 @@ def opened_for(ri, device=DEVICE, minted=False):
     return ri.sign_opened(SECRET, int(time.time()) - 60, ri.keyed_hash(SECRET, "device", device), minted)
 
 
-def post(client, ri, body=None, device=DEVICE, minted=False, **headers):
+def session_token(server, sub="u1", expires=timedelta(days=1)):
+    return jwt.encode({"sub": sub, "email": "t@husky.neu.edu", "name": "T", "iss": server.JWT_ISSUER,
+                       "aud": server.JWT_AUDIENCE, "exp": datetime.now(timezone.utc) + expires},
+                      server.JWT_SECRET, algorithm="HS256")
+
+
+def signed_in(server, **kw):
+    return {"Authorization": f"Bearer {session_token(server, **kw)}"}
+
+
+def post(client, ri, body=None, device=DEVICE, minted=False, auth=True, **headers):
+    import server
     payload = dict(BODY, opened=opened_for(ri, device, minted))
     payload.update(body or {})
     client.set_cookie("rmh_device", device, path="/api")
+    if auth:
+        headers = {**signed_in(server), **headers}
     return client.post("/api/rate", json=payload, headers=headers)
 
 
@@ -194,7 +208,7 @@ def test_honeypot_gets_the_normal_response_and_writes_nothing(rate):
 def test_json_nested_too_deep_to_parse_is_400_not_500(rate):
     server, client, state, ri = rate
     body = "[" * 30000 + "]" * 30000   # deep enough to recurse, small enough for MAX_CONTENT_LENGTH
-    resp = client.post("/api/rate", data=body, content_type="application/json")
+    resp = client.post("/api/rate", data=body, content_type="application/json", headers=signed_in(server))
     assert resp.status_code == 400 and resp.get_json() == {"error": "Body must be a JSON object"}
     assert state["writes"] == []
 
@@ -588,24 +602,85 @@ def test_network_type_is_looked_up_once_per_submit(rate, monkeypatch):
     assert len(lookups) == 1
 
 
-def test_professor_context_uses_cookie_device_and_404s_unknown(rate):
+def test_professor_context_signed_in_404s_unknown_and_returns_empty_context(rate):
     server, client, state, ri = rate
-    assert client.get("/api/rate/professors/nobody").status_code == 404
-    resp = client.get("/api/rate/professors/alice-smith")
+    auth = signed_in(server)
+    assert client.get("/api/rate/professors/nobody", headers=auth).status_code == 404
+    resp = client.get("/api/rate/professors/alice-smith", headers=auth)
     assert resp.status_code == 200 and resp.headers["Cache-Control"] == "no-store"
     assert resp.get_json() == {"ratedCourses": []}
     assert "Set-Cookie" not in resp.headers
 
 
-def test_professor_context_reads_the_mirror_header_without_a_cookie(rate, monkeypatch):
+def test_context_signed_out_is_401(rate):
     server, client, state, ri = rate
-    device_hash = ri.keyed_hash(SECRET, "device", DEVICE)
+    resp = client.get("/api/rate/professors/alice-smith")
+    assert resp.status_code == 401 and resp.get_json() == {"error": "Sign in required"}
+    assert client.get("/api/rate/professors/nobody").status_code == 401
+
+
+def test_context_uses_account(rate, monkeypatch):
+    server, client, state, ri = rate
+    account_hash = ri.keyed_hash(SECRET, "account", "u1")
     monkeypatch.setattr(server, "query", lambda sql, params=None: (
         [{"code": "CS2500", "name": "Fundamentals of CS 1", "pending": False, "term_label": "Fall 2025",
-          "rating": 4, "difficulty": 3, "hours": "5-7", "grade": "A-", "comment": "Fine."}] if "FROM survey_ratings" in sql and params[0] == device_hash else []))
-    assert client.get("/api/rate/professors/alice-smith").get_json()["ratedCourses"] == []
-    resp = client.get("/api/rate/professors/alice-smith", headers={"X-Rmh-Device": DEVICE})
+          "rating": 4, "difficulty": 3, "hours": "5-7", "grade": "A-", "comment": "Fine."}] if "FROM survey_ratings" in sql and params[0] == account_hash else []))
+    assert client.get("/api/rate/professors/alice-smith", headers=signed_in(server, sub="u2")).get_json()["ratedCourses"] == []
+    resp = client.get("/api/rate/professors/alice-smith", headers=signed_in(server))
     assert [c["code"] for c in resp.get_json()["ratedCourses"]] == ["CS2500"]
+
+
+def test_submit_signed_out_is_401(rate):
+    server, client, state, ri = rate
+    resp = post(client, ri, auth=False)
+    assert resp.status_code == 401 and resp.get_json() == {"error": "Sign in required"}
+    assert state["writes"] == [] and state["turnstile_calls"] == 0
+
+
+def test_submit_expired_token_is_401(rate):
+    server, client, state, ri = rate
+    resp = post(client, ri, auth=False, **signed_in(server, expires=timedelta(days=-1)))
+    assert resp.status_code == 401 and state["writes"] == []
+
+
+@pytest.mark.parametrize("change", [{"key": "another-secret"}, {"iss": "elsewhere"}, {"aud": "elsewhere"}])
+def test_submit_forged_token_is_401(rate, change):
+    server, client, state, ri = rate
+    claims = {"sub": "u1", "email": "t@husky.neu.edu", "name": "T", "iss": server.JWT_ISSUER,
+              "aud": server.JWT_AUDIENCE, "exp": datetime.now(timezone.utc) + timedelta(days=1)}
+    claims.update({k: v for k, v in change.items() if k != "key"})
+    token = jwt.encode(claims, change.get("key", server.JWT_SECRET), algorithm="HS256")
+    resp = post(client, ri, auth=False, Authorization=f"Bearer {token}")
+    assert resp.status_code == 401 and state["writes"] == [] and state["turnstile_calls"] == 0
+
+
+def test_submit_counts_signed_out_failure(rate):
+    server, client, state, ri = rate
+    post(client, ri, auth=False)
+    assert state["failures"] == ["signed_out"]
+
+
+def test_saved_row_carries_account_hash(rate):
+    server, client, state, ri = rate
+    post(client, ri)
+    params = rating_writes(state)[0][1]
+    assert saved(server, params, "account_hash") == ri.keyed_hash(SECRET, "account", "u1")
+    assert saved(server, params, "device_hash") == ri.keyed_hash(SECRET, "device", DEVICE)
+    assert saved(server, params, "collection") == "turnstile+account"
+
+
+def test_existing_lookup_uses_account(rate, monkeypatch):
+    server, client, state, ri = rate
+    seen = []
+    monkeypatch.setattr(server.ratings, "existing_rating", lambda account, key, q: seen.append(account))
+    post(client, ri)
+    assert seen == [ri.keyed_hash(SECRET, "account", "u1")]
+
+
+def test_start_and_suggestions_stay_open(rate):
+    server, client, state, ri = rate
+    assert client.get("/api/rate/start").status_code == 200
+    assert client.get("/api/rate/course-suggestions?code=CS2500").status_code == 200
 
 
 def test_new_device_follows_the_opened_token_and_cookie_is_set(rate):
@@ -867,7 +942,7 @@ def test_course_suggestions_is_off_with_the_form(rate, monkeypatch):
 
 def test_each_failed_submit_is_counted_by_reason_only(rate, monkeypatch):
     server, client, state, ri = rate
-    client.post("/api/rate", data="[", content_type="application/json")
+    client.post("/api/rate", data="[", content_type="application/json", headers=signed_in(server))
     post(client, ri, {"rating": 9})
     post(client, ri, {"professor": {"slug": "nobody"}})
     post(client, ri, {"course": {"code": "ZZ9999"}})

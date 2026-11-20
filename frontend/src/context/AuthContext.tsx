@@ -197,13 +197,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     const token = getStoredToken();
+    // A failed logout request still signs this browser out.
     const res = await fetch(`${API_BASE}/api/auth/logout`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+    }).catch(() => null);
     clearToken();
     setUser(null);
-    maintenanceGuard(res);
+    if (res) maintenanceGuard(res);
   }, []);
 
   return (

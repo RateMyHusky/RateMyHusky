@@ -37,7 +37,7 @@ _FAILURES = {
     "captcha_down": "CAPTCHA unavailable", "unknown_professor": "unknown professor",
     "unknown_course": "unknown course, no name given", "rule_block": "comment caught by the rules",
     "captcha_unconfigured": "CAPTCHA not set up (TURNSTILE_SECRET_KEY)",
-    "rate_limited": "rate limited", "error": "server error", "error_after_save": "server error after saving",
+    "signed_out": "not signed in", "rate_limited": "rate limited", "error": "server error", "error_after_save": "server error after saving",
 }
 _RATE_NOTE = ("Groq bars cover the last 24 hours, and each shows whichever of requests or tokens is "
               "closer to its limit. Bars turn amber at 50% and red at 80%.")

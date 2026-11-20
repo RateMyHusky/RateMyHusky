@@ -62,8 +62,7 @@ const Faq = () => {
               <h3>Can I write a review here?</h3>
               <p>
                 Yes. Use the <Link to="/rate">rating form</Link> to rate a professor and course you
-                took: you answer a few questions, add an optional comment, and no sign-in is
-                needed. Once accepted, your rating shows up here after the next weekly refresh; a rating
+                took: you answer a few questions, add an optional comment, and you sign in with your husky.neu.edu account first. Once accepted, your rating shows up here after the next weekly refresh; a rating
                 that is held, or that names a new professor or course, needs our review first.
                 Comments show once they pass a quick check or our team reads them; an edited
                 comment waits for our team.

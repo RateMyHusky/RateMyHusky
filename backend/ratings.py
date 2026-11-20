@@ -42,7 +42,7 @@ RATING_COLUMNS = (
     "pending_course_id", "term_label", "rating", "hours", "grade", "comment",
     "comment_hash", "status", "hold_reasons", "device_hash", "new_device",
     "ip_hash", "ip_prefix_hash", "network_type", "fill_seconds", "collection", "difficulty",
-    "comment_status", "comment_check", "comment_check_reason", "comment_check_attempts",
+    "account_hash", "comment_status", "comment_check", "comment_check_reason", "comment_check_attempts",
     "comment_next_check_at", "comment_checked_at",
 )
 # Set by the moderation check of the comment's text; NULL without a comment.
@@ -194,7 +194,7 @@ def pending_course(code, name, query_one, write):
 
 
 def rating_key(clean, pending_professor_id, pending_course_id):
-    """The four columns that, with the device, identify one rating."""
+    """The four columns that, with the account, identify one rating."""
     return {
         "professor_slug": None if pending_professor_id else clean.get("professor_slug"),
         "pending_professor_id": pending_professor_id,
@@ -220,11 +220,11 @@ def find_pending_course(code, query_one):
     return str(row["id"]) if row else None
 
 
-def existing_rating(device_hash, key, query_one):
+def existing_rating(account_hash, key, query_one):
     return query_one(
         f"SELECT id, status, hold_reasons, comment, term_label FROM survey_ratings "
-        f"WHERE device_hash = %s AND {_KEY_MATCH}",
-        (device_hash, *_key_params(key)))
+        f"WHERE account_hash = %s AND {_KEY_MATCH}",
+        (account_hash, *_key_params(key)))
 
 
 def device_seen(device_hash, query_one):
@@ -444,12 +444,14 @@ def hold_burst(reasons, key, ip_hash, prefix_hash, write, now):
     return held
 
 
-# The conflict target (device_hash + the four key columns) is never updated;
+# The conflict target (account_hash + the four key columns) is never updated;
 # status has its own held-stays-held rule below, and a clean resubmit keeps the
 # row's hold_reasons, so a reviewer's approval stays out of the burst and surge
 # counts. new_device keeps its first value, so an edit can't take a row out of
-# the burst_pair count. A comment keeps its status (approved by the model or a
-# reviewer, or still waiting) while its text is unchanged. New or edited text on a
+# the burst_pair count. device_hash and ip_hash take the editing browser's, so a
+# reviewer's abuse flag lands on the device that sent the edit. A comment keeps
+# its status (approved by the model or a reviewer, or still waiting) while its
+# text is unchanged. New or edited text on a
 # row that already exists waits for review and is never queued, whatever the route
 # sent: the route's read of the row can be stale when two first submits race, and
 # text on an existing rating never publishes itself. The CHECK_COLUMNS follow
@@ -460,13 +462,13 @@ def hold_burst(reasons, key, ip_hash, prefix_hash, write, now):
 _INSERT_COLUMNS = tuple(c for c in RATING_COLUMNS if c != "id")
 _SET_COLUMNS = tuple(
     c for c in _INSERT_COLUMNS
-    if c not in ("status", "hold_reasons", "comment_status", "device_hash", "new_device", "difficulty",
-                 *_KEY_COLUMNS, *CHECK_COLUMNS))
+    if c not in ("status", "hold_reasons", "comment_status", "new_device", "difficulty",
+                 "account_hash", *_KEY_COLUMNS, *CHECK_COLUMNS))
 _UPSERT_SQL = (
     f"INSERT INTO survey_ratings (id, {', '.join(_INSERT_COLUMNS)}) "
     f"VALUES (%s, {', '.join(['%s'] * len(_INSERT_COLUMNS))}) "
-    "ON CONFLICT (device_hash, professor_slug, pending_professor_id, course_code, "
-    "pending_course_id) DO UPDATE SET "
+    "ON CONFLICT (account_hash, professor_slug, pending_professor_id, course_code, "
+    "pending_course_id) WHERE account_hash IS NOT NULL DO UPDATE SET "
     + ", ".join(f"{c} = EXCLUDED.{c}" for c in _SET_COLUMNS)
     + ", status = CASE WHEN survey_ratings.status = 'held' THEN 'held' ELSE EXCLUDED.status END"
     ", hold_reasons = COALESCE(EXCLUDED.hold_reasons, survey_ratings.hold_reasons)"
@@ -482,9 +484,9 @@ _UPSERT_SQL = (
 
 
 def save_rating(row, existing, write, publish=False):
-    """Insert or replace this device's rating in one statement; return its id.
+    """Insert or replace this account's rating in one statement; return its id.
 
-    The unique index on (device, key) is the conflict target, so two racing
+    The unique index on (account, key) is the conflict target, so two racing
     submits still leave one row, and a held row stays held. A new rating's comment
     is approved when `publish` (the route's call: a Groq allow, see server.rate_submit),
     and pending for review otherwise, whatever row["comment_status"] says. Text saved
@@ -505,26 +507,22 @@ def save_rating(row, existing, write, publish=False):
     return existing["id"] if existing else new_id
 
 
-def professor_context(slug, device_hash, query):
-    """The form's course step: this device's earlier answers per rated course.
+def professor_context(slug, account_hash, query):
+    """The form's course step: this account's earlier answers per rated course.
 
     A course still awaiting review comes back as `pending`, so the form resends it
     as a new course and the submit reuses its pending row instead of adding a rating.
-
-    Accepted risk: the answers, comment included, go to whoever holds the device token,
-    so the next person on a shared browser sees them. That person could already
-    overwrite the rating, since the device is the identity.
     """
-    if device_hash is None:
+    if account_hash is None:
         return {"ratedCourses": []}
     rows = query(
         "SELECT COALESCE(r.course_code, pc.code) AS code, COALESCE(c.name, pc.name) AS name, "
         "r.course_code IS NULL AS pending, r.term_label, r.rating, r.difficulty, r.hours, r.grade, r.comment "
         "FROM survey_ratings r LEFT JOIN course_catalog c ON c.code = r.course_code "
         "LEFT JOIN survey_pending_courses pc ON pc.id = r.pending_course_id AND pc.status = 'pending' "
-        "WHERE r.device_hash = %s AND r.professor_slug = %s "
+        "WHERE r.account_hash = %s AND r.professor_slug = %s "
         "AND (r.course_code IS NOT NULL OR pc.id IS NOT NULL) "
-        "ORDER BY code", (device_hash, slug))
+        "ORDER BY code", (account_hash, slug))
     return {"ratedCourses": [
         {"code": r["code"], "name": r["name"], "pending": r["pending"], "term": r["term_label"],
          "rating": r["rating"], "difficulty": r["difficulty"], "hours": r["hours"], "grade": r["grade"],

@@ -23,6 +23,10 @@ import os, sys, time, argparse
 from dotenv import load_dotenv
 import psycopg2
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import rating_identity
+from pipeline.read_models import DATA_VERSION_SQL
+
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 URL = os.getenv("ORACLE_DATABASE_URL")
 if not URL:
@@ -90,25 +94,39 @@ def clear(conn, cur, account, dry_run):
     print(f"Deleted {cur.rowcount} strike row(s) for {account!r}. Account is now clear.")
 
 
-def purge_account(conn, cur, account, dry_run):
+def purge_account(conn, cur, account, dry_run, rating_secret):
     """Data-erasure: delete EVERY ask_log row for one account (query text, answer_text,
-    ip_hash, all statuses) — not just strikes — plus the account's bookmarks. Use for a
-    user's 'remove my tracked data' request. Also resets that account's strikes/daily-cap
-    as a side effect."""
+    ip_hash, all statuses) — not just strikes — plus the account's bookmarks and the
+    ratings it submitted while signed in (matched by the keyed account hash, so it
+    needs RATING_SECRET). Use for a user's 'remove my tracked data' request. Also
+    resets that account's strikes/daily-cap as a side effect. Without RATING_SECRET
+    it exits before touching anything, dry run included, so a deletion is never
+    half-done. It bumps data_version, so cached professor pages drop the account's
+    ratings and comments within a minute."""
+    if not rating_secret:
+        sys.exit("Need RATING_SECRET in backend/.env to find the account's ratings")
+    account_hash = rating_identity.keyed_hash(rating_secret, "account", account)
     cur.execute("SELECT count(*) FROM ask_log WHERE session_token = %s", (account,))
     n = cur.fetchone()[0]
     cur.execute("SELECT count(*) FROM bookmarks WHERE user_sub = %s", (account,))
     nb = cur.fetchone()[0]
+    cur.execute("SELECT count(*) FROM survey_ratings WHERE account_hash = %s", (account_hash,))
+    nr = cur.fetchone()[0]
     if dry_run:
-        print(f"[dry-run] would delete ALL {n} ask_log row(s) and {nb} bookmark row(s) "
-              f"for {account!r}")
+        print(f"[dry-run] would delete ALL {n} ask_log row(s), {nb} bookmark row(s) and "
+              f"{nr} rating row(s) for {account!r}")
         return
     cur.execute("DELETE FROM ask_log WHERE session_token = %s", (account,))
     n_deleted = cur.rowcount
     cur.execute("DELETE FROM bookmarks WHERE user_sub = %s", (account,))
+    nb_deleted = cur.rowcount
+    cur.execute("DELETE FROM survey_ratings WHERE account_hash = %s", (account_hash,))
+    nr_deleted = cur.rowcount
+    cur.execute(DATA_VERSION_SQL)
     conn.commit()
-    print(f"Deleted {n_deleted} ask_log row(s) and {cur.rowcount} bookmark row(s) for "
-          f"{account!r}. All tracked data for this account is removed.")
+    print(f"Deleted {n_deleted} ask_log row(s), {nb_deleted} bookmark row(s) and {nr_deleted} "
+          f"rating row(s) for {account!r}. All tracked data for this account is removed. "
+          "Ratings from before sign-in was required are matched by device ID by hand.")
 
 
 def main():
@@ -116,7 +134,7 @@ def main():
     p.add_argument("--show", action="store_true")
     p.add_argument("--clear", action="store_true")
     p.add_argument("--purge-account", metavar="SUB",
-                   help="delete ALL ask_log rows for this account (data-erasure, not just strikes)")
+                   help="delete ALL ask_log rows, bookmarks and signed-in ratings for this account (data-erasure)")
     p.add_argument("--account", help="JWT sub / session_token of the account")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
@@ -132,7 +150,7 @@ def main():
     if args.clear:
         clear(conn, cur, args.account, args.dry_run)
     if args.purge_account:
-        purge_account(conn, cur, args.purge_account, args.dry_run)
+        purge_account(conn, cur, args.purge_account, args.dry_run, os.getenv("RATING_SECRET"))
     cur.close(); conn.close()
 
 
