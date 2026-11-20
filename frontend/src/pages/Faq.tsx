@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import Footer from '../components/Footer';
 import Seo from '../components/Seo';
@@ -13,22 +13,36 @@ import './Faq.css';
 const SLIDE_MS = 800;
 
 const Faq = () => {
-  const { hash } = useLocation();
+  const { hash, key } = useLocation();
+  const slideFrame = useRef(0);
 
   // Professor pages link to /faq#professors. React Router doesn't scroll to a
-  // hash, and this runs after App's ScrollToTop, so the jump isn't undone.
+  // hash, and this runs after App's ScrollToTop, so the jump isn't undone. Keyed
+  // on the location too: the sign-in modal can link to the hash already in the URL.
   useEffect(() => {
     if (!hash) return;
     document.getElementById(hash.slice(1))?.scrollIntoView();
-  }, [hash]);
+  }, [hash, key]);
+
+  // The student scrolling or leaving the page stops a slide instead of fighting it.
+  useEffect(() => {
+    const stop = () => cancelAnimationFrame(slideFrame.current);
+    const events = ['wheel', 'touchstart', 'keydown'] as const;
+    events.forEach(ev => window.addEventListener(ev, stop, { passive: true }));
+    return () => {
+      stop();
+      events.forEach(ev => window.removeEventListener(ev, stop));
+    };
+  }, []);
 
   // The jump links slide instead of jumping: ease-in-out, so slow, fast, then slow.
   // Reduced-motion users get the plain jump. replaceState keeps the hash in the URL
   // without re-running the effect above, which would cut the slide short.
   const slideTo = (e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
     const el = document.getElementById(id);
-    if (!el) return;
+    if (!el || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
+    cancelAnimationFrame(slideFrame.current);
     window.history.replaceState(window.history.state, '', `#${id}`);
     const start = window.scrollY;
     const distance = el.getBoundingClientRect().top - (parseFloat(getComputedStyle(el).scrollMarginTop) || 0);
@@ -41,9 +55,9 @@ const Faq = () => {
       const t = Math.min((now - t0) / SLIDE_MS, 1);
       const eased = t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
       window.scrollTo(0, start + distance * eased);
-      if (t < 1) requestAnimationFrame(step);
+      if (t < 1) slideFrame.current = requestAnimationFrame(step);
     };
-    requestAnimationFrame(step);
+    slideFrame.current = requestAnimationFrame(step);
   };
 
   return (

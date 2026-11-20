@@ -48,6 +48,7 @@ export default function SignInModal({ open, onClose, reason }: Props) {
   if (!open) return null;
 
   const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; // new tab or window: leave the modal open
     e.preventDefault();
     animatedClose(() => navigate(path));
   };
