@@ -280,10 +280,10 @@ def _origin_host(value: str) -> str:
 
 # Vercel Preview deploys get a new hostname per build, so they can't be listed
 # like FRONTEND_URL. Set only where previews should reach this backend, e.g.
-# ^https://rate-my-husky-(?:git-[a-z0-9-]+|[a-z0-9]+)-grain-is-grainys-projects\.vercel\.app$
+# ^https://ratemyhusky-(?:git-[a-z0-9-]+|[a-z0-9]+)-bleeneu-7973\.vercel\.app$
 # (matches PREVIEW_ORIGIN_RE in middleware.ts). The hyphen-free hash segment
 # keeps another team's hash URLs out, but not a git-<branch> alias under a
-# team slug ending in "-grain-is-grainys-projects" (or a claimed *.vercel.app
+# team slug ending in "-bleeneu-7973" (or a claimed *.vercel.app
 # alias), so treat a match as a likely preview, not a proven one.
 # Unset = no preview origin is trusted.
 _preview_re = os.getenv("PREVIEW_ORIGIN_RE", "").strip()
