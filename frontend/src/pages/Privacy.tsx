@@ -64,7 +64,7 @@ const Privacy = () => {
                   {RATE_ENABLED ? ' The one exception is the rating device ID, described under Ratings below. We also keep when you last saw or skipped a prompt to rate a professor, how often you skipped one, which professors you rated from this browser and when, and the last day you visited, so prompts are not repeated too often.' : ''} While
                   you sign in, <code>sessionStorage</code> holds a marker that sign-in is
                   underway and any bookmark you clicked before signing in, so it can be saved
-                  once you are back; both are dropped when sign-in finishes or you close the tab.{RATE_ENABLED ? ' The rating form also keeps your unsent answers there, comment included, along with a copy of its device ID, until you submit them or close the tab.' : ''}
+                  once you are back; both are dropped when sign-in finishes or you close the tab. We also keep when the course picks questions were last shown and how many times you skipped them, and, if you sign in from those questions, the page to return to afterwards (kept for 15 minutes).{RATE_ENABLED ? ' The rating form also keeps your unsent answers there, comment included, along with a copy of its device ID, until you submit them or close the tab.' : ''}
                 </li>
                 <li>
                   <strong>IP address:</strong> your IP address is used in the moment a request
@@ -124,10 +124,10 @@ const Privacy = () => {
               </ul>
               <p>
                 We do <strong>not</strong> log your search queries, which professor or course
-                pages you viewed, or any other browsing activity ourselves, though the request
+                pages you viewed, or any other browsing activity ourselves, except as described under Course picks profile and browsing activity in Section 4, though the request
                 logs our hosting providers keep record the address of each request, which
                 includes any search (see <em>Third-Party Services</em>).
-                {RATE_ENABLED ? ' The one exception is the time taken to fill in the rating form, stored with a rating you submit. When you open or submit the rating form, or see or use a prompt to rate a professor, we send Google Analytics which prompt led you there and whether you rated. These events don\'t include the professor, course or your rating. Whether to show the prompt is decided in your browser.' : ''} The analytics
+                {RATE_ENABLED ? ' The one exception is the time taken to fill in the rating form, stored with a rating you submit. When you open or submit the rating form, or see or use a prompt to rate a professor, we send Google Analytics which prompt led you there and whether you rated. These events don\'t include the professor, course or your rating. Whether to show the prompt is decided in your browser.' : ''} When the course picks questions are shown, move to another step, are finished or are dismissed, we send Google Analytics only the step number (<code>profile_prompt_shown</code>, <code>profile_prompt_step</code>, <code>profile_prompt_finished</code>, <code>profile_prompt_dismissed</code>), never your answers, professors or courses. The analytics
                 providers listed under <em>Third-Party Services</em> collect their own data
                 about your visit; Google Analytics records the address of each page you view,
                 which includes any search you type into the catalog.
@@ -202,7 +202,7 @@ const Privacy = () => {
                 <em>Your Rights &amp; Choices</em>).
               </p>
               </>)}
-              <p id="course-picks">
+              <p id="course-picks" style={{ scrollMarginTop: 96 }}>
                 <strong>Course picks profile and browsing activity</strong>
               </p>
               <p>
@@ -437,9 +437,9 @@ const Privacy = () => {
               <p>
                 <code>localStorage</code> is used to store your JWT session token
                 (<code>auth_token</code>), your theme, your catalog view mode, and flags for
-                on-page tips you have dismissed{RATE_ENABLED && (<>, plus your rate-prompt history (<code>rmh_rate_prompt</code>)</>)}.
+                on-page tips you have dismissed{RATE_ENABLED && (<>, plus your rate-prompt history (<code>rmh_rate_prompt</code>)</>)}, plus when the course picks questions were last shown and how many times they were skipped (<code>rmh_profile_prompt</code>).
                 While you sign in, <code>sessionStorage</code> holds a sign-in marker and any
-                bookmark you clicked before signing in, and is cleared when you close the tab.{RATE_ENABLED && (<> The rating form also keeps your unsent answers there (<code>rmh_rate_draft</code>), comment included, along with a copy of its device ID, until you submit them or close the tab.</>)} None of this data is
+                bookmark you clicked before signing in, and the page to return to after signing in from the course picks questions (<code>rmh_profile_resume</code>, used within 15 minutes), and is cleared when you close the tab.{RATE_ENABLED && (<> The rating form also keeps your unsent answers there (<code>rmh_rate_draft</code>), comment included, along with a copy of its device ID, until you submit them or close the tab.</>)} None of this data is
                 synced to our servers{RATE_ENABLED ? (<>, with one exception: the rating form also keeps a copy of
                 its device ID (<code>rmh_device</code>) in <code>localStorage</code>, and that
                 copy is sent to our servers when you use the rating form</>) : ''}.

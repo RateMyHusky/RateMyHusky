@@ -67,8 +67,7 @@ const Terms = () => {
               <p>
                 This information is encoded in a JWT (JSON Web Token) that is stored in your
                 browser's <code>localStorage</code>. The token expires after 7 days.
-                RateMyHusky does not maintain user accounts or profiles. The only per-user data
-                we store server-side is your bookmarks{RATE_ENABLED ? ' and your pseudonymous ratings' : ''}, described
+                The per-user data we store server-side is your bookmarks{RATE_ENABLED ? ', your pseudonymous ratings' : ''} and, if you fill out the course picks questions, your course picks profile and browsing activity, described
                 below and in our <a href="/privacy">Privacy Policy</a>. Signing out deletes the
                 token from your browser.
               </p>
@@ -129,7 +128,7 @@ const Terms = () => {
               </ul>
               <p>
                 We do <strong>not</strong> log or store your search queries, which professor or
-                course pages you viewed, or any other browsing activity ourselves, though our
+                course pages you viewed, or any other browsing activity ourselves, except as described under Course picks profile and browsing activity in our Privacy Policy, though our
                 hosting providers' request logs record the address of each request, which
                 includes any search. Your IP
                 address is used in the moment to enforce rate limits. We never store it in raw
