@@ -117,11 +117,13 @@
   color: #aaa;
   line-height: 1.5;
   margin-bottom: 20px;
+  text-wrap: balance;
 }
 
 .signin-modal-terms a {
   color: #999;
   text-decoration: underline;
+  white-space: nowrap;
   transition: color 0.15s;
 }
 

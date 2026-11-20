@@ -54,7 +54,7 @@ export default function SignInModal({ open, onClose, reason }: Props) {
 
   const huskyLine = <>
     We currently only support valid <strong>husky.neu.edu</strong> accounts.{' '}
-    <a href="/faq#google-account" onClick={e => handleLinkClick(e, '/faq#google-account')}>How to get yours</a>
+    <a href="/faq#google-account" onClick={e => handleLinkClick(e, '/faq#google-account')}>Can't find your email?</a>
   </>;
 
   return (
