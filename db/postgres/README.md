@@ -527,14 +527,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_account ON public.surve
 Step 2, after the new backend is live. Until then, a signed-in rating for a device
 and pair that already has an anonymous row fails on the still-full device index.
 Don't run it before the deploy: the old backend's upsert can't use a partial index,
-so every submit would fail. Rolling the backend back after this step needs the
-device index restored to its non-partial form first.
+so every submit would fail. After this step a device can hold an anonymous row and
+a signed-in row (or rows from two accounts) for the same pair, so restoring the full
+device index can fail on duplicates. Fix forward rather than roll back.
 
 ```sql
 DROP INDEX IF EXISTS public.survey_ratings_one_per_device;
 CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_device ON public.survey_ratings
     (device_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT
     WHERE account_hash IS NULL;
+```
+
+To delete one person's signed-in ratings (account deletion), compute their hash from
+their Google `sub` with the backend's `rating_identity.keyed_hash`. Run this from
+`backend/` with `RATING_SECRET` already in the environment, so the secret is never
+printed:
+
+```bash
+python -c "import os, rating_identity as r; print(r.keyed_hash(os.environ['RATING_SECRET'], 'account', '<sub>'))"
+```
+
+```sql
+DELETE FROM public.survey_ratings WHERE account_hash = '<the printed hash>';
 ```
 
 ### Optional cleanup (destructive; take a backup first)

@@ -380,7 +380,7 @@ def test_professor_context_returns_earlier_answers():
          "rating": 3, "difficulty": 2, "hours": "3-4", "grade": None, "comment": None},
     ]}
     f = Fake(many=many)
-    assert ratings.professor_context("jane-doe", "d1", f.query) == {"ratedCourses": [
+    assert ratings.professor_context("jane-doe", "a1", f.query) == {"ratedCourses": [
         {"code": "CS3500", "name": "Object-Oriented Design", "pending": False, "term": "Fall 2025",
          "rating": 4, "difficulty": 4, "hours": "5-7", "grade": "A-", "comment": "Projects take time."},
         {"code": "CS4973", "name": None, "pending": False, "term": None,
@@ -388,7 +388,7 @@ def test_professor_context_returns_earlier_answers():
         {"code": "CS4999", "name": "Applied ML", "pending": True, "term": "Fall 2025",
          "rating": 3, "difficulty": 2, "hours": "3-4", "grade": None, "comment": ""}]}
     sql, params = f.calls[0]
-    assert "LEFT JOIN course_catalog" in sql and params == ("d1", "jane-doe")
+    assert "LEFT JOIN course_catalog" in sql and params == ("a1", "jane-doe")
     assert "r.account_hash = %s" in sql
     # Pending courses come from their review row, and held ratings count, so there's no status filter on r.
     assert "pc.status = 'pending'" in sql and "r.status" not in sql

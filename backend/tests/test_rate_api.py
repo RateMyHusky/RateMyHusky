@@ -602,7 +602,7 @@ def test_network_type_is_looked_up_once_per_submit(rate, monkeypatch):
     assert len(lookups) == 1
 
 
-def test_professor_context_uses_cookie_device_and_404s_unknown(rate):
+def test_professor_context_signed_in_404s_unknown_and_returns_empty_context(rate):
     server, client, state, ri = rate
     auth = signed_in(server)
     assert client.get("/api/rate/professors/nobody", headers=auth).status_code == 404

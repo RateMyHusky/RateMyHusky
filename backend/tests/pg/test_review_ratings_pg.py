@@ -1,4 +1,4 @@
-"""review_ratings' merge against the real one-per-device unique index."""
+"""review_ratings' merge against the real one-per-account and one-per-device unique indexes."""
 
 import uuid
 
@@ -16,14 +16,14 @@ def clean(pg):
              "rating_flags", "professor_aliases")
 
 
-def insert(pg, slug, pending, updated_at, rating):
+def insert(pg, slug, pending, updated_at, rating, device="d1", account=None):
     with pg.cursor() as cur:
         cur.execute(
             "INSERT INTO survey_ratings (id, professor_slug, pending_professor_id, "
             "course_code, rating, hours, status, device_hash, new_device, network_type, "
-            "updated_at) VALUES (%s, %s, %s, 'CS2500', %s, '3-4', 'accepted', 'd1', "
-            "true, 'unknown', %s)",
-            (str(uuid.uuid4()), slug, pending, rating, updated_at))
+            "updated_at, account_hash) VALUES (%s, %s, %s, 'CS2500', %s, '3-4', 'accepted', %s, "
+            "true, 'unknown', %s, %s)",
+            (str(uuid.uuid4()), slug, pending, rating, device, updated_at, account))
 
 
 def test_merge_professor_against_the_real_index(pg):
@@ -64,6 +64,44 @@ def test_merge_professor_keeps_the_existing_rating_when_it_is_newer(pg):
     left = rows(pg, "SELECT professor_slug, pending_professor_id, rating "
                     "FROM survey_ratings WHERE device_hash = 'd1' AND course_code = 'CS2500'")
     assert left == [{"professor_slug": "jane-doe", "pending_professor_id": None, "rating": 4}]
+
+
+def merge_p(pg, accounts_and_devices):
+    """Seed a final-slug row and a pending row per (device, account) pair, merge, return the left rows."""
+    pending = str(uuid.uuid4())
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO professors (slug, name, name_key) "
+                    "VALUES ('jane-doe', 'Jane Doe', 'jane doe')")
+        cur.execute("INSERT INTO survey_pending_professors (id, name, name_key) "
+                    "VALUES (%s, 'J Doe', 'j doe')", (pending,))
+    for (slug_device, slug_account, pend_device, pend_account, older_is_slug) in accounts_and_devices:
+        old, new = "2026-10-01T00:00:00Z", "2026-10-10T00:00:00Z"
+        insert(pg, "jane-doe", None, old if older_is_slug else new, 2 if older_is_slug else 5,
+               device=slug_device, account=slug_account)
+        insert(pg, None, pending, new if older_is_slug else old, 5 if older_is_slug else 2,
+               device=pend_device, account=pend_account)
+    pg.commit()
+    with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        review_ratings.merge_professor(cur, pending, "jane-doe")
+    pg.commit()
+    return rows(pg, "SELECT device_hash, account_hash, rating FROM survey_ratings ORDER BY rating")
+
+
+def test_merge_same_account_two_devices_keeps_the_newest(pg):
+    left = merge_p(pg, [("laptop", "a1", "phone", "a1", True)])
+    assert left == [{"device_hash": "phone", "account_hash": "a1", "rating": 5}]
+
+
+def test_merge_two_accounts_on_one_device_keeps_both(pg):
+    left = merge_p(pg, [("d1", "a1", "d1", "a2", True)])
+    assert left == [{"device_hash": "d1", "account_hash": "a1", "rating": 2},
+                    {"device_hash": "d1", "account_hash": "a2", "rating": 5}]
+
+
+def test_merge_anonymous_row_and_signed_in_row_on_one_device_keeps_both(pg):
+    left = merge_p(pg, [("d1", None, "d1", "a1", True)])
+    assert left == [{"device_hash": "d1", "account_hash": None, "rating": 2},
+                    {"device_hash": "d1", "account_hash": "a1", "rating": 5}]
 
 
 @pytest.mark.parametrize("before", [None, "too_fast"])
