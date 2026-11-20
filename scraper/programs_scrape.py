@@ -17,7 +17,16 @@ pages of one major are one entry); the degree stays, so "Computer Science, BSCS"
 and "Computer Science, BACS" stay distinct. Concentrations and department pages
 have no degree in the title and fall out.
 
-~650 pages at one request per 250ms: about three minutes.
+Editions: the current catalog plus the archived 2022-2023 through 2025-2026
+ones. Students are held to the catalog of the year they entered, so a current
+student (classes of 2027-2030) can be in a major the current edition no longer
+lists (Data Science, BS became Artificial Intelligence). Each archive edition
+has its own /archive/<year>/sitemap.xml and index; its sitemap lists the
+edition's pages under /undergraduate/, which live at /archive/<year>/undergraduate/.
+A name found in several editions is one entry, labelled with the college of the
+newest edition that has it (the current one first).
+
+~650 pages per edition at one request per 250ms: about fifteen minutes in all.
 """
 
 import html as html_module
@@ -31,17 +40,18 @@ from catalog_api import BASE, clean
 from catalog_scrape import CatalogClient
 
 SOURCE = BASE + "/undergraduate/"
+ARCHIVE_YEARS = ("2025-2026", "2024-2025", "2023-2024", "2022-2023")  # newest first
 MIN_MAJORS = 200   # 342 live on 2026-11-20
 MIN_MINORS = 100   # 181 live on 2026-11-20
 
 TITLE = re.compile(r"<title>(.*?)</title>", re.S | re.I)
 # "Computer Science, BSCS (Boston)", "Computer Science, Minor", and the catalog's
 # own typo "..., BA (Boston" (unclosed paren). Anything after the degree is dropped.
-PROGRAM_TITLE = re.compile(r"^(?P<name>.+?),\s*(?P<degree>Minor|B[A-Za-z]{1,6}|PharmD)\b")
-COLLEGE_LINK = re.compile(r'<a\s+href="/undergraduate/(?P<slug>[a-z0-9-]+)/"[^>]*>(?P<label>.*?)</a>', re.S)
+PROGRAM_TITLE = re.compile(r"^(?P<name>.+?),\s*(?P<degree>Minor|B[A-Z][A-Za-z]{0,5}|PharmD)\b")
+
 # Not colleges: policy and admission sections sit beside them in the same list.
 NOT_COLLEGES = {"admission", "information-entering-students", "expenses",
-                "academic-policies-procedures", "university-academics"}
+                "academic-policies-procedures", "university-academics", "appendix", "faculty"}
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUTS = [os.path.join(REPO, "backend", "programs.json"),
@@ -65,45 +75,60 @@ def parse_program_page(page_html):
     return ("minor" if degree == "Minor" else "major", f"{match.group('name')}, {degree}")
 
 
-def colleges(index_html):
-    """{slug: college name} from the links on /undergraduate/."""
-    return {m.group("slug"): clean(m.group("label")) for m in COLLEGE_LINK.finditer(index_html)
+def colleges(index_html, prefix=""):
+    """{slug: college name} from the links on <prefix>/undergraduate/."""
+    link = re.compile(r'<a\s+href="%s/undergraduate/(?P<slug>[a-z0-9-]+)/"[^>]*>(?P<label>.*?)</a>'
+                      % re.escape(prefix), re.S)
+    return {m.group("slug"): clean(m.group("label")) for m in link.finditer(index_html)
             if m.group("slug") not in NOT_COLLEGES}
 
 
-def program_paths(sitemap_xml, college_slugs):
-    """Sitemap paths below a college page (the college page itself is not a program)."""
+def program_paths(sitemap_xml, college_slugs, prefix=""):
+    """Paths (under prefix) below a college page; the college page itself is not a program.
+
+    Archive sitemaps list an edition's pages as /undergraduate/... (some as http://).
+    """
     paths = []
     for url in re.findall(r"<loc>(.*?)</loc>", sitemap_xml):
-        if not url.startswith(BASE + "/undergraduate/"):
+        match = re.match(r"https?://catalog\.northeastern\.edu(/undergraduate/.*)", url)
+        if not match:
             continue
-        path = url[len(BASE):]
-        parts = path.strip("/").split("/")
+        parts = match.group(1).strip("/").split("/")
         if len(parts) >= 3 and parts[1] in college_slugs:
-            paths.append(path)
+            paths.append(prefix + match.group(1))
     return paths
 
 
-def build(fetch, min_majors=MIN_MAJORS, min_minors=MIN_MINORS):
-    """The program list as the JSON dict. fetch(path) -> html text."""
-    college_names = colleges(fetch("/undergraduate/"))
-    found = {"major": [], "minor": []}
-    for path in program_paths(fetch("/sitemap.xml"), college_names):
+def scrape_edition(fetch, prefix="", sitemap="/sitemap.xml"):
+    """{"major": {name: college}, "minor": {name: college}} for one catalog edition."""
+    college_names = colleges(fetch(prefix + "/undergraduate/"), prefix)
+    found = {"major": {}, "minor": {}}
+    for path in program_paths(fetch(sitemap), college_names, prefix):
         program = parse_program_page(fetch(path))
         if program:
             kind, name = program
-            found[kind].append({"name": name, "college": college_names[path.split("/")[2]]})
+            college = college_names[path[len(prefix):].split("/")[2]]
+            found[kind].setdefault(name, college)
+    return found
+
+
+def build(fetch, min_majors=MIN_MAJORS, min_minors=MIN_MINORS, archive_years=ARCHIVE_YEARS):
+    """The program list as the JSON dict. fetch(path) -> html text."""
+    current = scrape_edition(fetch)
+    # The gate is on the current edition alone: archives must not hide a redesigned site.
+    if len(current["major"]) < min_majors or len(current["minor"]) < min_minors:
+        raise ThinCatalog(f"found {len(current['major'])} majors and {len(current['minor'])} minors, "
+                          f"expected at least {min_majors} and {min_minors}")
+    editions = [current] + [scrape_edition(fetch, f"/archive/{year}", f"/archive/{year}/sitemap.xml")
+                            for year in archive_years]
     lists = {}
     for kind in ("major", "minor"):
-        seen = set()
-        lists[kind] = []
-        for entry in sorted(found[kind], key=lambda e: (e["college"], e["name"])):
-            if entry["name"] not in seen:
-                seen.add(entry["name"])
-                lists[kind].append(entry)
-    if len(lists["major"]) < min_majors or len(lists["minor"]) < min_minors:
-        raise ThinCatalog(f"found {len(lists['major'])} majors and {len(lists['minor'])} minors, "
-                          f"expected at least {min_majors} and {min_minors}")
+        merged = {}
+        for edition in editions:   # newest first: the first college label seen wins
+            for name, college in edition[kind].items():
+                merged.setdefault(name, college)
+        lists[kind] = [{"name": name, "college": college} for college, name in
+                       sorted((college, name) for name, college in merged.items())]
     return {"source": SOURCE, "copied": date.today().isoformat(),
             "majors": lists["major"], "minors": lists["minor"]}
 

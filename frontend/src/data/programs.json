@@ -39,10 +39,6 @@
       "college": "Bouvé College of Health Sciences"
     },
     {
-      "name": "Interdisciplinary Studies, BS",
-      "college": "Bouvé College of Health Sciences"
-    },
-    {
       "name": "Nursing, BSN",
       "college": "Bouvé College of Health Sciences"
     },
@@ -123,6 +119,10 @@
       "college": "College of Arts, Media and Design"
     },
     {
+      "name": "Communication Studies and Graphic and Information Design, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
       "name": "Communication Studies and Sociology, BA",
       "college": "College of Arts, Media and Design"
     },
@@ -183,7 +183,15 @@
       "college": "College of Arts, Media and Design"
     },
     {
+      "name": "Game Design and Music with concentration in Music Technology, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
       "name": "Game Design, BFA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Graphic and Information Design and Mathematics, BS",
       "college": "College of Arts, Media and Design"
     },
     {
@@ -200,6 +208,10 @@
     },
     {
       "name": "Journalism and English, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Journalism and Interaction Design, BS",
       "college": "College of Arts, Media and Design"
     },
     {
@@ -311,6 +323,14 @@
       "college": "College of Arts, Media and Design"
     },
     {
+      "name": "Theatre and Interaction Design, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Theatre and Interaction Design, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
       "name": "Theatre and Journalism, BA",
       "college": "College of Arts, Media and Design"
     },
@@ -348,6 +368,10 @@
     },
     {
       "name": "Chemical Engineering and Computer Science, BSChE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Chemical Engineering and Data Science, BSChE",
       "college": "College of Engineering"
     },
     {
@@ -395,6 +419,10 @@
       "college": "College of Engineering"
     },
     {
+      "name": "Electrical Engineering and Music with concentration in Music Technology, BSEE",
+      "college": "College of Engineering"
+    },
+    {
       "name": "Electrical Engineering and Physics, BSEE",
       "college": "College of Engineering"
     },
@@ -416,6 +444,10 @@
     },
     {
       "name": "Environmental Engineering and Chemical Engineering, BSEnvE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Environmental Engineering and Data Science, BSEnvE",
       "college": "College of Engineering"
     },
     {
@@ -683,6 +715,10 @@
       "college": "College of Social Sciences and Humanities"
     },
     {
+      "name": "Africana Studies, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
       "name": "American Sign Language and Human Services, BS",
       "college": "College of Social Sciences and Humanities"
     },
@@ -700,6 +736,10 @@
     },
     {
       "name": "American Sign Language—English Interpreting, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Asian Studies, BA",
       "college": "College of Social Sciences and Humanities"
     },
     {
@@ -728,6 +768,10 @@
     },
     {
       "name": "Criminal Justice and Sociology, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Criminal Justice, BS",
       "college": "College of Social Sciences and Humanities"
     },
     {
@@ -812,6 +856,10 @@
     },
     {
       "name": "English and Design, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "English and Graphic and Information Design, BA",
       "college": "College of Social Sciences and Humanities"
     },
     {
@@ -955,6 +1003,26 @@
       "college": "College of Social Sciences and Humanities"
     },
     {
+      "name": "International Affairs with African Studies Concentration, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs with Asian Studies Concentration, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs with European Studies Concentration, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs with Latin American Studies Concentration, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs with Middle East Studies Concentration, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
       "name": "International Affairs, BA",
       "college": "College of Social Sciences and Humanities"
     },
@@ -1087,6 +1155,10 @@
       "college": "College of Social Sciences and Humanities"
     },
     {
+      "name": "Bachelor of Science in Business Administration, BSBA",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
       "name": "Business Administration and Communication Studies, BS",
       "college": "D'Amore-McKim School of Business"
     },
@@ -1120,6 +1192,10 @@
     },
     {
       "name": "Business Administration, BSBA",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Interdisciplinary Studies, BS",
       "college": "D'Amore-McKim School of Business"
     },
     {
@@ -1369,6 +1445,98 @@
     {
       "name": "Cybersecurity, BS",
       "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Behavioral Neuroscience, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Biochemistry, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Biology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Business Administration, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Chemistry, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Communication Studies, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Criminal Justice, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Design, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Ecology and Evolutionary Biology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Economics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Environmental and Sustainability Sciences, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Health Science, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and International Affairs, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Journalism, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Linguistics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Mathematics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Philosophy, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Physics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Psychology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Public Health, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Sociology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Speech-Language Pathology and Audiology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science, BS",
+      "college": "Khoury College of Computer Sciences"
     }
   ],
   "minors": [
@@ -1398,6 +1566,10 @@
     },
     {
       "name": "Health Psychology, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Health Sciences Entrepreneurship, Minor",
       "college": "Bouvé College of Health Sciences"
     },
     {
@@ -1453,6 +1625,10 @@
       "college": "College of Arts, Media and Design"
     },
     {
+      "name": "Art History, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
       "name": "Art, Minor",
       "college": "College of Arts, Media and Design"
     },
@@ -1494,6 +1670,10 @@
     },
     {
       "name": "Digital Communication, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Digital Communications, Minor",
       "college": "College of Arts, Media and Design"
     },
     {
@@ -1681,6 +1861,10 @@
       "college": "College of Engineering"
     },
     {
+      "name": "Biomechanical Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
       "name": "Biomedical Engineering, Minor",
       "college": "College of Engineering"
     },
@@ -1833,7 +2017,15 @@
       "college": "College of Science"
     },
     {
+      "name": "Scientific Commercialization, Minor",
+      "college": "College of Science"
+    },
+    {
       "name": "African American Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "African Studies, Minor",
       "college": "College of Social Sciences and Humanities"
     },
     {
@@ -1877,6 +2069,10 @@
       "college": "College of Social Sciences and Humanities"
     },
     {
+      "name": "East Asian Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
       "name": "Economics, Minor",
       "college": "College of Social Sciences and Humanities"
     },
@@ -1890,6 +2086,10 @@
     },
     {
       "name": "Expressive Therapies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Film and International Cultures, Minor",
       "college": "College of Social Sciences and Humanities"
     },
     {
@@ -1942,6 +2142,10 @@
     },
     {
       "name": "Jewish Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Latino/a, Latin American and Caribbean Studies, Minor",
       "college": "College of Social Sciences and Humanities"
     },
     {
@@ -2037,11 +2241,19 @@
       "college": "D'Amore-McKim School of Business"
     },
     {
+      "name": "Family Business, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
       "name": "Interdisciplinary Artificial Intelligence, Minor",
       "college": "D'Amore-McKim School of Business"
     },
     {
       "name": "International Business, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Leadership and Human Capital, Minor",
       "college": "D'Amore-McKim School of Business"
     },
     {
@@ -2086,6 +2298,10 @@
     },
     {
       "name": "Cybersecurity, Minor",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science, Minor",
       "college": "Khoury College of Computer Sciences"
     },
     {

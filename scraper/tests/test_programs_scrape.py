@@ -52,7 +52,7 @@ def test_parse_skips_pages_that_are_not_programs():
 
 
 def test_build_groups_by_college_and_sorts():
-    result = build(fake_fetch, min_majors=1, min_minors=1)
+    result = build(fake_fetch, min_majors=1, min_minors=1, archive_years=())
     assert result["source"] == "https://catalog.northeastern.edu/undergraduate/"
     assert set(result) == {"source", "copied", "majors", "minors"}
     # The Boston and Oakland BSCS pages are one major.
@@ -72,3 +72,49 @@ def test_build_refuses_a_thin_catalog():
             else fake_fetch(path)
     with pytest.raises(programs_scrape.ThinCatalog):
         build(thin)
+
+
+def title_page(title):
+    return f"<html><head><title>{title} &lt; Northeastern University Academic Catalog</title></head></html>"
+
+
+@pytest.mark.parametrize("title, expected", [
+    ("History, Culture, and Law, BA (Boston)", ("major", "History, Culture, and Law, BA")),
+    ("Pharmacy, PharmD (Boston)", ("major", "Pharmacy, PharmD")),
+    ("Computer Science, BA (Boston", ("major", "Computer Science, BA")),
+    ("Marine Biology, BS with Three Seas", ("major", "Marine Biology, BS")),
+    ("Chemical Engineering, BSChE (Boston)", ("major", "Chemical Engineering, BSChE")),
+    ("Biology, Minor", ("minor", "Biology, Minor")),
+    ("X, Biology (Boston)", None),
+    ("Pre-Law, Boston", None),
+])
+def test_parse_titles(title, expected):
+    assert parse_program_page(title_page(title)) == expected
+
+
+def test_archive_editions_are_unioned_and_deduped_keeping_the_current_college():
+    def sitemap(*slugs):
+        locs = "".join(f"<loc>https://catalog.northeastern.edu/undergraduate/{s}/</loc>" for s in slugs)
+        return f"<urlset>{locs}</urlset>"
+
+    def index(prefix, label_a, label_b):
+        return (f'<a href="{prefix}/undergraduate/college-a/">{label_a}</a>'
+                f'<a href="{prefix}/undergraduate/college-b/">{label_b}</a>')
+
+    pages = {
+        "/undergraduate/": index("", "Current A", "Current B"),
+        "/sitemap.xml": sitemap("college-a/shared", "college-a/new"),
+        "/undergraduate/college-a/shared/": title_page("Shared, BS (Boston)"),
+        "/undergraduate/college-a/new/": title_page("Newer, BS (Boston)"),
+        "/archive/2025-2026/undergraduate/": index("/archive/2025-2026", "Old A", "Old B"),
+        "/archive/2025-2026/sitemap.xml": sitemap("college-b/shared", "college-b/gone"),
+        "/archive/2025-2026/undergraduate/college-b/shared/": title_page("Shared, BS (Boston)"),
+        "/archive/2025-2026/undergraduate/college-b/gone/": title_page("Data Science, BS (Boston)"),
+    }
+    result = build(pages.__getitem__, min_majors=1, min_minors=0, archive_years=("2025-2026",))
+    assert result["source"] == "https://catalog.northeastern.edu/undergraduate/"
+    assert result["majors"] == [
+        {"name": "Newer, BS", "college": "Current A"},
+        {"name": "Shared, BS", "college": "Current A"},
+        {"name": "Data Science, BS", "college": "Old B"},
+    ]
