@@ -40,6 +40,7 @@ from rag.chat_answer import generate, generate_course_list, generate_course_rank
 from course_page import build_course
 from professor_full import build_payload
 import bookmarks
+import student_profile
 import moderation
 import moderation_groq
 import notify
@@ -2510,6 +2511,28 @@ def bookmarks_remove():
         return jsonify({"error": "itemType must be 'professor' or 'course', itemKey is required"}), 400
 
     bookmarks.remove_bookmark(user_sub, item_type, item_key, _write)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/profile")
+@limiter.limit("30 per minute")
+def profile_get():
+    user_sub = _require_bookmarks_auth()
+    if not user_sub:
+        return jsonify({"error": "Sign in required"}), 401
+    return jsonify(student_profile.profile_status(user_sub, query_one))
+
+
+@app.route("/api/profile", methods=["PUT"])
+@limiter.limit("20 per minute")
+def profile_put():
+    user_sub = _require_bookmarks_auth()
+    if not user_sub:
+        return jsonify({"error": "Sign in required"}), 401
+    clean, error = student_profile.validate_profile(_json_object(), datetime.now(timezone.utc).year)
+    if error:
+        return jsonify({"error": error}), 400
+    student_profile.save_profile(user_sub, clean, _write)
     return jsonify({"ok": True})
 
 

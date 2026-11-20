@@ -1,0 +1,78 @@
+"""Route-level tests for GET/PUT /api/profile (same fixture pattern as test_bookmarks_api.py)."""
+
+import os
+
+import pytest
+
+import programs
+from tests.test_bookmarks_api import TEST_SECRET, auth_headers  # noqa: F401
+
+M1 = sorted(programs.MAJORS)[0]
+
+
+@pytest.fixture
+def pf_client(monkeypatch):
+    os.environ.setdefault("ORACLE_DATABASE_URL", "postgresql://stub")
+    os.environ.setdefault("JWT_SECRET", "test-secret")
+    import server
+    monkeypatch.setattr(server, "JWT_SECRET", TEST_SECRET, raising=False)
+    monkeypatch.setattr(server, "_get_pool", lambda: (_ for _ in ()).throw(AssertionError("no DB in test")), raising=False)
+
+    state = {"row": None, "writes": []}
+
+    def fake_query_one(sql, params=()):
+        if "FROM student_profiles" in sql:
+            return state["row"]
+        raise AssertionError(f"unexpected query_one: {sql}")
+
+    def fake_write(sql, params=None):
+        state["writes"].append((sql, params))
+
+    monkeypatch.setattr(server, "query_one", fake_query_one, raising=False)
+    monkeypatch.setattr(server, "_write", fake_write, raising=False)
+    return server.app.test_client(), state
+
+
+def test_get_requires_sign_in(pf_client):
+    client, _ = pf_client
+    resp = client.get("/api/profile")
+    assert resp.status_code == 401 and resp.get_json() == {"error": "Sign in required"}
+
+
+def test_put_requires_sign_in(pf_client):
+    client, state = pf_client
+    resp = client.put("/api/profile", json={"gradYear": None, "majors": [], "minors": []})
+    assert resp.status_code == 401 and resp.get_json() == {"error": "Sign in required"}
+    assert state["writes"] == []
+
+
+def test_get_without_a_row(pf_client):
+    client, _ = pf_client
+    resp = client.get("/api/profile", headers=auth_headers())
+    assert resp.get_json() == {"exists": False, "optedOut": False}
+
+
+def test_get_with_an_opted_out_row(pf_client):
+    client, state = pf_client
+    state["row"] = {"tracking_opt_out": True}
+    resp = client.get("/api/profile", headers=auth_headers())
+    assert resp.get_json() == {"exists": True, "optedOut": True}
+
+
+def test_put_valid_writes_once_for_the_token_sub(pf_client):
+    client, state = pf_client
+    import datetime
+    year = datetime.datetime.now(datetime.timezone.utc).year + 2
+    resp = client.put("/api/profile", headers=auth_headers(sub="u-9"),
+                      json={"gradYear": year, "majors": [M1], "minors": []})
+    assert resp.status_code == 200 and resp.get_json() == {"ok": True}
+    assert len(state["writes"]) == 1
+    assert state["writes"][0][1][0] == "u-9"
+
+
+def test_put_invalid_is_400_with_no_write(pf_client):
+    client, state = pf_client
+    resp = client.put("/api/profile", headers=auth_headers(),
+                      json={"gradYear": 2028, "majors": [], "minors": []})
+    assert resp.status_code == 400 and resp.get_json()["error"]
+    assert state["writes"] == []
