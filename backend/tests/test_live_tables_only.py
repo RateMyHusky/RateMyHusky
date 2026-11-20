@@ -23,7 +23,7 @@ LIVE_TABLES = {
     "stats_cache", "bookmarks", "reddit_mentions", "reddit_text", "reddit_sentiment",
     "ask_log", "evidence", "evidence_embeddings", "usage_alerts",
     "professors", "rmp_links", "source_summary", "catalog_courses", "catalog_nupath",
-    "professor_tags", "review_tags",
+    "professor_tags", "review_tags", "student_profiles", "page_views",
 }
 # survey_ratings stays out on purpose: the professor page reads it live, and a
 # database without it yet must still serve the page (professor_full._survey).
@@ -45,7 +45,7 @@ ROW = {
     "professor_slug": "olin-guha", "course_code": "CS3500", "source": "blend",
     "num_comments": 1, "hours_per_week": None, "rating_distribution": {}, "grade_distribution": {},
     "course_name": None, "description": None, "credit_hours": None, "prerequisites": None,
-    "corequisites": None, "nupath": [],
+    "corequisites": None, "nupath": [], "tracking_opt_out": False, "grad_year": 2028,
     "reddit_score": 1, "sentiment": None, "sentiment_score": None, "source_id": "s1", "professor_slugs": ["olin-guha"], "score": 1,
 }
 
