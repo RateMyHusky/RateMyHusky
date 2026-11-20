@@ -53,8 +53,9 @@ const Privacy = () => {
                   address, profile photo, and Google account id. Your name, email, and photo
                   are kept in a sign-in token stored in your browser and are never written to a
                   server-side database. Your Google account id is stored server-side if you
-                  bookmark a professor or course (see the Bookmarks item below) or answer the
-                  course picks questions (see Course picks profile and browsing activity).
+                  bookmark a professor or course (see the Bookmarks item below). If you answer
+                  the course picks questions, we store a coded version of it instead (see
+                  Course picks profile and browsing activity).
                 </li>
                 <li>
                   <strong>Browser preferences:</strong> your selected theme (dark/light), your
@@ -214,7 +215,8 @@ const Privacy = () => {
                 you scrolled to its reviews or instructor list, and, if you opened a professor
                 from a course's page, which course. We don't save anything you type, and none of
                 this is sent to Google Analytics. We start saving this only after you finish the
-                questions. If you skip them, nothing is saved.
+                questions. If you skip them, nothing is saved. We keep this browsing activity for
+                about six months.
               </p>
               {RATE_ENABLED && (
               <p>
@@ -498,9 +500,10 @@ const Privacy = () => {
                   <strong>Right to correction:</strong> your name, email, and photo come
                   directly from Google and are never stored on our servers, so corrections to
                   them are made through your Google account. Your Google account id also comes
-                  from Google and cannot be edited; we store it with your bookmarks and, if you
-                  answered the course picks questions, your profile and browsing activity, and an
-                  Account Deletion request removes it (see Right to deletion above).
+                  from Google and cannot be edited; we store it with your bookmarks, and a coded
+                  version of it with your course picks profile and browsing activity if you
+                  answered those questions; an Account Deletion request removes them (see Right
+                  to deletion above).
                   If you believe professor or course data displayed on the site is inaccurate,
                   you can report it through the feedback form under "Wrong or Missing Data."
                 </li>
