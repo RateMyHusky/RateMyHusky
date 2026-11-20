@@ -58,8 +58,8 @@ const Faq = () => {
           <header className="terms-header">
             <h1>Frequently Asked Questions</h1>
             <ul className="terms-meta faq-jump">
-              <li>For students: <a href="#students" onClick={e => slideTo(e, 'students')}>using the site</a></li>
-              <li>For professors: <a href="#professors" onClick={e => slideTo(e, 'professors')}>your page</a></li>
+              <li><a href="#students" onClick={e => slideTo(e, 'students')}>For students</a></li>
+              <li><a href="#professors" onClick={e => slideTo(e, 'professors')}>For professors</a></li>
             </ul>
           </header>
 
