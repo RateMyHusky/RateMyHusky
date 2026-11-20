@@ -2,13 +2,13 @@
 
 import pytest
 
-from student_profile import profile_status, record_view, save_profile
+from student_profile import profile_status, rater_grad_year, record_view, save_profile
 from tests.pg.pgutil import query_fn, rows, truncate
 
 
 @pytest.fixture(autouse=True)
 def clean(pg):
-    truncate(pg, "student_profiles", "page_views", "professors_catalog")
+    truncate(pg, "student_profiles", "page_views", "professors_catalog", "survey_ratings")
 
 
 def run_write(pg):
@@ -65,3 +65,34 @@ def test_record_view_inserts_one_row(pg):
     assert (got[0]["user_sub"], got[0]["item_type"], got[0]["item_key"]) == ("u1", "professor", "alice-smith")
     assert got[0]["visible_seconds"] == 42 and got[0]["reached_section"] is True
     assert got[0]["course_filter"] is None and got[0]["viewed_at"] is not None
+
+
+def test_rater_grad_year_is_none_when_opted_out_or_grad(pg):
+    write, q = run_write(pg), one(pg)
+    assert rater_grad_year(None, q) is None
+    assert rater_grad_year("nobody", q) is None
+    save_profile("normal", {"grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
+    save_profile("grad", {"grad_year": None, "majors": [], "minors": []}, write)
+    save_profile("out", {"grad_year": 2027, "majors": ["A, BS"], "minors": []}, write)
+    with pg.cursor() as cur:
+        cur.execute("UPDATE student_profiles SET tracking_opt_out = true WHERE user_sub = 'out'")
+    pg.commit()
+    assert rater_grad_year("normal", q) == 2028
+    assert rater_grad_year("grad", q) is None
+    assert rater_grad_year("out", q) is None
+
+
+def test_edit_keeps_rater_grad_year_when_profile_is_gone(pg):
+    import ratings
+
+    def submit(year):
+        row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
+        row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
+                   status="accepted", account_hash="a1", device_hash="d1", new_device=False,
+                   network_type="unknown", collection="turnstile+account", rater_grad_year=year)
+        ratings.save_rating(row, None, run_write(pg))
+        return rows(pg, "SELECT rater_grad_year FROM survey_ratings")
+
+    assert [r["rater_grad_year"] for r in submit(2028)] == [2028]
+    assert [r["rater_grad_year"] for r in submit(None)] == [2028]
+    assert [r["rater_grad_year"] for r in submit(2029)] == [2029]

@@ -3035,6 +3035,7 @@ def rate_submit():
         "grade": clean["grade"], "comment": clean["comment"] or None, "comment_hash": chash,
         "status": status, "hold_reasons": ",".join(reasons) or None,
         "device_hash": device_hash, "account_hash": account, "new_device": new_device,
+        "rater_grad_year": student_profile.rater_grad_year(_require_bookmarks_auth(), query_one),
         "ip_hash": ip_hash, "ip_prefix_hash": prefix_hash, "network_type": network_type,
         "fill_seconds": fill_seconds, "collection": "turnstile+account",
         **{c: check.get(c) for c in ratings.CHECK_COLUMNS},

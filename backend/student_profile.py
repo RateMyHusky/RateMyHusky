@@ -52,6 +52,14 @@ def profile_status(user_sub, query_one):
     return {"exists": row is not None, "optedOut": bool(row and row["tracking_opt_out"])}
 
 
+def rater_grad_year(user_sub, query_one):
+    """The profile's graduation year, or None: no sub, no profile, a grad student, or opted out."""
+    if user_sub is None:
+        return None
+    row = query_one("SELECT grad_year, tracking_opt_out FROM student_profiles WHERE user_sub = %s", (user_sub,))
+    return None if row is None or row["tracking_opt_out"] else row["grad_year"]
+
+
 def save_profile(user_sub, clean, write):
     write(
         "INSERT INTO student_profiles (user_sub, grad_year, majors, minors) VALUES (%s, %s, %s, %s) "

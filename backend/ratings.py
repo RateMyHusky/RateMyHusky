@@ -42,7 +42,7 @@ RATING_COLUMNS = (
     "pending_course_id", "term_label", "rating", "hours", "grade", "comment",
     "comment_hash", "status", "hold_reasons", "device_hash", "new_device",
     "ip_hash", "ip_prefix_hash", "network_type", "fill_seconds", "collection", "difficulty",
-    "account_hash", "comment_status", "comment_check", "comment_check_reason", "comment_check_attempts",
+    "account_hash", "rater_grad_year", "comment_status", "comment_check", "comment_check_reason", "comment_check_attempts",
     "comment_next_check_at", "comment_checked_at",
 )
 # Set by the moderation check of the comment's text; NULL without a comment.
@@ -458,12 +458,14 @@ def hold_burst(reasons, key, ip_hash, prefix_hash, write, now):
 # the text the same way: unchanged text keeps its check, even one moderate_queue.py
 # recorded after the route read the row. A page still on the form from before the
 # difficulty question sends none, so an edit from it keeps the stored difficulty
-# (temporary, see rating_checks.validate_submission).
+# (temporary, see rating_checks.validate_submission). Likewise an edit by a rater
+# who has since opted out or deleted their profile sends no rater_grad_year: opting
+# out stops new copies but keeps the existing one.
 _INSERT_COLUMNS = tuple(c for c in RATING_COLUMNS if c != "id")
 _SET_COLUMNS = tuple(
     c for c in _INSERT_COLUMNS
     if c not in ("status", "hold_reasons", "comment_status", "new_device", "difficulty",
-                 "account_hash", *_KEY_COLUMNS, *CHECK_COLUMNS))
+                 "account_hash", "rater_grad_year", *_KEY_COLUMNS, *CHECK_COLUMNS))
 _UPSERT_SQL = (
     f"INSERT INTO survey_ratings (id, {', '.join(_INSERT_COLUMNS)}) "
     f"VALUES (%s, {', '.join(['%s'] * len(_INSERT_COLUMNS))}) "
@@ -479,6 +481,7 @@ _UPSERT_SQL = (
               f"THEN survey_ratings.{c} ELSE {'NULL' if c == 'comment_next_check_at' else 'EXCLUDED.' + c} END"
               for c in CHECK_COLUMNS)
     + ", difficulty = COALESCE(EXCLUDED.difficulty, survey_ratings.difficulty)"
+    ", rater_grad_year = COALESCE(EXCLUDED.rater_grad_year, survey_ratings.rater_grad_year)"
     ", updated_at = now()"
 )
 
