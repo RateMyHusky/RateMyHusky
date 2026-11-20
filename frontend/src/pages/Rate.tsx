@@ -703,8 +703,9 @@ export default function Rate() {
   const [expired, setExpired] = useState(false);
   const signedInAs = useRef<string | null>(null);
 
-  // However the session ends while the form is open (a 401, a sign-out in any tab, a rejected
-  // token), the same account signing back in within 10 minutes resumes the draft.
+  // However the session ends while the form is open (a 401, a sign-out in another tab, a rejected
+  // token), the same account signing back in within 10 minutes resumes the draft. Sign Out in this
+  // tab drops the draft instead (Navbar), so a shared computer keeps no answers.
   useEffect(() => {
     if (user) signedInAs.current = user.email;
     else if (signedInAs.current) {

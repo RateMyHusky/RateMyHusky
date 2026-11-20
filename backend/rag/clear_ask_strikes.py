@@ -25,6 +25,7 @@ import psycopg2
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import rating_identity
+from pipeline.read_models import DATA_VERSION_SQL
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 URL = os.getenv("ORACLE_DATABASE_URL")
@@ -98,7 +99,10 @@ def purge_account(conn, cur, account, dry_run, rating_secret):
     ip_hash, all statuses) — not just strikes — plus the account's bookmarks and the
     ratings it submitted while signed in (matched by the keyed account hash, so it
     needs RATING_SECRET). Use for a user's 'remove my tracked data' request. Also
-    resets that account's strikes/daily-cap as a side effect."""
+    resets that account's strikes/daily-cap as a side effect. Without RATING_SECRET
+    it exits before touching anything, dry run included, so a deletion is never
+    half-done. It bumps data_version, so cached professor pages drop the account's
+    ratings and comments within a minute."""
     if not rating_secret:
         sys.exit("Need RATING_SECRET in backend/.env to find the account's ratings")
     account_hash = rating_identity.keyed_hash(rating_secret, "account", account)
@@ -117,8 +121,10 @@ def purge_account(conn, cur, account, dry_run, rating_secret):
     cur.execute("DELETE FROM bookmarks WHERE user_sub = %s", (account,))
     nb_deleted = cur.rowcount
     cur.execute("DELETE FROM survey_ratings WHERE account_hash = %s", (account_hash,))
+    nr_deleted = cur.rowcount
+    cur.execute(DATA_VERSION_SQL)
     conn.commit()
-    print(f"Deleted {n_deleted} ask_log row(s), {nb_deleted} bookmark row(s) and {cur.rowcount} "
+    print(f"Deleted {n_deleted} ask_log row(s), {nb_deleted} bookmark row(s) and {nr_deleted} "
           f"rating row(s) for {account!r}. All tracked data for this account is removed. "
           "Ratings from before sign-in was required are matched by device ID by hand.")
 

@@ -15,6 +15,7 @@ os.environ.setdefault("JWT_SECRET", "test-secret")
 
 from rag.clear_ask_strikes import purge_account
 import rating_identity
+from pipeline.read_models import DATA_VERSION_SQL
 
 SECRET = "rating-secret-0123456789abcdefghijklmnop"  # gitleaks:allow
 ACCOUNT_HASH = rating_identity.keyed_hash(SECRET, "account", "user-1")
@@ -79,3 +80,12 @@ def test_purge_without_rating_secret_deletes_nothing():
     with pytest.raises(SystemExit):
         purge_account(conn, cur, "user-1", dry_run=False, rating_secret=None)
     assert cur.executed == [] and conn.commits == 0
+
+
+def test_purge_bumps_data_version_so_cached_professor_pages_drop_the_ratings():
+    cur = FakeCursor({"ask_log": 3, "bookmarks": 2, "survey_ratings": 4})
+    conn = FakeConn()
+    purge_account(conn, cur, "user-1", dry_run=False, rating_secret=SECRET)
+    sqls = [s for s, _ in cur.executed]
+    rating_delete = next(i for i, s in enumerate(sqls) if "delete from survey_ratings" in s.lower())
+    assert DATA_VERSION_SQL in sqls[rating_delete:]

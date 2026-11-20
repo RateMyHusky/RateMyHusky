@@ -449,8 +449,9 @@ def hold_burst(reasons, key, ip_hash, prefix_hash, write, now):
 # row's hold_reasons, so a reviewer's approval stays out of the burst and surge
 # counts. new_device keeps its first value, so an edit can't take a row out of
 # the burst_pair count. device_hash and ip_hash take the editing browser's, so a
-# reviewer's abuse flag lands on the device that sent the edit. A comment keeps its status (approved by the model or a
-# reviewer, or still waiting) while its text is unchanged. New or edited text on a
+# reviewer's abuse flag lands on the device that sent the edit. A comment keeps
+# its status (approved by the model or a reviewer, or still waiting) while its
+# text is unchanged. New or edited text on a
 # row that already exists waits for review and is never queued, whatever the route
 # sent: the route's read of the row can be stale when two first submits race, and
 # text on an existing rating never publishes itself. The CHECK_COLUMNS follow

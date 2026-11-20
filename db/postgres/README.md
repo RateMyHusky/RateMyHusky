@@ -541,7 +541,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_device ON public.survey
 An Account Deletion request's `python rag/clear_ask_strikes.py --purge-account <sub>`
 (run from `backend/`) deletes the account's signed-in ratings along with its Ask
 history and bookmarks; it reads `RATING_SECRET` from `backend/.env` and stops before
-deleting anything without it. To delete only the ratings by hand, compute the hash
+deleting anything without it. It bumps `data_version`, so professor pages drop the
+ratings within a minute; cards, course pages and leaderboards follow on the next
+pipeline run. A pending professor or course only those ratings named stays in the
+review queue with 0 ratings; it holds the name typed into the form, not the account.
+To delete only the ratings by hand, compute the hash
 from their Google `sub` with the backend's `rating_identity.keyed_hash`. Run this from
 `backend/` with `RATING_SECRET` already in the environment, so the secret is never
 printed:

@@ -1,5 +1,6 @@
-// Unsent /rate answers for this tab, dropped on submit, on "Rate another", after 2 hours, or when
-// another account signs in, since an update draft holds the earlier rating's answers.
+// Unsent /rate answers for this tab, dropped on submit, on "Rate another", on Sign Out in this tab,
+// after 2 hours, or when another account signs in, since an update draft holds the earlier rating's
+// answers.
 import { STEP_IDS } from './rateFlow';
 import type { Answers, StepId } from './rateFlow';
 import type { RateStart } from '../../api/api';
