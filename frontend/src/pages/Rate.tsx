@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom';
-import { fetchRateContext, fetchRateProfessor, startRating, submitRating } from '../api/api';
+import { SignInExpired, fetchRateContext, fetchRateProfessor, startRating, submitRating } from '../api/api';
 import type { ProfessorPage, RatedCourse, RateStart, RateSubmission } from '../api/api';
 import { useTurnstile } from './rate/useTurnstile';
 import { WhoStep, NewProfessorStep } from './rate/WhoStep';
@@ -70,8 +70,14 @@ const gradeAria = (g: string) => `Grade ${g.replace('+', ' plus').replace('-', '
 const toRateCourses = (page: ProfessorPage): RateCourse[] =>
   page.courses.map((c) => toRateCourse(c, new Date()));
 
-function RateForm() {
+// owner is the signed-in email: a draft another account saved never loads. onExpired tells the
+// sign-in gate to say the session ended and the answers are kept.
+function RateForm({ owner, onExpired }: { owner: string; onExpired: () => void }) {
   const { logout } = useAuth();
+  const expire = () => {
+    onExpired();
+    logout();
+  };
   const [params] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -144,13 +150,13 @@ function RateForm() {
   // Start the visit, then resolve any ?professor / ?course prefill.
   useEffect(() => {
     let cancelled = false;
-    const saved = loadRateDraft(Date.now());
+    const saved = loadRateDraft(Date.now(), owner);
     const profSlug = params.get('professor');
     const code = (params.get('course') ?? '').replace(/\s+/g, '').toUpperCase() || null;
     const savedProf = saved?.answers.professor;
     freshLoad = false;
     // StrictMode runs this effect twice; the ref keeps the one-shot flag from being lost to the second run.
-    resumeDraft.current ??= takeResumeDraft();
+    resumeDraft.current ??= takeResumeDraft(owner, Date.now());
     // A followed link to another professor or course wins over the draft; a reload or Back/Forward
     // return keeps the draft, since the URL may be stale.
     const sameLink = !profSlug || (profSlug === savedProf?.slug && (!code || code === saved?.answers.course?.code));
@@ -232,8 +238,8 @@ function RateForm() {
 
   useEffect(() => {
     if (!answers.professor || step === 'thanks') return;
-    saveRateDraft({ step, answers, opened: fill?.opened ?? null, deviceToken: fill?.deviceToken ?? null }, Date.now());
-  }, [answers, step, fill?.opened, fill?.deviceToken]);
+    saveRateDraft({ owner, step, answers, opened: fill?.opened ?? null, deviceToken: fill?.deviceToken ?? null }, Date.now());
+  }, [owner, answers, step, fill?.opened, fill?.deviceToken]);
 
   useEffect(() => {
     if (!slug) return;
@@ -254,9 +260,15 @@ function RateForm() {
     let cancelled = false;
     fetchRateContext(slug)
       .then((c) => { if (!cancelled) setContext({ slug, rated: c?.ratedCourses ?? [] }); })
-      // No "Already rated" group, so every course shows as not rated.
-      .catch(() => { if (!cancelled) setContext({ slug, rated: [] }); });
+      .catch((e) => {
+        if (cancelled) return;
+        // An ended session would show every course as not rated, so sign in again first.
+        if (e instanceof SignInExpired) expire();
+        // No "Already rated" group, so every course shows as not rated.
+        else setContext({ slug, rated: [] });
+      });
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- expire only signs out, so a new one needs no refetch
   }, [start, slug, contextReload]);
 
   const send = (skip: boolean, honeypot: string, turnstileToken: string) => {
@@ -294,10 +306,7 @@ function RateForm() {
       // Turnstile tokens are single-use, so every retry needs a fresh one.
       reset();
       setSubmitError(FAILURE_MESSAGES[res.status] ?? (res.error || NETWORK_MESSAGE));
-      if (res.status === 401) {
-        markResumeDraft();
-        logout();
-      }
+      if (res.status === 401) expire();
     });
   };
 
@@ -691,9 +700,23 @@ function RateForm() {
 export default function Rate() {
   const { user, loading } = useAuth();
   const [showSignIn, setShowSignIn] = useState(false);
+  const [expired, setExpired] = useState(false);
+  const signedInAs = useRef<string | null>(null);
 
+  // However the session ends while the form is open (a 401, a sign-out in any tab, a rejected
+  // token), the same account signing back in within 10 minutes resumes the draft.
+  useEffect(() => {
+    if (user) signedInAs.current = user.email;
+    else if (signedInAs.current) {
+      markResumeDraft(signedInAs.current, Date.now());
+      signedInAs.current = null;
+    }
+  }, [user]);
+
+  if (user && expired) setExpired(false);
   if (loading) return null;
-  if (user) return <RateForm />;
+  // Keyed by account, so a switch to another account in another tab starts a fresh form.
+  if (user) return <RateForm key={user.email} owner={user.email} onExpired={() => setExpired(true)} />;
 
   return (
     <div className="rate-page bookmarks-page">
@@ -703,7 +726,9 @@ export default function Rate() {
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
-          <p>Sign in with your <span className="husky-email">husky.neu.edu</span> account to rate a professor.</p>
+          {expired
+            ? <p role="status">{FAILURE_MESSAGES[401]}</p>
+            : <p>Sign in with your <span className="husky-email">husky.neu.edu</span> account to rate a professor.</p>}
           <button className="bm-signin-btn" onClick={() => { clearPendingBookmark(); setShowSignIn(true); }}>Sign In</button>
         </div>
       </div>

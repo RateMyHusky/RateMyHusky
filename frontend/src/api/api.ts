@@ -614,9 +614,13 @@ function rateAuthHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/* The rate calls' 401: the session ended, so the form signs the student out and keeps the draft. */
+export class SignInExpired extends Error {}
+
 export async function fetchRateContext(slug: string): Promise<RateProfessorContext | null> {
   const res = await rateGet(`${API_BASE}/api/rate/professors/${encodeURIComponent(slug)}`, rateAuthHeaders());
   if (maintenanceGuard(res)) throw new Error("Site is under maintenance");
+  if (res.status === 401) throw new SignInExpired("API 401");
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();

@@ -3,7 +3,7 @@
 // Prints PASS/FAIL per check and exits non-zero on any failure.
 import { argv } from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { RATE_DRAFT_KEY, DRAFT_MAX_AGE_MS, saveRateDraft, loadRateDraft, clearRateDraft, keepOpened, markResumeDraft, takeResumeDraft } from './rateDraft';
+import { RATE_DRAFT_KEY, DRAFT_MAX_AGE_MS, RESUME_MAX_AGE_MS, saveRateDraft, loadRateDraft, clearRateDraft, keepOpened, markResumeDraft, takeResumeDraft } from './rateDraft';
 import type { RateDraft } from './rateDraft';
 import type { RateStart, RatedCourse } from '../../api/api';
 import { installStorage } from '../../utils/selftestStorage';
@@ -21,7 +21,9 @@ function selftest(): number {
     code: 'CS 2500', name: 'Fundamentals', pending: false, term: 'Fall 2025',
     rating: 4, difficulty: 3, hours: '4-6', grade: 'A', comment: 'ok',
   };
-  const input: Pick<RateDraft, 'step' | 'answers' | 'opened' | 'deviceToken'> = {
+  const me = 'a@husky.neu.edu';
+  const input: Pick<RateDraft, 'owner' | 'step' | 'answers' | 'opened' | 'deviceToken'> = {
+    owner: me,
     step: 'grade',
     answers: {
       professor: { slug: 'alex-rivera', name: 'Alex Rivera', department: 'CS' },
@@ -33,47 +35,60 @@ function selftest(): number {
     deviceToken: 'dev',
   };
 
-  check('load returns null when nothing saved', loadRateDraft(now) === null);
+  check('load returns null when nothing saved', loadRateDraft(now, me) === null);
 
   saveRateDraft(input, now);
   check('save writes to the known key', RATE_DRAFT_KEY in store);
-  const loaded = loadRateDraft(now + 1000);
-  check('round trip deep-equals the input', JSON.stringify(loaded && { step: loaded.step, answers: loaded.answers, opened: loaded.opened, deviceToken: loaded.deviceToken }) === JSON.stringify(input));
+  const loaded = loadRateDraft(now + 1000, me);
+  check('round trip deep-equals the input', JSON.stringify(loaded && { owner: loaded.owner, step: loaded.step, answers: loaded.answers, opened: loaded.opened, deviceToken: loaded.deviceToken }) === JSON.stringify(input));
   check('round trip has v 1 and savedAt', loaded?.v === 1 && loaded.savedAt === now);
 
-  check('draft at exactly the max age loads', loadRateDraft(now + DRAFT_MAX_AGE_MS) !== null);
-  check('draft past the max age is dropped', loadRateDraft(now + DRAFT_MAX_AGE_MS + 1) === null);
+  check('draft at exactly the max age loads', loadRateDraft(now + DRAFT_MAX_AGE_MS, me) !== null);
+  check('draft past the max age is dropped', loadRateDraft(now + DRAFT_MAX_AGE_MS + 1, me) === null);
   check('stale load removes the key', !(RATE_DRAFT_KEY in store));
 
   const valid = { v: 1, savedAt: now, ...input };
   const raw = (o: unknown) => { store[RATE_DRAFT_KEY] = typeof o === 'string' ? o : JSON.stringify(o); };
 
   raw({ ...valid, v: 2 });
-  check('wrong version gives null', loadRateDraft(now) === null);
+  check('wrong version gives null', loadRateDraft(now, me) === null);
 
   raw('{nope');
   let threw = false;
   let r: RateDraft | null = null;
-  try { r = loadRateDraft(now); } catch { threw = true; }
+  try { r = loadRateDraft(now, me); } catch { threw = true; }
   check('unparseable gives null without throwing', !threw && r === null);
 
   raw({ ...valid, answers: { professor: input.answers.professor } });
-  check('answers without comment gives null', loadRateDraft(now) === null);
+  check('answers without comment gives null', loadRateDraft(now, me) === null);
   raw({ ...valid, answers: { comment: 'hi' } });
-  check('answers without professor gives null', loadRateDraft(now) === null);
+  check('answers without professor gives null', loadRateDraft(now, me) === null);
   raw({ ...valid, step: 'thanks' });
-  check('step thanks gives null', loadRateDraft(now) === null);
+  check('step thanks gives null', loadRateDraft(now, me) === null);
   raw({ ...valid, step: 'nonsense' });
-  check('unknown step gives null', loadRateDraft(now) === null);
+  check('unknown step gives null', loadRateDraft(now, me) === null);
 
   saveRateDraft(input, now);
   clearRateDraft();
   check('clear removes the key', !(RATE_DRAFT_KEY in store));
 
-  check('takeResumeDraft is false when unmarked', takeResumeDraft() === false);
-  markResumeDraft();
-  check('takeResumeDraft is true once marked', takeResumeDraft() === true);
-  check('takeResumeDraft is one-shot', takeResumeDraft() === false);
+  saveRateDraft(input, now);
+  check('another account never loads the draft', loadRateDraft(now, 'b@husky.neu.edu') === null);
+  check('another account drops the draft', !(RATE_DRAFT_KEY in store));
+  raw({ ...valid, owner: undefined });
+  check('a draft without an owner gives null', loadRateDraft(now, me) === null);
+
+  check('takeResumeDraft is false when unmarked', takeResumeDraft(me, now) === false);
+  markResumeDraft(me, now);
+  check('takeResumeDraft is true once marked', takeResumeDraft(me, now) === true);
+  check('takeResumeDraft is one-shot', takeResumeDraft(me, now) === false);
+  markResumeDraft(me, now);
+  check('takeResumeDraft is false for another account', takeResumeDraft('b@husky.neu.edu', now) === false);
+  check('another account uses up the flag', takeResumeDraft(me, now) === false);
+  markResumeDraft(me, now);
+  check('takeResumeDraft holds at exactly the max age', takeResumeDraft(me, now + RESUME_MAX_AGE_MS) === true);
+  markResumeDraft(me, now);
+  check('takeResumeDraft lapses past the max age', takeResumeDraft(me, now + RESUME_MAX_AGE_MS + 1) === false);
 
   const boom = () => { throw new Error('blocked'); };
   (globalThis as unknown as { sessionStorage: Storage }).sessionStorage = {
@@ -82,8 +97,8 @@ function selftest(): number {
   };
   threw = false;
   r = input as unknown as RateDraft;
-  try { saveRateDraft(input, now); clearRateDraft(); r = loadRateDraft(now); } catch { threw = true; }
-  try { markResumeDraft(); if (takeResumeDraft()) threw = true; } catch { threw = true; }
+  try { saveRateDraft(input, now); clearRateDraft(); r = loadRateDraft(now, me); } catch { threw = true; }
+  try { markResumeDraft(me, now); if (takeResumeDraft(me, now)) threw = true; } catch { threw = true; }
   check('throwing storage never throws and loads null', !threw && r === null);
 
   const start: RateStart = { opened: '20000.0.h.s', deviceToken: 'dev', counter: 3 };

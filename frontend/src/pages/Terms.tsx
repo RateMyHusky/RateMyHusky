@@ -286,8 +286,9 @@ const Terms = () => {
                 not contain threats, harassment, sexual comments, attacks on anyone's appearance,
                 identity, or private life, anyone's personal contact details, spam, or claims
                 you know to be false. We may use ratings in aggregate, hold or remove any rating,
-                and count only one rating per professor and course per account (ratings submitted
-                before sign-in was required stay one per device). See our{' '}
+                and keep one rating per professor and course per account. A rating submitted before
+                sign-in was required isn't linked to any account, so rating the same class again
+                while signed in adds a separate rating. See our{' '}
                 <a href="/privacy">Privacy Policy</a> for what we store with a rating.
               </p>
               <p>
