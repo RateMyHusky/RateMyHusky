@@ -29,7 +29,6 @@ export default function SignInModal({ open, onClose, reason }: Props) {
   // the effect below instead and keeps it for BookmarksContext to save.
   const animatedClose = (callback?: () => void) => {
     clearPendingBookmark();
-    setDevError(null);
     setClosing(true);
     setTimeout(() => {
       setClosing(false);
@@ -44,6 +43,16 @@ export default function SignInModal({ open, onClose, reason }: Props) {
       onClose();
     }
   }, [user, open, onClose]);
+
+  // Navbar keeps the modal mounted, and a sign-in closes it through the effect above
+  // rather than animatedClose (as can a dev request that fails after it closed), so a
+  // stale dev error is cleared on open, not on close. Done during render rather than in
+  // an effect so the old error never paints.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setDevError(null);
+  }
 
   useDialog(open, () => { if (!closing) animatedClose(); }, modalRef, googleBtnRef);
 
