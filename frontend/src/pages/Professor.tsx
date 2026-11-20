@@ -21,6 +21,8 @@ import BookmarkButton from '../components/BookmarkButton';
 import FitText from '../components/FitText';
 import RatePopup from '../components/RatePopup';
 import ProfilePopup from '../components/ProfilePopup';
+import { useProfileStatus } from '../hooks/useProfileStatus';
+import { usePageViewTracking } from '../hooks/usePageViewTracking';
 import type { RateGate } from '../utils/profilePrompt';
 import { defaultTab, filterByCourses, reportDescription, type ReviewTab } from './professor/studentReviews';
 import { rateHref, loadState, hasRated } from '../utils/ratePrompt';
@@ -491,6 +493,14 @@ const Professor = () => {
   const filteredStudentReviews = useMemo(
     () => filterByCourses(studentReviews, selectedCourses), [studentReviews, selectedCourses]);
   const profSlug = profile?.identity.slug;
+  const profileStatus = useProfileStatus();
+  usePageViewTracking({
+    itemType: 'professor',
+    itemKey: loading || loadError ? null : (profSlug ?? null),
+    sectionRef: reviewsRef,
+    courseFilter: new URLSearchParams(location.search).get('course'),
+    enabled: profileStatus === undefined ? undefined : !!profileStatus && profileStatus.exists && !profileStatus.optedOut,
+  });
   // Whether the rate popup showed, for the profile popup. It restarts when the slug changes, as RatePopup remounts.
   const [rateGate, setRateGate] = useState<RateGate>(RATE_ENABLED ? 'pending' : 'clear');
   const [profileShown, setProfileShown] = useState(false);

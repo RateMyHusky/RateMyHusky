@@ -13,6 +13,8 @@ import Breadcrumbs from '../components/Breadcrumbs';
 import Seo from '../components/Seo';
 import BookmarkButton from '../components/BookmarkButton';
 import ProfilePopup from '../components/ProfilePopup';
+import { useProfileStatus } from '../hooks/useProfileStatus';
+import { usePageViewTracking } from '../hooks/usePageViewTracking';
 import FitText from '../components/FitText';
 import { relativeTerm, seasonYear, termSortKey } from '../utils/termUtils';
 import { compareHref } from '../utils/compareLink';
@@ -128,6 +130,15 @@ const Course = () => {
 			window.removeEventListener('resize', check);
 		};
 	}, [course]);
+
+	const profileStatus = useProfileStatus();
+	usePageViewTracking({
+		itemType: 'course',
+		itemKey: loading || loadError ? null : (course?.code ?? null),
+		sectionRef: tableWrapRef,
+		courseFilter: null,
+		enabled: profileStatus === undefined ? undefined : !!profileStatus && profileStatus.exists && !profileStatus.optedOut,
+	});
 
 	if (loading) {
 		return (

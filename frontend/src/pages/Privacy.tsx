@@ -1,15 +1,24 @@
+import { useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import Footer from '../components/Footer';
 import { BANNER_SINCE, RATE_ENABLED } from '../config';
 import './Terms.css';
 
 const Privacy = () => {
+  const { hash } = useLocation();
+
+  // react-router doesn't scroll to hashes (the popup's Learn more link targets #course-picks)
+  useEffect(() => {
+    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView();
+  }, [hash]);
+
   return (
     <div className="terms-page">
       <main className="terms-main">
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Privacy Policy</h1>
-            <p className="terms-meta">Effective November 14, 2026</p>
+            <p className="terms-meta">Effective November 20, 2026</p>
           </header>
 
           <div className="terms-body">
@@ -44,7 +53,8 @@ const Privacy = () => {
                   address, profile photo, and Google account id. Your name, email, and photo
                   are encoded in a JWT token stored in your browser and are never written to a
                   server-side database. Your Google account id is stored server-side if you
-                  bookmark a professor or course (see the Bookmarks item below).
+                  bookmark a professor or course (see the Bookmarks item below) or answer the
+                  course picks questions (see Course picks profile and browsing activity).
                 </li>
                 <li>
                   <strong>Browser preferences:</strong> your selected theme (dark/light), your
@@ -73,9 +83,9 @@ const Privacy = () => {
                   the RateMyHusky team via email and are not stored in a database. Submitted
                   information is used solely to improve the service. The form is protected by
                   a CAPTCHA challenge (see Third-Party Services). If you submit an
-                  "Account Deletion" request, you must be signed in and an email address is
+                  "Account Deletion" or "Opt out of data collection" request, you must be signed in and an email address is
                   required so we can respond; your account identifier is included so we can
-                  locate the data held for your account and delete it. That account identifier is
+                  locate the data held for your account and act on it. That account identifier is
                   derived from your sign-in token at the time you submit and is not retained
                   beyond handling your request. A professor's request to correct or remove their
                   page also requires an email address, so we can confirm it with them.
@@ -139,7 +149,7 @@ const Privacy = () => {
               </ul>
               <p>
                 We do not sell, rent, or share your personal information with third parties for
-                their own use, and we do not build profiles of individual users. Google collects
+                their own use. Google collects
                 data directly from your browser through Google Analytics and Google AdSense and
                 may use it under its own policies, including to personalize ads (see{' '}
                 <em>Third-Party Services</em>).
@@ -158,9 +168,9 @@ const Privacy = () => {
                 Google OAuth handshake, short-lived <code>httpOnly</code> cookies are used
                 to carry the flow; once complete, the resulting JWT is stored in your
                 browser's <code>localStorage</code> and the handshake cookies are cleared.
-                The token expires automatically after 7 days. RateMyHusky does not maintain
-                user accounts or profiles; the only per-user data we store server-side is your
-                bookmarks{RATE_ENABLED ? ' and your ratings (which are pseudonymous)' : ''}, described below.
+                The token expires automatically after 7 days. The per-user data we
+                store server-side is your bookmarks,{RATE_ENABLED ? ' your ratings,' : ''} and, if you fill
+                out the course picks questions, your profile and browsing activity, described below.
               </p>
               <p>
                 Signing out deletes the token from your browser immediately.
@@ -192,6 +202,40 @@ const Privacy = () => {
                 <em>Your Rights &amp; Choices</em>).
               </p>
               </>)}
+              <p id="course-picks">
+                <strong>Course picks profile and browsing activity</strong>
+              </p>
+              <p>
+                If you're signed in, we may ask a few questions to help suggest courses: when you
+                expect to graduate, your major(s), and any minor(s). Your answers are stored with
+                your Google account id.
+              </p>
+              <p>
+                After you answer them, we also save which professor and course pages you view
+                while signed in: the page, when you viewed it, how long it was on screen, whether
+                you scrolled to its reviews or instructor list, and, if you opened a professor
+                from a course's page, which course. We don't save anything you type, and none of
+                this is sent to Google Analytics. We start saving this only after you finish the
+                questions. If you skip them, nothing is saved.
+              </p>
+              {RATE_ENABLED && (
+              <p>
+                When you submit a rating, we copy your expected graduation year onto it. Your
+                major, minor and browsing are never stored on a rating, and graduation year is
+                never shown publicly. Because ratings are linked to your account (see Ratings),
+                they can be matched to your profile using our private key.
+              </p>
+              )}
+              <p>
+                We use this data to understand which courses students in each major and year take,
+                and to build course suggestions. It is never shown to other users individually.
+              </p>
+              <p>
+                <strong>Opting out:</strong> send an "Opt out of data collection" request through
+                the Feedback form while signed in. We'll stop saving your browsing, delete what
+                we've saved, and stop adding your graduation year to new ratings. To delete your
+                profile too, send an Account Deletion request.
+              </p>
               <p>
                 Our database is a self-hosted PostgreSQL server on Oracle Cloud Infrastructure in
                 the United States (US East – Ashburn), the API runs on Railway, and the site is
@@ -439,7 +483,7 @@ const Privacy = () => {
                   sign in and submit an <strong>Account Deletion</strong> request through the
                   feedback form: an email address is required, and your signed-in account
                   identifier is included so we can verify your identity and delete the records
-                  tied to your account.
+                  tied to your account, including your course picks profile and browsing activity.
                   {RATE_ENABLED && (<>
                   {' '}Ratings submitted while signed in are tied to your account and are covered by the Account
                   Deletion request. To delete ratings submitted before sign-in was required,
@@ -459,7 +503,8 @@ const Privacy = () => {
                   <strong>Right to correction:</strong> your name, email, and photo come
                   directly from Google and are never stored on our servers, so corrections to
                   them are made through your Google account. Your Google account id also comes
-                  from Google and cannot be edited; we store it with your bookmarks, and an
+                  from Google and cannot be edited; we store it with your bookmarks and, if you
+                  answered the course picks questions, your profile and browsing activity, and an
                   Account Deletion request removes it (see Right to deletion above).
                   If you believe professor or course data displayed on the site is inaccurate,
                   you can report it through the feedback form under "Wrong or Missing Data."
