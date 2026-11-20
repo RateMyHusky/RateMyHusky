@@ -84,7 +84,7 @@ def test_purge_deletes_ask_log_bookmarks_and_ratings_then_commits():
                     if t in s.lower()): p
                for s, p in cur.executed if s.lower().strip().startswith("delete")}
     assert deletes == {"ask_log": ("user-1",), "bookmarks": ("user-1",), "survey_ratings": (ACCOUNT_HASH,),
-                       "student_profiles": ("user-1",), "page_views": (VIEWER_HASH,)}
+                       "student_profiles": (VIEWER_HASH,), "page_views": (VIEWER_HASH,)}
     assert VIEWER_HASH != ACCOUNT_HASH
     assert conn.commits >= 1
 
@@ -99,7 +99,7 @@ def test_purge_of_an_opted_out_account_puts_the_opted_out_row_back(capsys):
     purge_account(conn, cur, "user-1", dry_run=False, rating_secret=SECRET)
     sqls = [s.lower() for s, _ in cur.executed]
     ins = inserts(cur)
-    assert len(ins) == 1 and ins[0][1] == ("user-1",)
+    assert len(ins) == 1 and ins[0][1] == (VIEWER_HASH,)
     assert "insert into student_profiles" in ins[0][0].lower() and "tracking_opt_out" in ins[0][0]
     assert sqls.index(next(s for s in sqls if s.startswith("delete from student_profiles"))) <         sqls.index(ins[0][0].lower())
     assert "opt-out still holds" in capsys.readouterr().out
@@ -185,7 +185,7 @@ def test_opt_out_without_a_profile_creates_an_opted_out_row(capsys):
     assert "no profile: created an opted-out row" in capsys.readouterr().out
     upserts = [(s, p) for s, p in cur.executed if "on conflict" in s.lower()]
     assert len(upserts) == 1
-    assert upserts[0][1] == ("user-1",)
+    assert upserts[0][1] == (VIEWER_HASH,)
     assert "insert into student_profiles" in upserts[0][0].lower()
     assert conn.commits == 1
 

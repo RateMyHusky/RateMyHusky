@@ -577,7 +577,7 @@ if it times out, rerun it.
 
 ```sql
 CREATE TABLE IF NOT EXISTS public.student_profiles (
-    user_sub TEXT NOT NULL,
+    viewer_hash TEXT NOT NULL,
     level TEXT NULL,
     grad_year SMALLINT NULL,
     majors TEXT[] NOT NULL,
@@ -585,7 +585,7 @@ CREATE TABLE IF NOT EXISTS public.student_profiles (
     tracking_opt_out BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT student_profiles_pkey PRIMARY KEY (user_sub),
+    CONSTRAINT student_profiles_pkey PRIMARY KEY (viewer_hash),
     CONSTRAINT student_profiles_majors_need_year
         CHECK (grad_year IS NULL OR cardinality(majors) > 0),
     CONSTRAINT student_profiles_check_level CHECK (level IN ('undergrad', 'grad')),
@@ -593,6 +593,20 @@ CREATE TABLE IF NOT EXISTS public.student_profiles (
         CHECK (COALESCE(level = 'undergrad', false) = (grad_year IS NOT NULL)),
     CONSTRAINT student_profiles_level_needs_opt_out CHECK (level IS NOT NULL OR tracking_opt_out)
 );
+
+-- An earlier version of this section keyed student_profiles by the raw account id in
+-- user_sub. The feature was unreleased, so the table should be empty and the column is just
+-- renamed; rows would hold raw ids and have to be deleted, not renamed, so this refuses.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema = 'public' AND table_name = 'student_profiles' AND column_name = 'user_sub') THEN
+        IF EXISTS (SELECT 1 FROM public.student_profiles) THEN
+            RAISE EXCEPTION 'student_profiles still has rows keyed by raw user_sub values: delete them first';
+        END IF;
+        ALTER TABLE public.student_profiles RENAME COLUMN user_sub TO viewer_hash;
+    END IF;
+END $$;
 
 ALTER TABLE public.student_profiles ADD COLUMN IF NOT EXISTS level TEXT NULL;
 UPDATE public.student_profiles SET level = CASE WHEN grad_year IS NOT NULL THEN 'undergrad'
@@ -650,7 +664,7 @@ ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_rater_level
 A Data Collection Opt-out Request's `python rag/clear_ask_strikes.py --opt-out <sub>`
 (run from `backend/`; add `--dry-run` to preview) sets `tracking_opt_out` on the
 account's profile and deletes its page views. It needs `RATING_SECRET` in `backend/.env`
-(page views are stored under a keyed hash of the account id, `viewer_hash`, never the raw
+(profiles and page views are stored under a keyed hash of the account id, `viewer_hash`, never the raw
 id) and exits before touching anything without it. An account that never finished the
 profile popup gets an empty opted-out row, so the opt-out still holds. New ratings stop
 getting `rater_level` and `rater_grad_year`; the profile answers and the level and year

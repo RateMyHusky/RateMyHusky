@@ -29,7 +29,7 @@ def test_grad_student_has_no_programs():
     ({"level": None, "grad_year": None, "tracking_opt_out": True}, (None, None)),   # the opt-out stub
 ])
 def test_rater_profile(profile, expected):
-    assert rater_profile("u1", lambda sql, params=(): profile) == expected
+    assert rater_profile("vh1", lambda sql, params=(): profile) == expected
 
 
 def test_rater_profile_without_a_sub_queries_nothing():
@@ -107,45 +107,45 @@ def fakes(profile, catalog):
 
 def test_view_without_a_profile_is_ignored_with_no_further_query():
     q, w, log = fakes(None, set())
-    assert record_view("u1", "vh1", CLEAN, q, w) == "ignored"
+    assert record_view("vh1", CLEAN, q, w) == "ignored"
     assert len(log["queries"]) == 1 and log["writes"] == []
 
 
 def test_view_with_an_opted_out_profile_is_ignored():
     q, w, log = fakes({"tracking_opt_out": True}, {("alice-smith",)})
-    assert record_view("u1", "vh1", CLEAN, q, w) == "ignored"
+    assert record_view("vh1", CLEAN, q, w) == "ignored"
     assert len(log["queries"]) == 1 and log["writes"] == []
 
 
 def test_view_of_an_unknown_item_is_not_found():
     q, w, log = fakes({"tracking_opt_out": False}, set())
-    assert record_view("u1", "vh1", CLEAN, q, w) == "not_found"
+    assert record_view("vh1", CLEAN, q, w) == "not_found"
     assert log["writes"] == []
 
 
 def test_professor_view_stores_a_real_course_filter():
     q, w, log = fakes({"tracking_opt_out": False}, {("alice-smith",), ("CS2500",)})
-    assert record_view("u1", "vh1", CLEAN, q, w) == "ok"
+    assert record_view("vh1", CLEAN, q, w) == "ok"
     params = log["writes"][0][1]
-    assert params == ("vh1", "professor", "alice-smith", 30, True, "CS2500", "u1")
+    assert params == ("vh1", "professor", "alice-smith", 30, True, "CS2500", "vh1")
 
 
 def test_professor_view_drops_a_course_filter_not_in_the_catalog():
     q, w, log = fakes({"tracking_opt_out": False}, {("alice-smith",)})
-    assert record_view("u1", "vh1", {**CLEAN, "course_filter": "CS9999"}, q, w) == "ok"
+    assert record_view("vh1", {**CLEAN, "course_filter": "CS9999"}, q, w) == "ok"
     assert log["writes"][0][1][-2] is None
 
 
 def test_course_view_always_stores_a_null_course_filter():
     q, w, log = fakes({"tracking_opt_out": False}, {("CS2500",)})
     view = {**CLEAN, "item_type": "course", "item_key": "CS2500"}
-    assert record_view("u1", "vh1", view, q, w) == "ok"
-    assert log["writes"][0][1] == ("vh1", "course", "CS2500", 30, True, None, "u1")
+    assert record_view("vh1", view, q, w) == "ok"
+    assert log["writes"][0][1] == ("vh1", "course", "CS2500", 30, True, None, "vh1")
 
 
 def test_view_insert_rechecks_the_profile_under_a_share_lock_and_stores_no_sub():
     q, w, log = fakes({"tracking_opt_out": False}, {("alice-smith",)})
-    record_view("u1", "vh1", {**CLEAN, "course_filter": None}, q, w)
+    record_view("vh1", {**CLEAN, "course_filter": None}, q, w)
     sql, params = log["writes"][0]
-    assert "NOT tracking_opt_out FOR SHARE" in sql and "viewer_hash" in sql and "(user_sub" not in sql.split("SELECT")[0]
-    assert params[0] == "vh1" and params.count("u1") == 1 and params[-1] == "u1"
+    assert "NOT tracking_opt_out FOR SHARE" in sql and "viewer_hash" in sql and "user_sub" not in sql
+    assert params[0] == "vh1" and params.count("vh1") == 2 and params[-1] == "vh1"

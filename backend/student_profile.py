@@ -47,28 +47,28 @@ def validate_profile(data, this_year):
     return {"level": "undergrad", "grad_year": year, "majors": majors, "minors": minors}, None
 
 
-def profile_status(user_sub, query_one):
-    row = query_one("SELECT tracking_opt_out FROM student_profiles WHERE user_sub = %s", (user_sub,))
+def profile_status(viewer_hash, query_one):
+    row = query_one("SELECT tracking_opt_out FROM student_profiles WHERE viewer_hash = %s", (viewer_hash,))
     return {"exists": row is not None, "optedOut": bool(row and row["tracking_opt_out"])}
 
 
-def rater_profile(user_sub, query_one):
+def rater_profile(viewer_hash, query_one):
     """(level, grad_year) to copy onto a rating: ("undergrad", year), ("grad", None), or
-    (None, None) for no sub, no profile, opted out, or the opted-out stub row (no level)."""
-    if user_sub is None:
+    (None, None) for no signed-in student, no profile, opted out, or the opted-out stub row (no level)."""
+    if viewer_hash is None:
         return None, None
-    row = query_one("SELECT level, grad_year, tracking_opt_out FROM student_profiles WHERE user_sub = %s", (user_sub,))
+    row = query_one("SELECT level, grad_year, tracking_opt_out FROM student_profiles WHERE viewer_hash = %s", (viewer_hash,))
     if row is None or row["tracking_opt_out"] or row["level"] is None:
         return None, None
     return row["level"], row["grad_year"]
 
 
-def save_profile(user_sub, clean, write):
+def save_profile(viewer_hash, clean, write):
     write(
-        "INSERT INTO student_profiles (user_sub, level, grad_year, majors, minors) VALUES (%s, %s, %s, %s, %s) "
-        "ON CONFLICT (user_sub) DO UPDATE SET level = EXCLUDED.level, grad_year = EXCLUDED.grad_year, "
+        "INSERT INTO student_profiles (viewer_hash, level, grad_year, majors, minors) VALUES (%s, %s, %s, %s, %s) "
+        "ON CONFLICT (viewer_hash) DO UPDATE SET level = EXCLUDED.level, grad_year = EXCLUDED.grad_year, "
         "majors = EXCLUDED.majors, minors = EXCLUDED.minors, updated_at = now()",
-        (user_sub, clean["level"], clean["grad_year"], clean["majors"], clean["minors"]),
+        (viewer_hash, clean["level"], clean["grad_year"], clean["majors"], clean["minors"]),
     )
 
 
@@ -96,17 +96,17 @@ def validate_view(data):
             "reached_section": reached, "course_filter": course_filter}, None
 
 
-def record_view(user_sub, viewer_hash, view, query_one, write):
+def record_view(viewer_hash, view, query_one, write):
     """Stores one page view. Returns "ignored" (no profile or opted out: nothing
     else is queried or written), "not_found" (item not in the catalog), or "ok".
 
     A course filter is kept only on professor views and only if it is a real course code.
-    The row stores viewer_hash (rating_identity.keyed_hash(secret, "viewer", sub)), never the sub.
+    viewer_hash is rating_identity.keyed_hash(secret, "viewer", sub): it keys both the profile and the view row, the raw sub is never stored.
 
     The profile check is repeated inside the INSERT with FOR SHARE: that row lock makes the
     insert wait for, or be refused by, a concurrent opt-out, so a view can't land after the
     opt-out has deleted that student's views. The early check above just skips the item lookups."""
-    profile = profile_status(user_sub, query_one)
+    profile = profile_status(viewer_hash, query_one)
     if not profile["exists"] or profile["optedOut"]:
         return "ignored"
     if not item_exists(view["item_type"], view["item_key"], query_one):
@@ -117,8 +117,8 @@ def record_view(user_sub, viewer_hash, view, query_one, write):
     write(
         "INSERT INTO page_views (viewer_hash, item_type, item_key, visible_seconds, reached_section, course_filter) "
         "SELECT %s, %s, %s, %s, %s, %s WHERE EXISTS "
-        "(SELECT 1 FROM student_profiles WHERE user_sub = %s AND NOT tracking_opt_out FOR SHARE)",
+        "(SELECT 1 FROM student_profiles WHERE viewer_hash = %s AND NOT tracking_opt_out FOR SHARE)",
         (viewer_hash, view["item_type"], view["item_key"], view["visible_seconds"], view["reached_section"],
-         course_filter, user_sub),
+         course_filter, viewer_hash),
     )
     return "ok"

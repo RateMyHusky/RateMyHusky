@@ -153,7 +153,7 @@ def test_rating_copies_the_raters_grad_year(rate):
     params = rating_writes(state)[0][1]
     assert saved(server, params, "rater_grad_year") == 2028
     assert saved(server, params, "rater_level") == "undergrad"
-    assert state["profile_params"] == [("u1",)]   # looked up by the token's sub, not the account hash
+    assert state["profile_params"] == [(ri.keyed_hash(SECRET, "viewer", "u1"),)]   # looked up by the viewer hash, not the sub or account hash
     assert "u1" not in params   # the raw account id never lands on the rating
 
 

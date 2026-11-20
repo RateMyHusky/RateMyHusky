@@ -202,7 +202,7 @@ CREATE TABLE public.stats_cache (
 );
 
 CREATE TABLE public.student_profiles (
-    user_sub TEXT NOT NULL,
+    viewer_hash TEXT NOT NULL,
     level TEXT NULL,
     grad_year SMALLINT NULL,
     majors TEXT[] NOT NULL,
@@ -210,7 +210,7 @@ CREATE TABLE public.student_profiles (
     tracking_opt_out BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT student_profiles_pkey PRIMARY KEY (user_sub)
+    CONSTRAINT student_profiles_pkey PRIMARY KEY (viewer_hash)
 );
 
 CREATE TABLE public.usage_alerts (

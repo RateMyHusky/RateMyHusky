@@ -14,7 +14,11 @@ from student_profile import profile_status, rater_profile, record_view, save_pro
 from tests.pg.pgutil import query_fn, rows, scalar, truncate
 
 SECRET = "rating-secret-0123456789abcdefghijklmnop"  # gitleaks:allow
-VIEWER = rating_identity.keyed_hash(SECRET, "viewer", "u1")
+def hv(sub):
+    return rating_identity.keyed_hash(SECRET, "viewer", sub)
+
+
+VIEWER = hv("u1")
 VIEW = {"item_type": "professor", "item_key": "alice-smith", "visible_seconds": 42,
         "reached_section": True, "course_filter": None}
 
@@ -39,12 +43,12 @@ def one(pg):
 
 def test_save_profile_upserts_and_keeps_opt_out(pg):
     write = run_write(pg)
-    save_profile("u1", {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
+    save_profile(hv("u1"), {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
     first = rows(pg, "SELECT * FROM student_profiles")[0]
     with pg.cursor() as cur:
         cur.execute("UPDATE student_profiles SET tracking_opt_out = true")
     pg.commit()
-    save_profile("u1", {"level": "undergrad", "grad_year": 2029, "majors": ["B, BS", "other"], "minors": ["C, Minor"]}, write)
+    save_profile(hv("u1"), {"level": "undergrad", "grad_year": 2029, "majors": ["B, BS", "other"], "minors": ["C, Minor"]}, write)
     got = rows(pg, "SELECT * FROM student_profiles")
     assert len(got) == 1
     assert got[0]["majors"] == ["B, BS", "other"] and got[0]["minors"] == ["C, Minor"]
@@ -55,13 +59,13 @@ def test_save_profile_upserts_and_keeps_opt_out(pg):
 
 def test_profile_status_reads_the_row(pg):
     q1 = one(pg)
-    assert profile_status("u1", q1) == {"exists": False, "optedOut": False}
-    save_profile("u1", {"level": "grad", "grad_year": None, "majors": [], "minors": []}, run_write(pg))
-    assert profile_status("u1", q1) == {"exists": True, "optedOut": False}
+    assert profile_status(hv("u1"), q1) == {"exists": False, "optedOut": False}
+    save_profile(hv("u1"), {"level": "grad", "grad_year": None, "majors": [], "minors": []}, run_write(pg))
+    assert profile_status(hv("u1"), q1) == {"exists": True, "optedOut": False}
     with pg.cursor() as cur:
         cur.execute("UPDATE student_profiles SET tracking_opt_out = true")
     pg.commit()
-    assert profile_status("u1", q1) == {"exists": True, "optedOut": True}
+    assert profile_status(hv("u1"), q1) == {"exists": True, "optedOut": True}
 
 
 def test_record_view_inserts_one_row(pg):
@@ -69,12 +73,14 @@ def test_record_view_inserts_one_row(pg):
         cur.execute("INSERT INTO professors_catalog (slug, name, name_key) VALUES ('alice-smith', 'Alice Smith', 'alice smith')")
     pg.commit()
     write = run_write(pg)
-    save_profile("u1", {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
-    assert record_view("u1", VIEWER, VIEW, one(pg), write) == "ok"
+    save_profile(hv("u1"), {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
+    assert record_view(VIEWER, VIEW, one(pg), write) == "ok"
     got = rows(pg, "SELECT * FROM page_views")
     assert len(got) == 1
     assert (got[0]["viewer_hash"], got[0]["item_type"], got[0]["item_key"]) == (VIEWER, "professor", "alice-smith")
     assert "user_sub" not in got[0] and "u1" not in {str(v) for v in got[0].values()}
+    prof = rows(pg, "SELECT * FROM student_profiles")[0]   # the profile is keyed by the same hash, never the sub
+    assert prof["viewer_hash"] == VIEWER and "user_sub" not in prof and "u1" not in {str(v) for v in prof.values()}
     assert VIEWER != rating_identity.keyed_hash(SECRET, "account", "u1")
     assert got[0]["visible_seconds"] == 42 and got[0]["reached_section"] is True
     assert got[0]["course_filter"] is None and got[0]["viewed_at"] is not None
@@ -83,19 +89,20 @@ def test_record_view_inserts_one_row(pg):
 def test_rater_profile_by_profile_kind(pg):
     write, q = run_write(pg), one(pg)
     assert rater_profile(None, q) == (None, None)
-    assert rater_profile("nobody", q) == (None, None)
-    save_profile("normal", {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
-    save_profile("grad", {"level": "grad", "grad_year": None, "majors": [], "minors": []}, write)
-    save_profile("out", {"level": "undergrad", "grad_year": 2027, "majors": ["A, BS"], "minors": []}, write)
+    assert rater_profile(hv("nobody"), q) == (None, None)
+    save_profile(hv("normal"), {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
+    save_profile(hv("grad"), {"level": "grad", "grad_year": None, "majors": [], "minors": []}, write)
+    save_profile(hv("out"), {"level": "undergrad", "grad_year": 2027, "majors": ["A, BS"], "minors": []}, write)
     with pg.cursor() as cur:
-        cur.execute("UPDATE student_profiles SET tracking_opt_out = true WHERE user_sub = 'out'")
+        cur.execute("UPDATE student_profiles SET tracking_opt_out = true WHERE viewer_hash = %s", (hv("out"),))
         # what rag/clear_ask_strikes.py opt_out inserts for an account with no profile
-        cur.execute("INSERT INTO student_profiles (user_sub, majors, tracking_opt_out) VALUES ('stub', '{}', true)")
+        cur.execute("INSERT INTO student_profiles (viewer_hash, majors, tracking_opt_out) VALUES (%s, '{}', true)",
+                    (hv("stub"),))
     pg.commit()
-    assert rater_profile("normal", q) == ("undergrad", 2028)
-    assert rater_profile("grad", q) == ("grad", None)
-    assert rater_profile("out", q) == (None, None)
-    assert rater_profile("stub", q) == (None, None)
+    assert rater_profile(hv("normal"), q) == ("undergrad", 2028)
+    assert rater_profile(hv("grad"), q) == ("grad", None)
+    assert rater_profile(hv("out"), q) == (None, None)
+    assert rater_profile(hv("stub"), q) == (None, None)
 
 
 def submit_rating(pg, level, year):
@@ -126,9 +133,9 @@ def test_a_failed_profile_lookup_leaves_the_connection_usable(live_server, pg):
     with live_server.app.app_context():
         with pytest.raises(psycopg2.Error):
             live_server.query_one("SELECT 1 FROM table_that_does_not_exist")
-        live_server._write("INSERT INTO student_profiles (user_sub, level, grad_year, majors) "
+        live_server._write("INSERT INTO student_profiles (viewer_hash, level, grad_year, majors) "
                            "VALUES ('x', 'grad', NULL, '{}')")
-        assert live_server.query_one("SELECT level FROM student_profiles WHERE user_sub = 'x'")["level"] == "grad"
+        assert live_server.query_one("SELECT level FROM student_profiles WHERE viewer_hash = 'x'")["level"] == "grad"
 
 
 def test_collect_counts(pg):
@@ -137,15 +144,15 @@ def test_collect_counts(pg):
     from profile_stats import collect
 
     write = run_write(pg)
-    save_profile("u1", {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
-    save_profile("u2", {"level": "grad", "grad_year": None, "majors": [], "minors": []}, write)
-    save_profile("u3", {"level": "undergrad", "grad_year": 2027, "majors": ["B, BS"], "minors": []}, write)
+    save_profile(hv("u1"), {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
+    save_profile(hv("u2"), {"level": "grad", "grad_year": None, "majors": [], "minors": []}, write)
+    save_profile(hv("u3"), {"level": "undergrad", "grad_year": 2027, "majors": ["B, BS"], "minors": []}, write)
     with pg.cursor() as cur:
-        cur.execute("UPDATE student_profiles SET tracking_opt_out = true WHERE user_sub = 'u3'")
+        cur.execute("UPDATE student_profiles SET tracking_opt_out = true WHERE viewer_hash = %s", (hv("u3"),))
         for sub, kind, key in [("u1", "professor", "alice-smith"), ("u1", "professor", "alice-smith"),
                                ("u2", "course", "CS2500"), ("u2", "professor", "alice-smith")]:
             cur.execute("INSERT INTO page_views (viewer_hash, item_type, item_key, visible_seconds, reached_section)"
-                        " VALUES (%s, %s, %s, 5, false)", (sub, kind, key))
+                        " VALUES (%s, %s, %s, 5, false)", (hv(sub), kind, key))
     pg.commit()
     for i, (level, year) in enumerate([("undergrad", 2028), ("grad", None), (None, None)]):
         row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
@@ -168,7 +175,7 @@ def seed_catalog_and_profile(pg):
     with pg.cursor() as cur:
         cur.execute("INSERT INTO professors_catalog (slug, name, name_key) VALUES ('alice-smith', 'Alice Smith', 'alice smith')")
     pg.commit()
-    save_profile("u1", {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, run_write(pg))
+    save_profile(hv("u1"), {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, run_write(pg))
 
 
 def view_count(pg):
@@ -176,7 +183,7 @@ def view_count(pg):
 
 
 def opted_out(pg):
-    return scalar(pg, "SELECT tracking_opt_out FROM student_profiles WHERE user_sub = 'u1'")
+    return scalar(pg, "SELECT tracking_opt_out FROM student_profiles WHERE viewer_hash = %s", (VIEWER,))
 
 
 def test_opt_out_waits_for_a_view_in_flight_and_then_deletes_it(pg, pg_url):
@@ -187,7 +194,7 @@ def test_opt_out_waits_for_a_view_in_flight_and_then_deletes_it(pg, pg_url):
         # A: record_view's insert, transaction still open, holding the profile row lock
         def write_in_open_transaction(sql, params=None):
             a.cursor().execute(sql, params)
-        assert record_view("u1", VIEWER, VIEW, one(pg), write_in_open_transaction) == "ok"
+        assert record_view(VIEWER, VIEW, one(pg), write_in_open_transaction) == "ok"
         done = threading.Event()
 
         def run_opt_out():
@@ -216,7 +223,7 @@ def test_a_view_in_flight_when_the_opt_out_commits_inserts_nothing(pg, pg_url):
             if "FROM student_profiles" in sql:
                 opt_out(b, b.cursor(), "u1", False, SECRET)   # commits between the check and the insert
             return row
-        assert record_view("u1", VIEWER, VIEW, profile_check_passes_then_the_opt_out_lands, run_write(pg)) == "ok"
+        assert record_view(VIEWER, VIEW, profile_check_passes_then_the_opt_out_lands, run_write(pg)) == "ok"
         assert opted_out(pg) is True and view_count(pg) == 0
     finally:
         b.close()
@@ -224,7 +231,7 @@ def test_a_view_in_flight_when_the_opt_out_commits_inserts_nothing(pg, pg_url):
 
 def test_purge_keeps_an_opted_out_account_opted_out(pg, capsys):
     seed_catalog_and_profile(pg)
-    record_view("u1", VIEWER, VIEW, one(pg), run_write(pg))
+    record_view(VIEWER, VIEW, one(pg), run_write(pg))
     other = rating_identity.keyed_hash(SECRET, "viewer", "u2")
     with pg.cursor() as cur:
         cur.execute("INSERT INTO page_views (viewer_hash, item_type, item_key, visible_seconds, reached_section) "
@@ -232,15 +239,15 @@ def test_purge_keeps_an_opted_out_account_opted_out(pg, capsys):
     pg.commit()
     opt_out(pg, pg.cursor(), "u1", False, SECRET)
     purge_account(pg, pg.cursor(), "u1", False, SECRET)
-    got = rows(pg, "SELECT user_sub, level, majors, tracking_opt_out FROM student_profiles")
-    assert got == [{"user_sub": "u1", "level": None, "majors": [], "tracking_opt_out": True}]
+    got = rows(pg, "SELECT viewer_hash, level, majors, tracking_opt_out FROM student_profiles")
+    assert got == [{"viewer_hash": VIEWER, "level": None, "majors": [], "tracking_opt_out": True}]
     assert view_count(pg) == 0 and scalar(pg, "SELECT count(*) FROM page_views") == 1   # u2's view stays
-    assert record_view("u1", VIEWER, VIEW, one(pg), run_write(pg)) == "ignored"
+    assert record_view(VIEWER, VIEW, one(pg), run_write(pg)) == "ignored"
     assert "opt-out still holds" in capsys.readouterr().out
 
 
 def test_purge_of_an_account_that_never_opted_out_removes_the_profile(pg):
     seed_catalog_and_profile(pg)
-    record_view("u1", VIEWER, VIEW, one(pg), run_write(pg))
+    record_view(VIEWER, VIEW, one(pg), run_write(pg))
     purge_account(pg, pg.cursor(), "u1", False, SECRET)
     assert scalar(pg, "SELECT count(*) FROM student_profiles") == 0 and view_count(pg) == 0

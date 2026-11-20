@@ -60,7 +60,7 @@ def test_purge_deletes_what_the_script_does(admin):
     assert deletes(cur) == {
         "ask_log": ("user-1",), "bookmarks": ("user-1",),
         "survey_ratings": (rating_identity.keyed_hash(SECRET, "account", "user-1"),),
-        "student_profiles": ("user-1",),
+        "student_profiles": (rating_identity.keyed_hash(SECRET, "viewer", "user-1"),),
         "page_views": (rating_identity.keyed_hash(SECRET, "viewer", "user-1"),)}
     assert any(s.startswith("INSERT INTO student_profiles") for s, _ in cur.executed)   # opted-out row put back
     assert conn.commits == 1

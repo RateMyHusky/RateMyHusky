@@ -2538,13 +2538,20 @@ def _profile_limit_key():
     return f"sub:{claims['sub']}" if claims else get_real_ip()
 
 
+def _viewer_hash(user_sub):
+    return rating_identity.keyed_hash(RATING_SECRET, "viewer", user_sub)
+
+
 @app.route("/api/profile")
 @limiter.limit("30 per minute", key_func=_profile_limit_key)
 def profile_get():
     user_sub = _require_bookmarks_auth()
     if not user_sub:
         return jsonify({"error": "Sign in required"}), 401
-    return jsonify(student_profile.profile_status(user_sub, query_one))
+    # Profiles are stored under a keyed hash, never the raw sub; without the secret, off like the rate form.
+    if not (RATING_SECRET and len(RATING_SECRET) >= _MIN_RATING_SECRET):
+        return _rating_unavailable()
+    return jsonify(student_profile.profile_status(_viewer_hash(user_sub), query_one))
 
 
 @app.route("/api/profile", methods=["PUT"])
@@ -2553,10 +2560,13 @@ def profile_put():
     user_sub = _require_bookmarks_auth()
     if not user_sub:
         return jsonify({"error": "Sign in required"}), 401
+    # Profiles are stored under a keyed hash, never the raw sub; without the secret, off like the rate form.
+    if not (RATING_SECRET and len(RATING_SECRET) >= _MIN_RATING_SECRET):
+        return _rating_unavailable()
     clean, error = student_profile.validate_profile(_json_object(), datetime.now(timezone.utc).year)
     if error:
         return jsonify({"error": error}), 400
-    student_profile.save_profile(user_sub, clean, _write)
+    student_profile.save_profile(_viewer_hash(user_sub), clean, _write)
     return jsonify({"ok": True})
 
 
@@ -2572,8 +2582,7 @@ def views_post():
     clean, error = student_profile.validate_view(_json_object())
     if error:
         return jsonify({"error": error}), 400
-    viewer_hash = rating_identity.keyed_hash(RATING_SECRET, "viewer", user_sub)
-    if student_profile.record_view(user_sub, viewer_hash, clean, query_one, _write) == "not_found":
+    if student_profile.record_view(_viewer_hash(user_sub), clean, query_one, _write) == "not_found":
         return jsonify({"error": "Not found"}), 400
     return "", 204
 
@@ -3059,7 +3068,8 @@ def rate_submit():
                                            skew_week=skew, silent_hold=silent, unverified_term=wrong_term)
     # A failed lookup must not lose the rating: query_one rolled the connection back, so save_rating still works.
     try:
-        rater_level, rater_grad_year = student_profile.rater_profile(_require_bookmarks_auth(), query_one)
+        sub = _require_bookmarks_auth()
+        rater_level, rater_grad_year = student_profile.rater_profile(sub and _viewer_hash(sub), query_one)
     except psycopg2.Error as e:
         print(f"rate_submit: profile lookup failed, saving without the rater level: {e}")
         rater_level, rater_grad_year = None, None

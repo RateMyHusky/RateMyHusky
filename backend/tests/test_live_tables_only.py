@@ -75,6 +75,7 @@ def test_the_fake_rejects_a_table_that_is_not_live():
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(server, "JWT_SECRET", TEST_SECRET, raising=False)
+    monkeypatch.setattr(server, "RATING_SECRET", TEST_SECRET, raising=False)   # /api/profile is 503 without it
     monkeypatch.setattr(server, "_get_pool",
                         lambda: (_ for _ in ()).throw(AssertionError("no DB in test")), raising=False)
     monkeypatch.setattr(server, "cache_get", lambda key: None, raising=False)

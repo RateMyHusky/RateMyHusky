@@ -35,16 +35,16 @@ def test_test_server_speaks_ssl(pg):
 
 def test_profile_constraints(pg):
     cur = pg.cursor()
-    cur.execute("INSERT INTO student_profiles (user_sub, level, grad_year, majors) VALUES ('g', 'grad', NULL, '{}')")
+    cur.execute("INSERT INTO student_profiles (viewer_hash, level, grad_year, majors) VALUES ('g', 'grad', NULL, '{}')")
     # the opted-out stub rag/clear_ask_strikes.py opt_out inserts for an account with no profile
-    cur.execute("INSERT INTO student_profiles (user_sub, majors, tracking_opt_out) VALUES ('s', '{}', true)")
+    cur.execute("INSERT INTO student_profiles (viewer_hash, majors, tracking_opt_out) VALUES ('s', '{}', true)")
     for sql in [
-        "INSERT INTO student_profiles (user_sub, level, grad_year, majors) VALUES ('u', 'undergrad', 2028, '{}')",
-        "INSERT INTO student_profiles (user_sub, level, grad_year, majors) VALUES ('u', 'undergrad', NULL, '{}')",
-        "INSERT INTO student_profiles (user_sub, level, grad_year, majors) VALUES ('u', 'grad', 2028, '{A}')",
-        "INSERT INTO student_profiles (user_sub, level, grad_year, majors) VALUES ('u', 'postdoc', NULL, '{}')",
-        "INSERT INTO student_profiles (user_sub, level, grad_year, majors) VALUES ('u', NULL, NULL, '{}')",
-        "INSERT INTO student_profiles (user_sub, level, grad_year, majors, tracking_opt_out) "
+        "INSERT INTO student_profiles (viewer_hash, level, grad_year, majors) VALUES ('u', 'undergrad', 2028, '{}')",
+        "INSERT INTO student_profiles (viewer_hash, level, grad_year, majors) VALUES ('u', 'undergrad', NULL, '{}')",
+        "INSERT INTO student_profiles (viewer_hash, level, grad_year, majors) VALUES ('u', 'grad', 2028, '{A}')",
+        "INSERT INTO student_profiles (viewer_hash, level, grad_year, majors) VALUES ('u', 'postdoc', NULL, '{}')",
+        "INSERT INTO student_profiles (viewer_hash, level, grad_year, majors) VALUES ('u', NULL, NULL, '{}')",
+        "INSERT INTO student_profiles (viewer_hash, level, grad_year, majors, tracking_opt_out) "
         "VALUES ('u', NULL, 2028, '{A}', false)",
     ]:
         pg.rollback()

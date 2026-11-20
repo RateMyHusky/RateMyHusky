@@ -117,11 +117,11 @@ def purge_account_data(conn, cur, account, dry_run, rating_secret):
                 ("ask_log", "SELECT count(*) FROM ask_log WHERE session_token = %s", account),
                 ("bookmarks", "SELECT count(*) FROM bookmarks WHERE user_sub = %s", account),
                 ("ratings", "SELECT count(*) FROM survey_ratings WHERE account_hash = %s", account_hash),
-                ("profiles", "SELECT count(*) FROM student_profiles WHERE user_sub = %s", account),
+                ("profiles", "SELECT count(*) FROM student_profiles WHERE viewer_hash = %s", viewer_hash),
                 ("page_views", "SELECT count(*) FROM page_views WHERE viewer_hash = %s", viewer_hash)):
             cur.execute(sql, (param,))
             counts[key] = cur.fetchone()[0]
-        cur.execute("SELECT count(*) FROM student_profiles WHERE user_sub = %s AND tracking_opt_out", (account,))
+        cur.execute("SELECT count(*) FROM student_profiles WHERE viewer_hash = %s AND tracking_opt_out", (viewer_hash,))
         counts["opt_out_kept"] = cur.fetchone()[0] > 0
         return counts
     for key, sql, param in (
@@ -130,13 +130,13 @@ def purge_account_data(conn, cur, account, dry_run, rating_secret):
             ("ratings", "DELETE FROM survey_ratings WHERE account_hash = %s", account_hash)):
         cur.execute(sql, (param,))
         counts[key] = cur.rowcount
-    cur.execute("DELETE FROM student_profiles WHERE user_sub = %s RETURNING tracking_opt_out", (account,))
+    cur.execute("DELETE FROM student_profiles WHERE viewer_hash = %s RETURNING tracking_opt_out", (viewer_hash,))
     profile = cur.fetchall()
     counts["profiles"] = len(profile)
     counts["opt_out_kept"] = any(r[0] for r in profile)
     if counts["opt_out_kept"]:
-        cur.execute("INSERT INTO student_profiles (user_sub, majors, tracking_opt_out) VALUES (%s, '{}', true)",
-                    (account,))
+        cur.execute("INSERT INTO student_profiles (viewer_hash, majors, tracking_opt_out) VALUES (%s, '{}', true)",
+                    (viewer_hash,))
     cur.execute("DELETE FROM page_views WHERE viewer_hash = %s", (viewer_hash,))
     counts["page_views"] = cur.rowcount
     cur.execute(DATA_VERSION_SQL)
@@ -182,7 +182,7 @@ def opt_out(conn, cur, account, dry_run, rating_secret):
     viewer_hash = rating_identity.keyed_hash(rating_secret, "viewer", account)
     cur.execute("SELECT count(*) FROM page_views WHERE viewer_hash = %s", (viewer_hash,))
     nv = cur.fetchone()[0]
-    cur.execute("SELECT count(*) FROM student_profiles WHERE user_sub = %s", (account,))
+    cur.execute("SELECT count(*) FROM student_profiles WHERE viewer_hash = %s", (viewer_hash,))
     has_profile = cur.fetchone()[0] > 0
     profile_note = "existing profile" if has_profile else "no profile: will create an opted-out row"
     if dry_run:
@@ -190,9 +190,9 @@ def opt_out(conn, cur, account, dry_run, rating_secret):
               f"({profile_note})")
         return
     cur.execute(
-        "INSERT INTO student_profiles (user_sub, majors, tracking_opt_out) VALUES (%s, '{}', true) "
-        "ON CONFLICT (user_sub) DO UPDATE SET tracking_opt_out = true, updated_at = now()",
-        (account,))
+        "INSERT INTO student_profiles (viewer_hash, majors, tracking_opt_out) VALUES (%s, '{}', true) "
+        "ON CONFLICT (viewer_hash) DO UPDATE SET tracking_opt_out = true, updated_at = now()",
+        (viewer_hash,))
     cur.execute("DELETE FROM page_views WHERE viewer_hash = %s", (viewer_hash,))
     nv_deleted = cur.rowcount
     conn.commit()

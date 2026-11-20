@@ -70,7 +70,7 @@ def test_put_valid_writes_once_for_the_token_sub(pf_client):
                       json={"gradYear": year, "majors": [M1], "minors": []})
     assert resp.status_code == 200 and resp.get_json() == {"ok": True}
     assert len(state["writes"]) == 1
-    assert state["writes"][0][1][:3] == ("u-9", "undergrad", year)
+    assert state["writes"][0][1][:3] == (rating_identity.keyed_hash(RATING_SECRET, "viewer", "u-9"), "undergrad", year)
 
 
 def test_put_grad_student_writes_level_grad(pf_client):
@@ -78,7 +78,7 @@ def test_put_grad_student_writes_level_grad(pf_client):
     resp = client.put("/api/profile", headers=auth_headers(sub="u-9"),
                       json={"gradYear": None, "majors": [], "minors": []})
     assert resp.status_code == 200
-    assert state["writes"][0][1][:3] == ("u-9", "grad", None)
+    assert state["writes"][0][1][:3] == (rating_identity.keyed_hash(RATING_SECRET, "viewer", "u-9"), "grad", None)
 
 
 def test_put_invalid_is_400_with_no_write(pf_client):
@@ -190,3 +190,16 @@ def test_limits_are_per_student_not_per_shared_ip(pf_client, monkeypatch):
     assert get("u-a").status_code == 429
     assert get("u-b").status_code == 200   # same IP, own budget
     server.limiter.reset()
+
+
+def test_profile_without_a_rating_secret_is_503_and_stores_nothing(pf_client, monkeypatch):
+    import server
+    client, state = pf_client
+    state["row"] = {"tracking_opt_out": False}
+    for secret in (None, "too-short"):
+        monkeypatch.setattr(server, "RATING_SECRET", secret)
+        assert client.get("/api/profile", headers=auth_headers()).status_code == 503
+        resp = client.put("/api/profile", headers=auth_headers(),
+                          json={"gradYear": None, "majors": [], "minors": []})
+        assert resp.status_code == 503
+    assert state["writes"] == []
