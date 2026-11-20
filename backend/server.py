@@ -2536,6 +2536,20 @@ def profile_put():
     return jsonify({"ok": True})
 
 
+@app.route("/api/views", methods=["POST"])
+@limiter.limit("60 per minute")
+def views_post():
+    user_sub = _require_bookmarks_auth()
+    if not user_sub:
+        return jsonify({"error": "Sign in required"}), 401
+    clean, error = student_profile.validate_view(_json_object())
+    if error:
+        return jsonify({"error": error}), 400
+    if student_profile.record_view(user_sub, clean, query_one, _write) == "not_found":
+        return jsonify({"error": "Not found"}), 400
+    return "", 204
+
+
 # What a CSP report logs, each value capped. URLs lose their query string, which
 # can carry search terms or tokens.
 CSP_REPORT_FIELDS = ("document-uri", "effective-directive", "violated-directive",

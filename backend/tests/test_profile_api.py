@@ -76,3 +76,57 @@ def test_put_invalid_is_400_with_no_write(pf_client):
                       json={"gradYear": 2028, "majors": [], "minors": []})
     assert resp.status_code == 400 and resp.get_json()["error"]
     assert state["writes"] == []
+
+
+VIEW = {"itemType": "professor", "itemKey": "alice-smith", "visibleSeconds": 30, "reachedSection": True, "courseFilter": None}
+
+
+@pytest.fixture
+def view_client(pf_client, monkeypatch):
+    import server
+    client, state = pf_client
+
+    def fake_query_one(sql, params=()):
+        if "FROM student_profiles" in sql:
+            return state["row"]
+        return {"x": 1} if params == ("alice-smith",) else None
+
+    monkeypatch.setattr(server, "query_one", fake_query_one, raising=False)
+    return client, state
+
+
+def test_view_requires_sign_in(view_client):
+    client, state = view_client
+    resp = client.post("/api/views", json=VIEW)
+    assert resp.status_code == 401 and resp.get_json() == {"error": "Sign in required"}
+    assert state["writes"] == []
+
+
+def test_view_bad_body_is_400(view_client):
+    client, state = view_client
+    resp = client.post("/api/views", headers=auth_headers(), json={**VIEW, "visibleSeconds": True})
+    assert resp.status_code == 400 and resp.get_json()["error"]
+    assert state["writes"] == []
+
+
+def test_view_without_a_profile_is_204_and_stores_nothing(view_client):
+    client, state = view_client
+    resp = client.post("/api/views", headers=auth_headers(), json=VIEW)
+    assert resp.status_code == 204 and resp.data == b""
+    assert state["writes"] == []
+
+
+def test_view_with_a_profile_is_204_and_stores_one_row(view_client):
+    client, state = view_client
+    state["row"] = {"tracking_opt_out": False}
+    resp = client.post("/api/views", headers=auth_headers(sub="u-3"), json=VIEW)
+    assert resp.status_code == 204 and resp.data == b""
+    assert len(state["writes"]) == 1 and state["writes"][0][1][0] == "u-3"
+
+
+def test_view_of_an_unknown_item_is_400(view_client):
+    client, state = view_client
+    state["row"] = {"tracking_opt_out": False}
+    resp = client.post("/api/views", headers=auth_headers(), json={**VIEW, "itemKey": "nobody"})
+    assert resp.status_code == 400 and resp.get_json()["error"]
+    assert state["writes"] == []

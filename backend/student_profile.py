@@ -4,9 +4,14 @@ Same pattern as bookmarks.py: pure functions taking `query_one` / `write`;
 server.py owns HTTP and auth.
 """
 
+import re
+
+from bookmarks import item_exists
 from programs import MAJORS, MINORS, OTHER
 
 MAX_PROGRAMS = 4  # cap on majors and, separately, on minors
+MAX_VISIBLE_SECONDS = 7200  # a tab left open overnight counts as two hours
+MAX_ITEM_KEY = 200
 
 
 def _programs(value, allowed):
@@ -54,3 +59,48 @@ def save_profile(user_sub, clean, write):
         "majors = EXCLUDED.majors, minors = EXCLUDED.minors, updated_at = now()",
         (user_sub, clean["grad_year"], clean["majors"], clean["minors"]),
     )
+
+
+def validate_view(data):
+    """Returns (clean, None) with {"item_type", "item_key", "visible_seconds",
+    "reached_section", "course_filter"}, or (None, error).
+
+    A junk courseFilter is normalized or dropped, never an error."""
+    item_type, item_key = data.get("itemType"), data.get("itemKey")
+    seconds, reached = data.get("visibleSeconds"), data.get("reachedSection")
+    if item_type not in ("professor", "course"):
+        return None, "itemType must be 'professor' or 'course'"
+    if not isinstance(item_key, str) or not 1 <= len(item_key) <= MAX_ITEM_KEY:
+        return None, "itemKey is required, at most 200 characters"
+    if type(seconds) is not int or seconds < 0:
+        return None, "visibleSeconds must be a non-negative integer"
+    if type(reached) is not bool:
+        return None, "reachedSection must be a boolean"
+    course_filter = data.get("courseFilter")
+    if isinstance(course_filter, str):
+        course_filter = re.sub(r"\s+", "", course_filter).upper() or None
+    else:
+        course_filter = None
+    return {"item_type": item_type, "item_key": item_key, "visible_seconds": min(seconds, MAX_VISIBLE_SECONDS),
+            "reached_section": reached, "course_filter": course_filter}, None
+
+
+def record_view(user_sub, view, query_one, write):
+    """Stores one page view. Returns "ignored" (no profile or opted out: nothing
+    else is queried or written), "not_found" (item not in the catalog), or "ok".
+
+    A course filter is kept only on professor views and only if it is a real course code."""
+    profile = profile_status(user_sub, query_one)
+    if not profile["exists"] or profile["optedOut"]:
+        return "ignored"
+    if not item_exists(view["item_type"], view["item_key"], query_one):
+        return "not_found"
+    course_filter = view["course_filter"]
+    if view["item_type"] != "professor" or not (course_filter and item_exists("course", course_filter, query_one)):
+        course_filter = None
+    write(
+        "INSERT INTO page_views (user_sub, item_type, item_key, visible_seconds, reached_section, course_filter) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        (user_sub, view["item_type"], view["item_key"], view["visible_seconds"], view["reached_section"], course_filter),
+    )
+    return "ok"
