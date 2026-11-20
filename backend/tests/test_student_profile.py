@@ -69,8 +69,8 @@ def test_view_is_cleaned():
                                     "reached_section": True, "course_filter": None}, None)
 
 
-def test_visible_seconds_clamps_to_two_hours():
-    assert validate_view({**BASE, "visibleSeconds": 10**9})[0]["visible_seconds"] == 7200
+def test_visible_seconds_clamps_to_30_minutes():
+    assert validate_view({**BASE, "visibleSeconds": 10**9})[0]["visible_seconds"] == 1800
 
 
 @pytest.mark.parametrize("field,value", [

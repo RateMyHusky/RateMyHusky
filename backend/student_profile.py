@@ -10,7 +10,7 @@ from bookmarks import item_exists
 from programs import MAJORS, MINORS, OTHER
 
 MAX_PROGRAMS = 4  # cap on majors and, separately, on minors
-MAX_VISIBLE_SECONDS = 7200  # a tab left open overnight counts as two hours
+MAX_VISIBLE_SECONDS = 1800  # a tab left open overnight counts as 30 minutes
 MAX_ITEM_KEY = 200
 
 
