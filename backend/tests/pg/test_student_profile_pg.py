@@ -96,3 +96,35 @@ def test_edit_keeps_rater_grad_year_when_profile_is_gone(pg):
     assert [r["rater_grad_year"] for r in submit(2028)] == [2028]
     assert [r["rater_grad_year"] for r in submit(None)] == [2028]
     assert [r["rater_grad_year"] for r in submit(2029)] == [2029]
+
+
+def test_collect_counts(pg):
+    import ratings
+    from datetime import datetime, timedelta, timezone
+    from profile_stats import collect
+
+    write = run_write(pg)
+    save_profile("u1", {"grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
+    save_profile("u2", {"grad_year": None, "majors": [], "minors": []}, write)
+    save_profile("u3", {"grad_year": 2027, "majors": ["B, BS"], "minors": []}, write)
+    with pg.cursor() as cur:
+        cur.execute("UPDATE student_profiles SET tracking_opt_out = true WHERE user_sub = 'u3'")
+        for sub, kind, key in [("u1", "professor", "alice-smith"), ("u1", "professor", "alice-smith"),
+                               ("u2", "course", "CS2500"), ("u2", "professor", "alice-smith")]:
+            cur.execute("INSERT INTO page_views (user_sub, item_type, item_key, visible_seconds, reached_section)"
+                        " VALUES (%s, %s, %s, 5, false)", (sub, kind, key))
+    pg.commit()
+    for i, year in enumerate([2028, None]):
+        row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
+        row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
+                   status="accepted", account_hash=f"a{i}", device_hash=f"d{i}", new_device=False,
+                   network_type="unknown", collection="turnstile+account", rater_grad_year=year)
+        ratings.save_rating(row, None, write)
+
+    got = collect(query_fn(pg), datetime.now(timezone.utc) - timedelta(days=1))
+    assert got["profiles"] == 3 and got["opted_out"] == 1
+    assert got["by_grad_year"] == {"2028": 1, "grad student": 1}
+    assert got["by_major"] == {"A, BS": 1}
+    assert (got["views"], got["view_students"], got["view_professors"], got["view_courses"]) == (4, 2, 1, 1)
+    assert got["views_per_student"] == 2.0
+    assert (got["ratings_with_year"], got["ratings_without_year"]) == (1, 1)
