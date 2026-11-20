@@ -146,6 +146,36 @@
   transform: scale(0.98);
 }
 
+/* Dev builds only (import.meta.env.DEV); dashed so it can't pass for a real option. */
+.signin-modal-dev-btn {
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px 24px;
+  background: transparent;
+  border: 1.5px dashed #c9a227;
+  border-radius: 12px;
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #8a6d00;
+  cursor: pointer;
+}
+
+.dark .signin-modal-dev-btn {
+  border-color: #8a6d00;
+  color: #e0c060;
+}
+
+.signin-modal-dev-error {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  color: #b3261e;
+}
+
+.dark .signin-modal-dev-error {
+  color: #f2b8b5;
+}
+
 .google-icon {
   width: 20px;
   height: 20px;

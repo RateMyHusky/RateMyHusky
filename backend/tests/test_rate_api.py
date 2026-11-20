@@ -6,6 +6,7 @@ the FakeGroq in conftest) and the team email.
 """
 
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -875,8 +876,12 @@ def test_a_flagged_device_gets_the_accepted_response_byte_for_byte(rate, monkeyp
     monkeypatch.setattr(server, "query_one", lambda sql, params=(): (
         {"x": 1} if "FROM rating_flags" in sql else plain(sql, params)))
     second = post(client, ri)
-    assert (second.status_code, second.get_data(), second.headers["Set-Cookie"]) == (
-        first.status_code, first.get_data(), first.headers["Set-Cookie"])
+    # Expires is stamped from the clock, so two requests either side of a second
+    # boundary differ there; Max-Age still has to match, and that's what a client keeps.
+    def cookie(resp):
+        return re.sub(r"Expires=[^;]*; ", "", resp.headers["Set-Cookie"])
+    assert (second.status_code, second.get_data(), cookie(second)) == (
+        first.status_code, first.get_data(), cookie(first))
     (sql, params), = rating_writes(state)
     assert "silent_hold" in params and "held" in params
     assert "silent_hold" not in first_writes[0][1]

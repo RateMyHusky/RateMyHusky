@@ -16,7 +16,7 @@ from functools import lru_cache
 from dotenv import load_dotenv
 from prof_aliases import ALIAS_MAP
 from pipeline.names import COLLEGE_MAP, search_fold, search_squash
-from flask import Flask, g, jsonify, request, redirect, make_response
+from flask import Flask, abort, g, jsonify, request, redirect, make_response
 from flask.json.provider import DefaultJSONProvider
 from flask_cors import CORS
 from flask_compress import Compress
@@ -2338,16 +2338,8 @@ def auth_google_callback():
     if user_info.get("hd") != "husky.neu.edu":
         return fail("invalid_domain")
 
-    payload = {
-        "sub": user_info["id"],
-        "email": user_info["email"],
-        "name": user_info.get("name", ""),
-        "picture": user_info.get("picture", ""),
-        "iss": JWT_ISSUER,
-        "aud": JWT_AUDIENCE,
-        "exp": datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS),
-    }
-    token = pyjwt.encode(payload, JWT_SECRET, algorithm="HS256")
+    token = _session_token(user_info["id"], user_info["email"],
+                           user_info.get("name", ""), user_info.get("picture", ""))
 
     if flow.get("popup") is True:
         # Desktop popup: post message to opener and close
@@ -2362,6 +2354,60 @@ def auth_google_callback():
         return_to = _safe_return_to(flow.get("returnTo"))
         resp = make_response(redirect(f"{frontend}{return_to}#auth_token={token}"))
     return _end_auth_flow(resp, state)
+
+
+def _session_token(sub, email, name, picture):
+    """A signed session token for this account, as every sign-in issues it."""
+    return pyjwt.encode({
+        "sub": sub,
+        "email": email,
+        "name": name,
+        "picture": picture,
+        "iss": JWT_ISSUER,
+        "aud": JWT_AUDIENCE,
+        "exp": datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS),
+    }, JWT_SECRET, algorithm="HS256")
+
+
+# Local-dev sign-in that skips Google, for trying account features without OAuth set
+# up. Off unless DEV_LOGIN=1 and off Railway: Railway sets RAILWAY_ENVIRONMENT itself,
+# so production and the Vercel previews (which share its backend) never have it, and
+# the opt-in keeps it off if that ever stopped being true. Its accounts' subs start
+# "dev-login:", which Google's numeric ids never do, so a dev account can't land in a
+# real one's bookmarks or Ask history.
+DEV_LOGIN_PATH = "/api/auth/dev-login"
+DEV_LOGIN_NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
+
+
+def _dev_login_enabled():
+    return os.getenv("DEV_LOGIN") == "1" and not os.getenv("RAILWAY_ENVIRONMENT")
+
+
+@app.before_request
+def hide_dev_login_when_off():
+    """Off, the route answers every method exactly as a path with no route does: a
+    before_request so a GET gets the same 404 rather than routing's 405. Aborting here
+    also means the route's own rate limit (checked when the view runs) never counts, so
+    a burst can't 429 where a missing path wouldn't; exempt_when below keeps that true
+    should the limiter ever check route limits earlier."""
+    if request.path == DEV_LOGIN_PATH and not _dev_login_enabled():
+        abort(404)
+
+
+@app.route(DEV_LOGIN_PATH, methods=["POST"])
+@limiter.limit("10 per minute", exempt_when=lambda: not _dev_login_enabled())
+def auth_dev_login():
+    """{"as": name} (optional) → {"token": ...} for that dev account. Answered as JSON,
+    not a redirect, so the sign-in modal can show a failure instead of navigating away.
+    Like every API route it passes check_origin, so it only works from a frontend at
+    localhost:5173 or FRONTEND_URL; any other dev port gets a 403."""
+    body = request.get_json(silent=True)
+    name = body.get("as", "dev") if isinstance(body, dict) else "dev"
+    if not isinstance(name, str) or not DEV_LOGIN_NAME_RE.fullmatch(name):
+        return jsonify({"error": "Account name must be 1-32 lowercase letters, digits or hyphens, "
+                                 "starting with a letter or digit"}), 400
+    return jsonify({"token": _session_token(f"dev-login:{name}", f"{name}@husky.neu.edu",
+                                            "Dev User" if name == "dev" else f"Dev {name}", "")})
 
 
 def _get_auth_token():

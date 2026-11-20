@@ -16,6 +16,9 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: () => void;
+  /** Local-dev sign-in that skips Google (backend needs DEV_LOGIN=1; see auth_dev_login).
+   *  `as` picks a separate dev account. Resolves to an error message, or null once signed in. */
+  devLogin: (as?: string) => Promise<string | null>;
   logout: () => Promise<void>;
 }
 
@@ -23,6 +26,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   login: () => {},
+  devLogin: async () => null,
   logout: async () => {},
 });
 
@@ -195,6 +199,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [fetchUser]);
 
+  const devLogin = useCallback(async (as?: string): Promise<string | null> => {
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/api/auth/dev-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(as === undefined ? {} : { as }),
+      });
+    } catch {
+      return "Couldn't reach the backend.";
+    }
+    if (res.status === 404) return 'Dev sign-in is off. Set DEV_LOGIN=1 in backend/.env and restart the backend.';
+    // The backend's origin check only allows localhost:5173 and FRONTEND_URL.
+    if (res.status === 403) return `The backend refuses ${window.location.origin}. Run the frontend on localhost:5173 or set FRONTEND_URL to this origin.`;
+    const data = await res.json().catch(() => null);
+    // The backend answers every error as JSON; an empty 5xx is Vite's proxy failing to connect.
+    if (!data && res.status >= 500) return "Couldn't reach the backend. Is it running on port 5001?";
+    if (!res.ok || typeof data?.token !== 'string') return data?.error || `Dev sign-in failed (${res.status}).`;
+    storeToken(data.token);
+    await fetchUser();
+    return null;
+  }, [fetchUser]);
+
   const logout = useCallback(async () => {
     const token = getStoredToken();
     // A failed logout request still signs this browser out.
@@ -208,7 +235,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, devLogin, logout }}>
       {children}
     </AuthContext.Provider>
   );

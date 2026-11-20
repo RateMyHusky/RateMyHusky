@@ -94,7 +94,36 @@ export default function SignInModal({ open, onClose, reason }: Props) {
           </svg>
           Sign in with Google
         </button>
+
+        {import.meta.env.DEV && <DevSignIn />}
       </div>
     </div>
+  );
+}
+
+// Rendered only while the modal is open, so its error lasts one open of the modal:
+// Navbar keeps SignInModal mounted, but this unmounts on every close however the modal
+// closed, and a request that settles after that has nowhere to put its error.
+function DevSignIn() {
+  const { devLogin } = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <>
+      <button
+        className="signin-modal-dev-btn"
+        title="Shift-click to sign in as a different dev account"
+        onClick={async e => {
+          let as: string | undefined;
+          if (e.shiftKey) {
+            const typed = window.prompt('Dev account name (1-32 letters, digits or hyphens, starting with a letter or digit):', 'dev');
+            if (typed === null) return;
+            as = typed.trim().toLowerCase();
+          }
+          setError(await devLogin(as));
+        }}>
+        Dev sign-in (local only)
+      </button>
+      {error && <p className="signin-modal-dev-error" role="alert">{error}</p>}
+    </>
   );
 }
