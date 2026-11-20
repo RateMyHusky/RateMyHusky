@@ -1,6 +1,7 @@
 import type { PageView } from '../api/api';
 
-export const MIN_VIEW_SECONDS = 2;
+// Shorter is a misclick or an instant Back, not interest.
+export const MIN_VIEW_SECONDS = 5;
 
 export interface ViewTimer { visibleMs: number; since: number | null }
 
