@@ -2222,7 +2222,7 @@ def _session_token(sub, email, name, picture):
 # "dev-login:", which Google's numeric ids never do, so a dev account can't land in a
 # real one's bookmarks or Ask history.
 DEV_LOGIN_PATH = "/api/auth/dev-login"
-DEV_LOGIN_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
+DEV_LOGIN_NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 
 
 def _dev_login_enabled():
@@ -2249,7 +2249,7 @@ def auth_dev_login():
     localhost:5173 or FRONTEND_URL; any other dev port gets a 403."""
     body = request.get_json(silent=True)
     name = body.get("as", "dev") if isinstance(body, dict) else "dev"
-    if not isinstance(name, str) or not DEV_LOGIN_NAME_RE.match(name):
+    if not isinstance(name, str) or not DEV_LOGIN_NAME_RE.fullmatch(name):
         return jsonify({"error": "Account name must be lowercase letters, digits and hyphens"}), 400
     return jsonify({"token": _session_token(f"dev-login:{name}", f"{name}@husky.neu.edu",
                                             "Dev User" if name == "dev" else f"Dev {name}", "")})

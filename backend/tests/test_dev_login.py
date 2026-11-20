@@ -87,7 +87,7 @@ def test_as_picks_a_separate_account(client):
     assert ben["sub"] != dev["sub"]
 
 
-@pytest.mark.parametrize("name", ["Ben", "a b", "x" * 33, "-x", "../x", "ben@evil.com", "", 5, None, ["ben"]])
+@pytest.mark.parametrize("name", ["Ben", "a b", "x" * 33, "-x", "../x", "ben@evil.com", "ben\n", "", 5, None, ["ben"]])
 def test_as_refuses_names_outside_the_allowed_shape(client, name):
     # The name becomes the email's local part, so only lowercase letters, digits and hyphens.
     resp = client.post(PATH, json={"as": name})
