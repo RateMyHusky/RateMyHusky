@@ -471,8 +471,7 @@ const Privacy = () => {
                 </li>
               </ul>
               <p>
-                Note that there is no account to delete. Once your token is cleared, no personal
-                data remains in our systems except for any bookmarks{RATE_ENABLED ? ' and ratings' : ''}, which remain
+                Once your token is cleared, no personal data remains in our systems except for any bookmarks{RATE_ENABLED ? ' and ratings' : ''}, which remain
                 until you request their deletion.
               </p>
             </section>

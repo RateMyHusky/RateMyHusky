@@ -3,7 +3,7 @@
 // Prints PASS/FAIL per check and exits non-zero on any failure.
 import { argv } from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { RATE_DRAFT_KEY, DRAFT_MAX_AGE_MS, saveRateDraft, loadRateDraft, clearRateDraft, keepOpened } from './rateDraft';
+import { RATE_DRAFT_KEY, DRAFT_MAX_AGE_MS, saveRateDraft, loadRateDraft, clearRateDraft, keepOpened, markResumeDraft, takeResumeDraft } from './rateDraft';
 import type { RateDraft } from './rateDraft';
 import type { RateStart, RatedCourse } from '../../api/api';
 import { installStorage } from '../../utils/selftestStorage';
@@ -70,6 +70,11 @@ function selftest(): number {
   clearRateDraft();
   check('clear removes the key', !(RATE_DRAFT_KEY in store));
 
+  check('takeResumeDraft is false when unmarked', takeResumeDraft() === false);
+  markResumeDraft();
+  check('takeResumeDraft is true once marked', takeResumeDraft() === true);
+  check('takeResumeDraft is one-shot', takeResumeDraft() === false);
+
   const boom = () => { throw new Error('blocked'); };
   (globalThis as unknown as { sessionStorage: Storage }).sessionStorage = {
     getItem: boom, setItem: boom, removeItem: boom, clear: boom, key: boom,
@@ -78,6 +83,7 @@ function selftest(): number {
   threw = false;
   r = input as unknown as RateDraft;
   try { saveRateDraft(input, now); clearRateDraft(); r = loadRateDraft(now); } catch { threw = true; }
+  try { markResumeDraft(); if (takeResumeDraft()) threw = true; } catch { threw = true; }
   check('throwing storage never throws and loads null', !threw && r === null);
 
   const start: RateStart = { opened: '20000.0.h.s', deviceToken: 'dev', counter: 3 };

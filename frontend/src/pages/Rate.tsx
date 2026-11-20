@@ -20,7 +20,7 @@ import {
   lastName, nextStep, pickCourse, prefillCourse, prevStep, progressIndex, toRateCourse, walkTo,
 } from './rate/rateFlow';
 import type { Answers, RateCourse, RateProfessor, StepId } from './rate/rateFlow';
-import { clearRateDraft, keepOpened, loadRateDraft, saveRateDraft } from './rate/rateDraft';
+import { clearRateDraft, keepOpened, loadRateDraft, markResumeDraft, saveRateDraft, takeResumeDraft } from './rate/rateDraft';
 import type { RateDraft } from './rate/rateDraft';
 import { markRatedNow, parseFrom, track } from '../utils/ratePrompt';
 import './Bookmarks.css';
@@ -84,6 +84,7 @@ function RateForm() {
   // Read once at mount so later URL changes can't change it; "Rate another" resets it to direct.
   const [rateFrom, setRateFrom] = useState(() => parseFrom(params.get('from')));
   const startedTracked = useRef(false);
+  const resumeDraft = useRef<boolean | null>(null);
   // Read in the initializer, so StrictMode's second mount-effect run sees the same value.
   const [loadedFresh] = useState(() => freshLoad);
   const [ready, setReady] = useState(false);
@@ -147,10 +148,12 @@ function RateForm() {
     const code = (params.get('course') ?? '').replace(/\s+/g, '').toUpperCase() || null;
     const savedProf = saved?.answers.professor;
     freshLoad = false;
+    // StrictMode runs this effect twice; the ref keeps the one-shot flag from being lost to the second run.
+    resumeDraft.current ??= takeResumeDraft();
     // A followed link to another professor or course wins over the draft; a reload or Back/Forward
     // return keeps the draft, since the URL may be stale.
     const sameLink = !profSlug || (profSlug === savedProf?.slug && (!code || code === saved?.answers.course?.code));
-    const useDraft = !!(saved && savedProf && (sameLink || (navType !== 'PUSH' && !loadedFresh)));
+    const useDraft = !!(saved && savedProf && (sameLink || resumeDraft.current || (navType !== 'PUSH' && !loadedFresh)));
     // A restored draft continues a fill already counted as started. The ref keeps StrictMode's second run from counting twice.
     if (!startedTracked.current) {
       startedTracked.current = true;
@@ -290,7 +293,10 @@ function RateForm() {
       // Turnstile tokens are single-use, so every retry needs a fresh one.
       reset();
       setSubmitError(FAILURE_MESSAGES[res.status] ?? (res.error || NETWORK_MESSAGE));
-      if (res.status === 401) logout();
+      if (res.status === 401) {
+        markResumeDraft();
+        logout();
+      }
     });
   };
 

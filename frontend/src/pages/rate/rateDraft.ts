@@ -27,6 +27,26 @@ export function clearRateDraft(): void {
   } catch { /* storage unavailable */ }
 }
 
+// One-shot: set before an expired session signs the student out, so the form that remounts after
+// sign-in keeps the draft even when the URL no longer matches it.
+const RESUME_KEY = 'rate_resume_draft';
+
+export function markResumeDraft(): void {
+  try {
+    sessionStorage.setItem(RESUME_KEY, '1');
+  } catch { /* storage unavailable: the draft restores only for a matching link */ }
+}
+
+export function takeResumeDraft(): boolean {
+  try {
+    const set = sessionStorage.getItem(RESUME_KEY) !== null;
+    sessionStorage.removeItem(RESUME_KEY);
+    return set;
+  } catch {
+    return false;
+  }
+}
+
 export function loadRateDraft(now: number): RateDraft | null {
   try {
     const raw = sessionStorage.getItem(RATE_DRAFT_KEY);
