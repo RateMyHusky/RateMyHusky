@@ -148,18 +148,44 @@ def saved(server, params, column):
 
 def test_rating_copies_the_raters_grad_year(rate):
     server, client, state, ri = rate
-    state["profile"] = {"grad_year": 2028, "tracking_opt_out": False}
+    state["profile"] = {"level": "undergrad", "grad_year": 2028, "tracking_opt_out": False}
     assert post(client, ri).status_code == 200
     params = rating_writes(state)[0][1]
     assert saved(server, params, "rater_grad_year") == 2028
+    assert saved(server, params, "rater_level") == "undergrad"
     assert state["profile_params"] == [("u1",)]   # looked up by the token's sub, not the account hash
     assert "u1" not in params   # the raw account id never lands on the rating
+
+
+def test_grad_student_rating_has_a_level_and_no_year(rate):
+    server, client, state, ri = rate
+    state["profile"] = {"level": "grad", "grad_year": None, "tracking_opt_out": False}
+    assert post(client, ri).status_code == 200
+    params = rating_writes(state)[0][1]
+    assert (saved(server, params, "rater_level"), saved(server, params, "rater_grad_year")) == ("grad", None)
 
 
 def test_rating_without_a_profile_has_no_grad_year(rate):
     server, client, state, ri = rate
     assert post(client, ri).status_code == 200
-    assert saved(server, rating_writes(state)[0][1], "rater_grad_year") is None
+    params = rating_writes(state)[0][1]
+    assert (saved(server, params, "rater_level"), saved(server, params, "rater_grad_year")) == (None, None)
+
+
+def test_rating_is_saved_when_the_profile_lookup_fails(rate, monkeypatch):
+    import psycopg2
+    server, client, state, ri = rate
+    real = server.query_one
+
+    def failing(sql, params=()):
+        if "FROM student_profiles" in sql:
+            raise psycopg2.errors.UndefinedTable("relation student_profiles does not exist")
+        return real(sql, params)
+
+    monkeypatch.setattr(server, "query_one", failing)
+    assert post(client, ri).status_code == 200
+    params = rating_writes(state)[0][1]
+    assert (saved(server, params, "rater_level"), saved(server, params, "rater_grad_year")) == (None, None)
 
 
 def test_start_sets_a_device_cookie_and_signs_opened(rate):

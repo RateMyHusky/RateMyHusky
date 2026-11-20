@@ -3,7 +3,7 @@
 import pytest
 
 import programs
-from student_profile import record_view, validate_profile, validate_view
+from student_profile import rater_profile, record_view, validate_profile, validate_view
 
 M1, M2 = sorted(programs.MAJORS)[:2]
 N1 = sorted(programs.MINORS)[0]
@@ -12,13 +12,30 @@ assert M1 not in programs.MINORS
 
 def test_undergrad_profile_is_cleaned():
     clean, err = validate_profile({"gradYear": 2028, "majors": [f" {M1} ", M1, "other"], "minors": [N1]}, 2026)
-    assert err is None and clean == {"grad_year": 2028, "majors": [M1, "other"], "minors": [N1]}
+    assert err is None and clean == {"level": "undergrad", "grad_year": 2028, "majors": [M1, "other"], "minors": [N1]}
 
 
 def test_grad_student_has_no_programs():
     assert validate_profile({"gradYear": None, "majors": [], "minors": []}, 2026)[0] == \
-        {"grad_year": None, "majors": [], "minors": []}
+        {"level": "grad", "grad_year": None, "majors": [], "minors": []}
     assert validate_profile({"gradYear": None, "majors": [M1], "minors": []}, 2026)[1]
+
+
+@pytest.mark.parametrize("profile,expected", [
+    (None, (None, None)),
+    ({"level": "undergrad", "grad_year": 2028, "tracking_opt_out": False}, ("undergrad", 2028)),
+    ({"level": "grad", "grad_year": None, "tracking_opt_out": False}, ("grad", None)),
+    ({"level": "undergrad", "grad_year": 2028, "tracking_opt_out": True}, (None, None)),
+    ({"level": None, "grad_year": None, "tracking_opt_out": True}, (None, None)),   # the opt-out stub
+])
+def test_rater_profile(profile, expected):
+    assert rater_profile("u1", lambda sql, params=(): profile) == expected
+
+
+def test_rater_profile_without_a_sub_queries_nothing():
+    def boom(sql, params=()):
+        raise AssertionError("no query")
+    assert rater_profile(None, boom) == (None, None)
 
 
 @pytest.mark.parametrize("year", [2024, 2032, True, "2028", 2028.5])

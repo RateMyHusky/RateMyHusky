@@ -35,11 +35,36 @@ def test_test_server_speaks_ssl(pg):
 
 def test_profile_constraints(pg):
     cur = pg.cursor()
-    cur.execute("INSERT INTO student_profiles (user_sub, grad_year, majors) VALUES ('g', NULL, '{}')")
-    with pytest.raises(psycopg2.errors.CheckViolation):
-        cur.execute("INSERT INTO student_profiles (user_sub, grad_year, majors) VALUES ('u', 2028, '{}')")
+    cur.execute("INSERT INTO student_profiles (user_sub, level, grad_year, majors) VALUES ('g', 'grad', NULL, '{}')")
+    # the opted-out stub rag/clear_ask_strikes.py opt_out inserts for an account with no profile
+    cur.execute("INSERT INTO student_profiles (user_sub, majors, tracking_opt_out) VALUES ('s', '{}', true)")
+    for sql in [
+        "INSERT INTO student_profiles (user_sub, level, grad_year, majors) VALUES ('u', 'undergrad', 2028, '{}')",
+        "INSERT INTO student_profiles (user_sub, level, grad_year, majors) VALUES ('u', 'undergrad', NULL, '{}')",
+        "INSERT INTO student_profiles (user_sub, level, grad_year, majors) VALUES ('u', 'grad', 2028, '{A}')",
+        "INSERT INTO student_profiles (user_sub, level, grad_year, majors) VALUES ('u', 'postdoc', NULL, '{}')",
+        "INSERT INTO student_profiles (user_sub, level, grad_year, majors) VALUES ('u', NULL, NULL, '{}')",
+        "INSERT INTO student_profiles (user_sub, level, grad_year, majors, tracking_opt_out) "
+        "VALUES ('u', NULL, 2028, '{A}', false)",
+    ]:
+        pg.rollback()
+        with pytest.raises(psycopg2.errors.CheckViolation):
+            cur.execute(sql)
     pg.rollback()
     with pytest.raises(psycopg2.errors.CheckViolation):
         cur.execute("INSERT INTO page_views (user_sub, item_type, item_key, visible_seconds, reached_section) "
                     "VALUES ('u', 'department', 'x', 5, false)")
+    pg.rollback()
+
+
+def test_rater_level_constraint(pg):
+    import ratings
+    row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
+    row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
+               status="accepted", account_hash="a1", device_hash="d1", new_device=False,
+               network_type="unknown", collection="turnstile+account", rater_level="postdoc")
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        with pg.cursor() as cur:
+            cur.execute(ratings._UPSERT_SQL, ("00000000-0000-0000-0000-000000000001",
+                                              *(row[c] for c in ratings._INSERT_COLUMNS)))
     pg.rollback()

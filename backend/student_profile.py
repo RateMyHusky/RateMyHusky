@@ -25,10 +25,10 @@ def _programs(value, allowed):
 
 
 def validate_profile(data, this_year):
-    """Returns (clean, None) with {"grad_year", "majors", "minors"}, or (None, error).
+    """Returns (clean, None) with {"level", "grad_year", "majors", "minors"}, or (None, error).
 
-    A null gradYear means grad student: no majors or minors. Otherwise the year
-    must be last year through five years out and at least one major is required."""
+    A null gradYear means grad student (level "grad"): no majors or minors. Otherwise
+    the level is "undergrad", the year must be last year through five years out and at least one major is required."""
     if "gradYear" not in data:
         return None, "gradYear is required"
     year = data["gradYear"]
@@ -39,12 +39,12 @@ def validate_profile(data, this_year):
     if year is None:
         if majors or minors:
             return None, "Grad students have no majors or minors"
-        return {"grad_year": None, "majors": [], "minors": []}, None
+        return {"level": "grad", "grad_year": None, "majors": [], "minors": []}, None
     if type(year) is not int or not this_year - 1 <= year <= this_year + 5:
         return None, "gradYear is out of range"
     if not majors:
         return None, "At least one major is required"
-    return {"grad_year": year, "majors": majors, "minors": minors}, None
+    return {"level": "undergrad", "grad_year": year, "majors": majors, "minors": minors}, None
 
 
 def profile_status(user_sub, query_one):
@@ -52,20 +52,23 @@ def profile_status(user_sub, query_one):
     return {"exists": row is not None, "optedOut": bool(row and row["tracking_opt_out"])}
 
 
-def rater_grad_year(user_sub, query_one):
-    """The profile's graduation year, or None: no sub, no profile, a grad student, or opted out."""
+def rater_profile(user_sub, query_one):
+    """(level, grad_year) to copy onto a rating: ("undergrad", year), ("grad", None), or
+    (None, None) for no sub, no profile, opted out, or the opted-out stub row (no level)."""
     if user_sub is None:
-        return None
-    row = query_one("SELECT grad_year, tracking_opt_out FROM student_profiles WHERE user_sub = %s", (user_sub,))
-    return None if row is None or row["tracking_opt_out"] else row["grad_year"]
+        return None, None
+    row = query_one("SELECT level, grad_year, tracking_opt_out FROM student_profiles WHERE user_sub = %s", (user_sub,))
+    if row is None or row["tracking_opt_out"] or row["level"] is None:
+        return None, None
+    return row["level"], row["grad_year"]
 
 
 def save_profile(user_sub, clean, write):
     write(
-        "INSERT INTO student_profiles (user_sub, grad_year, majors, minors) VALUES (%s, %s, %s, %s) "
-        "ON CONFLICT (user_sub) DO UPDATE SET grad_year = EXCLUDED.grad_year, "
+        "INSERT INTO student_profiles (user_sub, level, grad_year, majors, minors) VALUES (%s, %s, %s, %s, %s) "
+        "ON CONFLICT (user_sub) DO UPDATE SET level = EXCLUDED.level, grad_year = EXCLUDED.grad_year, "
         "majors = EXCLUDED.majors, minors = EXCLUDED.minors, updated_at = now()",
-        (user_sub, clean["grad_year"], clean["majors"], clean["minors"]),
+        (user_sub, clean["level"], clean["grad_year"], clean["majors"], clean["minors"]),
     )
 
 

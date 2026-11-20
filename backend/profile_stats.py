@@ -30,8 +30,12 @@ def collect(query, since):
                 "count(DISTINCT item_key) FILTER (WHERE item_type = 'professor') AS professors, "
                 "count(DISTINCT item_key) FILTER (WHERE item_type = 'course') AS courses "
                 "FROM page_views")
-    ratings = one("SELECT count(*) FILTER (WHERE rater_grad_year IS NOT NULL) AS with_year, "
-                  "count(*) FILTER (WHERE rater_grad_year IS NULL) AS without_year "
+    by_rating_year = query(
+        "SELECT rater_grad_year::text AS k, count(*) AS n FROM survey_ratings WHERE rater_grad_year IS NOT NULL "
+        "AND (%s::timestamptz IS NULL OR created_at >= %s) GROUP BY k", (since, since))
+    ratings = one("SELECT count(*) FILTER (WHERE rater_level = 'undergrad') AS undergrad, "
+                  "count(*) FILTER (WHERE rater_level = 'grad') AS grad, "
+                  "count(*) FILTER (WHERE rater_level IS NULL) AS unknown "
                   "FROM survey_ratings WHERE (%s::timestamptz IS NULL OR created_at >= %s)",
                   (since, since))
     return {
@@ -43,7 +47,9 @@ def collect(query, since):
         "view_professors": views["professors"], "view_courses": views["courses"],
         "views_per_student": round(views["views"] / views["students"], 1) if views["students"] else 0,
         "since": since,
-        "ratings_with_year": ratings["with_year"], "ratings_without_year": ratings["without_year"],
+        "ratings_undergrad": ratings["undergrad"], "ratings_grad": ratings["grad"],
+        "ratings_unknown": ratings["unknown"],
+        "ratings_by_grad_year": {r["k"]: r["n"] for r in by_rating_year},
     }
 
 
@@ -60,8 +66,11 @@ def format_report(stats):
               f"distinct courses: {stats['view_courses']}",
               f"views per student: {stats['views_per_student']}",
               "", f"all submitted ratings (any status) since {stats['since'] or 'the start'}:",
-              f"  with grad year: {stats['ratings_with_year']}",
-              f"  without grad year: {stats['ratings_without_year']}"]
+              f"  undergrad: {stats['ratings_undergrad']}",
+              f"  grad student: {stats['ratings_grad']}",
+              f"  unknown (no profile or opted out): {stats['ratings_unknown']}",
+              "", "  undergrad ratings by grad year:"]
+    lines += [f"    {k}: {n}" for k, n in sorted(stats["ratings_by_grad_year"].items())]
     return "\n".join(lines)
 
 

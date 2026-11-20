@@ -144,9 +144,9 @@ def purge_account(conn, cur, account, dry_run, rating_secret):
 
 def opt_out(conn, cur, account, dry_run):
     """Stop tracking one account: set tracking_opt_out and delete its page views. New
-    ratings stop getting rater_grad_year; profile answers and the year already on
-    existing ratings stay. An account with no profile gets a stub row (empty majors,
-    no grad year) so the opt-out still holds if it never finished the popup."""
+    ratings stop getting rater_level and rater_grad_year; profile answers and the level
+    and year already on existing ratings stay. An account with no profile gets a stub row
+    (empty majors, no level, no grad year; only an opted-out row may lack a level) so the opt-out still holds if it never finished the popup."""
     cur.execute("SELECT count(*) FROM page_views WHERE user_sub = %s", (account,))
     nv = cur.fetchone()[0]
     cur.execute("SELECT count(*) FROM student_profiles WHERE user_sub = %s", (account,))

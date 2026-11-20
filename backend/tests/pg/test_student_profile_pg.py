@@ -2,7 +2,7 @@
 
 import pytest
 
-from student_profile import profile_status, rater_grad_year, record_view, save_profile
+from student_profile import profile_status, rater_profile, record_view, save_profile
 from tests.pg.pgutil import query_fn, rows, truncate
 
 
@@ -26,16 +26,16 @@ def one(pg):
 
 def test_save_profile_upserts_and_keeps_opt_out(pg):
     write = run_write(pg)
-    save_profile("u1", {"grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
+    save_profile("u1", {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
     first = rows(pg, "SELECT * FROM student_profiles")[0]
     with pg.cursor() as cur:
         cur.execute("UPDATE student_profiles SET tracking_opt_out = true")
     pg.commit()
-    save_profile("u1", {"grad_year": 2029, "majors": ["B, BS", "other"], "minors": ["C, Minor"]}, write)
+    save_profile("u1", {"level": "undergrad", "grad_year": 2029, "majors": ["B, BS", "other"], "minors": ["C, Minor"]}, write)
     got = rows(pg, "SELECT * FROM student_profiles")
     assert len(got) == 1
     assert got[0]["majors"] == ["B, BS", "other"] and got[0]["minors"] == ["C, Minor"]
-    assert got[0]["grad_year"] == 2029
+    assert got[0]["grad_year"] == 2029 and got[0]["level"] == "undergrad"
     assert got[0]["tracking_opt_out"] is True
     assert got[0]["updated_at"] > first["updated_at"]
 
@@ -43,7 +43,7 @@ def test_save_profile_upserts_and_keeps_opt_out(pg):
 def test_profile_status_reads_the_row(pg):
     q1 = one(pg)
     assert profile_status("u1", q1) == {"exists": False, "optedOut": False}
-    save_profile("u1", {"grad_year": None, "majors": [], "minors": []}, run_write(pg))
+    save_profile("u1", {"level": "grad", "grad_year": None, "majors": [], "minors": []}, run_write(pg))
     assert profile_status("u1", q1) == {"exists": True, "optedOut": False}
     with pg.cursor() as cur:
         cur.execute("UPDATE student_profiles SET tracking_opt_out = true")
@@ -56,7 +56,7 @@ def test_record_view_inserts_one_row(pg):
         cur.execute("INSERT INTO professors_catalog (slug, name, name_key) VALUES ('alice-smith', 'Alice Smith', 'alice smith')")
     pg.commit()
     write = run_write(pg)
-    save_profile("u1", {"grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
+    save_profile("u1", {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
     view = {"item_type": "professor", "item_key": "alice-smith", "visible_seconds": 42,
             "reached_section": True, "course_filter": None}
     assert record_view("u1", view, one(pg), write) == "ok"
@@ -67,35 +67,55 @@ def test_record_view_inserts_one_row(pg):
     assert got[0]["course_filter"] is None and got[0]["viewed_at"] is not None
 
 
-def test_rater_grad_year_is_none_when_opted_out_or_grad(pg):
+def test_rater_profile_by_profile_kind(pg):
     write, q = run_write(pg), one(pg)
-    assert rater_grad_year(None, q) is None
-    assert rater_grad_year("nobody", q) is None
-    save_profile("normal", {"grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
-    save_profile("grad", {"grad_year": None, "majors": [], "minors": []}, write)
-    save_profile("out", {"grad_year": 2027, "majors": ["A, BS"], "minors": []}, write)
+    assert rater_profile(None, q) == (None, None)
+    assert rater_profile("nobody", q) == (None, None)
+    save_profile("normal", {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
+    save_profile("grad", {"level": "grad", "grad_year": None, "majors": [], "minors": []}, write)
+    save_profile("out", {"level": "undergrad", "grad_year": 2027, "majors": ["A, BS"], "minors": []}, write)
     with pg.cursor() as cur:
         cur.execute("UPDATE student_profiles SET tracking_opt_out = true WHERE user_sub = 'out'")
+        # what rag/clear_ask_strikes.py opt_out inserts for an account with no profile
+        cur.execute("INSERT INTO student_profiles (user_sub, majors, tracking_opt_out) VALUES ('stub', '{}', true)")
     pg.commit()
-    assert rater_grad_year("normal", q) == 2028
-    assert rater_grad_year("grad", q) is None
-    assert rater_grad_year("out", q) is None
+    assert rater_profile("normal", q) == ("undergrad", 2028)
+    assert rater_profile("grad", q) == ("grad", None)
+    assert rater_profile("out", q) == (None, None)
+    assert rater_profile("stub", q) == (None, None)
 
 
-def test_edit_keeps_rater_grad_year_when_profile_is_gone(pg):
+def submit_rating(pg, level, year):
     import ratings
+    row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
+    row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
+               status="accepted", account_hash="a1", device_hash="d1", new_device=False,
+               network_type="unknown", collection="turnstile+account", rater_level=level, rater_grad_year=year)
+    ratings.save_rating(row, None, run_write(pg))
+    return [(r["rater_level"], r["rater_grad_year"])
+            for r in rows(pg, "SELECT rater_level, rater_grad_year FROM survey_ratings")]
 
-    def submit(year):
-        row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
-        row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
-                   status="accepted", account_hash="a1", device_hash="d1", new_device=False,
-                   network_type="unknown", collection="turnstile+account", rater_grad_year=year)
-        ratings.save_rating(row, None, run_write(pg))
-        return rows(pg, "SELECT rater_grad_year FROM survey_ratings")
 
-    assert [r["rater_grad_year"] for r in submit(2028)] == [2028]
-    assert [r["rater_grad_year"] for r in submit(None)] == [2028]
-    assert [r["rater_grad_year"] for r in submit(2029)] == [2029]
+def test_edit_keeps_rater_level_and_year_when_profile_is_gone(pg):
+    assert submit_rating(pg, "undergrad", 2028) == [("undergrad", 2028)]
+    assert submit_rating(pg, None, None) == [("undergrad", 2028)]
+    assert submit_rating(pg, "undergrad", 2029) == [("undergrad", 2029)]
+
+
+def test_edit_after_switching_to_grad_clears_the_year(pg):
+    assert submit_rating(pg, "undergrad", 2028) == [("undergrad", 2028)]
+    assert submit_rating(pg, "grad", None) == [("grad", None)]
+    assert submit_rating(pg, None, None) == [("grad", None)]
+
+
+def test_a_failed_profile_lookup_leaves_the_connection_usable(live_server, pg):
+    import psycopg2
+    with live_server.app.app_context():
+        with pytest.raises(psycopg2.Error):
+            live_server.query_one("SELECT 1 FROM table_that_does_not_exist")
+        live_server._write("INSERT INTO student_profiles (user_sub, level, grad_year, majors) "
+                           "VALUES ('x', 'grad', NULL, '{}')")
+        assert live_server.query_one("SELECT level FROM student_profiles WHERE user_sub = 'x'")["level"] == "grad"
 
 
 def test_collect_counts(pg):
@@ -104,9 +124,9 @@ def test_collect_counts(pg):
     from profile_stats import collect
 
     write = run_write(pg)
-    save_profile("u1", {"grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
-    save_profile("u2", {"grad_year": None, "majors": [], "minors": []}, write)
-    save_profile("u3", {"grad_year": 2027, "majors": ["B, BS"], "minors": []}, write)
+    save_profile("u1", {"level": "undergrad", "grad_year": 2028, "majors": ["A, BS"], "minors": []}, write)
+    save_profile("u2", {"level": "grad", "grad_year": None, "majors": [], "minors": []}, write)
+    save_profile("u3", {"level": "undergrad", "grad_year": 2027, "majors": ["B, BS"], "minors": []}, write)
     with pg.cursor() as cur:
         cur.execute("UPDATE student_profiles SET tracking_opt_out = true WHERE user_sub = 'u3'")
         for sub, kind, key in [("u1", "professor", "alice-smith"), ("u1", "professor", "alice-smith"),
@@ -114,11 +134,11 @@ def test_collect_counts(pg):
             cur.execute("INSERT INTO page_views (user_sub, item_type, item_key, visible_seconds, reached_section)"
                         " VALUES (%s, %s, %s, 5, false)", (sub, kind, key))
     pg.commit()
-    for i, year in enumerate([2028, None]):
+    for i, (level, year) in enumerate([("undergrad", 2028), ("grad", None), (None, None)]):
         row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
         row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
                    status="accepted", account_hash=f"a{i}", device_hash=f"d{i}", new_device=False,
-                   network_type="unknown", collection="turnstile+account", rater_grad_year=year)
+                   network_type="unknown", collection="turnstile+account", rater_level=level, rater_grad_year=year)
         ratings.save_rating(row, None, write)
 
     got = collect(query_fn(pg), datetime.now(timezone.utc) - timedelta(days=1))
@@ -127,4 +147,5 @@ def test_collect_counts(pg):
     assert got["by_major"] == {"A, BS": 1}
     assert (got["views"], got["view_students"], got["view_professors"], got["view_courses"]) == (4, 2, 1, 1)
     assert got["views_per_student"] == 2.0
-    assert (got["ratings_with_year"], got["ratings_without_year"]) == (1, 1)
+    assert (got["ratings_undergrad"], got["ratings_grad"], got["ratings_unknown"]) == (1, 1, 1)
+    assert got["ratings_by_grad_year"] == {"2028": 1}

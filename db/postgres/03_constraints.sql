@@ -114,6 +114,8 @@ ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_rating CHECK (rati
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_difficulty CHECK (difficulty BETWEEN 1 AND 5);
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_agent_decision
     CHECK (agent_decision IN ('approve', 'escalate', 'reject'));
+ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_rater_level
+    CHECK (rater_level IN ('undergrad', 'grad'));
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_status CHECK (status IN ('accepted', 'held'));
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_comment_status
     CHECK (comment_status IN ('pending', 'approved'));
@@ -174,6 +176,12 @@ ALTER TABLE public.professor_aliases ADD CONSTRAINT check_professor_alias_status
 -- student_profiles
 ALTER TABLE public.student_profiles ADD CONSTRAINT student_profiles_majors_need_year
     CHECK (grad_year IS NULL OR cardinality(majors) > 0);
+ALTER TABLE public.student_profiles ADD CONSTRAINT student_profiles_check_level
+    CHECK (level IN ('undergrad', 'grad'));
+ALTER TABLE public.student_profiles ADD CONSTRAINT student_profiles_level_matches_year
+    CHECK (COALESCE(level = 'undergrad', false) = (grad_year IS NOT NULL));
+ALTER TABLE public.student_profiles ADD CONSTRAINT student_profiles_level_needs_opt_out
+    CHECK (level IS NOT NULL OR tracking_opt_out);
 
 -- Foreign keys
 ALTER TABLE public.evidence_embeddings

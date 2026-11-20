@@ -3037,6 +3037,12 @@ def rate_submit():
                                            edit=bool(existing) and existing["status"] == "accepted",
                                            unverified_pair=unverified, near_duplicate=bool(near),
                                            skew_week=skew, silent_hold=silent, unverified_term=wrong_term)
+    # A failed lookup must not lose the rating: query_one rolled the connection back, so save_rating still works.
+    try:
+        rater_level, rater_grad_year = student_profile.rater_profile(_require_bookmarks_auth(), query_one)
+    except psycopg2.Error as e:
+        print(f"rate_submit: profile lookup failed, saving without the rater level: {e}")
+        rater_level, rater_grad_year = None, None
     row = {
         **key,
         "term_label": clean["term_label"], "rating": clean["rating"], "difficulty": clean["difficulty"],
@@ -3044,7 +3050,7 @@ def rate_submit():
         "grade": clean["grade"], "comment": clean["comment"] or None, "comment_hash": chash,
         "status": status, "hold_reasons": ",".join(reasons) or None,
         "device_hash": device_hash, "account_hash": account, "new_device": new_device,
-        "rater_grad_year": student_profile.rater_grad_year(_require_bookmarks_auth(), query_one),
+        "rater_level": rater_level, "rater_grad_year": rater_grad_year,
         "ip_hash": ip_hash, "ip_prefix_hash": prefix_hash, "network_type": network_type,
         "fill_seconds": fill_seconds, "collection": "turnstile+account",
         **{c: check.get(c) for c in ratings.CHECK_COLUMNS},

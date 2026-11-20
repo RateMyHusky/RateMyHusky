@@ -203,6 +203,7 @@ CREATE TABLE public.stats_cache (
 
 CREATE TABLE public.student_profiles (
     user_sub TEXT NOT NULL,
+    level TEXT NULL,
     grad_year SMALLINT NULL,
     majors TEXT[] NOT NULL,
     minors TEXT[] NOT NULL DEFAULT '{}',
@@ -482,6 +483,7 @@ CREATE TABLE public.survey_ratings (
     agent_reason TEXT NULL,
     agent_reviewed_at TIMESTAMPTZ NULL,
     account_hash TEXT NULL,
+    rater_level TEXT NULL,
     rater_grad_year SMALLINT NULL,
     CONSTRAINT survey_ratings_pkey PRIMARY KEY (id)
 );

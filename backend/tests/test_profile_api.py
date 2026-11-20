@@ -67,7 +67,15 @@ def test_put_valid_writes_once_for_the_token_sub(pf_client):
                       json={"gradYear": year, "majors": [M1], "minors": []})
     assert resp.status_code == 200 and resp.get_json() == {"ok": True}
     assert len(state["writes"]) == 1
-    assert state["writes"][0][1][0] == "u-9"
+    assert state["writes"][0][1][:3] == ("u-9", "undergrad", year)
+
+
+def test_put_grad_student_writes_level_grad(pf_client):
+    client, state = pf_client
+    resp = client.put("/api/profile", headers=auth_headers(sub="u-9"),
+                      json={"gradYear": None, "majors": [], "minors": []})
+    assert resp.status_code == 200
+    assert state["writes"][0][1][:3] == ("u-9", "grad", None)
 
 
 def test_put_invalid_is_400_with_no_write(pf_client):
