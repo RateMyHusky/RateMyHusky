@@ -51,7 +51,7 @@ const Privacy = () => {
                   <strong>Google Sign-In:</strong> when you authenticate with your{' '}
                   <code>@husky.neu.edu</code> Google account, we receive your name, email
                   address, profile photo, and Google account id. Your name, email, and photo
-                  are encoded in a JWT token stored in your browser and are never written to a
+                  are kept in a sign-in token stored in your browser and are never written to a
                   server-side database. Your Google account id is stored server-side if you
                   bookmark a professor or course (see the Bookmarks item below) or answer the
                   course picks questions (see Course picks profile and browsing activity).
@@ -59,20 +59,20 @@ const Privacy = () => {
                 <li>
                   <strong>Browser preferences:</strong> your selected theme (dark/light), your
                   catalog view mode, and flags recording that you dismissed an on-page tip are
-                  saved to <code>localStorage</code> on your device only and are never
+                  saved in your browser on your device only and are never
                   transmitted to our servers.
                   {RATE_ENABLED ? ' The one exception is the rating device ID, described under Ratings below. We also keep when you last saw or skipped a prompt to rate a professor, how often you skipped one, which professors you rated from this browser and when, and the last day you visited, so prompts are not repeated too often.' : ''} While
-                  you sign in, <code>sessionStorage</code> holds a marker that sign-in is
+                  you sign in, your browser also holds a short-lived marker that sign-in is
                   underway and any bookmark you clicked before signing in, so it can be saved
-                  once you are back; both are dropped when sign-in finishes or you close the tab. We also keep when the course picks questions were last shown and how many times you skipped them, and, if you sign in from those questions, the page to return to afterwards (kept for 15 minutes).{RATE_ENABLED ? ' The rating form also keeps your unsent answers there, comment included, along with a copy of its device ID, until you submit them or close the tab.' : ''}
+                  once you are back; both are dropped when sign-in finishes or you close the tab. We also keep when the course picks questions were last shown and how many times you skipped them, and, if you sign in from those questions, the page to return to afterwards, which is only used if you come back right away.{RATE_ENABLED ? ' The rating form also keeps your unsent answers there, comment included, along with a copy of its device ID, until you submit them or close the tab.' : ''}
                 </li>
                 <li>
                   <strong>IP address:</strong> your IP address is used in the moment a request
-                  arrives to apply rate limits, and it is discarded when the request finishes.
+                  arrives to limit abuse, and it is discarded when the request finishes.
                   We never store your raw IP address.
                   {RATE_ENABLED && (<>
-                  {' '}If you submit a rating, we store keyed
-                  hashes of your IP address and its network, plus the type of network. The hashes
+                  {' '}If you submit a rating, we store coded
+                  versions of your IP address and its network, plus the type of network. These
                   are kept for 30 days and then deleted in routine cleanup. See the Ratings
                   item below.
                   </>)}
@@ -93,24 +93,22 @@ const Privacy = () => {
                 <li>
                   <strong>Bookmarks:</strong> when you are signed in and bookmark a professor or
                   course, we store your Google account id, the item type (professor or course),
-                  the professor or course identifier, and a timestamp in our database. Each
-                  account is capped at 200 bookmarks. These records are retained on our servers,
+                  the professor or course identifier, and a timestamp in our database. These records are retained on our servers,
                   as described in <em>How We Store Your Information</em> below.
                 </li>
                 {RATE_ENABLED && (
                 <li>
                   <strong>Ratings:</strong> you sign in with your husky.neu.edu Google account to submit a rating. We
                   store your answers (professor, course, term, overall rating, difficulty, weekly hours,
-                  grade, and an optional comment), a keyed hash of a random device ID that your
-                  browser keeps, a keyed hash of your Google account id, keyed hashes of your IP address and of its /24 (IPv4) or /64
-                  (IPv6) network, the network type (campus, mobile carrier, Private Relay,
-                  datacenter, other, or unknown), and how long the form took to fill in. The hashes use
-                  a secret key that we keep private, so they cannot be matched to an address
-                  or device without it. This data is <strong>pseudonymous, not anonymous</strong>:
-                  it is not stored with your name or email, but the account hash links your ratings
+                  grade, and an optional comment), a coded version of a random device ID that your
+                  browser keeps, a coded version of your Google account id, coded versions of your IP address and of its
+                  network, the network type (campus, mobile carrier, Private Relay,
+                  datacenter, other, or unknown), and how long the form took to fill in. The coded versions
+                  cannot be matched to an address or device without a private key that we keep. This data is <strong>pseudonymous, not anonymous</strong>:
+                  it is not stored with your name or email, but the coded account id links your ratings
                   to each other and to your account. Comment text may also be sent to an automated
                   moderation service when you submit it, to check it for abuse: Groq, or OpenAI's
-                  moderation service when the Groq check is not set up. If the Groq check is busy
+                  moderation service when the Groq check is not set up. If the check is busy
                   or down, the comment is stored and checked again later. A comment that is not
                   checked automatically, such as a copy of another comment, is left for our team
                   to review. If a rating is
@@ -127,7 +125,7 @@ const Privacy = () => {
                 pages you viewed, or any other browsing activity ourselves, except as described under Course picks profile and browsing activity in Section 4, though the request
                 logs our hosting providers keep record the address of each request, which
                 includes any search (see <em>Third-Party Services</em>).
-                {RATE_ENABLED ? ' The one exception is the time taken to fill in the rating form, stored with a rating you submit. When you open or submit the rating form, or see or use a prompt to rate a professor, we send Google Analytics which prompt led you there and whether you rated. These events don\'t include the professor, course or your rating. Whether to show the prompt is decided in your browser.' : ''} When the course picks questions are shown, move to another step, are finished or are dismissed, we send Google Analytics only the step number (<code>profile_prompt_shown</code>, <code>profile_prompt_step</code>, <code>profile_prompt_finished</code>, <code>profile_prompt_dismissed</code>), never your answers, professors or courses. The analytics
+                {RATE_ENABLED ? ' The other exception is the time taken to fill in the rating form, stored with a rating you submit. When you open or submit the rating form, or see or use a prompt to rate a professor, we send Google Analytics which prompt led you there and whether you rated. These events don\'t include the professor, course or your rating. Whether to show the prompt is decided in your browser.' : ''} When the course picks questions are shown, move to another step, are finished or are dismissed, we send Google Analytics only the step number, never your answers, professors or courses. The analytics
                 providers listed under <em>Third-Party Services</em> collect their own data
                 about your visit; Google Analytics records the address of each page you view,
                 which includes any search you type into the catalog.
@@ -141,7 +139,7 @@ const Privacy = () => {
                 <li>Authenticate your identity and confirm your <code>@husky.neu.edu</code> affiliation</li>
                 <li>Display your name and profile photo in the navigation bar while signed in</li>
                 <li>Save and display the professors and courses you bookmark</li>
-                <li>Apply rate limits across the site so automated traffic cannot overwhelm it</li>
+                <li>Limit abuse across the site so automated traffic cannot overwhelm it</li>
                 {RATE_ENABLED && (<>
                 <li>Prevent duplicate or fraudulent ratings</li>
                 <li>Count the ratings students submit and show them on professor pages</li>
@@ -164,10 +162,10 @@ const Privacy = () => {
             <section className="terms-section">
               <h2>4. How We Store Your Information</h2>
               <p>
-                Your sign-in information is encoded in a JWT (JSON Web Token). During the
-                Google OAuth handshake, short-lived <code>httpOnly</code> cookies are used
-                to carry the flow; once complete, the resulting JWT is stored in your
-                browser's <code>localStorage</code> and the handshake cookies are cleared.
+                Your sign-in information is kept in a sign-in token. During the
+                Google sign-in handshake, short-lived cookies are used
+                to carry the flow; once complete, the token is stored in your
+                browser and the handshake cookies are cleared.
                 The token expires automatically after 7 days. The per-user data we
                 store server-side is your bookmarks,{RATE_ENABLED ? ' your ratings,' : ''} and, if you fill
                 out the course picks questions, your profile and browsing activity, described below.
@@ -177,7 +175,7 @@ const Privacy = () => {
               </p>
               <p>
                 If you bookmark a professor or course, that bookmark is stored
-                server-side in our database, keyed to your Google account id, along with the
+                server-side in our database, tied to your Google account id, along with the
                 item type, the professor or course identifier, and a timestamp. Bookmarks
                 persist across sign-ins until you remove them or request deletion (see{' '}
                 <em>Your Rights &amp; Choices</em>).
@@ -185,18 +183,18 @@ const Privacy = () => {
               {RATE_ENABLED && (<>
               <p>
                 If you submit a rating, it is stored in our database with the data listed under
-                Ratings in Section 2. A rating is stored with a keyed hash of your Google account id, not with your name or email.
+                Ratings in Section 2. A rating is stored with a coded version of your Google account id, not with your name or email.
               </p>
               <p>
-                <strong>Retention of Ratings.</strong> The keyed IP and network hashes are
+                <strong>Retention of Ratings.</strong> The coded IP and network values are
                 kept for 30 days and then deleted in routine cleanup; the rating itself stays,
-                and so do the network type and the form fill time. The device
-                ID hash and a hash of the comment text (used to spot copied comments) live with
+                and so do the network type and the form fill time. The coded device
+                ID and a coded version of the comment text (used to spot copied comments) live with
                 the rating and are deleted with it, with one exception: when we remove a rating for
-                abuse, we keep its device ID hash to block further abuse from that device, and
-                its IP hash for 30 days after removal. IP hashes from campus networks, mobile
+                abuse, we keep its coded device ID to block further abuse from that device, and
+                its coded IP for 30 days after removal. Coded IPs from campus networks, mobile
                 networks and Private Relay are never kept this way. A comment is shown publicly once
-                the Groq check finds nothing wrong with it, or after our team approves it, and then
+                the automated check finds nothing wrong with it, or after our team approves it, and then
                 it may appear on the professor's page;
                 your grade is never shown with it. A rating is kept until we remove it or you ask us to delete it (see{' '}
                 <em>Your Rights &amp; Choices</em>).
@@ -208,7 +206,7 @@ const Privacy = () => {
               <p>
                 If you're signed in, we may ask a few questions to help suggest courses: when you
                 expect to graduate, your major(s), and any minor(s). Your answers are stored with
-                your Google account id.
+                a coded version of your Google account id, not the id itself.
               </p>
               <p>
                 After you answer them, we also save which professor and course pages you view
@@ -237,8 +235,8 @@ const Privacy = () => {
                 profile too, send an Account Deletion request.
               </p>
               <p>
-                Our database is a self-hosted PostgreSQL server on Oracle Cloud Infrastructure in
-                the United States (US East – Ashburn), the API runs on Railway, and the site is
+                Our database is hosted on Oracle Cloud Infrastructure in
+                the United States, the API runs on Railway, and the site is
                 served through Vercel. Each of these
                 providers processes data on our behalf under its own terms; see{' '}
                 <em>Third-Party Services</em>.
@@ -405,13 +403,12 @@ const Privacy = () => {
             <section className="terms-section">
               <h2>6. Cookies &amp; Local Storage</h2>
               <p>
-                During the Google OAuth sign-in flow, short-lived <code>httpOnly</code> cookies
+                During the Google OAuth sign-in flow, short-lived cookies
                 are set to carry your return destination through the handshake; they are not used
                 for tracking and are cleared once sign-in completes.
                 {RATE_ENABLED && (<>
                 {' '}If you use the rating
-                form, we also set a long-lived <code>rmh_device</code> cookie (up to 400 days,
-                <code>httpOnly</code>) holding a random device ID; it is used to count each
+                form, we also set a long-lived cookie (up to 400 days) holding a random device ID; it is used to count each
                 device's rating once, let you update it, and limit abuse.
                 </>)}
                 {' '}Google Analytics may set
@@ -435,13 +432,12 @@ const Privacy = () => {
                 </a>.
               </p>
               <p>
-                <code>localStorage</code> is used to store your JWT session token
-                (<code>auth_token</code>), your theme, your catalog view mode, and flags for
-                on-page tips you have dismissed{RATE_ENABLED && (<>, plus your rate-prompt history (<code>rmh_rate_prompt</code>)</>)}, plus when the course picks questions were last shown and how many times they were skipped (<code>rmh_profile_prompt</code>).
-                While you sign in, <code>sessionStorage</code> holds a sign-in marker and any
-                bookmark you clicked before signing in, and the page to return to after signing in from the course picks questions (<code>rmh_profile_resume</code>, used within 15 minutes), and is cleared when you close the tab.{RATE_ENABLED && (<> The rating form also keeps your unsent answers there (<code>rmh_rate_draft</code>), comment included, along with a copy of its device ID, until you submit them or close the tab.</>)} None of this data is
+                Your browser's storage holds your sign-in token, your theme, your catalog view mode, and flags for
+                on-page tips you have dismissed{RATE_ENABLED && (<>, plus your history with prompts to rate a professor</>)}, plus when the course picks questions were last shown and how many times they were skipped.
+                While you sign in, your browser also holds a short-lived sign-in marker and any
+                bookmark you clicked before signing in, and the page to return to after signing in from the course picks questions (only used if you come back right away). This is cleared when you close the tab.{RATE_ENABLED && (<> The rating form also keeps your unsent answers there, comment included, along with a copy of its device ID, until you submit them or close the tab.</>)} None of this data is
                 synced to our servers{RATE_ENABLED ? (<>, with one exception: the rating form also keeps a copy of
-                its device ID (<code>rmh_device</code>) in <code>localStorage</code>, and that
+                its device ID in your browser, and that
                 copy is sent to our servers when you use the rating form</>) : ''}.
               </p>
               <p>
@@ -476,8 +472,8 @@ const Privacy = () => {
                 </li>
                 <li>
                   <strong>Right to deletion:</strong> you can <strong>sign out</strong> at any
-                  time to immediately delete your JWT token from your browser, and{' '}
-                  <strong>clear localStorage</strong> in your browser settings to remove your
+                  time to immediately delete your sign-in token from your browser, and{' '}
+                  <strong>clear this site's data</strong> in your browser settings to remove your
                   session token and stored preferences. You can remove an individual bookmark at
                   any time by un-bookmarking it. To delete everything we hold for your account,
                   sign in and submit an <strong>Account Deletion</strong> request through the
@@ -489,9 +485,8 @@ const Privacy = () => {
                   Deletion request. To delete ratings submitted before sign-in was required,
                   email{' '}
                   <a href="mailto:support@ratemyhusky.com">support@ratemyhusky.com</a> with the
-                  device ID from the browser you rated with: it is the value of the{' '}
-                  <code>rmh_device</code> key in this site's <code>localStorage</code> (browser
-                  developer tools, Application or Storage tab). We find those ratings by hand
+                  device ID from the browser you rated with (if you don't know how to find it, ask
+                  and we will explain). We find those ratings by hand
                   and delete them.
                   </>)}
                   {' '}({RATE_ENABLED ? 'For everything else you' : 'You'} may also email{' '}
