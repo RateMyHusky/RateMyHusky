@@ -187,6 +187,7 @@ CREATE TABLE IF NOT EXISTS public.survey_ratings (
     collection TEXT NOT NULL DEFAULT 'turnstile+device',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    account_hash TEXT NULL,
     CONSTRAINT survey_ratings_pkey PRIMARY KEY (id)
 );
 CREATE TABLE IF NOT EXISTS public.survey_pending_professors (
@@ -214,7 +215,11 @@ CREATE INDEX IF NOT EXISTS survey_ratings_ip      ON public.survey_ratings (ip_h
 CREATE INDEX IF NOT EXISTS survey_ratings_prefix  ON public.survey_ratings (ip_prefix_hash);
 CREATE INDEX IF NOT EXISTS survey_ratings_comment ON public.survey_ratings (comment_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_device ON public.survey_ratings
-    (device_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT;
+    (device_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT
+    WHERE account_hash IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_account ON public.survey_ratings
+    (account_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT
+    WHERE account_hash IS NOT NULL;
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_rating CHECK (rating BETWEEN 1 AND 5);
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_status CHECK (status IN ('accepted', 'held'));
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_professor
@@ -501,6 +506,23 @@ CREATE TABLE IF NOT EXISTS public.rating_failures (
     n BIGINT NOT NULL,
     CONSTRAINT rating_failures_pkey PRIMARY KEY (hour, reason)
 );
+```
+
+Ratings require a Husky sign-in, and each new rating stores a keyed hash of the
+Google account id in `survey_ratings.account_hash`. Run this before deploying the
+backend that writes `account_hash`, or every submit fails. Old rows keep a NULL
+`account_hash` and stay under the one-per-device index; signed-in ratings use the
+one-per-account index. Rerunnable:
+
+```sql
+ALTER TABLE public.survey_ratings ADD COLUMN IF NOT EXISTS account_hash TEXT NULL;
+DROP INDEX IF EXISTS public.survey_ratings_one_per_device;
+CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_device ON public.survey_ratings
+    (device_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT
+    WHERE account_hash IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_account ON public.survey_ratings
+    (account_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT
+    WHERE account_hash IS NOT NULL;
 ```
 
 ### Optional cleanup (destructive; take a backup first)

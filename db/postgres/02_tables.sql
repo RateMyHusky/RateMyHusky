@@ -458,6 +458,7 @@ CREATE TABLE public.survey_ratings (
     agent_decision TEXT NULL,
     agent_reason TEXT NULL,
     agent_reviewed_at TIMESTAMPTZ NULL,
+    account_hash TEXT NULL,
     CONSTRAINT survey_ratings_pkey PRIMARY KEY (id)
 );
 

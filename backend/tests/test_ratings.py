@@ -115,10 +115,10 @@ def test_rating_key_nulls_the_resolved_side_of_a_pending_pair():
 
 def test_existing_rating_matches_all_four_key_columns_null_safely():
     f = Fake(one={"survey_ratings": {"id": "r1", "status": "held", "hold_reasons": "too_fast"}})
-    assert ratings.existing_rating("d1", KEY, f.query_one)["hold_reasons"] == "too_fast"
+    assert ratings.existing_rating("a1", KEY, f.query_one)["hold_reasons"] == "too_fast"
     sql, params = f.calls[0]
     assert sql.count("IS NOT DISTINCT FROM") == 4
-    assert params == ("d1", "jane-doe", None, "CS2500", None)
+    assert params == ("a1", "jane-doe", None, "CS2500", None)
 
 
 def test_device_seen():
@@ -143,14 +143,25 @@ def test_save_is_one_upsert_that_keeps_holds():
     assert ratings.save_rating(row, {"id": "r1", "status": "held", "hold_reasons": "x"}, f.write) == "r1"
     assert len(f.writes) == 1
     sql, params = f.writes[0]
-    assert ("ON CONFLICT (device_hash, professor_slug, pending_professor_id, course_code, "
-            "pending_course_id) DO UPDATE") in sql
+    assert ("ON CONFLICT (account_hash, professor_slug, pending_professor_id, course_code, "
+            "pending_course_id) WHERE account_hash IS NOT NULL DO UPDATE SET ") in sql
     assert "WHEN survey_ratings.status = 'held' THEN 'held'" in sql
     assert "updated_at = now()" in sql
     assert "new_device = EXCLUDED" not in sql  # an edit keeps the row's first new_device
     assert sql.count("%s") == len(params) == len(ratings.RATING_COLUMNS)
     f = Fake()
     assert ratings.save_rating(row, None, f.write) == f.writes[0][1][0]
+
+
+def test_account_hash_never_updated():
+    assert "account_hash = EXCLUDED.account_hash" not in ratings._UPSERT_SQL
+
+
+def test_existing_rating_matches_account():
+    f = Fake(one={"survey_ratings": {"id": "r1"}})
+    ratings.existing_rating("acct", KEY, f.query_one)
+    sql, params = f.calls[0]
+    assert "WHERE account_hash = %s" in sql and params[0] == "acct"
 
 
 def test_only_the_routes_publish_flag_publishes_new_text():
@@ -378,6 +389,7 @@ def test_professor_context_returns_earlier_answers():
          "rating": 3, "difficulty": 2, "hours": "3-4", "grade": None, "comment": ""}]}
     sql, params = f.calls[0]
     assert "LEFT JOIN course_catalog" in sql and params == ("d1", "jane-doe")
+    assert "r.account_hash = %s" in sql
     # Pending courses come from their review row, and held ratings count, so there's no status filter on r.
     assert "pc.status = 'pending'" in sql and "r.status" not in sql
     assert len(f.calls) == 1

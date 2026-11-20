@@ -2595,7 +2595,7 @@ def submit_feedback():
 
 
 # ──────────────────────────────────────────────
-#  Student ratings (no login): /api/rate
+#  Student ratings (Husky sign-in): /api/rate
 # ──────────────────────────────────────────────
 
 RATING_SECRET = os.getenv("RATING_SECRET")
@@ -2753,6 +2753,14 @@ def _rating_response(body, status, token=None):
     return resp
 
 
+def _rating_account():
+    """The keyed account hash for the request's valid session, else None."""
+    claims = decode_session_token(_get_auth_token())
+    if not claims:
+        return None
+    return rating_identity.keyed_hash(RATING_SECRET, "account", claims["sub"])
+
+
 def _device_token(mirror):
     """(token, minted_now): the cookie, else a valid localStorage mirror, else a new one."""
     for candidate in (request.cookies.get(rating_identity.DEVICE_COOKIE), mirror):
@@ -2778,15 +2786,12 @@ def rate_start():
 def rate_professor(slug):
     if not _rating_enabled():
         return _rating_unavailable()
+    account = _rating_account()
+    if account is None:
+        return _rating_response({"error": "Sign in required"}, 401)
     if not ratings.professor_exists(slug, query_one):
         return _rating_response({"error": "Professor not found"}, 404)
-    # The cookie doesn't reach a cross-site API, so the localStorage mirror comes in a header too.
-    token = request.cookies.get(rating_identity.DEVICE_COOKIE)
-    if not rating_identity.valid_device_token(token):
-        token = request.headers.get("X-Rmh-Device")
-    device_hash = (rating_identity.keyed_hash(RATING_SECRET, "device", token)
-                   if rating_identity.valid_device_token(token) else None)
-    return _rating_response(ratings.professor_context(slug, device_hash, query), 200)
+    return _rating_response(ratings.professor_context(slug, account, query), 200)
 
 
 @app.route("/api/rate/course-suggestions")
@@ -2810,6 +2815,9 @@ def rate_submit():
     # 1. Secret
     if not _rating_enabled():
         return _rating_unavailable()
+    account = _rating_account()
+    if account is None:
+        return _rating_failure("signed_out", "Sign in required", 401)
     body = request.get_json(silent=True)
     now = datetime.now(timezone.utc)
 
@@ -2859,7 +2867,7 @@ def rate_submit():
                             if clean["new_professor"] else None)
     pending_course_id = ratings.find_pending_course(clean["course_code"], query_one) if new_course else None
     key = ratings.rating_key(clean, pending_professor_id, pending_course_id)
-    existing = ratings.existing_rating(device_hash, key, query_one)
+    existing = ratings.existing_rating(account, key, query_one)
     chash = rating_checks.comment_hash(clean["comment"])
     duplicate = ratings.duplicate_comment(chash, existing["id"] if existing else None, query_one)
     near = ratings.near_duplicate_ids(clean["comment"], key, existing["id"] if existing else None, query, now)
@@ -2943,9 +2951,9 @@ def rate_submit():
         "hours": clean["hours"],
         "grade": clean["grade"], "comment": clean["comment"] or None, "comment_hash": chash,
         "status": status, "hold_reasons": ",".join(reasons) or None,
-        "device_hash": device_hash, "new_device": new_device,
+        "device_hash": device_hash, "account_hash": account, "new_device": new_device,
         "ip_hash": ip_hash, "ip_prefix_hash": prefix_hash, "network_type": network_type,
-        "fill_seconds": fill_seconds, "collection": "turnstile+device",
+        "fill_seconds": fill_seconds, "collection": "turnstile+account",
         **{c: check.get(c) for c in ratings.CHECK_COLUMNS},
     }
     ratings.save_rating(row, existing, _write, publish=publish)

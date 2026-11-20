@@ -122,8 +122,8 @@ def test_an_edit_between_list_and_approve_comment_is_not_approved(pg):
     with pg.cursor() as cur:
         cur.execute(
             "INSERT INTO survey_ratings (id, professor_slug, course_code, rating, hours, comment, status, "
-            "device_hash, new_device, network_type, comment_status) "
-            "VALUES (%s, 'jane-doe', 'CS2500', 4, '3-4', 'Hard but fair', 'accepted', 'd1', true, 'unknown', "
+            "device_hash, account_hash, new_device, network_type, comment_status) "
+            "VALUES (%s, 'jane-doe', 'CS2500', 4, '3-4', 'Hard but fair', 'accepted', 'd1', 'a1', true, 'unknown', "
             "'pending')", (rating_id,))
     pg.commit()
     (listed,) = rows(pg, "SELECT updated_at FROM survey_ratings")
@@ -135,8 +135,8 @@ def test_an_edit_between_list_and_approve_comment_is_not_approved(pg):
         pg.commit()
     row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
     row.update(professor_slug="jane-doe", course_code="CS2500", rating=4, hours="3-4", status="accepted",
-               device_hash="d1", new_device=True, network_type="unknown", collection="turnstile+device",
-               comment="something abusive the reviewer never read")
+               device_hash="d1", account_hash="a1", new_device=True, network_type="unknown",
+               collection="turnstile+account", comment="something abusive the reviewer never read")
     ratings.save_rating(row, {"id": rating_id, "hold_reasons": None}, write)
 
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import jwt
 import pytest
 from psycopg2.extras import RealDictCursor
 
@@ -98,14 +99,14 @@ def _save(pg, comment, check):
         pg.commit()
     row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
     row.update(professor_slug="alice-smith", course_code="CS2500", rating=3, hours="3-4", status="accepted",
-               device_hash="d1", new_device=True, network_type="other", collection="turnstile+device",
-               comment=comment, **check)
+               device_hash="d1", account_hash="a1", new_device=True, network_type="other",
+               collection="turnstile+account", comment=comment, **check)
     ratings.save_rating(row, None, write)
 
 
 def test_an_edit_keeps_the_check_while_the_text_stays(pg):
     rating_id = insert(pg, comment_check="review", comment_check_reason="review", comment_check_attempts=1,
-                       comment_checked_at=NOW)
+                       comment_checked_at=NOW, account_hash="a1")
     _save(pg, "A fair class with clear lectures.", {})
     kept = get(pg, rating_id)
     assert (kept["comment_check"], kept["comment_check_reason"], kept["rating"]) == ("review", "review", 3)
@@ -141,7 +142,10 @@ def submit(live_server, pg, monkeypatch, fake_groq):
         opened = ri.sign_opened(SECRET, int(time.time()) - 60, ri.keyed_hash(SECRET, "device", device), False)
         client = server.app.test_client()
         client.set_cookie("rmh_device", device, path="/api")
-        return client.post("/api/rate", json={
+        token = jwt.encode({"sub": f"student-{device}", "iss": server.JWT_ISSUER, "aud": server.JWT_AUDIENCE,
+                            "exp": datetime.now(timezone.utc) + timedelta(days=1)},
+                           server.JWT_SECRET, algorithm="HS256")
+        return client.post("/api/rate", headers={"Authorization": f"Bearer {token}"}, json={
             "professor": {"slug": "alice-smith"}, "course": {"code": "CS2500"}, "term": "Fall 2025",
             "rating": 4, "difficulty": 3, "hours": "5-7", "grade": "A", "comment": comment,
             "opened": opened})

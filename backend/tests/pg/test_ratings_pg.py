@@ -16,15 +16,15 @@ def clean(pg):
 
 
 def insert(pg, device, slug, pending_prof, course, pending_course,
-           rating=4, status="accepted"):
+           rating=4, status="accepted", account_hash=None):
     with pg.cursor() as cur:
         cur.execute(
             "INSERT INTO survey_ratings (id, professor_slug, pending_professor_id, "
             "course_code, pending_course_id, rating, hours, status, device_hash, "
-            "new_device, network_type) "
-            "VALUES (%s, %s, %s, %s, %s, %s, '3-4', %s, %s, true, 'unknown')",
+            "new_device, network_type, account_hash) "
+            "VALUES (%s, %s, %s, %s, %s, %s, '3-4', %s, %s, true, 'unknown', %s)",
             (str(uuid.uuid4()), slug, pending_prof, course, pending_course,
-             rating, status, device))
+             rating, status, device, account_hash))
 
 
 def test_one_rating_per_device_and_key(pg):
@@ -55,11 +55,11 @@ def test_survey_checks_reject_bad_rows(pg, kwargs):
 def test_upsert_keeps_a_held_row_held(pg):
     import ratings
 
-    insert(pg, "d1", "jane-doe", None, "CS2500", None, rating=2, status="held")
+    insert(pg, "d1", "jane-doe", None, "CS2500", None, account_hash="a1", rating=2, status="held")
     pg.commit()
     row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
     row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
-               status="accepted", device_hash="d1", new_device=False,
+               status="accepted", account_hash="a1", device_hash="d1", new_device=False,
                network_type="unknown", collection="turnstile+device")
 
     def write(sql, params):
@@ -113,16 +113,16 @@ def test_pending_rows_are_one_per_key_against_the_real_index(pg):
 def test_upsert_keeps_new_device_and_merges_hold_reasons(pg):
     import ratings
 
-    insert(pg, "d1", "jane-doe", None, "CS2500", None, status="held")
+    insert(pg, "d1", "jane-doe", None, "CS2500", None, account_hash="a1", status="held")
     with pg.cursor() as cur:
         cur.execute("UPDATE survey_ratings SET hold_reasons = 'burst_ip,duplicate_comment'")
     pg.commit()
     row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
     row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
-               status="held", hold_reasons="too_fast", device_hash="d1", new_device=False,
+               status="held", hold_reasons="too_fast", account_hash="a1", device_hash="d1", new_device=False,
                network_type="unknown", collection="turnstile+device")
     key = ratings.rating_key(row, None, None)
-    existing = ratings.existing_rating("d1", key, pg_query_one(pg))
+    existing = ratings.existing_rating("a1", key, pg_query_one(pg))
     ratings.save_rating(row, existing, pg_write(pg))
     (saved,) = rows(pg, "SELECT new_device, hold_reasons FROM survey_ratings")
     assert saved == {"new_device": True, "hold_reasons": "burst_ip,duplicate_comment,too_fast"}
@@ -131,18 +131,18 @@ def test_upsert_keeps_new_device_and_merges_hold_reasons(pg):
 def test_an_edit_without_a_difficulty_keeps_the_stored_one(pg):
     import ratings
 
-    insert(pg, "d1", "jane-doe", None, "CS2500", None)
+    insert(pg, "d1", "jane-doe", None, "CS2500", None, account_hash="a1")
     with pg.cursor() as cur:
         cur.execute("UPDATE survey_ratings SET difficulty = 4")
     pg.commit()
     row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
     row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
-               status="accepted", device_hash="d1", new_device=False,
+               status="accepted", account_hash="a1", device_hash="d1", new_device=False,
                network_type="unknown", collection="turnstile+device")
     key = ratings.rating_key(row, None, None)
-    ratings.save_rating(row, ratings.existing_rating("d1", key, pg_query_one(pg)), pg_write(pg))
+    ratings.save_rating(row, ratings.existing_rating("a1", key, pg_query_one(pg)), pg_write(pg))
     assert rows(pg, "SELECT rating, difficulty FROM survey_ratings") == [{"rating": 5, "difficulty": 4}]
-    ratings.save_rating({**row, "difficulty": 2}, ratings.existing_rating("d1", key, pg_query_one(pg)),
+    ratings.save_rating({**row, "difficulty": 2}, ratings.existing_rating("a1", key, pg_query_one(pg)),
                         pg_write(pg))
     assert rows(pg, "SELECT difficulty FROM survey_ratings") == [{"difficulty": 2}]
 
@@ -314,15 +314,15 @@ def test_an_approved_unverified_pair_rating_makes_the_pair_taught(pg):
 def test_a_clean_edit_of_an_approved_rating_keeps_its_hold_reasons(pg):
     import ratings
 
-    insert(pg, "d1", "jane-doe", None, "CS2500", None)
+    insert(pg, "d1", "jane-doe", None, "CS2500", None, account_hash="a1")
     with pg.cursor() as cur:
         cur.execute("UPDATE survey_ratings SET hold_reasons = 'weekly_surge'")  # approved by a reviewer
     pg.commit()
     row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
     row.update(professor_slug="jane-doe", course_code="CS2500", rating=1, hours="3-4",
-               status="accepted", device_hash="d1", new_device=False,
+               status="accepted", account_hash="a1", device_hash="d1", new_device=False,
                network_type="unknown", collection="turnstile+device")
-    existing = ratings.existing_rating("d1", ratings.rating_key(row, None, None), pg_query_one(pg))
+    existing = ratings.existing_rating("a1", ratings.rating_key(row, None, None), pg_query_one(pg))
     ratings.save_rating(row, existing, pg_write(pg))
     (saved,) = rows(pg, "SELECT status, rating, hold_reasons FROM survey_ratings")
     assert saved == {"status": "accepted", "rating": 1, "hold_reasons": "weekly_surge"}
@@ -366,11 +366,11 @@ def test_only_a_model_allow_publishes_new_text_and_unchanged_text_keeps_its_stat
 
     row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
     row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
-               status="accepted", device_hash="d1", new_device=True,
+               status="accepted", account_hash="a1", device_hash="d1", new_device=True,
                network_type="unknown", collection="turnstile+device")
 
     def save(comment, check=None):
-        existing = ratings.existing_rating("d1", ratings.rating_key(row, None, None), lambda q, p: (
+        existing = ratings.existing_rating("a1", ratings.rating_key(row, None, None), lambda q, p: (
             rows(pg, q, p) or [None])[0])
         ratings.save_rating({**row, "comment": comment, "comment_check": check}, existing, pg_write(pg),
                             publish=check == "allow")
@@ -395,12 +395,12 @@ def test_a_comment_sent_again_after_a_takedown_waits_for_review(pg):
 
     row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
     row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
-               status="accepted", device_hash="d1", new_device=True,
+               status="accepted", account_hash="a1", device_hash="d1", new_device=True,
                network_type="unknown", collection="turnstile+device", comment="Hard but fair",
                comment_check="allow")
 
     def save():
-        existing = ratings.existing_rating("d1", ratings.rating_key(row, None, None), lambda q, p: (
+        existing = ratings.existing_rating("a1", ratings.rating_key(row, None, None), lambda q, p: (
             rows(pg, q, p) or [None])[0])
         ratings.save_rating(row, existing, pg_write(pg), publish=True)
         return scalar(pg, "SELECT comment_status FROM survey_ratings")
@@ -419,7 +419,7 @@ def test_a_stale_read_of_an_existing_row_still_leaves_new_text_waiting_and_unque
 
     row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
     row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
-               status="accepted", device_hash="d1", new_device=True,
+               status="accepted", account_hash="a1", device_hash="d1", new_device=True,
                network_type="unknown", collection="turnstile+device")
     ratings.save_rating({**row, "comment": "First text", "comment_check": "allow"}, None, pg_write(pg), publish=True)
     ratings.save_rating({**row, "comment": "Second text", "comment_check": "unchecked",
@@ -568,3 +568,49 @@ def test_skew_week_leaves_out_the_row_being_edited(pg):
     # d0 editing its own rating is still 7 ratings, not 8.
     assert ratings.skew_week(key, 1, True, edited, pg_query_one(pg), now) is False
     assert ratings.skew_week(key, 1, True, None, pg_query_one(pg), now) is True
+
+
+def _account_row(**kw):
+    import ratings
+
+    row = {c: None for c in ratings.RATING_COLUMNS if c != "id"}
+    row.update(professor_slug="jane-doe", course_code="CS2500", rating=5, hours="3-4",
+               status="accepted", new_device=False, network_type="unknown",
+               collection="turnstile+account")
+    row.update(kw)
+    return row
+
+
+KEY = {"professor_slug": "jane-doe", "pending_professor_id": None,
+       "course_code": "CS2500", "pending_course_id": None}
+
+
+def test_account_rerate_updates_one_row(pg):
+    import ratings
+
+    write, query_one = pg_write(pg), pg_query_one(pg)
+    ratings.save_rating(_account_row(account_hash="a1", device_hash="d1"), None, write)
+    existing = ratings.existing_rating("a1", KEY, query_one)
+    ratings.save_rating(_account_row(account_hash="a1", device_hash="d2", rating=2), existing, write)
+    assert scalar(pg, "SELECT count(*) FROM survey_ratings") == 1
+    assert scalar(pg, "SELECT rating FROM survey_ratings") == 2
+    assert scalar(pg, "SELECT device_hash FROM survey_ratings") == "d1"
+
+
+def test_signed_in_rating_leaves_anonymous_row(pg):
+    import ratings
+
+    insert(pg, "d1", "jane-doe", None, "CS2500", None, rating=3)
+    pg.commit()
+    ratings.save_rating(_account_row(account_hash="a1", device_hash="d1"), None, pg_write(pg))
+    assert scalar(pg, "SELECT count(*) FROM survey_ratings") == 2
+    assert scalar(pg, "SELECT rating FROM survey_ratings WHERE account_hash IS NULL") == 3
+
+
+def test_two_accounts_same_pair(pg):
+    import ratings
+
+    write = pg_write(pg)
+    ratings.save_rating(_account_row(account_hash="a1", device_hash="d1"), None, write)
+    ratings.save_rating(_account_row(account_hash="a2", device_hash="d1"), None, write)
+    assert scalar(pg, "SELECT count(*) FROM survey_ratings") == 2
