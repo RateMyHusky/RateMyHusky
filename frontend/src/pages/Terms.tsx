@@ -47,8 +47,8 @@ const Terms = () => {
               <h2>2. Eligibility &amp; Access</h2>
               <p>
                 Most content on RateMyHusky is publicly accessible without an account. However,
-                access to the bookmarks feature requires signing in with a valid Northeastern
-                University Google account (<code>@husky.neu.edu</code>).
+                access to the bookmarks feature and to rating a professor requires signing in
+                with a valid Northeastern University Google account (<code>@husky.neu.edu</code>).
               </p>
               <p>
                 By signing in, you confirm that you are at least 18 years of age and that you
@@ -112,8 +112,9 @@ const Terms = () => {
                 {RATE_ENABLED && (
                 <li>
                   <strong>Ratings:</strong> when you submit a rating, we store your answers and
-                  an optional comment, with keyed hashes of a random device ID and of your IP
-                  address and network, the network type, and the time the form took. This data
+                  an optional comment, with a keyed hash of your Google account id, keyed hashes
+                  of a random device ID and of your IP address and network, the network type, and
+                  the time the form took. This data
                   is pseudonymous, not anonymous. See our <a href="/privacy">Privacy Policy</a>{' '}
                   for what is kept, for how long, and how to request deletion.
                 </li>
@@ -285,7 +286,8 @@ const Terms = () => {
                 not contain threats, harassment, sexual comments, attacks on anyone's appearance,
                 identity, or private life, anyone's personal contact details, spam, or claims
                 you know to be false. We may use ratings in aggregate, hold or remove any rating,
-                and count only one rating per professor and course per device. See our{' '}
+                and count only one rating per professor and course per account (ratings submitted
+                before sign-in was required stay one per device). See our{' '}
                 <a href="/privacy">Privacy Policy</a> for what we store with a rating.
               </p>
               <p>

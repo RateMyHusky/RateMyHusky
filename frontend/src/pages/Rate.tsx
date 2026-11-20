@@ -13,6 +13,7 @@ import { ChoiceGroup, StepFoot } from './rate/ChoiceGroup';
 import { ProgressBar } from './rate/ProgressBar';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useAuth } from '../context/AuthContext';
+import { clearPendingBookmark } from '../utils/pendingBookmark';
 import SignInModal from '../components/SignInModal';
 import type { ChoiceOption } from './rate/ChoiceGroup';
 import {
@@ -243,7 +244,7 @@ function RateForm() {
     return () => { cancelled = true; };
   }, [slug]);
 
-  // The context call needs the device token from startRating, so it waits for start.
+  // The context call only makes sense once a rating has started for the signed-in account, so it waits for start.
   useEffect(() => {
     if (!start || !slug) return;
     if (prefetchedFor.current === start) {
@@ -703,7 +704,7 @@ export default function Rate() {
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
           <p>Sign in with your <span className="husky-email">husky.neu.edu</span> account to rate a professor.</p>
-          <button className="bm-signin-btn" onClick={() => setShowSignIn(true)}>Sign In</button>
+          <button className="bm-signin-btn" onClick={() => { clearPendingBookmark(); setShowSignIn(true); }}>Sign In</button>
         </div>
       </div>
       <SignInModal open={showSignIn} onClose={() => setShowSignIn(false)} reason="Sign in to rate a professor." />
