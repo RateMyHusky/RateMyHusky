@@ -7,6 +7,7 @@ import { RATE_ENABLED } from '../config';
 import SignInModal from './SignInModal';
 import { dialogOpen } from '../utils/useDialog';
 import { clearPendingBookmark } from '../utils/pendingBookmark';
+import { clearRateDraft } from '../pages/rate/rateDraft';
 import './Navbar.css';
 
 const Navbar = () => {
@@ -230,7 +231,7 @@ const Navbar = () => {
             {showUserMenu && (
               <div className="navbar-user-dropdown">
                 <p className="navbar-user-email">{user.email}</p>
-                <button className="navbar-user-signout" onClick={() => { logout(); setShowUserMenu(false); setMenuOpen(false); }}>Sign Out</button>
+                <button className="navbar-user-signout" onClick={() => { logout().then(clearRateDraft); setShowUserMenu(false); setMenuOpen(false); }}>Sign Out</button>
               </div>
             )}
           </div>

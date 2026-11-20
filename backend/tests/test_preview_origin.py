@@ -4,8 +4,8 @@ import re
 
 import pytest
 
-PREVIEW = "https://rate-my-husky-abc123-grain-is-grainys-projects.vercel.app"
-PATTERN = r"^https://rate-my-husky-(?:git-[a-z0-9-]+|[a-z0-9]+)-grain-is-grainys-projects\.vercel\.app$"
+PREVIEW = "https://ratemyhusky-abc123-bleeneu-7973.vercel.app"
+PATTERN = r"^https://ratemyhusky-(?:git-[a-z0-9-]+|[a-z0-9]+)-bleeneu-7973\.vercel\.app$"
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def server_mod(monkeypatch):
 
 @pytest.mark.parametrize("referer", [
     PREVIEW + "/professors",
-    "https://rate-my-husky-git-preview-gate-grain-is-grainys-projects.vercel.app/",
+    "https://ratemyhusky-git-preview-gate-bleeneu-7973.vercel.app/",
     "http://localhost:5173/",
 ])
 def test_allowed_origins_pass(server_mod, referer):
@@ -28,13 +28,13 @@ def test_allowed_origins_pass(server_mod, referer):
 
 
 @pytest.mark.parametrize("referer", [
-    "https://rate-my-husky-abc123-someone-else.vercel.app/",
-    # Hash URL under another team whose slug ends in "-grain-is-grainys-projects"
+    "https://ratemyhusky-abc123-someone-else.vercel.app/",
+    # Hash URL under another team whose slug ends in "-bleeneu-7973"
     # (its git-<branch> alias still matches; see the server.py comment)
-    "https://rate-my-husky-abc123-x-grain-is-grainys-projects.vercel.app/",
+    "https://ratemyhusky-abc123-x-bleeneu-7973.vercel.app/",
     "https://evil.example/" + PREVIEW,
     PREVIEW + ".evil.example/",
-    "http://rate-my-husky-abc123-grain-is-grainys-projects.vercel.app/",
+    "http://ratemyhusky-abc123-bleeneu-7973.vercel.app/",
 ])
 def test_lookalike_origins_blocked(server_mod, referer):
     with server_mod.app.test_request_context("/api/professors", headers={"Referer": referer}):
@@ -60,7 +60,7 @@ def test_login_from_preview_uses_preview_redirect(server_mod):
     client = server_mod.app.test_client()
     resp = client.get("/api/auth/google?popup=1", headers={"Referer": PREVIEW + "/courses"})
     assert resp.status_code == 302
-    assert "redirect_uri=" + "https%3A%2F%2Frate-my-husky-abc123" in resp.headers["Location"]
+    assert "redirect_uri=" + "https%3A%2F%2Fratemyhusky-abc123" in resp.headers["Location"]
     assert PREVIEW in _flow_cookie(server_mod, resp)
 
 

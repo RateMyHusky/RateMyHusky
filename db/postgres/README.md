@@ -187,6 +187,7 @@ CREATE TABLE IF NOT EXISTS public.survey_ratings (
     collection TEXT NOT NULL DEFAULT 'turnstile+device',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    account_hash TEXT NULL,
     CONSTRAINT survey_ratings_pkey PRIMARY KEY (id)
 );
 CREATE TABLE IF NOT EXISTS public.survey_pending_professors (
@@ -214,7 +215,11 @@ CREATE INDEX IF NOT EXISTS survey_ratings_ip      ON public.survey_ratings (ip_h
 CREATE INDEX IF NOT EXISTS survey_ratings_prefix  ON public.survey_ratings (ip_prefix_hash);
 CREATE INDEX IF NOT EXISTS survey_ratings_comment ON public.survey_ratings (comment_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_device ON public.survey_ratings
-    (device_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT;
+    (device_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT
+    WHERE account_hash IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_account ON public.survey_ratings
+    (account_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT
+    WHERE account_hash IS NOT NULL;
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_rating CHECK (rating BETWEEN 1 AND 5);
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_status CHECK (status IN ('accepted', 'held'));
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_professor
@@ -502,6 +507,63 @@ CREATE TABLE IF NOT EXISTS public.rating_failures (
     CONSTRAINT rating_failures_pkey PRIMARY KEY (hour, reason)
 );
 ```
+
+Ratings require a Husky sign-in, and each new rating stores a keyed hash of the
+Google account id in `survey_ratings.account_hash`. Old rows keep a NULL
+`account_hash` and stay under the one-per-device index; signed-in ratings use the
+one-per-account index. Run it in two steps, both rerunnable.
+
+Step 1, before deploying the backend that writes `account_hash` (that backend must
+not ship before this, or every submit fails on the missing column). The old backend
+is unaffected:
+
+```sql
+ALTER TABLE public.survey_ratings ADD COLUMN IF NOT EXISTS account_hash TEXT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_account ON public.survey_ratings
+    (account_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT
+    WHERE account_hash IS NOT NULL;
+```
+
+Step 2, after the new backend is live. Until then, a signed-in rating for a device
+and pair that already has an anonymous row fails on the still-full device index.
+Don't run it before the deploy: the old backend's upsert can't use a partial index,
+so every submit would fail. After this step a device can hold an anonymous row and
+a signed-in row (or rows from two accounts) for the same pair, so restoring the full
+device index can fail on duplicates. Fix forward rather than roll back.
+
+```sql
+DROP INDEX IF EXISTS public.survey_ratings_one_per_device;
+CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_device ON public.survey_ratings
+    (device_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT
+    WHERE account_hash IS NULL;
+```
+
+An Account Deletion request's `python rag/clear_ask_strikes.py --purge-account <sub>`
+(run from `backend/`) deletes the account's signed-in ratings along with its Ask
+history and bookmarks; it reads `RATING_SECRET` from `backend/.env` and stops before
+deleting anything without it. It bumps `data_version`, so professor pages drop the
+ratings within a minute; cards, course pages and leaderboards follow on the next
+pipeline run. A pending professor or course only those ratings named stays in the
+review queue with 0 ratings; it holds the name typed into the form, not the account.
+To delete only the ratings by hand, compute the hash
+from their Google `sub` with the backend's `rating_identity.keyed_hash`. Run this from
+`backend/` with `RATING_SECRET` already in the environment, so the secret is never
+printed:
+
+```bash
+python -c "import os, rating_identity as r; print(r.keyed_hash(os.environ['RATING_SECRET'], 'account', '<sub>'))"
+```
+
+```sql
+DELETE FROM public.survey_ratings WHERE account_hash = '<the printed hash>';
+```
+
+`account_hash` is keyed with `RATING_SECRET`, so changing that secret cuts every
+signed-in rating off from its account: the old rows stop showing as "Already
+rated", the same account can rate each pair again (one-per-account no longer
+holds across the change), and a purge by `sub` no longer finds them. Device, IP and
+review hashes are keyed with it too. Rotate it only after a leak, and expect the
+old ratings to behave like anonymous ones afterwards.
 
 ### Optional cleanup (destructive; take a backup first)
 

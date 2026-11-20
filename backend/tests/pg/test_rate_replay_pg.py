@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import jwt
 import psycopg2.extras
 import pytest
 
@@ -53,7 +54,7 @@ def replay(live_server, pg, monkeypatch):
 
 def submit(server, row, i, device=None, opened=True):
     """POST one rating as a new browser (fresh client, so no cookie carries over) on
-    10.{i}.0.1, a /24 of its own. A grade the form has no option for, as RMP's D+, D- and F,
+    10.{i}.0.1, a /24 of its own, signed in as a distinct student. A grade the form has no option for, as RMP's D+, D- and F,
     goes in as the lowest option, "C- or below"."""
     device = device or secrets.token_hex(16)
     grade = row.get("grade")
@@ -66,7 +67,10 @@ def submit(server, row, i, device=None, opened=True):
     if opened:
         body["opened"] = ri.sign_opened(SECRET, int(time.time()) - 60,
                                         ri.keyed_hash(SECRET, "device", device), False)
-    return server.app.test_client().post("/api/rate", json=body,
+    token = jwt.encode({"sub": f"student-{secrets.token_hex(8)}", "iss": server.JWT_ISSUER,
+                        "aud": server.JWT_AUDIENCE, "exp": datetime.now(timezone.utc) + timedelta(days=1)},
+                       server.JWT_SECRET, algorithm="HS256")
+    return server.app.test_client().post("/api/rate", json=body, headers={"Authorization": f"Bearer {token}"},
                                          environ_overrides={"REMOTE_ADDR": f"10.{i}.0.1"})
 
 
@@ -76,6 +80,7 @@ def test_the_razzaq_bomb_is_all_held(replay, pg):
     held = rows(pg, "SELECT status, hold_reasons, comment FROM survey_ratings ORDER BY created_at")
     assert len(held) == len(BOMB)
     assert {r["status"] for r in held} == {"held"}
+    assert rows(pg, "SELECT count(*) AS n FROM survey_ratings WHERE account_hash IS NOT NULL")[0]["n"] == len(BOMB)
     # Every copy is held as one. A template's first copy, from a device and network of its
     # own, isn't held back as one: the bursts and skew_week hold it.
     for n, r in enumerate(held):

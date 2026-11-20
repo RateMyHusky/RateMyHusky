@@ -100,7 +100,11 @@ CREATE INDEX survey_ratings_ip      ON public.survey_ratings (ip_hash);
 CREATE INDEX survey_ratings_prefix  ON public.survey_ratings (ip_prefix_hash);
 CREATE INDEX survey_ratings_comment ON public.survey_ratings (comment_hash);
 CREATE UNIQUE INDEX survey_ratings_one_per_device ON public.survey_ratings
-    (device_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT;
+    (device_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT
+    WHERE account_hash IS NULL;
+CREATE UNIQUE INDEX survey_ratings_one_per_account ON public.survey_ratings
+    (account_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT
+    WHERE account_hash IS NOT NULL;
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_rating CHECK (rating BETWEEN 1 AND 5);
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_difficulty CHECK (difficulty BETWEEN 1 AND 5);
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_agent_decision

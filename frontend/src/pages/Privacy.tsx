@@ -89,16 +89,16 @@ const Privacy = () => {
                 </li>
                 {RATE_ENABLED && (
                 <li>
-                  <strong>Ratings:</strong> you do not need to sign in to submit a rating. We
+                  <strong>Ratings:</strong> you sign in with your husky.neu.edu Google account to submit a rating. We
                   store your answers (professor, course, term, overall rating, difficulty, weekly hours,
                   grade, and an optional comment), a keyed hash of a random device ID that your
-                  browser keeps, keyed hashes of your IP address and of its /24 (IPv4) or /64
+                  browser keeps, a keyed hash of your Google account id, keyed hashes of your IP address and of its /24 (IPv4) or /64
                   (IPv6) network, the network type (campus, mobile carrier, Private Relay,
                   datacenter, other, or unknown), and how long the form took to fill in. The hashes use
                   a secret key that we keep private, so they cannot be matched to an address
                   or device without it. This data is <strong>pseudonymous, not anonymous</strong>:
-                  it is not tied to your name or email, but the device ID hash links ratings
-                  from the same device to each other. Comment text may also be sent to an automated
+                  it is not stored with your name or email, but the account hash links your ratings
+                  to each other and to your account. Comment text may also be sent to an automated
                   moderation service when you submit it, to check it for abuse: Groq, or OpenAI's
                   moderation service when the Groq check is not set up. If the Groq check is busy
                   or down, the comment is stored and checked again later. A comment that is not
@@ -175,7 +175,7 @@ const Privacy = () => {
               {RATE_ENABLED && (<>
               <p>
                 If you submit a rating, it is stored in our database with the data listed under
-                Ratings in Section 2. A rating is not tied to a Google account.
+                Ratings in Section 2. A rating is stored with a keyed hash of your Google account id, not with your name or email.
               </p>
               <p>
                 <strong>Retention of Ratings.</strong> The keyed IP and network hashes are
@@ -423,8 +423,8 @@ const Privacy = () => {
                   bookmarks{RATE_ENABLED ? ' and your ratings' : ''}; your sign-in details and preferences live only in your own
                   browser and are not accessible to us.
                   {RATE_ENABLED && (<>
-                  {' '}Ratings are not tied to an account, so
-                  to ask for yours, email{' '}
+                  {' '}Ratings submitted while signed in are tied to your account, so ask for
+                  them the same way. For ratings submitted before sign-in was required, email{' '}
                   <a href="mailto:support@ratemyhusky.com">support@ratemyhusky.com</a> with the
                   device ID from the browser you rated with (see Right to deletion below). We
                   look them up by hand.
@@ -441,7 +441,8 @@ const Privacy = () => {
                   identifier is included so we can verify your identity and delete the records
                   tied to your account.
                   {RATE_ENABLED && (<>
-                  {' '}To delete ratings, which are not tied to an account,
+                  {' '}Ratings submitted while signed in are tied to your account and are covered by the Account
+                  Deletion request. To delete ratings submitted before sign-in was required,
                   email{' '}
                   <a href="mailto:support@ratemyhusky.com">support@ratemyhusky.com</a> with the
                   device ID from the browser you rated with: it is the value of the{' '}
@@ -470,8 +471,7 @@ const Privacy = () => {
                 </li>
               </ul>
               <p>
-                Note that there is no account to delete. Once your token is cleared, no personal
-                data remains in our systems except for any bookmarks{RATE_ENABLED ? ' and ratings' : ''}, which remain
+                Once your token is cleared, no personal data remains in our systems except for any bookmarks{RATE_ENABLED ? ' and ratings' : ''}, which remain
                 until you request their deletion.
               </p>
             </section>
