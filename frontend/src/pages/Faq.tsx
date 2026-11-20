@@ -10,6 +10,8 @@ import './Faq.css';
    here would go stale on the next weekly refresh. No FAQPage JSON-LD, same as
    the crawler FAQ in backend/render.py (Google restricted that rich result). */
 
+const SLIDE_MS = 800;
+
 const Faq = () => {
   const { hash } = useLocation();
 
@@ -19,6 +21,30 @@ const Faq = () => {
     if (!hash) return;
     document.getElementById(hash.slice(1))?.scrollIntoView();
   }, [hash]);
+
+  // The jump links slide instead of jumping: ease-in-out, so slow, fast, then slow.
+  // Reduced-motion users get the plain jump. replaceState keeps the hash in the URL
+  // without re-running the effect above, which would cut the slide short.
+  const slideTo = (e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    e.preventDefault();
+    window.history.replaceState(window.history.state, '', `#${id}`);
+    const start = window.scrollY;
+    const distance = el.getBoundingClientRect().top - (parseFloat(getComputedStyle(el).scrollMarginTop) || 0);
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      window.scrollTo(0, start + distance);
+      return;
+    }
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const t = Math.min((now - t0) / SLIDE_MS, 1);
+      const eased = t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
+      window.scrollTo(0, start + distance * eased);
+      if (t < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  };
 
   return (
     <div className="terms-page">
@@ -32,8 +58,8 @@ const Faq = () => {
           <header className="terms-header">
             <h1>Frequently Asked Questions</h1>
             <ul className="terms-meta faq-jump">
-              <li>For students: <a href="#students">using the site</a></li>
-              <li>For professors: <a href="#professors">your page</a></li>
+              <li>For students: <a href="#students" onClick={e => slideTo(e, 'students')}>using the site</a></li>
+              <li>For professors: <a href="#professors" onClick={e => slideTo(e, 'professors')}>your page</a></li>
             </ul>
           </header>
 
@@ -57,6 +83,23 @@ const Faq = () => {
                 endorsed by, or officially connected to Northeastern University or
                 RateMyProfessors.
               </p>
+
+              <h3 id="google-account">How do I sign in with my husky.neu.edu account?</h3>
+              <p>
+                Every Northeastern student has a Google account at husky.neu.edu. It's separate
+                from your Outlook email. If you haven't used it before, open it through Student Hub:
+              </p>
+              <ol>
+                <li>
+                  Go to{' '}
+                  <a href="https://student.me.northeastern.edu/" target="_blank" rel="noopener noreferrer">
+                    Student Hub
+                  </a>
+                </li>
+                <li>Scroll down to <strong>My Documents</strong></li>
+                <li>Click <strong>Google Drive</strong></li>
+              </ol>
+              <p>Then come back and sign in with that account.</p>
 
               {RATE_ENABLED && (<>
               <h3>Can I write a review here?</h3>

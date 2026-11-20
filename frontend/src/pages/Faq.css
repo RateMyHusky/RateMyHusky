@@ -1,8 +1,24 @@
 /* Builds on Terms.css: each audience is a .terms-section, each question an h3. */
 
-/* Clears the fixed navbar when /faq#professors jumps here. */
-.faq-group {
+/* Clears the fixed navbar when /faq#professors or /faq#google-account jumps here. */
+.faq-group,
+.faq-group h3[id] {
   scroll-margin-top: 96px;
+}
+
+.faq-group ol {
+  margin: 10px 0 10px 20px;
+  padding: 0;
+}
+
+.faq-group ol li {
+  font-size: 0.97rem;
+  line-height: 1.75;
+  color: #555;
+}
+
+.dark .faq-group ol li {
+  color: #b0b0b0;
 }
 
 .faq-group h3 {

@@ -52,6 +52,11 @@ export default function SignInModal({ open, onClose, reason }: Props) {
     animatedClose(() => navigate(path));
   };
 
+  const huskyLine = <>
+    We currently only support valid <strong>husky.neu.edu</strong> accounts.{' '}
+    <a href="/faq#google-account" onClick={e => handleLinkClick(e, '/faq#google-account')}>How to get yours</a>
+  </>;
+
   return (
     <div className={`signin-modal-overlay${closing ? ' closing' : ''}`} onClick={() => animatedClose()}>
       <div
@@ -72,8 +77,8 @@ export default function SignInModal({ open, onClose, reason }: Props) {
 
         <p className="signin-modal-desc">
           {reason
-            ? <>{reason} We currently only support valid <strong>husky.neu.edu</strong> accounts.</>
-            : <>Sign in to bookmark professors and courses and use other sign-in only features. We currently only support valid <strong>husky.neu.edu</strong> accounts.</>}
+            ? <>{reason} {huskyLine}</>
+            : <>Sign in to bookmark professors and courses and use other sign-in only features. {huskyLine}</>}
         </p>
 
         <img src={neuIcon} alt="Northeastern University" className="signin-modal-logo" />
