@@ -509,20 +509,32 @@ CREATE TABLE IF NOT EXISTS public.rating_failures (
 ```
 
 Ratings require a Husky sign-in, and each new rating stores a keyed hash of the
-Google account id in `survey_ratings.account_hash`. Run this before deploying the
-backend that writes `account_hash`, or every submit fails. Old rows keep a NULL
+Google account id in `survey_ratings.account_hash`. Old rows keep a NULL
 `account_hash` and stay under the one-per-device index; signed-in ratings use the
-one-per-account index. Rerunnable:
+one-per-account index. Run it in two steps, both rerunnable.
+
+Step 1, before deploying the backend that writes `account_hash` (that backend must
+not ship before this, or every submit fails on the missing column). The old backend
+is unaffected:
 
 ```sql
 ALTER TABLE public.survey_ratings ADD COLUMN IF NOT EXISTS account_hash TEXT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_account ON public.survey_ratings
+    (account_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT
+    WHERE account_hash IS NOT NULL;
+```
+
+Step 2, after the new backend is live. Until then, a signed-in rating for a device
+and pair that already has an anonymous row fails on the still-full device index.
+Don't run it before the deploy: the old backend's upsert can't use a partial index,
+so every submit would fail. Rolling the backend back after this step needs the
+device index restored to its non-partial form first.
+
+```sql
 DROP INDEX IF EXISTS public.survey_ratings_one_per_device;
 CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_device ON public.survey_ratings
     (device_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT
     WHERE account_hash IS NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_account ON public.survey_ratings
-    (account_hash, professor_slug, pending_professor_id, course_code, pending_course_id) NULLS NOT DISTINCT
-    WHERE account_hash IS NOT NULL;
 ```
 
 ### Optional cleanup (destructive; take a backup first)
