@@ -149,8 +149,12 @@ def opt_out(conn, cur, account, dry_run):
     no grad year) so the opt-out still holds if it never finished the popup."""
     cur.execute("SELECT count(*) FROM page_views WHERE user_sub = %s", (account,))
     nv = cur.fetchone()[0]
+    cur.execute("SELECT count(*) FROM student_profiles WHERE user_sub = %s", (account,))
+    has_profile = cur.fetchone()[0] > 0
+    profile_note = "existing profile" if has_profile else "no profile: will create an opted-out row"
     if dry_run:
-        print(f"[dry-run] would opt {account!r} out of tracking and delete {nv} page view row(s)")
+        print(f"[dry-run] would opt {account!r} out of tracking and delete {nv} page view row(s) "
+              f"({profile_note})")
         return
     cur.execute("DELETE FROM page_views WHERE user_sub = %s", (account,))
     nv_deleted = cur.rowcount
@@ -159,8 +163,9 @@ def opt_out(conn, cur, account, dry_run):
         "ON CONFLICT (user_sub) DO UPDATE SET tracking_opt_out = true, updated_at = now()",
         (account,))
     conn.commit()
-    print(f"Opted {account!r} out of tracking and deleted {nv_deleted} page view row(s). "
-          "Profile answers and existing ratings are unchanged.")
+    profile_note = "existing profile" if has_profile else "no profile: created an opted-out row"
+    print(f"Opted {account!r} out of tracking and deleted {nv_deleted} page view row(s) "
+          f"({profile_note}). Profile answers and existing ratings are unchanged.")
 
 
 def main():

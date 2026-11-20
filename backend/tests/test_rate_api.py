@@ -46,7 +46,7 @@ def rate(monkeypatch):
     server.limiter.reset()
 
     state = {"writes": [], "posts": [], "moderation": "allow", "network": "other",
-             "turnstile": True, "turnstile_calls": 0, "seen": False, "existing": None, "profile": None,
+             "turnstile": True, "turnstile_calls": 0, "seen": False, "existing": None, "profile": None, "profile_params": [],
              "budget": {"device": 0, "ip": 0, "shared": 0}, "scored": [], "failures": []}
 
     def fake_query_one(sql, params=()):
@@ -55,6 +55,7 @@ def rate(monkeypatch):
         if "FROM moderation_calls" in sql:
             return state["budget"]
         if "FROM student_profiles" in sql:
+            state["profile_params"].append(params)
             return state["profile"]
         if "WHERE device_hash = %s LIMIT 1" in sql:
             return {"x": 1} if state["seen"] else None
@@ -151,6 +152,7 @@ def test_rating_copies_the_raters_grad_year(rate):
     assert post(client, ri).status_code == 200
     params = rating_writes(state)[0][1]
     assert saved(server, params, "rater_grad_year") == 2028
+    assert state["profile_params"] == [("u1",)]   # looked up by the token's sub, not the account hash
     assert "u1" not in params   # the raw account id never lands on the rating
 
 

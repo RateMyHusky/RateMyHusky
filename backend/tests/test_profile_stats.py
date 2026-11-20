@@ -2,7 +2,7 @@ from profile_stats import format_report
 
 
 def stats(**over):
-    base = {"profiles": 5, "opted_out": 1, "by_grad_year": {"2028": 2, "grad student": 1},
+    base = {"profiles": 5, "opted_out": 1, "answered": 4, "by_grad_year": {"2028": 2, "grad student": 1},
             "by_major": {"Biology, BS": 1, "Computer Science, BS": 3},
             "views": 8, "view_students": 4, "view_professors": 3, "view_courses": 2,
             "views_per_student": 2.0, "since": "2026-11-20",
@@ -13,9 +13,9 @@ def stats(**over):
 
 def test_report_prints_each_number_with_its_label():
     out = format_report(stats())
-    for line in ["profiles: 5", "opted out: 1", "2028: 2", "grad student: 1", "page views: 8",
+    for line in ["profile rows (incl. opted out): 5", "answered profiles: 4", "opted out: 1", "2028: 2", "grad student: 1", "page views: 8",
                  "distinct students: 4", "distinct professors: 3", "distinct courses: 2",
-                 "views per student: 2.0", "ratings since 2026-11-20", "with grad year: 6",
+                 "views per student: 2.0", "all submitted ratings (any status) since 2026-11-20", "with grad year: 6",
                  "without grad year: 9"]:
         assert line in out
 
@@ -26,7 +26,7 @@ def test_report_lists_majors_by_count_descending():
 
 
 def test_report_handles_empty_tables():
-    out = format_report(stats(profiles=0, opted_out=0, by_grad_year={}, by_major={}, views=0,
+    out = format_report(stats(profiles=0, opted_out=0, answered=0, by_grad_year={}, by_major={}, views=0,
                               view_students=0, view_professors=0, view_courses=0,
                               views_per_student=0, since=None,
                               ratings_with_year=0, ratings_without_year=0))

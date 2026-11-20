@@ -122,7 +122,7 @@ def test_collect_counts(pg):
         ratings.save_rating(row, None, write)
 
     got = collect(query_fn(pg), datetime.now(timezone.utc) - timedelta(days=1))
-    assert got["profiles"] == 3 and got["opted_out"] == 1
+    assert got["profiles"] == 3 and got["opted_out"] == 1 and got["answered"] == 2
     assert got["by_grad_year"] == {"2028": 1, "grad student": 1}
     assert got["by_major"] == {"A, BS": 1}
     assert (got["views"], got["view_students"], got["view_professors"], got["view_courses"]) == (4, 2, 1, 1)

@@ -98,9 +98,10 @@ def test_purge_bumps_data_version_so_cached_professor_pages_drop_the_ratings():
     assert DATA_VERSION_SQL in sqls[rating_delete:]
 
 
-def test_opt_out_sets_the_flag_and_deletes_views():
+def test_opt_out_sets_the_flag_and_deletes_views(capsys):
     cur = FakeCursor({"page_views": 7, "student_profiles": 1}); conn = FakeConn()
     opt_out(conn, cur, "user-1", dry_run=False)
+    assert "existing profile" in capsys.readouterr().out
     sqls = [s.lower() for s, _ in cur.executed]
     assert any(s.startswith("delete from page_views") for s in sqls)
     assert any("tracking_opt_out" in s and "on conflict" in s for s in sqls)
@@ -114,12 +115,21 @@ def test_opt_out_dry_run_changes_nothing(capsys):
     sqls = [s.lower().strip() for s, _ in cur.executed]
     assert not any(s.startswith(("delete", "insert", "update")) for s in sqls)
     assert conn.commits == 0
-    assert "7 page view" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "7 page view" in out and "existing profile" in out
 
 
-def test_opt_out_without_a_profile_creates_an_opted_out_row():
+def test_opt_out_dry_run_says_when_there_is_no_profile(capsys):
+    cur = FakeCursor({"page_views": 0, "student_profiles": 0}); conn = FakeConn()
+    opt_out(conn, cur, "typo-sub", dry_run=True)
+    assert "no profile: will create an opted-out row" in capsys.readouterr().out
+    assert conn.commits == 0
+
+
+def test_opt_out_without_a_profile_creates_an_opted_out_row(capsys):
     cur = FakeCursor({"page_views": 0, "student_profiles": 0}); conn = FakeConn()
     opt_out(conn, cur, "user-1", dry_run=False)
+    assert "no profile: created an opted-out row" in capsys.readouterr().out
     upserts = [(s, p) for s, p in cur.executed if "on conflict" in s.lower()]
     assert len(upserts) == 1
     assert upserts[0][1] == ("user-1",)

@@ -2515,8 +2515,15 @@ def bookmarks_remove():
     return jsonify({"ok": True})
 
 
+def _profile_limit_key():
+    """Per signed-in student, so students sharing a campus or Private Relay IP don't
+    share a budget. No valid token: the IP, as everywhere else."""
+    claims = decode_session_token(_get_auth_token())
+    return f"sub:{claims['sub']}" if claims else get_real_ip()
+
+
 @app.route("/api/profile")
-@limiter.limit("30 per minute")
+@limiter.limit("30 per minute", key_func=_profile_limit_key)
 def profile_get():
     user_sub = _require_bookmarks_auth()
     if not user_sub:
@@ -2525,7 +2532,7 @@ def profile_get():
 
 
 @app.route("/api/profile", methods=["PUT"])
-@limiter.limit("20 per minute")
+@limiter.limit("20 per minute", key_func=_profile_limit_key)
 def profile_put():
     user_sub = _require_bookmarks_auth()
     if not user_sub:
@@ -2538,7 +2545,7 @@ def profile_put():
 
 
 @app.route("/api/views", methods=["POST"])
-@limiter.limit("60 per minute")
+@limiter.limit("60 per minute", key_func=_profile_limit_key)
 def views_post():
     user_sub = _require_bookmarks_auth()
     if not user_sub:

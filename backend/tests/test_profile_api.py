@@ -130,3 +130,19 @@ def test_view_of_an_unknown_item_is_400(view_client):
     resp = client.post("/api/views", headers=auth_headers(), json={**VIEW, "itemKey": "nobody"})
     assert resp.status_code == 400 and resp.get_json()["error"]
     assert state["writes"] == []
+
+
+def test_limits_are_per_student_not_per_shared_ip(pf_client, monkeypatch):
+    import server
+    monkeypatch.setattr(server.limiter, "enabled", True)
+    server.limiter.reset()
+    client, _ = pf_client
+    campus_ip = {"REMOTE_ADDR": "10.9.8.7"}
+
+    def get(sub):
+        return client.get("/api/profile", headers=auth_headers(sub=sub), environ_overrides=campus_ip)
+
+    assert all(get("u-a").status_code == 200 for _ in range(30))
+    assert get("u-a").status_code == 429
+    assert get("u-b").status_code == 200   # same IP, own budget
+    server.limiter.reset()

@@ -17,7 +17,8 @@ from datetime import datetime, timezone
 def collect(query, since):
     """`query(sql, params=()) -> list[dict]`. `since=None` means no date filter on ratings."""
     one = lambda sql, params=(): query(sql, params)[0]
-    profiles = one("SELECT count(*) AS n, count(*) FILTER (WHERE tracking_opt_out) AS opted_out "
+    profiles = one("SELECT count(*) AS n, count(*) FILTER (WHERE tracking_opt_out) AS opted_out, "
+                   "count(*) FILTER (WHERE NOT tracking_opt_out) AS answered "
                    "FROM student_profiles")
     by_year = query(
         "SELECT CASE WHEN grad_year IS NULL THEN 'grad student' ELSE grad_year::text END AS k, "
@@ -35,6 +36,7 @@ def collect(query, since):
                   (since, since))
     return {
         "profiles": profiles["n"], "opted_out": profiles["opted_out"],
+        "answered": profiles["answered"],
         "by_grad_year": {r["k"]: r["n"] for r in by_year},
         "by_major": {r["k"]: r["n"] for r in by_major},
         "views": views["views"], "view_students": views["students"],
@@ -46,7 +48,8 @@ def collect(query, since):
 
 
 def format_report(stats):
-    lines = [f"profiles: {stats['profiles']}", f"opted out: {stats['opted_out']}",
+    lines = [f"profile rows (incl. opted out): {stats['profiles']}",
+             f"answered profiles: {stats['answered']}", f"opted out: {stats['opted_out']}",
              "", "by grad year (opted out excluded):"]
     lines += [f"  {k}: {n}" for k, n in sorted(stats["by_grad_year"].items())]
     lines += ["", "by major (opted out excluded):"]
@@ -56,7 +59,7 @@ def format_report(stats):
               f"distinct professors: {stats['view_professors']}",
               f"distinct courses: {stats['view_courses']}",
               f"views per student: {stats['views_per_student']}",
-              "", f"ratings since {stats['since'] or 'the start'}:",
+              "", f"all submitted ratings (any status) since {stats['since'] or 'the start'}:",
               f"  with grad year: {stats['ratings_with_year']}",
               f"  without grad year: {stats['ratings_without_year']}"]
     return "\n".join(lines)
