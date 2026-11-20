@@ -16,6 +16,8 @@ USAGE (from backend/):
   python rag/clear_ask_strikes.py --clear  --account <sub> --dry-run
   python rag/clear_ask_strikes.py --purge-account <sub>        # delete ALL of one account's rows (data-erasure)
   python rag/clear_ask_strikes.py --purge-account <sub> --dry-run
+  python rag/clear_ask_strikes.py --opt-out <sub>              # stop tracking one account (keeps ratings)
+  python rag/clear_ask_strikes.py --opt-out <sub> --dry-run
 
 The account id (<sub>) is the JWT 'sub' (server.py:764) — the value used as session_token.
 """
@@ -97,7 +99,8 @@ def clear(conn, cur, account, dry_run):
 def purge_account(conn, cur, account, dry_run, rating_secret):
     """Data-erasure: delete EVERY ask_log row for one account (query text, answer_text,
     ip_hash, all statuses) — not just strikes — plus the account's bookmarks and the
-    ratings it submitted while signed in (matched by the keyed account hash, so it
+    ratings it submitted while signed in, and its student profile and page views
+    (by raw sub, no secret needed for those) (ratings matched by the keyed account hash, so it
     needs RATING_SECRET). Use for a user's 'remove my tracked data' request. Also
     resets that account's strikes/daily-cap as a side effect. Without RATING_SECRET
     it exits before touching anything, dry run included, so a deletion is never
@@ -112,9 +115,14 @@ def purge_account(conn, cur, account, dry_run, rating_secret):
     nb = cur.fetchone()[0]
     cur.execute("SELECT count(*) FROM survey_ratings WHERE account_hash = %s", (account_hash,))
     nr = cur.fetchone()[0]
+    cur.execute("SELECT count(*) FROM student_profiles WHERE user_sub = %s", (account,))
+    np_ = cur.fetchone()[0]
+    cur.execute("SELECT count(*) FROM page_views WHERE user_sub = %s", (account,))
+    nv = cur.fetchone()[0]
     if dry_run:
-        print(f"[dry-run] would delete ALL {n} ask_log row(s), {nb} bookmark row(s) and "
-              f"{nr} rating row(s) for {account!r}")
+        print(f"[dry-run] would delete ALL {n} ask_log row(s), {nb} bookmark row(s), "
+              f"{nr} rating row(s), {np_} student profile row(s) and {nv} page view row(s) "
+              f"for {account!r}")
         return
     cur.execute("DELETE FROM ask_log WHERE session_token = %s", (account,))
     n_deleted = cur.rowcount
@@ -122,11 +130,37 @@ def purge_account(conn, cur, account, dry_run, rating_secret):
     nb_deleted = cur.rowcount
     cur.execute("DELETE FROM survey_ratings WHERE account_hash = %s", (account_hash,))
     nr_deleted = cur.rowcount
+    cur.execute("DELETE FROM student_profiles WHERE user_sub = %s", (account,))
+    np_deleted = cur.rowcount
+    cur.execute("DELETE FROM page_views WHERE user_sub = %s", (account,))
+    nv_deleted = cur.rowcount
     cur.execute(DATA_VERSION_SQL)
     conn.commit()
-    print(f"Deleted {n_deleted} ask_log row(s), {nb_deleted} bookmark row(s) and {nr_deleted} "
-          f"rating row(s) for {account!r}. All tracked data for this account is removed. "
+    print(f"Deleted {n_deleted} ask_log row(s), {nb_deleted} bookmark row(s), {nr_deleted} "
+          f"rating row(s), {np_deleted} student profile row(s) and {nv_deleted} page view row(s) "
+          f"for {account!r}. All tracked data for this account is removed. "
           "Ratings from before sign-in was required are matched by device ID by hand.")
+
+
+def opt_out(conn, cur, account, dry_run):
+    """Stop tracking one account: set tracking_opt_out and delete its page views. New
+    ratings stop getting rater_grad_year; profile answers and the year already on
+    existing ratings stay. An account with no profile gets a stub row (empty majors,
+    no grad year) so the opt-out still holds if it never finished the popup."""
+    cur.execute("SELECT count(*) FROM page_views WHERE user_sub = %s", (account,))
+    nv = cur.fetchone()[0]
+    if dry_run:
+        print(f"[dry-run] would opt {account!r} out of tracking and delete {nv} page view row(s)")
+        return
+    cur.execute("DELETE FROM page_views WHERE user_sub = %s", (account,))
+    nv_deleted = cur.rowcount
+    cur.execute(
+        "INSERT INTO student_profiles (user_sub, majors, tracking_opt_out) VALUES (%s, '{}', true) "
+        "ON CONFLICT (user_sub) DO UPDATE SET tracking_opt_out = true, updated_at = now()",
+        (account,))
+    conn.commit()
+    print(f"Opted {account!r} out of tracking and deleted {nv_deleted} page view row(s). "
+          "Profile answers and existing ratings are unchanged.")
 
 
 def main():
@@ -134,12 +168,14 @@ def main():
     p.add_argument("--show", action="store_true")
     p.add_argument("--clear", action="store_true")
     p.add_argument("--purge-account", metavar="SUB",
-                   help="delete ALL ask_log rows, bookmarks and signed-in ratings for this account (data-erasure)")
+                   help="delete ALL ask_log rows, bookmarks and signed-in ratings, student profile and page views for this account (data-erasure)")
+    p.add_argument("--opt-out", metavar="SUB",
+                   help="opt this account out of tracking: set the flag and delete its page views")
     p.add_argument("--account", help="JWT sub / session_token of the account")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
-    if not (args.show or args.clear or args.purge_account):
-        p.error("pass --show, --clear, or --purge-account")
+    if not (args.show or args.clear or args.purge_account or args.opt_out):
+        p.error("pass --show, --clear, --purge-account, or --opt-out")
     if args.clear and not args.account:
         p.error("--clear requires --account")
 
@@ -151,6 +187,8 @@ def main():
         clear(conn, cur, args.account, args.dry_run)
     if args.purge_account:
         purge_account(conn, cur, args.purge_account, args.dry_run, os.getenv("RATING_SECRET"))
+    if args.opt_out:
+        opt_out(conn, cur, args.opt_out, args.dry_run)
     cur.close(); conn.close()
 
 

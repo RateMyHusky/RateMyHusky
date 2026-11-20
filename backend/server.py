@@ -465,7 +465,7 @@ ACCOUNT_FEEDBACK_DAILY_LIMIT = 15
 FEEDBACK_PER_ACCOUNT_DAILY_LIMIT = 3
 # feedback types that require a reply email and carry the signed-in account's verified sub,
 # so support can act on the right ask_log rows (review an appeal, or erase the user's data)
-_ACCOUNT_FEEDBACK_TYPES = {"banappeal", "datadeletion"}
+_ACCOUNT_FEEDBACK_TYPES = {"banappeal", "datadeletion", "optout"}
 # A professor asking to correct or remove their page: the FAQ, Privacy Policy and
 # Terms say these can't be verified or answered without an email, so it's required.
 _EMAIL_REQUIRED_FEEDBACK_TYPES = _ACCOUNT_FEEDBACK_TYPES | {"professor"}
@@ -489,6 +489,7 @@ _FEEDBACK_TYPE_LABELS = {
     "feature": "Feature Request",
     "professor": "Professor Request",
     "datadeletion": "Account Deletion Request",
+    "optout": "Data Collection Opt-out Request",
     "banappeal": "Ask Ban Appeal",
 }
 # These limits and the email pattern in submit_feedback are copied in
@@ -2621,7 +2622,7 @@ def submit_feedback():
         appeal_account = claims.get("sub") if claims else None
 
     # Support can't erase data that isn't tied to an account, so don't send it on.
-    if feedback_type == "datadeletion" and appeal_account is None:
+    if feedback_type in ("datadeletion", "optout") and appeal_account is None:
         return jsonify({"error": "Sign in required"}), 401
 
     # Verify Cloudflare Turnstile CAPTCHA
@@ -2665,7 +2666,8 @@ def submit_feedback():
         lines.append(f"Verify:      {verify_note}")
     if feedback_type in _ACCOUNT_FEEDBACK_TYPES:
         # surface the session_token to act on via clear_ask_strikes.py
-        # (--account <sub> for appeals, --purge-account <sub> for data deletion)
+        # (--account <sub> for appeals, --purge-account <sub> for data deletion,
+        # --opt-out <sub> for a data collection opt-out)
         lines.append(f"Account:     {appeal_account or 'not signed in / token invalid'}")
     lines += ["", "Description:", description]
     body = "\n".join(lines)

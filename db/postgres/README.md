@@ -540,8 +540,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_device ON public.survey
 
 An Account Deletion request's `python rag/clear_ask_strikes.py --purge-account <sub>`
 (run from `backend/`) deletes the account's signed-in ratings along with its Ask
-history and bookmarks; it reads `RATING_SECRET` from `backend/.env` and stops before
-deleting anything without it. It bumps `data_version`, so professor pages drop the
+history, bookmarks, student profile and page views; it reads `RATING_SECRET` from
+`backend/.env` and stops before deleting anything without it. It bumps `data_version`, so professor pages drop the
 ratings within a minute; cards, course pages and leaderboards follow on the next
 pipeline run. A pending professor or course only those ratings named stays in the
 review queue with 0 ratings; it holds the name typed into the form, not the account.
@@ -603,6 +603,13 @@ CREATE INDEX IF NOT EXISTS idx_page_views_item ON public.page_views (item_type, 
 
 ALTER TABLE public.survey_ratings ADD COLUMN IF NOT EXISTS rater_grad_year SMALLINT NULL;
 ```
+
+A Data Collection Opt-out Request's `python rag/clear_ask_strikes.py --opt-out <sub>`
+(run from `backend/`; add `--dry-run` to preview) sets `tracking_opt_out` on the
+account's profile and deletes its page views. An account that never finished the
+profile popup gets an empty opted-out row, so the opt-out still holds. New ratings stop
+getting `rater_grad_year`; the profile answers and the year already on existing ratings
+stay.
 
 ### Optional cleanup (destructive; take a backup first)
 
