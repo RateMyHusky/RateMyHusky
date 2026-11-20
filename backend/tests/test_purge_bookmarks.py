@@ -1,8 +1,10 @@
 """Data-erasure coverage: purge_account in clear_ask_strikes.py must delete a
-user's bookmarks along with their ask_log rows, and its dry-run must report
-both without deleting anything. Uses fake conn/cur — no live DB."""
+user's bookmarks and signed-in ratings along with their ask_log rows, and its
+dry-run must report all three without deleting anything. Uses fake conn/cur — no live DB."""
 
 import os
+
+import pytest
 
 # clear_ask_strikes runs load_dotenv(backend/.env) at import, and this import
 # happens at pytest collection time — pin the env vars the other test files'
@@ -12,19 +14,23 @@ os.environ.setdefault("ORACLE_DATABASE_URL", "postgresql://stub")
 os.environ.setdefault("JWT_SECRET", "test-secret")
 
 from rag.clear_ask_strikes import purge_account
+import rating_identity
+
+SECRET = "rating-secret-0123456789abcdefghijklmnop"  # gitleaks:allow
+ACCOUNT_HASH = rating_identity.keyed_hash(SECRET, "account", "user-1")
 
 
 class FakeCursor:
     """Answers count(*) selects per table and records every execute."""
 
     def __init__(self, counts):
-        self.counts = counts  # {"ask_log": n, "bookmarks": n}
+        self.counts = counts  # {"ask_log": n, "bookmarks": n, "survey_ratings": n}
         self.executed = []
         self.rowcount = 0
         self._next_fetch = None
 
     def _table(self, sql):
-        return "bookmarks" if "bookmarks" in sql.lower() else "ask_log"
+        return next(t for t in ("bookmarks", "survey_ratings", "ask_log") if t in sql.lower())
 
     def execute(self, sql, params=None):
         self.executed.append((sql, params))
@@ -47,22 +53,29 @@ class FakeConn:
 
 
 def test_purge_dry_run_reports_bookmark_count_and_deletes_nothing(capsys):
-    cur = FakeCursor({"ask_log": 3, "bookmarks": 2})
+    cur = FakeCursor({"ask_log": 3, "bookmarks": 2, "survey_ratings": 4})
     conn = FakeConn()
-    purge_account(conn, cur, "user-1", dry_run=True)
+    purge_account(conn, cur, "user-1", dry_run=True, rating_secret=SECRET)
     deletes = [s for s, _ in cur.executed if s.lower().strip().startswith("delete")]
     assert deletes == []
     assert conn.commits == 0
     out = capsys.readouterr().out
-    assert "2 bookmark" in out
+    assert "2 bookmark" in out and "4 rating" in out
 
 
-def test_purge_deletes_ask_log_and_bookmarks_then_commits():
-    cur = FakeCursor({"ask_log": 3, "bookmarks": 2})
+def test_purge_deletes_ask_log_bookmarks_and_ratings_then_commits():
+    cur = FakeCursor({"ask_log": 3, "bookmarks": 2, "survey_ratings": 4})
     conn = FakeConn()
-    purge_account(conn, cur, "user-1", dry_run=False)
-    deletes = [s for s, _ in cur.executed if s.lower().strip().startswith("delete")]
-    assert any("ask_log" in d for d in deletes)
-    assert any("bookmarks" in d for d in deletes)
-    assert all(params == ("user-1",) for _, params in cur.executed)
+    purge_account(conn, cur, "user-1", dry_run=False, rating_secret=SECRET)
+    deletes = {next(t for t in ("bookmarks", "survey_ratings", "ask_log") if t in s.lower()): p
+               for s, p in cur.executed if s.lower().strip().startswith("delete")}
+    assert deletes == {"ask_log": ("user-1",), "bookmarks": ("user-1",), "survey_ratings": (ACCOUNT_HASH,)}
     assert conn.commits >= 1
+
+
+def test_purge_without_rating_secret_deletes_nothing():
+    cur = FakeCursor({"ask_log": 3, "bookmarks": 2, "survey_ratings": 4})
+    conn = FakeConn()
+    with pytest.raises(SystemExit):
+        purge_account(conn, cur, "user-1", dry_run=False, rating_secret=None)
+    assert cur.executed == [] and conn.commits == 0

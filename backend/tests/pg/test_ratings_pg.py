@@ -594,7 +594,23 @@ def test_account_rerate_updates_one_row(pg):
     ratings.save_rating(_account_row(account_hash="a1", device_hash="d2", rating=2), existing, write)
     assert scalar(pg, "SELECT count(*) FROM survey_ratings") == 1
     assert scalar(pg, "SELECT rating FROM survey_ratings") == 2
-    assert scalar(pg, "SELECT device_hash FROM survey_ratings") == "d1"
+    assert scalar(pg, "SELECT device_hash FROM survey_ratings") == "d2"
+
+
+def test_abuse_flag_after_an_edit_hits_the_editing_device(pg):
+    import ratings
+    import review_ratings
+
+    truncate(pg, "rating_flags")
+    write, query_one = pg_write(pg), pg_query_one(pg)
+    ratings.save_rating(_account_row(account_hash="a1", device_hash="d1", status="held"), None, write)
+    existing = ratings.existing_rating("a1", KEY, query_one)
+    ratings.save_rating(_account_row(account_hash="a1", device_hash="d2", status="held"), existing, write)
+    with pg.cursor(cursor_factory=RealDictCursor) as cur:
+        review_ratings.flag_abuse(cur, str(existing["id"])[:8])
+    pg.commit()
+    assert rows(pg, "SELECT kind, value_hash FROM rating_flags") == [{"kind": "device", "value_hash": "d2"}]
+    truncate(pg, "rating_flags")
 
 
 def test_signed_in_rating_leaves_anonymous_row(pg):

@@ -448,7 +448,8 @@ def hold_burst(reasons, key, ip_hash, prefix_hash, write, now):
 # status has its own held-stays-held rule below, and a clean resubmit keeps the
 # row's hold_reasons, so a reviewer's approval stays out of the burst and surge
 # counts. new_device keeps its first value, so an edit can't take a row out of
-# the burst_pair count. A comment keeps its status (approved by the model or a
+# the burst_pair count. device_hash and ip_hash take the editing browser's, so a
+# reviewer's abuse flag lands on the device that sent the edit. A comment keeps its status (approved by the model or a
 # reviewer, or still waiting) while its text is unchanged. New or edited text on a
 # row that already exists waits for review and is never queued, whatever the route
 # sent: the route's read of the row can be stale when two first submits race, and
@@ -460,7 +461,7 @@ def hold_burst(reasons, key, ip_hash, prefix_hash, write, now):
 _INSERT_COLUMNS = tuple(c for c in RATING_COLUMNS if c != "id")
 _SET_COLUMNS = tuple(
     c for c in _INSERT_COLUMNS
-    if c not in ("status", "hold_reasons", "comment_status", "device_hash", "new_device", "difficulty",
+    if c not in ("status", "hold_reasons", "comment_status", "new_device", "difficulty",
                  "account_hash", *_KEY_COLUMNS, *CHECK_COLUMNS))
 _UPSERT_SQL = (
     f"INSERT INTO survey_ratings (id, {', '.join(_INSERT_COLUMNS)}) "

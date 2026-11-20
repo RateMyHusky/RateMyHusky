@@ -643,6 +643,17 @@ def test_submit_expired_token_is_401(rate):
     assert resp.status_code == 401 and state["writes"] == []
 
 
+@pytest.mark.parametrize("change", [{"key": "another-secret"}, {"iss": "elsewhere"}, {"aud": "elsewhere"}])
+def test_submit_forged_token_is_401(rate, change):
+    server, client, state, ri = rate
+    claims = {"sub": "u1", "email": "t@husky.neu.edu", "name": "T", "iss": server.JWT_ISSUER,
+              "aud": server.JWT_AUDIENCE, "exp": datetime.now(timezone.utc) + timedelta(days=1)}
+    claims.update({k: v for k, v in change.items() if k != "key"})
+    token = jwt.encode(claims, change.get("key", server.JWT_SECRET), algorithm="HS256")
+    resp = post(client, ri, auth=False, Authorization=f"Bearer {token}")
+    assert resp.status_code == 401 and state["writes"] == [] and state["turnstile_calls"] == 0
+
+
 def test_submit_counts_signed_out_failure(rate):
     server, client, state, ri = rate
     post(client, ri, auth=False)

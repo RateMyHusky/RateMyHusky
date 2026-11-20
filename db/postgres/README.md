@@ -538,8 +538,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS survey_ratings_one_per_device ON public.survey
     WHERE account_hash IS NULL;
 ```
 
-To delete one person's signed-in ratings (account deletion), compute their hash from
-their Google `sub` with the backend's `rating_identity.keyed_hash`. Run this from
+An Account Deletion request's `python rag/clear_ask_strikes.py --purge-account <sub>`
+(run from `backend/`) deletes the account's signed-in ratings along with its Ask
+history and bookmarks; it reads `RATING_SECRET` from `backend/.env` and stops before
+deleting anything without it. To delete only the ratings by hand, compute the hash
+from their Google `sub` with the backend's `rating_identity.keyed_hash`. Run this from
 `backend/` with `RATING_SECRET` already in the environment, so the secret is never
 printed:
 
@@ -550,6 +553,13 @@ python -c "import os, rating_identity as r; print(r.keyed_hash(os.environ['RATIN
 ```sql
 DELETE FROM public.survey_ratings WHERE account_hash = '<the printed hash>';
 ```
+
+`account_hash` is keyed with `RATING_SECRET`, so changing that secret cuts every
+signed-in rating off from its account: the old rows stop showing as "Already
+rated", the same account can rate each pair again (one-per-account no longer
+holds across the change), and a purge by `sub` no longer finds them. Device, IP and
+review hashes are keyed with it too. Rotate it only after a leak, and expect the
+old ratings to behave like anonymous ones afterwards.
 
 ### Optional cleanup (destructive; take a backup first)
 
