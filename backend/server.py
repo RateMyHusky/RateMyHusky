@@ -2250,7 +2250,8 @@ def auth_dev_login():
     body = request.get_json(silent=True)
     name = body.get("as", "dev") if isinstance(body, dict) else "dev"
     if not isinstance(name, str) or not DEV_LOGIN_NAME_RE.fullmatch(name):
-        return jsonify({"error": "Account name must be lowercase letters, digits and hyphens"}), 400
+        return jsonify({"error": "Account name must be 1-32 lowercase letters, digits or hyphens, "
+                                 "starting with a letter or digit"}), 400
     return jsonify({"token": _session_token(f"dev-login:{name}", f"{name}@husky.neu.edu",
                                             "Dev User" if name == "dev" else f"Dev {name}", "")})
 

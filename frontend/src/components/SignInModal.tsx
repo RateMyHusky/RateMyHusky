@@ -104,7 +104,7 @@ export default function SignInModal({ open, onClose, reason }: Props) {
             onClick={async e => {
               let as: string | undefined;
               if (e.shiftKey) {
-                const typed = window.prompt('Dev account name (letters, digits, hyphens):', 'dev');
+                const typed = window.prompt('Dev account name (1-32 letters, digits or hyphens, starting with a letter or digit):', 'dev');
                 if (typed === null) return;
                 as = typed.trim().toLowerCase();
               }

@@ -92,7 +92,9 @@ def test_as_refuses_names_outside_the_allowed_shape(client, name):
     # The name becomes the email's local part, so only lowercase letters, digits and hyphens.
     resp = client.post(PATH, json={"as": name})
     assert resp.status_code == 400
-    assert "token" not in resp.get_json()
+    # The modal shows this text, so it states every rule the regex checks.
+    assert resp.get_json() == {"error": "Account name must be 1-32 lowercase letters, digits or hyphens, "
+                                        "starting with a letter or digit"}
 
 
 def test_is_rate_limited_when_on(client):
