@@ -2,7 +2,8 @@
 .feedback-tab {
   position: fixed;
   left: 0;
-  bottom: 80px;
+  /* Stacks above the bottom-left floating buttons (FloatingButton.css). */
+  bottom: calc(var(--floating-inset) + var(--floating-size) + var(--floating-gap));
   z-index: 200;
   writing-mode: vertical-rl;
   text-orientation: mixed;

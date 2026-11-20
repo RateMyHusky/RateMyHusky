@@ -1,0 +1,58 @@
+/* Corner pinning and the button look come from FloatingButton.css
+   (.floating-corner on the nav, .floating-btn on each link). */
+.social-links {
+  left: var(--floating-inset);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'Nunito', sans-serif;
+  transition: opacity 0.25s ease, visibility 0.25s;
+}
+
+/* The footer, with the same links, is on screen. */
+.social-links-hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.social-link {
+  text-decoration: none;
+}
+
+.social-link-instagram.floating-btn {
+  width: var(--floating-size);
+  border-radius: 50%;
+  color: #444;
+}
+
+.social-link-chrome.floating-btn {
+  gap: 8px;
+  padding: 0 16px 0 12px;
+  border-radius: 999px;
+  color: #333;
+  font-size: 0.9rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.social-link.floating-btn:hover {
+  color: #d6394c;
+}
+
+.dark .social-link-instagram.floating-btn {
+  color: #ccc;
+}
+
+.dark .social-link-chrome.floating-btn {
+  color: #e0e0e0;
+}
+
+.dark .social-link.floating-btn:hover {
+  color: #ef5466;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .social-links {
+    transition: none;
+  }
+}

@@ -134,14 +134,16 @@ ALIAS_MAP = {
     "R Cole Eidson": "Robert Eidson",
     "S. M Gupta": "Surendra Gupta",
     "sarthak gupta": "sarthak suhrid gupta",
+    # Also in RMP_MANUAL_LINKS below, which is what merged the two profiles; this
+    # entry keeps "Ant Woodall" searchable and the old /professors/ant-woodall URL working.
+    "ant woodall": "anthony woodall",
 }
 
 
 # Hand-reviewed corrections to how an RMP listing links to a professor, keyed
 # by RMP's spelling of the name. rmp_link_key reports such a match as
 # "manual", which is what separates a reviewer's decision from the ALIAS_MAP
-# spellings ("alias") and a plain normalized-name match ("exact"); callers do
-# not persist that method today.
+# spellings ("alias") and a plain normalized-name match ("exact").
 #
 # Keyed by name rather than RMP's legacy id because rmp_reviews carries no id:
 # reviews reach a professor through their professor_name, so an override keyed
@@ -149,8 +151,16 @@ ALIAS_MAP = {
 # recount in the pipeline would then publish 0 ratings under the new key.
 # rmp_link_key() is the single place both sides resolve through.
 #
+# This is also how two profiles of one person are merged: an entry here is the
+# only thing that moves an already-linked RMP page (pipeline.roster.plan_relinks),
+# and the professor it leaves with no page drops out of the catalog, its
+# bookmarks, photo, survey ratings and Banner rows following to the target
+# (stored as rmp_links.match_method = 'manual'). Confirm it's the same person
+# first: the target must be one professor's name_key, or nothing moves.
+#
 # Add entries here by hand when a reviewer finds a wrong link.
 RMP_MANUAL_LINKS = {
+    "ant woodall": "anthony woodall",   # RMP's "Ant  Woodall" page held his ratings
 }
 
 

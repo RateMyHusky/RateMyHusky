@@ -56,12 +56,18 @@ def main(argv=None):
             conn, "SELECT subject_course, course_title FROM banner_course_offerings "
                   f"WHERE subject_course IN ({retired})")})
 
+    # RMP_MANUAL_LINKS merges: move the links, then follow every merged-away slug.
+    moves, relink_skipped = roster.plan_relinks(pages, links, professors)
+    links = roster.relink(links, moves)
+    merged = roster.merged_slugs(professors, links, moves)
+    professors, photos = roster.carry_photos(professors, merged)
     new_links, new_professors, counts = roster.resolve_roster(pages, links, professors)
-    _print("roster", counts)
+    _print("roster", {**counts, "relinked": len(moves), "merged_away": len(merged),
+                      **{f"relink_skipped_{k}": v for k, v in relink_skipped.items()}})
     links, professors = links + new_links, professors + new_professors
-    bci = fetch_all(conn, "SELECT subject_course, instructor_key, instructor_name, professor_slug, "
-                          "match_method, terms_taught, sections, last_term_code "
-                          "FROM banner_course_instructors")
+    bci = roster.remap_slugs(fetch_all(conn, "SELECT subject_course, instructor_key, instructor_name, "
+                                             "professor_slug, match_method, terms_taught, sections, "
+                                             "last_term_code FROM banner_course_instructors"), merged)
     # Banner-only professors' departments are earlier guesses, so they don't vote.
     departments = banner_roster.subject_departments(
         bci, {p["slug"]: p["department"] for p in professors if p.get("origin") != "banner"})
@@ -108,7 +114,8 @@ def main(argv=None):
     name_counts = {}
     for p in professors:
         name_counts[p["name_key"]] = name_counts.get(p["name_key"], 0) + 1
-    name_key_slug = {p["name_key"]: p["slug"] for p in professors if name_counts[p["name_key"]] == 1}
+    name_key_slug = {p["name_key"]: merged.get(p["slug"], p["slug"])
+                     for p in professors if name_counts[p["name_key"]] == 1}
     key_pairs = name_keys.plan_name_keys(reviews, page_slug, {p["slug"]: p["name_key"] for p in professors})
     new_keys = dict(key_pairs)
     for r in reviews:
@@ -123,6 +130,7 @@ def main(argv=None):
                               "grade, CASE WHEN comment_status = 'approved' THEN comment END AS comment, "
                               "hold_reasons, updated_at "
                               "FROM survey_ratings WHERE status = 'accepted' AND professor_slug IS NOT NULL")
+    ratings = roster.remap_slugs(ratings, merged)
     now = datetime.now(timezone.utc)
     checked = fetch_all(conn, f"SELECT value FROM stats_cache WHERE key = '{survey.SURGE_CHECKED_KEY}'")
     surge = survey.surge_ids(ratings, now, datetime.fromtimestamp(checked[0]["value"], timezone.utc)
@@ -159,6 +167,8 @@ def main(argv=None):
     print(f"name keys changed: {name_keys.apply_name_keys(conn, key_pairs)}")
     review_tags.rebuild_if_present(conn)  # tags follow name_key remaps, pruned reviews, moderation
     print(f"survey ratings held as a weekly surge: {survey.apply_surge_holds(conn, surge)}")
+    if moves or merged:
+        roster.apply_merges(conn, moves, merged, photos)   # uncommitted: lands with the catalog below
     read_models.write(conn, catalog, courses, rows, counts)
     print("replaced professors_catalog, course_catalog, source_summary; data_version bumped")
     survey.mark_surge_checked(conn, now)

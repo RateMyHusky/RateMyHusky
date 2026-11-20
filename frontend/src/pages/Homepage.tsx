@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import SearchBar from '../components/SearchBar';
 import Footer from '../components/Footer';
+import SocialLinks from '../components/SocialLinks';
 import Seo from '../components/Seo';
 import { fetchGoatProfessors, fetchProfessorsCatalog } from '../api/api';
 import type { CatalogProfessor, Professor } from '../api/api';
@@ -784,6 +785,7 @@ const Homepage = () => {
       </section>
 
       <Footer />
+      <SocialLinks />
     </div>
   );
 };
