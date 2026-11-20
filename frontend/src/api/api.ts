@@ -208,13 +208,22 @@ async function fetchWithStatus<T>(path: string, signal?: AbortSignal, fresh = fa
   }
 }
 
+/* Signed-in GETs revalidate on every call (cache: 'no-cache'), so each page view cost a
+   request plus Vercel function CPU even when nothing had changed. These routes send
+   `Vary: Authorization` and, for a signed-in caller, `Cache-Control: private, max-age=3600`
+   (backend/server.py), so the browser can hold each caller's copy for the hour the backend
+   allows; one account's copy is never served to another. Everything else keeps no-cache
+   (bookmarks, ratings, auth, anything per-user). `fresh` still forces a refetch, as after
+   a rating. */
+const SIGNED_IN_CACHEABLE = /^\/api\/(stats|tags\/popular|professors\/[^/?]+\/(full|tags)|courses\/[^/?]+)(\?|$)/;
+
 async function get<T>(path: string, signal?: AbortSignal, fresh = false): Promise<T> {
   const headers: Record<string, string> = {};
   const token = localStorage.getItem('auth_token');
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  const res = await fetch(`${API_BASE}${path}`, { headers, cache: token || fresh ? 'no-cache' : 'default', signal });
+  const res = await fetch(`${API_BASE}${path}`, { headers, cache: fresh || (token && !SIGNED_IN_CACHEABLE.test(path)) ? 'no-cache' : 'default', signal });
   if (maintenanceGuard(res)) throw new Error('Site is under maintenance');
   if (!res.ok) throw new ApiError(res.status, `API ${res.status}: ${res.statusText}`);
   return res.json();

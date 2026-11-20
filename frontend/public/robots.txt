@@ -1,4 +1,5 @@
 User-agent: *
+Crawl-delay: 5
 Disallow: /api/
 Disallow: /auth/
 
@@ -9,36 +10,47 @@ Disallow: /auth/
 # ──────────────────────────────────────────────
 User-agent: OAI-SearchBot
 Allow: /
+Crawl-delay: 10
 
 User-agent: GPTBot
 Allow: /
+Crawl-delay: 10
 
 User-agent: ChatGPT-User
 Allow: /
+Crawl-delay: 10
 
 User-agent: PerplexityBot
 Allow: /
+Crawl-delay: 10
 
 User-agent: Perplexity-User
 Allow: /
+Crawl-delay: 10
 
 User-agent: ClaudeBot
 Allow: /
+Crawl-delay: 10
 
 User-agent: Claude-SearchBot
 Allow: /
+Crawl-delay: 10
 
 User-agent: Claude-User
 Allow: /
+Crawl-delay: 10
 
 User-agent: anthropic-ai
 Allow: /
+Crawl-delay: 10
 
 User-agent: Google-Extended
 Allow: /
+Crawl-delay: 10
 
 User-agent: Applebot-Extended
 Allow: /
+Crawl-delay: 10
 
 # Aggressive scraper with little citation value — kept blocked.
 User-agent: Bytespider
