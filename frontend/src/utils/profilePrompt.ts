@@ -94,10 +94,12 @@ export function takeResume(path: string, now: number, storage?: Storage | null):
   }
 }
 
-// Current local year through current + 5.
+// Current local year through current + 5, capped at the UTC year + 5 the backend accepts
+// (ahead of UTC on Jan 1, the local year is already the next one).
 export function gradYearOptions(now: number): number[] {
-  const year = new Date(now).getFullYear();
-  return Array.from({ length: 6 }, (_, i) => year + i);
+  const d = new Date(now);
+  const year = d.getFullYear();
+  return Array.from({ length: 6 }, (_, i) => year + i).filter((y) => y <= d.getUTCFullYear() + 5);
 }
 
 export const firstStep = (signedIn: boolean): Step => (signedIn ? 1 : 0);

@@ -16,14 +16,13 @@
 .profile-year:hover { border-color: #d6394c; background: #fdecee; }
 .profile-year.on { border-color: #d6394c; background: #fdecee; color: #b82e3f; }
 
-.profile-btn, .profile-ghost {
+.profile-btn {
   flex: 1; min-height: 44px; box-sizing: border-box; padding: 10px 20px; border-radius: 10px;
   font: 800 0.95rem 'Nunito', sans-serif; cursor: pointer;
 }
 .profile-btn { border: 0; background: #d6394c; color: #fff; }
 .profile-btn:hover:not(:disabled) { background: #b82e3f; }
-.profile-ghost { border: 1px solid #ddd; background: #fff; color: #555; }
-.profile-btn:disabled, .profile-ghost:disabled { opacity: 0.5; cursor: default; }
+.profile-btn:disabled { opacity: 0.5; cursor: default; }
 .profile-row { display: flex; gap: 8px; margin-top: 12px; }
 .profile-popup > .profile-btn { flex: none; margin-top: 12px; }
 
@@ -45,6 +44,8 @@
   font: 400 0.82rem 'Nunito', sans-serif;
 }
 .profile-field:focus { outline: none; border-color: #d6394c; box-shadow: 0 0 0 3px rgba(214, 57, 76, 0.15); }
+/* iOS Safari zooms into inputs smaller than 16px */
+@media (max-width: 768px) { .profile-field { font-size: 16px; } }
 .profile-menu {
   max-height: 180px; overflow-y: auto; margin-top: 4px; border: 1px solid #ddd; border-radius: 8px;
   background: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
@@ -66,7 +67,6 @@
 .dark .profile-year { background: #2e2e2e; border-color: #444; color: #e0e0e0; }
 .dark .profile-year:hover { background: #3a2327; border-color: #d6394c; }
 .dark .profile-year.on { background: #3a2327; border-color: #d6394c; color: #f0a0ab; }
-.dark .profile-ghost { background: #2e2e2e; border-color: #444; color: #ccc; }
 .dark .profile-note, .dark .profile-loading { color: #aaa; }
 .dark .profile-note a, .dark .profile-error, .dark .profile-add { color: #f0a0ab; }
 .dark .profile-other { color: #aaa; }

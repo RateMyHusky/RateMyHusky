@@ -42,7 +42,7 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
   const [listsFailed, setListsFailed] = useState(false);
   const waitingForGate = useRef(false);
   const resumeChecked = useRef(false);
-  const resumePending = useRef(false);
+  const resumeWanted = useRef(false);
 
   const eligible = !loading && (!user || (!!status && !status.exists));
   const clearResume = () => { takeResume(pathname, Date.now()); };
@@ -79,13 +79,16 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
   // Back from the mobile Google redirect: continue at step 1 with no dwell, cooldown or new shown mark.
   useEffect(() => {
     if (loading) return;
+    // Taken on the first check whatever the auth state, so a marker that isn't used here doesn't linger.
     if (!resumeChecked.current) {
       resumeChecked.current = true;
-      if (user && takeResume(pathname, Date.now()) && gate !== 'shown') resumePending.current = true;
+      resumeWanted.current = takeResume(pathname, Date.now());
     }
-    if (!resumePending.current || status === undefined) return;
-    resumePending.current = false;
-    if (status && !status.exists) {
+    // The user can arrive later in this mount, after an /api/auth/me retry.
+    if (!resumeWanted.current || !user || status === undefined) return;
+    resumeWanted.current = false;
+    // The rate popup may have opened while the status loaded.
+    if (status && !status.exists && gate !== 'shown') {
       setStep(1);
       setOpen(true);
       setLaunched(true);
@@ -126,7 +129,8 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
 
   const dismiss = () => {
     const state = loadState();
-    if (state) saveState(markDismissed(state, Date.now()));
+    // With the program list unavailable there was no way forward, so leaving isn't counted as a skip.
+    if (state && !listsFailed) saveState(markDismissed(state, Date.now()));
     track('profile_prompt_dismissed', { step: String(step) });
     clearResume();
     setOpen(false);
@@ -217,9 +221,6 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
           </button>
         ) : (
           <div className="profile-row">
-            {step === 3 && (
-              <button type="button" className="profile-ghost" disabled={saving} onClick={() => save([])}>Skip</button>
-            )}
             <button
               type="button"
               className="profile-btn"
@@ -230,7 +231,7 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
             </button>
           </div>
         )}
-        {step < 3 && <button type="button" className="rate-popup-later" onClick={dismiss}>Skip for now</button>}
+        <button type="button" className="rate-popup-later" onClick={dismiss}>Skip for now</button>
       </div>
       </div>
       <SignInModal

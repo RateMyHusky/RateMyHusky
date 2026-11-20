@@ -47,6 +47,16 @@ function selftest(): number {
   check('throwing storage', loadState(throwingStorage) === null);
   check('tampered fields dropped', isDeepStrictEqual(loadState(fakeStorage('{"dismissCount":"x","lastShown":"y","junk":1}')), { dismissCount: 0 }));
   check('years', isDeepStrictEqual(gradYearOptions(T), [2026, 2027, 2028, 2029, 2030, 2031]));
+  // The backend accepts UTC year - 1 through UTC year + 5.
+  const withTz = <R,>(tz: string, fn: () => R): R => {
+    const saved = process.env.TZ;
+    process.env.TZ = tz;
+    try { return fn(); } finally { if (saved === undefined) delete process.env.TZ; else process.env.TZ = saved; }
+  };
+  check('years ahead of UTC on Jan 1 stay in range', isDeepStrictEqual(
+    withTz('Asia/Tokyo', () => gradYearOptions(Date.parse('2026-12-31T15:30:00Z'))), [2027, 2028, 2029, 2030, 2031]));
+  check('years behind UTC on Dec 31 keep the local year', isDeepStrictEqual(
+    withTz('America/New_York', () => gradYearOptions(Date.parse('2027-01-01T03:00:00Z'))), [2026, 2027, 2028, 2029, 2030, 2031]));
   check('first step', firstStep(false) === 0 && firstStep(true) === 1);
   check('grad finishes at step 1', isLastStep(1, 'grad') && !isLastStep(1, 2028) && isLastStep(3, 2028));
   check('advance', !canAdvance(1, null, []) && canAdvance(1, 'grad', []) && !canAdvance(2, 2028, []) && canAdvance(2, 2028, ['other']));

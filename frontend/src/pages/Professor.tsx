@@ -1415,7 +1415,8 @@ const Professor = () => {
 
       <Footer />
       {RATE_ENABLED && <RatePopup key={identity.slug} slug={identity.slug} profName={identity.name} reviewsRef={reviewsRef} cardRef={rateCardRef} suppressed={profileShown} onDecided={shown => setRateGate(shown ? 'shown' : 'clear')} />}
-      <ProfilePopup key={identity.slug} sectionRef={reviewsRef} gate={rateGate} onOpen={() => setProfileShown(true)} />
+      {/* Its own key: sharing RatePopup's key stopped the rate popup from ever showing. */}
+      <ProfilePopup key={`profile-${identity.slug}`} sectionRef={reviewsRef} gate={rateGate} onOpen={() => setProfileShown(true)} />
       <button
         className={`prof-back-to-top ${showBackToTop ? 'visible' : ''}`} 
         onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} 

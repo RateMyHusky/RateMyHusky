@@ -17,6 +17,7 @@ const ProgramPicker = ({ label, programs, selected, onChange, addLabel, otherLab
   const [adding, setAdding] = useState(false);
   const listId = useId();
   const addRef = useRef<HTMLButtonElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const justPicked = useRef(false);
 
   const groups = useMemo(() => searchPrograms(programs, query, selected), [programs, query, selected]);
@@ -34,11 +35,12 @@ const ProgramPicker = ({ label, programs, selected, onChange, addLabel, otherLab
     setAdding(false);
   };
 
-  // The focused input unmounts on a pick; hand focus to the add button that replaces it.
+  // The focused input unmounts on a pick; hand focus to the add button that replaces it,
+  // or, once the list is full and that button is gone, to the new chip's remove button.
   useEffect(() => {
     if (!justPicked.current) return;
     justPicked.current = false;
-    addRef.current?.focus();
+    (addRef.current ?? [...(rootRef.current?.querySelectorAll<HTMLButtonElement>('.profile-chip button') ?? [])].at(-1))?.focus();
   }, [selected]);
 
   // The menu has a max-height, so keep the highlighted option visible.
@@ -62,7 +64,7 @@ const ProgramPicker = ({ label, programs, selected, onChange, addLabel, otherLab
   };
 
   return (
-    <div className="program-picker">
+    <div className="program-picker" ref={rootRef}>
       <label className="profile-label" htmlFor={`${listId}-input`}>{label}</label>
       {selected.map((name) => {
         const text = name === OTHER ? 'Not listed' : name;
