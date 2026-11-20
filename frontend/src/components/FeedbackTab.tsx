@@ -208,7 +208,7 @@ const FeedbackTab = () => {
       case 'datadeletion':
         return "Request deletion of your Ask data, bookmarks, course picks profile and browsing activity. We'll delete everything tied to your signed-in account.";
       case 'optout':
-        return "Ask us to stop saving your browsing. We'll delete what we've saved and stop adding your graduation year to new ratings. To delete your profile too, send an Account Deletion request.";
+        return "Ask us to stop saving your browsing. We'll delete what we've saved and stop adding your student level and graduation year to new ratings. To delete your profile too, send an Account Deletion request.";
       case 'professor':
         return "Which page is yours, and what should we correct or remove? Use your Northeastern email below; we confirm every request there before acting.";
       case 'general':

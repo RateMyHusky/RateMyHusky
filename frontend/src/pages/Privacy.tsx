@@ -220,9 +220,9 @@ const Privacy = () => {
               </p>
               {RATE_ENABLED && (
               <p>
-                When you submit a rating, we copy your expected graduation year onto it. Your
-                major, minor and browsing are never stored on a rating, and graduation year is
-                never shown publicly. Because ratings are linked to your account (see Ratings),
+                When you submit a rating, we copy whether you're an undergrad or grad student, and
+                your expected graduation year, onto it. Your major, minor and browsing are never
+                stored on a rating, and neither of these is shown publicly. Because ratings are linked to your account (see Ratings),
                 they can be matched to your profile using our private key.
               </p>
               )}
@@ -233,7 +233,7 @@ const Privacy = () => {
               <p>
                 <strong>Opting out:</strong> send an "Opt out of data collection" request through
                 the Feedback form while signed in. We'll stop saving your browsing, delete what
-                we've saved, and stop adding your graduation year to new ratings. To delete your
+                we've saved, and stop adding your student level and graduation year to new ratings. To delete your
                 profile too, send an Account Deletion request.
               </p>
               <p>

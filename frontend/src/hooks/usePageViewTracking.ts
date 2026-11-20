@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import { sendPageView } from '../api/api';
-import { makeSender, setVisible, startTimer, viewToSend, visibleSeconds } from '../utils/pageView';
+import { cutView, setVisible, startTimer } from '../utils/pageView';
 
 interface Options {
   itemType: 'professor' | 'course';
@@ -11,8 +11,9 @@ interface Options {
   enabled: boolean | undefined;
 }
 
-/* Records one view per itemKey: visible seconds, whether the section was reached, the course filter.
-   `enabled` is decided once per view, by its first non-undefined value. */
+/* Records views of an itemKey: visible seconds, whether the section was reached, the course filter.
+   A view is sent when the page is hidden or left; time after the student comes back is sent as the next one.
+   `enabled` is decided once per itemKey, by its first non-undefined value. */
 export function usePageViewTracking({ itemType, itemKey, sectionRef, courseFilter, enabled }: Options): void {
   const decided = useRef<{ key: string | null; enabled: boolean | undefined; filter: string | null }>({ key: null, enabled: undefined, filter: null });
 
@@ -26,20 +27,28 @@ export function usePageViewTracking({ itemType, itemKey, sectionRef, courseFilte
     if (itemKey === null) return;
     let timer = startTimer(Date.now(), document.visibilityState === 'visible');
     let reached = false;
-    const send = makeSender(sendPageView);
     const flush = () => {
       if (!decided.current.enabled) return;
-      send(viewToSend(
-        { itemType, itemKey, reachedSection: reached, courseFilter: decided.current.filter },
-        visibleSeconds(timer, Date.now()),
-      ));
+      const cut = cutView(timer, Date.now(), document.visibilityState === 'visible',
+        { itemType, itemKey, reachedSection: reached, courseFilter: decided.current.filter });
+      timer = cut.timer;
+      if (cut.view) sendPageView(cut.view);
     };
 
+    // Reached only once the student scrolls, so a section already on screen at load doesn't count.
+    let inView = false;
+    let scrolled = false;
     const el = sectionRef.current;
     const observer = el ? new IntersectionObserver((entries) => {
-      if (entries.some(e => e.isIntersecting)) reached = true;
+      inView = entries[entries.length - 1].isIntersecting;
+      if (inView && scrolled) reached = true;
     }) : null;
     if (el && observer) observer.observe(el);
+    const onScroll = () => {
+      scrolled = true;
+      if (inView) reached = true;
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
 
     const onVisibility = () => {
       const visible = document.visibilityState === 'visible';
@@ -51,6 +60,7 @@ export function usePageViewTracking({ itemType, itemKey, sectionRef, courseFilte
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', flush);
+      window.removeEventListener('scroll', onScroll);
       observer?.disconnect();
       flush();
     };

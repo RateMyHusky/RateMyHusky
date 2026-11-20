@@ -21,12 +21,9 @@ export function viewToSend(base: Omit<PageView, 'visibleSeconds'>, seconds: numb
   return seconds < MIN_VIEW_SECONDS ? null : { ...base, visibleSeconds: seconds };
 }
 
-/* Forwards the first non-null view and ignores the rest. */
-export function makeSender(send: (v: PageView) => void): (v: PageView | null) => void {
-  let sent = false;
-  return (v) => {
-    if (sent || !v) return;
-    sent = true;
-    send(v);
-  };
+/* The visible time so far as a view to send. Sending restarts the timer, so time after the student
+   comes back becomes the next view; a view too short to send keeps counting. */
+export function cutView(t: ViewTimer, now: number, visible: boolean, base: Omit<PageView, 'visibleSeconds'>): { view: PageView | null; timer: ViewTimer } {
+  const view = viewToSend(base, visibleSeconds(t, now));
+  return { view, timer: view ? startTimer(now, visible) : t };
 }
