@@ -9,6 +9,7 @@ import os
 import sys
 
 import pytest
+import requests
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 import programs_scrape  # noqa: E402
@@ -135,3 +136,76 @@ def test_an_older_title_for_the_same_page_is_not_a_second_program():
     }
     result = build(pages.__getitem__, min_majors=1, min_minors=0, archive_years=("2023-2024",))
     assert result["majors"] == [{"name": "Business Administration, BSBA", "college": "Business"}]
+
+
+def http_error(status):
+    response = requests.Response()
+    response.status_code = status
+    return requests.HTTPError(f"{status}", response=response)
+
+
+def archive_pages(archive_index):
+    return {
+        "/undergraduate/": '<a href="/undergraduate/business/">Business</a>',
+        "/sitemap.xml": "<urlset><loc>https://catalog.northeastern.edu/undergraduate/business/a/</loc>"
+                        "<loc>https://catalog.northeastern.edu/undergraduate/business/b/</loc></urlset>",
+        "/undergraduate/business/a/": title_page("A, BS (Boston)"),
+        "/undergraduate/business/b/": title_page("B, Minor"),
+        "/archive/2025-2026/undergraduate/": archive_index,
+        "/archive/2025-2026/sitemap.xml":
+            "<urlset><loc>http://catalog.northeastern.edu/undergraduate/business/a/</loc>"
+            "<loc>http://catalog.northeastern.edu/undergraduate/business/b/</loc></urlset>",
+        "/archive/2025-2026/undergraduate/business/a/": title_page("A, BS (Boston)"),
+        "/archive/2025-2026/undergraduate/business/b/": title_page("B, Minor"),
+    }
+
+
+def test_build_refuses_an_archive_edition_that_yields_nothing():
+    pages = archive_pages("<html>redesigned</html>")
+    with pytest.raises(programs_scrape.ThinCatalog, match="2025-2026"):
+        build(pages.__getitem__, min_majors=1, min_minors=1, archive_years=("2025-2026",))
+
+
+def test_build_accepts_a_healthy_archive_edition():
+    pages = archive_pages('<a href="/archive/2025-2026/undergraduate/business/">Business</a>')
+    result = build(pages.__getitem__, min_majors=1, min_minors=1, archive_years=("2025-2026",))
+    assert [m["name"] for m in result["majors"]] == ["A, BS"]
+
+
+def program_pages_with(fetch_error):
+    pages = {
+        "/undergraduate/": '<a href="/undergraduate/business/">Business</a>',
+        "/sitemap.xml": "<urlset><loc>https://catalog.northeastern.edu/undergraduate/business/a/</loc>"
+                        "<loc>https://catalog.northeastern.edu/undergraduate/business/stale/</loc></urlset>",
+        "/undergraduate/business/a/": title_page("A, BS (Boston)"),
+    }
+
+    def fetch(path):
+        if path in pages:
+            return pages[path]
+        raise fetch_error
+    return fetch
+
+
+@pytest.mark.parametrize("status", [404, 410])
+def test_a_missing_program_page_is_skipped_and_the_rest_kept(status, capsys):
+    result = build(program_pages_with(http_error(status)), min_majors=1, min_minors=0, archive_years=())
+    assert [m["name"] for m in result["majors"]] == ["A, BS"]
+    assert "skipped 1 program pages" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("path", ["/undergraduate/", "/sitemap.xml"])
+def test_a_missing_index_or_sitemap_still_raises(path):
+    pages = program_pages_with(http_error(404))
+
+    def fetch(p):
+        if p == path:
+            raise http_error(404)
+        return pages(p)
+    with pytest.raises(requests.HTTPError):
+        build(fetch, min_majors=1, min_minors=0, archive_years=())
+
+
+def test_a_server_error_on_a_program_page_still_raises():
+    with pytest.raises(requests.HTTPError):
+        build(program_pages_with(http_error(500)), min_majors=1, min_minors=0, archive_years=())

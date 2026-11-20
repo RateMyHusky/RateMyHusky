@@ -44,6 +44,8 @@ import re
 import sys
 from datetime import date
 
+import requests
+
 from catalog_api import BASE, clean
 from catalog_scrape import CatalogClient
 
@@ -110,12 +112,22 @@ def program_paths(sitemap_xml, college_slugs, prefix=""):
 def scrape_edition(fetch, prefix="", sitemap="/sitemap.xml"):
     """[(page path without prefix, "major"|"minor", name, college)] for one catalog edition."""
     college_names = colleges(fetch(prefix + "/undergraduate/"), prefix)
-    found = []
+    found, gone = [], 0
     for path in program_paths(fetch(sitemap), college_names, prefix):
-        program = parse_program_page(fetch(path))
+        try:
+            html = fetch(path)
+        except requests.HTTPError as err:
+            # A stale sitemap entry must not abort a fifteen-minute run; any other error still does.
+            if err.response is None or err.response.status_code not in (404, 410):
+                raise
+            gone += 1
+            continue
+        program = parse_program_page(html)
         if program:
             page = path[len(prefix):]
             found.append((page, *program, college_names[page.split("/")[2]]))
+    if gone:
+        print(f"{prefix or 'current'}: skipped {gone} program pages that returned 404/410", file=sys.stderr)
     return found
 
 
@@ -128,8 +140,18 @@ def build(fetch, min_majors=MIN_MAJORS, min_minors=MIN_MINORS, archive_years=ARC
     if majors < min_majors or minors < min_minors:
         raise ThinCatalog(f"found {majors} majors and {minors} minors, "
                           f"expected at least {min_majors} and {min_minors}")
-    editions = [current] + [scrape_edition(fetch, f"/archive/{year}", f"/archive/{year}/sitemap.xml")
-                            for year in archive_years]
+    editions = [current]
+    for year in archive_years:
+        edition = scrape_edition(fetch, f"/archive/{year}", f"/archive/{year}/sitemap.xml")
+        # An archive index that stopped matching colleges() yields nothing, silently: its
+        # programs would vanish from the list. Half of the current edition's size is far
+        # below any real archive (2022-2023 had 275 majors and 161 minors against 342 and 181).
+        old_majors = len({name for _, kind, name, _ in edition if kind == "major"})
+        old_minors = len({name for _, kind, name, _ in edition if kind == "minor"})
+        if old_majors < majors / 2 or old_minors < minors / 2:
+            raise ThinCatalog(f"archive {year} found {old_majors} majors and {old_minors} minors, "
+                              f"expected at least half of the current {majors} and {minors}")
+        editions.append(edition)
     merged = {"major": {}, "minor": {}}
     seen_pages = set()
     for edition in editions:   # newest first: the first college label seen wins
