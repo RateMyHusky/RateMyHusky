@@ -24,7 +24,15 @@ lists (Data Science, BS became Artificial Intelligence). Each archive edition
 has its own /archive/<year>/sitemap.xml and index; its sitemap lists the
 edition's pages under /undergraduate/, which live at /archive/<year>/undergraduate/.
 A name found in several editions is one entry, labelled with the college of the
-newest edition that has it (the current one first).
+newest edition that has it (the current one first). A page that a newer edition
+already listed is skipped, so an older title for the same program ("Bachelor of
+Science in Business Administration, BSBA") doesn't become a second entry.
+
+Each year, when a new edition comes out, drop the oldest year from ARCHIVE_YEARS
+and add the edition that just became an archive, then re-run. The window is the
+current edition plus the four before it: a student on a five-year plan can still be
+enrolled under the catalog of the year they entered, and by the time that year
+falls off, they have graduated.
 
 ~650 pages per edition at one request per 250ms: about fifteen minutes in all.
 """
@@ -100,15 +108,14 @@ def program_paths(sitemap_xml, college_slugs, prefix=""):
 
 
 def scrape_edition(fetch, prefix="", sitemap="/sitemap.xml"):
-    """{"major": {name: college}, "minor": {name: college}} for one catalog edition."""
+    """[(page path without prefix, "major"|"minor", name, college)] for one catalog edition."""
     college_names = colleges(fetch(prefix + "/undergraduate/"), prefix)
-    found = {"major": {}, "minor": {}}
+    found = []
     for path in program_paths(fetch(sitemap), college_names, prefix):
         program = parse_program_page(fetch(path))
         if program:
-            kind, name = program
-            college = college_names[path[len(prefix):].split("/")[2]]
-            found[kind].setdefault(name, college)
+            page = path[len(prefix):]
+            found.append((page, *program, college_names[page.split("/")[2]]))
     return found
 
 
@@ -116,19 +123,25 @@ def build(fetch, min_majors=MIN_MAJORS, min_minors=MIN_MINORS, archive_years=ARC
     """The program list as the JSON dict. fetch(path) -> html text."""
     current = scrape_edition(fetch)
     # The gate is on the current edition alone: archives must not hide a redesigned site.
-    if len(current["major"]) < min_majors or len(current["minor"]) < min_minors:
-        raise ThinCatalog(f"found {len(current['major'])} majors and {len(current['minor'])} minors, "
+    majors = len({name for _, kind, name, _ in current if kind == "major"})
+    minors = len({name for _, kind, name, _ in current if kind == "minor"})
+    if majors < min_majors or minors < min_minors:
+        raise ThinCatalog(f"found {majors} majors and {minors} minors, "
                           f"expected at least {min_majors} and {min_minors}")
     editions = [current] + [scrape_edition(fetch, f"/archive/{year}", f"/archive/{year}/sitemap.xml")
                             for year in archive_years]
-    lists = {}
-    for kind in ("major", "minor"):
-        merged = {}
-        for edition in editions:   # newest first: the first college label seen wins
-            for name, college in edition[kind].items():
-                merged.setdefault(name, college)
-        lists[kind] = [{"name": name, "college": college} for college, name in
-                       sorted((college, name) for name, college in merged.items())]
+    merged = {"major": {}, "minor": {}}
+    seen_pages = set()
+    for edition in editions:   # newest first: the first college label seen wins
+        for page, kind, name, college in edition:
+            # A page a newer edition already listed is the same program under an older
+            # title ("Bachelor of Science in Business Administration, BSBA"): skip it.
+            if page not in seen_pages:
+                merged[kind].setdefault(name, college)
+        seen_pages.update(page for page, *_ in edition)
+    lists = {kind: [{"name": name, "college": college} for college, name in
+                    sorted((college, name) for name, college in merged[kind].items())]
+             for kind in ("major", "minor")}
     return {"source": SOURCE, "copied": date.today().isoformat(),
             "majors": lists["major"], "minors": lists["minor"]}
 

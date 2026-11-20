@@ -118,3 +118,20 @@ def test_archive_editions_are_unioned_and_deduped_keeping_the_current_college():
         {"name": "Shared, BS", "college": "Current A"},
         {"name": "Data Science, BS", "college": "Old B"},
     ]
+
+
+def test_an_older_title_for_the_same_page_is_not_a_second_program():
+    # The 2022-2024 catalogs titled /business/business-administration-bsba/
+    # "Bachelor of Science in Business Administration, BSBA".
+    pages = {
+        "/undergraduate/": '<a href="/undergraduate/business/">Business</a>',
+        "/sitemap.xml": "<urlset><loc>https://catalog.northeastern.edu/undergraduate/business/ba-bsba/</loc></urlset>",
+        "/undergraduate/business/ba-bsba/": title_page("Business Administration, BSBA (Boston)"),
+        "/archive/2023-2024/undergraduate/": '<a href="/archive/2023-2024/undergraduate/business/">Business</a>',
+        "/archive/2023-2024/sitemap.xml":
+            "<urlset><loc>http://catalog.northeastern.edu/undergraduate/business/ba-bsba/</loc></urlset>",
+        "/archive/2023-2024/undergraduate/business/ba-bsba/":
+            title_page("Bachelor of Science in Business Administration, BSBA"),
+    }
+    result = build(pages.__getitem__, min_majors=1, min_minors=0, archive_years=("2023-2024",))
+    assert result["majors"] == [{"name": "Business Administration, BSBA", "college": "Business"}]
