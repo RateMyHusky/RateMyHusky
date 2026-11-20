@@ -1,5 +1,5 @@
 /* Extras on top of the rate popup's card: year grid, picker, dots, notice. */
-.profile-popup { align-items: stretch; text-align: left; }
+.profile-popup { align-items: stretch; text-align: left; max-height: calc(100dvh - 32px); overflow-y: auto; }
 .profile-popup .rate-popup-text { margin-bottom: 12px; text-align: center; }
 .profile-popup .rate-popup-later { align-self: center; }
 
@@ -13,6 +13,7 @@
   border: 1px solid #ddd; border-radius: 8px; background: #fff; cursor: pointer;
   font: 700 0.8rem 'Nunito', sans-serif; color: #333;
 }
+.profile-year:hover { border-color: #d6394c; background: #fdecee; }
 .profile-year.on { border-color: #d6394c; background: #fdecee; color: #b82e3f; }
 
 .profile-btn, .profile-ghost {
@@ -53,7 +54,7 @@
   letter-spacing: 0.04em; text-transform: uppercase; color: #999;
 }
 .profile-menu-option { padding: 7px 10px; font-size: 0.8rem; color: #222; cursor: pointer; }
-.profile-menu-option.hi { background: #fdecee; }
+.profile-menu-option:hover, .profile-menu-option.hi { background: #fdecee; }
 .profile-add, .profile-other {
   display: block; margin: 4px 0 0; padding: 0; border: 0; background: none; cursor: pointer;
   font: 700 0.74rem 'Nunito', sans-serif; color: #b82e3f; text-align: left;
@@ -63,6 +64,7 @@
 .dark .profile-dots i { background: #444; }
 .dark .profile-dots i.on { background: #e0566a; }
 .dark .profile-year { background: #2e2e2e; border-color: #444; color: #e0e0e0; }
+.dark .profile-year:hover { background: #3a2327; border-color: #d6394c; }
 .dark .profile-year.on { background: #3a2327; border-color: #d6394c; color: #f0a0ab; }
 .dark .profile-ghost { background: #2e2e2e; border-color: #444; color: #ccc; }
 .dark .profile-note, .dark .profile-loading { color: #aaa; }
@@ -74,4 +76,4 @@
 .dark .profile-menu { background: #2e2e2e; border-color: #444; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
 .dark .profile-menu-group { background: #262626; color: #999; }
 .dark .profile-menu-option { color: #e8e8e8; }
-.dark .profile-menu-option.hi { background: #3a2327; }
+.dark .profile-menu-option:hover, .dark .profile-menu-option.hi { background: #3a2327; }

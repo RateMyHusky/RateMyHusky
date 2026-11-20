@@ -19,7 +19,16 @@ export function getProfileStatus(fetcher: () => Promise<ProfileStatus> = default
   return pending;
 }
 
+const listeners = new Set<() => void>();
+
+/* Called after the cache changes, so mounted hooks re-read it. */
+export function onProfileSaved(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
+}
+
 export function markProfileSaved(): void {
   const token = localStorage.getItem('auth_token');
   if (token) cache.set(token, Promise.resolve({ exists: true, optedOut: false }));
+  listeners.forEach((fn) => fn());
 }

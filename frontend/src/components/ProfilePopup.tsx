@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { saveProfile } from '../api/api';
 import { useProfileStatus } from '../hooks/useProfileStatus';
@@ -39,6 +39,7 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
   const [signInOpen, setSignInOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [listsFailed, setListsFailed] = useState(false);
   const waitingForGate = useRef(false);
   const resumeChecked = useRef(false);
   const resumePending = useRef(false);
@@ -80,7 +81,7 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
     if (loading) return;
     if (!resumeChecked.current) {
       resumeChecked.current = true;
-      if (user && takeResume(pathname, Date.now())) resumePending.current = true;
+      if (user && takeResume(pathname, Date.now()) && gate !== 'shown') resumePending.current = true;
     }
     if (!resumePending.current || status === undefined) return;
     resumePending.current = false;
@@ -89,7 +90,7 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
       setOpen(true);
       setLaunched(true);
     }
-  }, [loading, user, status, pathname]);
+  }, [loading, user, status, pathname, gate]);
 
   // Signed in at step 0: an existing profile means nothing to ask; otherwise carry on to the year.
   useEffect(() => {
@@ -113,13 +114,15 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
     let cancelled = false;
     import('../data/programs.json').then((m) => {
       if (!cancelled) setLists({ majors: m.majors, minors: m.minors });
+    }).catch(() => {
+      if (!cancelled) setListsFailed(true);
     });
     return () => { cancelled = true; };
   }, [open, lists]);
 
   // The live region stays mounted while empty: screen readers announce content added to an
   // existing region, not a region that arrives already filled.
-  if (!open) return <div aria-live="polite" />;
+  if (!open) return <><div key="live" aria-live="polite" /></>;
 
   const dismiss = () => {
     const state = loadState();
@@ -155,7 +158,8 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
   ][step];
 
   return (
-    <div aria-live="polite">
+    <>
+      <div key="live" aria-live="polite">
       <div className="rate-popup profile-popup" role="region" aria-label="Course picks">
         {step > 0 && (
           <div className="profile-dots" role="img" aria-label={`Step ${step} of 3`}>
@@ -179,7 +183,9 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
             ))}
           </div>
         )}
-        {(step === 2 || step === 3) && (lists ? (
+        {(step === 2 || step === 3) && (
+          <div aria-live="off">
+          {lists ? (
           <ProgramPicker
             key={step}
             label={step === 2 ? 'Major' : 'Minor'}
@@ -189,13 +195,16 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
             addLabel={step === 2 ? '+ Add another major' : '+ Add another minor'}
             otherLabel={step === 2 ? "My major isn't listed" : "My minor isn't listed"}
           />
-        ) : <p className="profile-loading">Loading…</p>)}
+          ) : !listsFailed && <p className="profile-loading">Loading…</p>}
+          </div>
+        )}
 
         {last && (
           <p className="profile-note">
-            Your activity here helps tailor picks. <Link to="/privacy#course-picks">Learn more</Link>
+            Your activity here helps tailor picks. <a href="/privacy#course-picks" target="_blank" rel="noopener noreferrer">Learn more</a>
           </p>
         )}
+        {listsFailed && <p className="profile-error" role="alert">Couldn't load the program list. Try again later.</p>}
         {failed && <p className="profile-error" role="alert">Couldn't save that. Try again.</p>}
 
         {step === 0 ? (
@@ -223,11 +232,13 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
         )}
         {step < 3 && <button type="button" className="rate-popup-later" onClick={dismiss}>Skip for now</button>}
       </div>
+      </div>
       <SignInModal
+        key="signin"
         open={signInOpen}
         onClose={() => { setSignInOpen(false); clearResume(); }}
         reason="Sign in to get course picks."
       />
-    </div>
+    </>
   );
 }

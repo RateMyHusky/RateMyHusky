@@ -3,7 +3,7 @@
 // Prints PASS/FAIL per check and exits non-zero on any failure.
 import { argv } from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { getProfileStatus, markProfileSaved } from './profileStatus';
+import { getProfileStatus, markProfileSaved, onProfileSaved } from './profileStatus';
 
 function setToken(token: string | null) {
   (globalThis as unknown as { localStorage: unknown }).localStorage = {
@@ -44,6 +44,13 @@ async function selftest(): Promise<number> {
   markProfileSaved();
   const saved = await getProfileStatus(ok);
   check('markProfileSaved', calls === 0 && saved?.exists === true && saved.optedOut === false);
+
+  let heard = 0;
+  const off = onProfileSaved(() => { heard++; });
+  markProfileSaved();
+  off();
+  markProfileSaved();
+  check('onProfileSaved notifies until unsubscribed', heard === 1);
 
   console.log(fails.length ? `${fails.length} FAIL(s): ` + fails.join(', ') : 'ALL PASS');
   return fails.length ? 1 : 0;
