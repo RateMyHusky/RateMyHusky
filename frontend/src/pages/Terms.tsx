@@ -12,7 +12,7 @@ const Terms = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Terms &amp; Conditions</h1>
-            <p className="terms-meta">Effective November 2, 2026</p>
+            <p className="terms-meta">Effective November 20, 2026</p>
           </header>
 
           <div className="terms-body">
@@ -65,16 +65,15 @@ const Terms = () => {
                 and account id to RateMyHusky.
               </p>
               <p>
-                This information is encoded in a JWT (JSON Web Token) that is stored in your
-                browser's <code>localStorage</code>. The token expires after 7 days.
-                RateMyHusky does not maintain user accounts or profiles. The only per-user data
-                we store server-side is your bookmarks{RATE_ENABLED ? ' and your pseudonymous ratings' : ''}, described
+                This information is kept in a sign-in token that is stored in your
+                browser. The token expires after 7 days.
+                The per-user data we store server-side is your bookmarks{RATE_ENABLED ? ', your pseudonymous ratings' : ''} and, if you fill out the course picks questions, your course picks profile and browsing activity, described
                 below and in our <a href="/privacy">Privacy Policy</a>. Signing out deletes the
                 token from your browser.
               </p>
               <p>
                 Bookmarks are stored server-side. If you bookmark a professor or course, we store that
-                bookmark server-side, keyed to your Google account id; it persists across
+                bookmark server-side, tied to your Google account id; it persists across
                 sign-ins until you remove it or request deletion (see Section 4, "Data We
                 Collect," and our <a href="/privacy">Privacy Policy</a> for what is stored, how
                 long it is kept, and how to request deletion).
@@ -88,14 +87,13 @@ const Terms = () => {
                 <li>
                   <strong>From Google sign-in:</strong> your name, email address
                   (<code>@husky.neu.edu</code>), and profile photo, stored only in your
-                  browser-side JWT token.
+                  browser's sign-in token.
                 </li>
                 <li>
                   <strong>Browser preferences and state:</strong> your theme (dark/light),
-                  catalog view mode, and dismissed on-page tips are saved to{' '}
-                  <code>localStorage</code>
+                  catalog view mode, and dismissed on-page tips are saved in your browser
                   {RATE_ENABLED ? ', along with when you last saw or skipped a prompt to rate a professor, how often you skipped one, which professors you rated from this browser and when, and the last day you visited' : ''}.
-                  While you sign in, <code>sessionStorage</code> holds a marker that sign-in is
+                  While you sign in, your browser also holds a short-lived marker that sign-in is
                   underway and any bookmark you clicked before signing in, until sign-in
                   finishes or you close the tab; that bookmark is then saved to your account.
                   Otherwise this data stays on your device and is never synced to our
@@ -112,7 +110,7 @@ const Terms = () => {
                 {RATE_ENABLED && (
                 <li>
                   <strong>Ratings:</strong> when you submit a rating, we store your answers and
-                  an optional comment, with a keyed hash of your Google account id, keyed hashes
+                  an optional comment, with a coded version of your Google account id, coded versions
                   of a random device ID and of your IP address and network, the network type, and
                   the time the form took. This data
                   is pseudonymous, not anonymous. See our <a href="/privacy">Privacy Policy</a>{' '}
@@ -123,17 +121,17 @@ const Terms = () => {
                   <strong>Bookmarks:</strong> when you bookmark a professor or course while
                   signed in, we store your Google account id, the item type (professor or
                   course), the professor or course identifier, and a timestamp, server-side in
-                  our database. Each account is capped at 200 bookmarks. See our{' '}
+                  our database. See our{' '}
                   <a href="/privacy">Privacy Policy</a> for details on retention and deletion.
                 </li>
               </ul>
               <p>
                 We do <strong>not</strong> log or store your search queries, which professor or
-                course pages you viewed, or any other browsing activity ourselves, though our
+                course pages you viewed, or any other browsing activity ourselves, except as described under Course picks profile and browsing activity in our Privacy Policy, though our
                 hosting providers' request logs record the address of each request, which
                 includes any search. Your IP
-                address is used in the moment to enforce rate limits. We never store it in raw
-                form{RATE_ENABLED ? '; only if you submit a rating do we store keyed hashes of it' : ''}.
+                address is used in the moment to limit abuse. We never store it in raw
+                form{RATE_ENABLED ? '; only if you submit a rating do we store coded versions of it' : ''}.
               </p>
             </section>
 
@@ -260,7 +258,7 @@ const Terms = () => {
               <h2>8. Acceptable Use</h2>
               <p>By using RateMyHusky, you agree not to:</p>
               <ul>
-                <li>Use automated scripts, bots, or crawlers to access the service (rate limiting is enforced)</li>
+                <li>Use automated scripts, bots, or crawlers to access the service (we limit abusive traffic)</li>
                 <li>Attempt to access, steal, or forge other users' session tokens or credentials</li>
                 <li>
                   Circumvent rate limits, access controls, the CAPTCHA on the
@@ -273,7 +271,7 @@ const Terms = () => {
                 <li>Attempt to reverse-engineer, overload, or otherwise disrupt the service</li>
               </ul>
               <p>
-                We enforce per-IP rate limits across the site. Repeated misuse may result in
+                We limit abusive traffic across the site. Repeated misuse may result in
                 suspension of your access, as described in Section {16 - n}.
               </p>
             </section>

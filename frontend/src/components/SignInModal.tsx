@@ -48,9 +48,15 @@ export default function SignInModal({ open, onClose, reason }: Props) {
   if (!open) return null;
 
   const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; // new tab or window: leave the modal open
     e.preventDefault();
     animatedClose(() => navigate(path));
   };
+
+  const huskyLine = <>
+    We currently only support valid <strong>husky.neu.edu</strong> accounts.{' '}
+    <a href="/faq#google-account" onClick={e => handleLinkClick(e, '/faq#google-account')}>Can't find your email?</a>
+  </>;
 
   return (
     <div className={`signin-modal-overlay${closing ? ' closing' : ''}`} onClick={() => animatedClose()}>
@@ -72,8 +78,8 @@ export default function SignInModal({ open, onClose, reason }: Props) {
 
         <p className="signin-modal-desc">
           {reason
-            ? <>{reason} We currently only support valid <strong>husky.neu.edu</strong> accounts.</>
-            : <>Sign in to bookmark professors and courses and use other sign-in only features. We currently only support valid <strong>husky.neu.edu</strong> accounts.</>}
+            ? <>{reason} {huskyLine}</>
+            : <>Sign in to bookmark professors and courses and use other sign-in only features. {huskyLine}</>}
         </p>
 
         <img src={neuIcon} alt="Northeastern University" className="signin-modal-logo" />

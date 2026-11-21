@@ -74,6 +74,21 @@ def test_ask_log_purge_deletes_only_rows_past_retention(live_server, pg, monkeyp
     pg.commit()
 
 
+def test_page_view_purge_deletes_only_rows_past_retention(live_server, pg, monkeypatch):
+    truncate(pg, "page_views")
+    with pg.cursor() as cur:
+        cur.execute("INSERT INTO page_views (viewer_hash, item_type, item_key, visible_seconds, reached_section, viewed_at) "
+                    "VALUES ('h', 'course', 'old', 5, false, now() - interval '181 days'), "
+                    "('h', 'course', 'new', 5, false, now() - interval '179 days')")
+    pg.commit()
+    monkeypatch.setitem(live_server._ask_log_purge, "last", 0.0)
+    live_server._purge_ask_log_job()
+    with pg.cursor() as cur:
+        cur.execute("SELECT item_key FROM page_views")
+        assert [r[0] for r in cur.fetchall()] == ["new"]
+    pg.commit()
+
+
 def _course(code, name, search_text, num_ratings):
     return {"code": code, "name": name, "department": "Computer Science", "subject": "CS",
             "search_text": search_text, "avg_rating": 4.0, "difficulty": 3.0, "num_ratings": num_ratings}

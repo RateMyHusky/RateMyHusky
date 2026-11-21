@@ -41,11 +41,11 @@ for (const [line, path] of appRoutes) {
 // The middleware matcher decides which paths skip the maintenance/preview gate. Only the
 // exact static files may skip it; look-alike paths would get the app shell ungated.
 const matcher = new RegExp('^' + middlewareConfig.matcher + '$');
-for (const p of ['/favicon.png', '/logo.jpg', '/maintenance.html', '/robots.txt',
+for (const p of ['/favicon.png', '/logo.jpg', '/logo-mascot.png', '/maintenance.html', '/robots.txt',
   '/_vercel/insights/script.js', '/photos/abc.webp', '/assets/index-abc123.js'])
   check(`skips gate: ${p}`, !matcher.test(p));
 for (const p of ['/', '/professors/x', '/api/stats', '/assets', '/favicon.pngx',
-  '/favicon.png/x', '/logo.jpgfoo', '/robots.txt/a', '/_vercelx', '/photosx'])
+  '/favicon.png/x', '/logo.jpgfoo', '/logo-mascot.pngx', '/robots.txt/a', '/_vercelx', '/photosx'])
   check(`gated: ${p}`, matcher.test(p));
 
 // A skipped folder path with no file behind it must 404, not hit the SPA rewrite, or it

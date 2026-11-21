@@ -15,6 +15,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useAuth } from '../context/AuthContext';
 import { clearPendingBookmark } from '../utils/pendingBookmark';
 import SignInModal from '../components/SignInModal';
+import Footer from '../components/Footer';
 import type { ChoiceOption } from './rate/ChoiceGroup';
 import {
   DIFFICULTY, GRADES, HOURS, OVERALL, answer, buildSubmission, contextTags, courseGroups, depth, firstStep, formatCode,
@@ -24,6 +25,7 @@ import type { Answers, RateCourse, RateProfessor, StepId } from './rate/rateFlow
 import { clearRateDraft, keepOpened, loadRateDraft, markResumeDraft, saveRateDraft, takeResumeDraft } from './rate/rateDraft';
 import type { RateDraft } from './rate/rateDraft';
 import { markRatedNow, parseFrom, track } from '../utils/ratePrompt';
+import './ProfessorCatalog.css';
 import './Bookmarks.css';
 import './Rate.css';
 
@@ -720,7 +722,7 @@ export default function Rate() {
   if (user) return <RateForm key={user.email} owner={user.email} onExpired={() => setExpired(true)} />;
 
   return (
-    <div className="rate-page bookmarks-page">
+    <div className="catalog-page bookmarks-page">
       <div className="bm-signin-wrap">
         <div className="bm-signin-gate">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="bm-lock-icon">
@@ -734,6 +736,7 @@ export default function Rate() {
         </div>
       </div>
       <SignInModal open={showSignIn} onClose={() => setShowSignIn(false)} reason="Sign in to rate a professor." />
+      <Footer />
     </div>
   );
 }

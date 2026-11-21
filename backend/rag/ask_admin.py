@@ -25,6 +25,7 @@ from psycopg2.extras import RealDictCursor
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from rag.chat_abuse import STRIKE_STATUSES, _CAPS
+from rag.clear_ask_strikes import purge_account_data
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 URL = os.getenv("ORACLE_DATABASE_URL")
@@ -317,16 +318,21 @@ def api_clear_strikes(sub):
 
 @app.route("/api/users/<sub>/purge", methods=["POST"])
 def api_purge(sub):
+    """Exactly what `clear_ask_strikes.py --purge-account` does (the shared purge_account_data)."""
     dry_run = _dry_run_from_body()
-    if dry_run:
-        rows = query("SELECT count(*) AS c FROM ask_log WHERE session_token = %s", (sub,))
-        brows = query("SELECT count(*) AS c FROM bookmarks WHERE user_sub = %s", (sub,))
-        return jsonify({"deleted": rows[0]["c"] if rows else 0,
-                        "bookmarks_deleted": brows[0]["c"] if brows else 0})
-
-    n = execute("DELETE FROM ask_log WHERE session_token=%s", (sub,))
-    nb = execute("DELETE FROM bookmarks WHERE user_sub=%s", (sub,))
-    return jsonify({"deleted": n, "bookmarks_deleted": nb})
+    secret = os.getenv("RATING_SECRET")
+    try:
+        with conn.cursor() as cur:
+            counts = purge_account_data(conn, cur, sub, dry_run, secret)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 500
+    except psycopg2.Error as e:
+        _recover(e)   # like query()/execute(): retry once; the purge commits only at the end
+        with conn.cursor() as cur:
+            counts = purge_account_data(conn, cur, sub, dry_run, secret)
+    return jsonify({"deleted": counts["ask_log"], "bookmarks_deleted": counts["bookmarks"],
+                    "ratings_deleted": counts["ratings"], "profiles_deleted": counts["profiles"],
+                    "page_views_deleted": counts["page_views"], "opt_out_kept": counts["opt_out_kept"]})
 
 
 def _num_groq_keys():
