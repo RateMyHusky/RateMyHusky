@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { Link } from 'react-router-dom';
 import {
   loadState, saveState, canShowPopup, visitDay, markShown, markDismissed,
-  popupDelay, triggerFor, rateHref, track, MIN_DWELL_MS, type PromptTrigger,
+  popupDelay, triggerFor, rateHref, track, type PromptTrigger,
 } from '../utils/ratePrompt';
+import { useDwell } from '../utils/useDwell';
 import { lastName } from '../pages/rate/rateFlow';
 import './RatePopup.css';
 
@@ -12,6 +13,9 @@ interface Props {
   profName: string;
   reviewsRef: RefObject<HTMLElement | null>;
   cardRef: RefObject<HTMLElement | null>;
+  onDecided?: (shown: boolean) => void;
+  // The profile popup is already open this page view, so this one stays off.
+  suppressed?: boolean;
 }
 
 const onScreen = (el: HTMLElement) => {
@@ -19,84 +23,49 @@ const onScreen = (el: HTMLElement) => {
   return r.bottom > 0 && r.top < window.innerHeight;
 };
 
-export default function RatePopup({ slug, profName, reviewsRef, cardRef }: Props) {
+export default function RatePopup({ slug, profName, reviewsRef, cardRef, onDecided, suppressed }: Props) {
   const [trigger, setTrigger] = useState<PromptTrigger | null>(null);
   // Decided once per mount: StrictMode reruns the effect after the first run has saved today's date.
   const revisitRef = useRef<boolean | null>(null);
+  const [delay, setDelay] = useState<number | null>(null);
+  // Reports the decision once per mount, whichever path reaches it.
+  const decidedRef = useRef(false);
+  const onDecidedRef = useRef(onDecided);
+  useEffect(() => { onDecidedRef.current = onDecided; });
+  const decide = useCallback((shown: boolean) => {
+    if (decidedRef.current) return;
+    decidedRef.current = true;
+    onDecidedRef.current?.(shown);
+  }, []);
 
   useEffect(() => {
     const loaded = loadState();
-    if (!loaded) return;
+    if (!loaded) {
+      decide(false);
+      return;
+    }
     if (revisitRef.current === null) {
       const visit = visitDay(loaded, Date.now());
       revisitRef.current = visit.revisit;
       saveState(visit.state);
     }
-    const revisit = revisitRef.current;
+    setDelay(popupDelay(revisitRef.current));
+  }, [decide]);
 
-    // Dwell counts visible time only, so a background tab never shows the popup.
-    let fired = false;
-    let timer: number | undefined;
-    let scrolled = false;
-    let visibleMs = 0;
-    let visibleSince: number | null = document.visibilityState === 'visible' ? Date.now() : null;
-
-    const fire = (signal: 'time' | 'scroll') => {
-      if (fired) return;
-      fired = true;
-      // The in-tab rate card already asked, so the popup stays off for the rest of this page view.
-      // A second ask would also spend one of the 3 dismissals.
-      if (cardRef.current && onScreen(cardRef.current)) return;
-      const now = Date.now();
-      const current = loadState();
-      if (!current || !canShowPopup(current, slug, now)) return;
-      saveState(markShown(current, now));
-      const t = triggerFor(signal, revisit);
-      setTrigger(t);
-      track('rate_prompt_shown', { trigger: t });
-    };
-
-    const schedule = () => {
-      window.clearTimeout(timer);
-      if (fired || visibleSince === null) return;
-      const seen = visibleMs + (Date.now() - visibleSince);
-      const delay = popupDelay(revisit);
-      if (scrolled && seen >= MIN_DWELL_MS) return fire('scroll');
-      if (seen >= delay) return fire('time');
-      timer = window.setTimeout(schedule, (scrolled ? Math.min(delay, MIN_DWELL_MS) : delay) - seen);
-    };
-
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        if (visibleSince === null) visibleSince = Date.now();
-        schedule();
-      } else if (visibleSince !== null) {
-        visibleMs += Date.now() - visibleSince;
-        visibleSince = null;
-        window.clearTimeout(timer);
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-
-    // Counts on a scroll that leaves the reviews' top above the bottom 15% of the screen. Reviews already
-    // on screen at load wait for a scroll, so a tall window can't fire 'scroll' with no scrolling.
-    const el = reviewsRef.current;
-    const onScroll = () => {
-      if (!el || el.getBoundingClientRect().top > window.innerHeight * 0.85) return;
-      window.removeEventListener('scroll', onScroll);
-      scrolled = true;
-      schedule();
-    };
-    if (el) window.addEventListener('scroll', onScroll, { passive: true });
-
-    schedule();
-
-    return () => {
-      window.clearTimeout(timer);
-      document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('scroll', onScroll);
-    };
-  }, [slug, reviewsRef, cardRef]);
+  useDwell(reviewsRef, delay, signal => {
+    // The in-tab rate card already asked, so the popup stays off for the rest of this page view.
+    // A second ask would also spend one of the 3 dismissals.
+    if (suppressed) return decide(false);
+    if (cardRef.current && onScreen(cardRef.current)) return decide(false);
+    const now = Date.now();
+    const current = loadState();
+    if (!current || !canShowPopup(current, slug, now)) return decide(false);
+    saveState(markShown(current, now));
+    const t = triggerFor(signal, revisitRef.current ?? false);
+    setTrigger(t);
+    track('rate_prompt_shown', { trigger: t });
+    decide(true);
+  });
 
   // The live region stays mounted while empty: screen readers announce content added to an
   // existing region, not a region that arrives already filled.

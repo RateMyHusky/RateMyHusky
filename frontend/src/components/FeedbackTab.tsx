@@ -31,6 +31,7 @@ const feedbackOptions = [
   { value: 'reviewreport', label: 'Report a Review' },
   { value: 'professor', label: 'Data Deletion' },
   { value: 'datadeletion', label: 'Account Deletion' },
+  { value: 'optout', label: 'Opt out of data collection' },
   { value: 'banappeal', label: 'Ask Ban Appeal' },
 ].filter((o) => ASK_ENABLED || o.value !== 'banappeal');
 
@@ -42,12 +43,13 @@ const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 // types where an email is required and (when signed in) the verified account id is sent,
 // so we can respond and act on the right account
-const ACCOUNT_TYPES = ['banappeal', 'datadeletion'];
+const ACCOUNT_TYPES = ['banappeal', 'datadeletion', 'optout'];
 // also require an email, but carry no account id: a professor is confirmed at their
 // Northeastern address, which the FAQ, Privacy Policy and Terms say we need
 const EMAIL_REQUIRED_TYPES = [...ACCOUNT_TYPES, 'professor'];
 
 const SIGN_IN_FOR_DELETION = "Please sign in first so we know which account's data to delete.";
+const SIGN_IN_FOR_OPTOUT = 'Please sign in first so we know which account to opt out.';
 
 const FeedbackTab = () => {
   const { user, loading: authLoading } = useAuth();
@@ -112,13 +114,16 @@ const FeedbackTab = () => {
     };
   }, [isOpen, submitted, renderTurnstile]);
 
+  const needsSignIn = feedbackType === 'datadeletion' || feedbackType === 'optout';
+  const signInMessage = feedbackType === 'optout' ? SIGN_IN_FOR_OPTOUT : SIGN_IN_FOR_DELETION;
+
   const handleSubmit = async () => {
     if (!feedbackType || !description.trim()) {
       setError('Please select a feedback type and enter a description.');
       return;
     }
-    if (feedbackType === 'datadeletion' && !user) {
-      setError(SIGN_IN_FOR_DELETION);
+    if (needsSignIn && !user) {
+      setError(signInMessage);
       return;
     }
     if (EMAIL_REQUIRED_TYPES.includes(feedbackType) && !email.trim()) {
@@ -147,7 +152,7 @@ const FeedbackTab = () => {
       const msg = err instanceof Error ? err.message : '';
       if (msg.includes('Sign in required')) {
         // the token expired after the page loaded, or there never was one
-        setError(SIGN_IN_FOR_DELETION);
+        setError(signInMessage);
       } else if (msg.includes('429') || msg.includes('limit')) {
         setError('Daily feedback limit reached. Please try again tomorrow.');
       } else if (msg.includes('Invalid email')) {
@@ -201,7 +206,9 @@ const FeedbackTab = () => {
       case 'banappeal':
         return "Explain why your access to Ask should be restored. Include any context about the questions you asked.";
       case 'datadeletion':
-        return "Request deletion of your Ask data and bookmarks. We'll delete all Ask logs and bookmarks tied to your signed-in account.";
+        return "Request deletion of your Ask data, bookmarks, course picks profile and browsing activity. We'll delete everything tied to your signed-in account.";
+      case 'optout':
+        return "Ask us to stop saving your browsing. We'll delete what we've saved and stop adding your student level and graduation year to new ratings. To delete your profile too, send an Account Deletion request.";
       case 'professor':
         return "Which page is yours, and what should we correct or remove? Use your Northeastern email below; we confirm every request there before acting.";
       case 'general':
@@ -272,9 +279,11 @@ const FeedbackTab = () => {
                   ariaLabelledBy="feedback-type-label"
                   triggerRef={typeTriggerRef}
                 />
-                {feedbackType === 'datadeletion' && !authLoading && !user && (
+                {needsSignIn && !authLoading && !user && (
                   <p className="feedback-note">
-                    You're not signed in, so we can't tell which account's data to delete. Sign in first, then send this request.
+                    {feedbackType === 'optout'
+                      ? "You're not signed in, so we can't tell which account to opt out. Sign in first, then send this request."
+                      : "You're not signed in, so we can't tell which account's data to delete. Sign in first, then send this request."}
                   </p>
                 )}
 
@@ -309,7 +318,7 @@ const FeedbackTab = () => {
 
                 <div ref={turnstileRef} className="feedback-turnstile" />
 
-                <button className="feedback-submit" onClick={handleSubmit} disabled={loading || !turnstileToken || (feedbackType === 'datadeletion' && authLoading)}>
+                <button className="feedback-submit" onClick={handleSubmit} disabled={loading || !turnstileToken || (needsSignIn && authLoading)}>
                   {loading ? 'Sending...' : 'Submit'}
                 </button>
                 <span tabIndex={0} data-dialog-wrap />
