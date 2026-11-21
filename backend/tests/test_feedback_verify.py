@@ -88,6 +88,38 @@ def test_data_deletion_requires_a_valid_account(monkeypatch):
         assert resp.get_json()["error"] == "Sign in required"
 
 
+def test_optout_requires_a_valid_account(monkeypatch):
+    for token in (None, "not-a-jwt"):
+        resp = _post(monkeypatch, feedbackType="optout", description="hi",
+                     email="a@northeastern.edu", accountSub=token)
+        assert resp.status_code == 401
+        assert resp.get_json() == {"error": "Sign in required"}
+
+
+def test_optout_requires_an_email(monkeypatch):
+    resp = _post(monkeypatch, feedbackType="optout", description="hi", accountSub=_account_token())
+    assert resp.status_code == 400
+    assert "Email is required" in resp.get_json()["error"]
+
+
+def test_optout_signed_in_reaches_the_email_with_the_account(monkeypatch):
+    import server
+    sent = {}
+    def fake_send(subject, body, **kw):
+        sent["subject"], sent["body"] = subject, body
+        return True
+    monkeypatch.setenv("RESEND_API_KEY", "k")
+    monkeypatch.setattr(server.notify, "send_team_email", fake_send)
+    monkeypatch.setattr(server, "_chat_write", lambda *a, **k: None)
+    monkeypatch.delenv("TURNSTILE_SECRET_KEY", raising=False)
+    monkeypatch.setattr(server.limiter, "enabled", False)
+    resp = server.app.test_client().post("/api/feedback", json=dict(
+        feedbackType="optout", description="hi", email="a@northeastern.edu", accountSub=_account_token()))
+    assert resp.status_code == 200
+    assert "Data Collection Opt-out Request" in sent["subject"]
+    assert "Account:     user-123" in sent["body"]
+
+
 def test_invalid_requests_are_rejected_before_captcha(monkeypatch):
     import server
     monkeypatch.setattr(server.limiter, "enabled", False)

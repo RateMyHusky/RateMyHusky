@@ -959,6 +959,17 @@
 
   var modalState = { kind: null, token: null };
 
+  // One line of counts: the purge response also counts what else the account has.
+  // The opt-out note goes after the caller's suffix, so it never reads as deleted.
+  function deletedSummary(data, suffix) {
+    if (data.error) return "Error: " + data.error;
+    if (data.bookmarks_deleted === undefined) return data.deleted + " row(s)" + (suffix || "");
+    return data.deleted + " ask_log, " + data.bookmarks_deleted + " bookmark, " +
+      data.ratings_deleted + " rating, " + data.profiles_deleted + " profile and " +
+      data.page_views_deleted + " page view row(s)" + (suffix || "") +
+      (data.opt_out_kept ? ". An opted-out profile row is put back, so the opt-out still holds" : "");
+  }
+
   function openConfirmModal(kind, token) {
     modalState.kind = kind;
     modalState.token = token;
@@ -978,8 +989,8 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (modalState.kind !== kind || modalState.token !== token) return;
-        document.getElementById("modal-body").textContent =
-          data.deleted + " row(s) will be deleted for " + token;
+        document.getElementById("modal-body").textContent = data.error ? deletedSummary(data) :
+          deletedSummary(data, " will be deleted for " + token);
       })
       .catch(function (err) {
         if (modalState.kind !== kind || modalState.token !== token) return;
@@ -1014,9 +1025,13 @@
       })
         .then(function (r) { return r.json(); })
         .then(function (data) {
+          if (data.error) {
+            document.getElementById("modal-body").textContent = deletedSummary(data);
+            return;
+          }
           closeConfirmModal();
           var statusLine = document.getElementById("users-status");
-          statusLine.textContent = "Deleted " + data.deleted + " row(s) for " + token;
+          statusLine.textContent = "Deleted " + deletedSummary(data, " for " + token);
           fetchUsers();
         })
         .catch(function (err) {

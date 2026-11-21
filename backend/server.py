@@ -40,6 +40,7 @@ from rag.chat_answer import generate, generate_course_list, generate_course_rank
 from course_page import build_course
 from professor_full import build_payload
 import bookmarks
+import student_profile
 import moderation
 import moderation_groq
 import notify
@@ -464,7 +465,7 @@ ACCOUNT_FEEDBACK_DAILY_LIMIT = 15
 FEEDBACK_PER_ACCOUNT_DAILY_LIMIT = 3
 # feedback types that require a reply email and carry the signed-in account's verified sub,
 # so support can act on the right ask_log rows (review an appeal, or erase the user's data)
-_ACCOUNT_FEEDBACK_TYPES = {"banappeal", "datadeletion"}
+_ACCOUNT_FEEDBACK_TYPES = {"banappeal", "datadeletion", "optout"}
 # A professor asking to correct or remove their page: the FAQ, Privacy Policy and
 # Terms say these can't be verified or answered without an email, so it's required.
 _EMAIL_REQUIRED_FEEDBACK_TYPES = _ACCOUNT_FEEDBACK_TYPES | {"professor"}
@@ -488,6 +489,7 @@ _FEEDBACK_TYPE_LABELS = {
     "feature": "Feature Request",
     "professor": "Professor Request",
     "datadeletion": "Account Deletion Request",
+    "optout": "Data Collection Opt-out Request",
     "banappeal": "Ask Ban Appeal",
 }
 # These limits and the email pattern in submit_feedback are copied in
@@ -793,9 +795,25 @@ def purge_old_ask_log(write_fn=None, now=None):
         delete_old_ask_log(write_fn)
 
 
+# page_views are product analytics, not an audit trail: a flood or a forgotten table
+# shouldn't keep them forever. Same hourly job and batch size as ask_log.
+PAGE_VIEW_RETENTION_DAYS = 180
+
+
+def delete_old_page_views(write_fn=None):
+    """Delete a batch of page_views past retention (idx_page_views_viewed_at serves the
+    scan); best-effort like delete_old_ask_log."""
+    (write_fn or _chat_write)(
+        "DELETE FROM page_views WHERE id IN (SELECT id FROM page_views "
+        "WHERE viewed_at < now() - %s * INTERVAL '1 day' LIMIT %s)",
+        (PAGE_VIEW_RETENTION_DAYS, ASK_LOG_PURGE_BATCH))
+
+
 def _purge_ask_log_job():
     with app.app_context():   # get_db() keeps its connection on flask.g
         delete_old_ask_log()
+        _rollback_after_cancel(get_db())   # a failed delete above leaves the transaction aborted; don't skip this one
+        delete_old_page_views()
 
 
 @app.before_request
@@ -2513,6 +2531,62 @@ def bookmarks_remove():
     return jsonify({"ok": True})
 
 
+def _profile_limit_key():
+    """Per signed-in student, so students sharing a campus or Private Relay IP don't
+    share a budget. No valid token: the IP, as everywhere else."""
+    claims = decode_session_token(_get_auth_token())
+    return f"sub:{claims['sub']}" if claims else get_real_ip()
+
+
+def _viewer_hash(user_sub):
+    return rating_identity.keyed_hash(RATING_SECRET, "viewer", user_sub)
+
+
+@app.route("/api/profile")
+@limiter.limit("30 per minute", key_func=_profile_limit_key)
+def profile_get():
+    user_sub = _require_bookmarks_auth()
+    if not user_sub:
+        return jsonify({"error": "Sign in required"}), 401
+    # Profiles are stored under a keyed hash, never the raw sub; without the secret, off like the rate form.
+    if not (RATING_SECRET and len(RATING_SECRET) >= _MIN_RATING_SECRET):
+        return _rating_unavailable()
+    return jsonify(student_profile.profile_status(_viewer_hash(user_sub), query_one))
+
+
+@app.route("/api/profile", methods=["PUT"])
+@limiter.limit("20 per minute", key_func=_profile_limit_key)
+def profile_put():
+    user_sub = _require_bookmarks_auth()
+    if not user_sub:
+        return jsonify({"error": "Sign in required"}), 401
+    # Profiles are stored under a keyed hash, never the raw sub; without the secret, off like the rate form.
+    if not (RATING_SECRET and len(RATING_SECRET) >= _MIN_RATING_SECRET):
+        return _rating_unavailable()
+    clean, error = student_profile.validate_profile(_json_object(), datetime.now(timezone.utc).year)
+    if error:
+        return jsonify({"error": error}), 400
+    student_profile.save_profile(_viewer_hash(user_sub), clean, _write)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/views", methods=["POST"])
+@limiter.limit("60 per minute;500 per day", key_func=_profile_limit_key)
+def views_post():
+    user_sub = _require_bookmarks_auth()
+    if not user_sub:
+        return jsonify({"error": "Sign in required"}), 401
+    # Views are stored under a keyed hash, never the raw sub; without the secret, off like the rate form.
+    if not (RATING_SECRET and len(RATING_SECRET) >= _MIN_RATING_SECRET):
+        return _rating_unavailable()
+    clean, error = student_profile.validate_view(_json_object())
+    if error:
+        return jsonify({"error": error}), 400
+    if student_profile.record_view(_viewer_hash(user_sub), clean, query_one, _write) == "not_found":
+        return jsonify({"error": "Not found"}), 400
+    return "", 204
+
+
 # What a CSP report logs, each value capped. URLs lose their query string, which
 # can carry search terms or tokens.
 CSP_REPORT_FIELDS = ("document-uri", "effective-directive", "violated-directive",
@@ -2584,7 +2658,7 @@ def submit_feedback():
         appeal_account = claims.get("sub") if claims else None
 
     # Support can't erase data that isn't tied to an account, so don't send it on.
-    if feedback_type == "datadeletion" and appeal_account is None:
+    if feedback_type in ("datadeletion", "optout") and appeal_account is None:
         return jsonify({"error": "Sign in required"}), 401
 
     # Verify Cloudflare Turnstile CAPTCHA
@@ -2628,7 +2702,8 @@ def submit_feedback():
         lines.append(f"Verify:      {verify_note}")
     if feedback_type in _ACCOUNT_FEEDBACK_TYPES:
         # surface the session_token to act on via clear_ask_strikes.py
-        # (--account <sub> for appeals, --purge-account <sub> for data deletion)
+        # (--account <sub> for appeals, --purge-account <sub> for data deletion,
+        # --opt-out <sub> for a data collection opt-out)
         lines.append(f"Account:     {appeal_account or 'not signed in / token invalid'}")
     lines += ["", "Description:", description]
     body = "\n".join(lines)
@@ -2991,6 +3066,13 @@ def rate_submit():
                                            edit=bool(existing) and existing["status"] == "accepted",
                                            unverified_pair=unverified, near_duplicate=bool(near),
                                            skew_week=skew, silent_hold=silent, unverified_term=wrong_term)
+    # A failed lookup must not lose the rating: query_one rolled the connection back, so save_rating still works.
+    try:
+        sub = _require_bookmarks_auth()
+        rater_level, rater_grad_year = student_profile.rater_profile(sub and _viewer_hash(sub), query_one)
+    except psycopg2.Error as e:
+        print(f"rate_submit: profile lookup failed, saving without the rater level: {e}")
+        rater_level, rater_grad_year = None, None
     row = {
         **key,
         "term_label": clean["term_label"], "rating": clean["rating"], "difficulty": clean["difficulty"],
@@ -2998,6 +3080,7 @@ def rate_submit():
         "grade": clean["grade"], "comment": clean["comment"] or None, "comment_hash": chash,
         "status": status, "hold_reasons": ",".join(reasons) or None,
         "device_hash": device_hash, "account_hash": account, "new_device": new_device,
+        "rater_level": rater_level, "rater_grad_year": rater_grad_year,
         "ip_hash": ip_hash, "ip_prefix_hash": prefix_hash, "network_type": network_type,
         "fill_seconds": fill_seconds, "collection": "turnstile+account",
         **{c: check.get(c) for c in ratings.CHECK_COLUMNS},

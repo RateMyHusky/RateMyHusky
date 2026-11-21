@@ -1,0 +1,2300 @@
+{
+  "source": "https://catalog.northeastern.edu/undergraduate/",
+  "copied": "2026-11-20",
+  "majors": [
+    {
+      "name": "Applied Psychology, BA",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Health Science and Business Administration, BS",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Health Science and Communication Studies, BS",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Health Science and Criminal Justice, BS",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Health Science and Law, BS",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Health Science and Psychology, BS",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Health Science and Sociology, BS",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Health Science and Spanish, BS",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Health Science, BS",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Nursing, BSN",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Pharmaceutical Sciences, BS",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Pharmacy, PharmD",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Public Health and Communication Studies, BA",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Public Health and Cultural Anthropology, BA",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Public Health and Journalism, BA",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Public Health and Law, BA",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Public Health and Sociology, BA",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Public Health, BA",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Speech-Language Pathology and Audiology and Behavioral Neuroscience, BS",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Speech-Language Pathology and Audiology and Human Services, BS",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Speech-Language Pathology and Audiology, BS",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Acting, BFA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Architectural Studies and Business Administration, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Architectural Studies and Design, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Architectural Studies, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Architecture and English, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Architecture, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Art, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Communication Studies and Design, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Communication Studies and Graphic and Information Design, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Communication Studies and Sociology, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Communication Studies and Speech-Language Pathology and Audiology, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Communication Studies and Theatre, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Communication Studies, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Communication and Media Studies, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Dance, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Dance, BFA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Design and Mathematics, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Design and Public Health, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Design and Theatre, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Design, BFA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Film and Creative Media, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Film and Media Production, BFA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Game Art and Animation, BFA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Game Design and Music with Concentration in Music Technology, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Game Design, BFA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Graphic and Information Design and Mathematics, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Journalism and Communication Studies, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Journalism and Cultural Anthropology, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Journalism and Design, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Journalism and English, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Journalism and Interaction Design, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Journalism and International Affairs, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Journalism and Political Science, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Journalism and Sociology, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Journalism, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Landscape Architecture, BLA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Media Arts and Communication Studies, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Media Arts, BFA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Media and Screen Studies and English, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Media and Screen Studies and History, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Media and Screen Studies and Journalism, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Media and Screen Studies and Media Arts, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Media and Screen Studies and Philosophy, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Media and Screen Studies and Political Science, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Media and Screen Studies and Sociology, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Media and Screen Studies and Theatre, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Media and Screen Studies and Theatre, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Media and Screen Studies, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Music and Business Administration with Concentration in Music Industry, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Music and Communication Studies with Concentration in Music Industry, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Music with Concentration in Music Industry, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Music with Concentration in Music Technology, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Music, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Musical Theatre, BFA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Performance and Extended Realities, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Public Relations, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Studio Art, BFA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Theatre Design, Technology, and Stage Management, BFA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Theatre and Interaction Design, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Theatre and Interaction Design, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Theatre and Journalism, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Theatre, BA",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Theatre, BS",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Bioengineering and Behavioral Neuroscience, BSBioE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Bioengineering and Biochemistry, BSBioE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Bioengineering, BSBioE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Chemical Engineering and Artificial Intelligence, BSChE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Chemical Engineering and Biochemistry, BSChE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Chemical Engineering and Bioengineering, BSChE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Chemical Engineering and Computer Science, BSChE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Chemical Engineering and Data Science, BSChE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Chemical Engineering and Environmental Engineering, BSChE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Chemical Engineering and Physics, BSChE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Chemical Engineering, BSChE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Civil Engineering and Architectural Studies, BSCE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Civil Engineering and Business Administration, BSCE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Civil Engineering and Computer Science, BSCE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Civil Engineering, BSCE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Computer Engineering and Computer Science, BSCmpE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Computer Engineering and Physics, BSCmpE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Computer Engineering, BSCmpE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Electrical Engineering and Music with Concentration in Music Technology, BSEE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Electrical Engineering and Physics, BSEE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Electrical Engineering, BSEE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Electrical and Computer Engineering, BSCmpE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Electrical and Computer Engineering, BSEE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Environmental Engineering and Artificial Intelligence, BSEnvE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Environmental Engineering and Chemical Engineering, BSEnvE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Environmental Engineering and Data Science, BSEnvE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Environmental Engineering and Health Science, BSEnvE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Environmental Engineering and Landscape Architecture, BSEnvE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Environmental Engineering, BSEnvE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Industrial Engineering and Business Administration, BSIE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Industrial Engineering and Computer Science, BSIE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Industrial Engineering, BSIE",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Mechanical Engineering and Bioengineering, BSME",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Mechanical Engineering and Computer Science, BSME",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Mechanical Engineering and Design, BSME",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Mechanical Engineering and History, BSME",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Mechanical Engineering and Physics, BSME",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Mechanical Engineering, BSME",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Applied Physics, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Behavioral Neuroscience and Design, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Behavioral Neuroscience and Philosophy, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Behavioral Neuroscience, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Biochemistry, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Biology and English, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Biology and International Business, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Biology and Mathematics, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Biology and Political Science, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Biology and Public Health, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Biology, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Biomedical Physics, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Cell and Molecular Biology, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Chemistry, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Ecology and Evolutionary Biology, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Environmental Studies and History, BA",
+      "college": "College of Science"
+    },
+    {
+      "name": "Environmental Studies and International Affairs, BA",
+      "college": "College of Science"
+    },
+    {
+      "name": "Environmental Studies and Philosophy, BA",
+      "college": "College of Science"
+    },
+    {
+      "name": "Environmental Studies and Political Science, BA",
+      "college": "College of Science"
+    },
+    {
+      "name": "Environmental Studies, BA",
+      "college": "College of Science"
+    },
+    {
+      "name": "Environmental and Sustainability Sciences and Chemistry, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Environmental and Sustainability Sciences and Economics, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Environmental and Sustainability Sciences and Journalism, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Environmental and Sustainability Sciences and Landscape Architecture, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Environmental and Sustainability Sciences, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Linguistics and Communication Studies, BA",
+      "college": "College of Science"
+    },
+    {
+      "name": "Linguistics and Cultural Anthropology, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Linguistics and English, BA",
+      "college": "College of Science"
+    },
+    {
+      "name": "Linguistics and Psychology, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Linguistics and Speech-Language Pathology and Audiology, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Linguistics, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Marine Biology, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Mathematics and Business Administration, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Mathematics and Philosophy, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Mathematics and Physics, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Mathematics and Political Science, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Mathematics and Psychology, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Mathematics and Sociology, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Mathematics, BA",
+      "college": "College of Science"
+    },
+    {
+      "name": "Mathematics, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Physics and Music with Concentration in Music Technology, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Physics and Philosophy, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Physics, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Psychology and Design, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Psychology and Music, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Psychology and Theatre, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Psychology, BS",
+      "college": "College of Science"
+    },
+    {
+      "name": "Africana Studies and Criminal Justice, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Africana Studies and English, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Africana Studies and Human Services, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Africana Studies and Journalism, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Africana Studies and Media and Screen Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Africana Studies and Political Science, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Africana Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Africana Studies, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "American Sign Language and Human Services, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "American Sign Language and Linguistics, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "American Sign Language and Psychology, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "American Sign Language and Theatre, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "American Sign Language—English Interpreting, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Asian Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Creative Writing, BFA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Criminal Justice and Journalism, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Criminal Justice and Philosophy, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Criminal Justice and Political Science, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Criminal Justice and Psychology, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Criminal Justice and Public Health, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Criminal Justice and Sociology, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Criminal Justice, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Criminology and Criminal Justice, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Cultural Anthropology and Health Science, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Cultural Anthropology and Philosophy, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Cultural Anthropology and Religious Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Cultural Anthropology and Theatre, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Cultural Anthropology, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Cultural Anthropology, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Economics and Business Administration, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Economics and Criminal Justice, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Economics and Human Services, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Economics and International Business, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Economics and Journalism, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Economics and Mathematics, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Economics and Philosophy, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Economics and Psychology, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Economics, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Economics, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "English and Communication Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "English and Criminal Justice, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "English and Cultural Anthropology, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "English and Design, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "English and Graphic and Information Design, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "English and Philosophy, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "English and Political Science, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "English and Theatre, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "English, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Global Asian Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Health Humanities and Health Science, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Health Humanities and Public Health, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "History and Asian Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "History and Criminal Justice, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "History and Cultural Anthropology, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "History and Economics, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "History and Economics, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "History and English, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "History and Linguistics, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "History and Philosophy, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "History and Political Science, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "History and Religious Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "History, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "History, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "History, Culture, and Law, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Human Services and Communication Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Human Services and Criminal Justice, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Human Services and International Affairs, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Human Services and Psychology, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Human Services and Public Health, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Human Services and Sociology, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Human Services and Sociology, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Human Services, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Human Services, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs and Criminal Justice, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs and Cultural Anthropology, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs and Economics, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs and History, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs and International Business, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs and Religious Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs with African Studies Concentration, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs with Asian Studies Concentration, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs with European Studies Concentration, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs with Latin American Studies Concentration, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs with Middle East Studies Concentration, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Jewish Studies and Religion, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Philosophy, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Philosophy, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Political Science and Business Administration, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Political Science and Communication Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Political Science and Communication Studies, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Political Science and Economics, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Political Science and Economics, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Political Science and Human Services, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Political Science and Human Services, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Political Science and International Affairs, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Political Science and Philosophy, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Political Science and Philosophy, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Political Science, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Political Science, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Politics, Philosophy, and Economics and Business Administration, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Politics, Philosophy, and Economics, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Religious Studies and Africana Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Religious Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Sociology and Cultural Anthropology, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Sociology and Cultural Anthropology, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Sociology and Environmental Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Sociology and International Affairs, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Sociology and Philosophy, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Sociology and Political Science, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Sociology and Religious Studies, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Sociology, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Sociology, BS",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Spanish and International Affairs, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Spanish and Linguistics, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Spanish and Public Health, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Spanish, BA",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Business Administration and Communication Studies, BS",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Business Administration and Criminal Justice, BS",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Business Administration and Design, BS",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Business Administration and Law, BS",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Business Administration and Psychology, BS",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Business Administration and Public Health, BS",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Business Administration and Public Relations, BS",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Business Administration, BS",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Business Administration, BSBA",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Interdisciplinary Studies, BS",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "International Business, BS",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "International Business, BSIB",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Quantitative Finance, BS",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Artificial Intelligence and Behavioral Neuroscience, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Biochemistry, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Biology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Business Administration, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Chemistry, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Communication Studies, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Criminal Justice, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Design, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Ecology and Evolutionary Biology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Economics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Environmental and Sustainability Sciences, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Health Science, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and International Affairs, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Journalism, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Linguistics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Mathematics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Philosophy, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Physics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Psychology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Public Health, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Sociology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence and Speech-Language Pathology and Audiology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Artificial Intelligence, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Behavioral Neuroscience, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Biology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Business Administration, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Cognitive Psychology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Communication Studies, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Criminal Justice, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Design, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Economics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and English, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Environmental and Sustainability Sciences, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Game Development, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Health Science, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and History, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Journalism, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Linguistics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Mathematics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Media Arts, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Music with Concentration in Music Technology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Music, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Philosophy, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Physics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Political Science, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Politics, Philosophy, and Economics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Public Health, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Sociology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Speech-Language Pathology and Audiology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science and Theatre, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science, BACS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science, BSCS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computing and Law, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Cybersecurity and Business Administration, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Cybersecurity and Criminal Justice, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Cybersecurity and Economics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Cybersecurity and History, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Cybersecurity and Political Science, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Cybersecurity, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Behavioral Neuroscience, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Biochemistry, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Biology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Business Administration, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Chemistry, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Communication Studies, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Criminal Justice, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Design, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Ecology and Evolutionary Biology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Economics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Environmental and Sustainability Sciences, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Health Science, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and International Affairs, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Journalism, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Linguistics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Mathematics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Philosophy, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Physics, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Psychology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Public Health, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Sociology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science and Speech-Language Pathology and Audiology, BS",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science, BS",
+      "college": "Khoury College of Computer Sciences"
+    }
+  ],
+  "minors": [
+    {
+      "name": "Audiology, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Communication Sciences and Disorders, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Early Intervention, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Exercise Science, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Global Health, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Health Equity, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Health Psychology, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Health Sciences Entrepreneurship, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Human Movement Science, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Mindfulness Studies, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Nutrition, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Pharmaceutical Sciences, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Public Health, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Speech-Language Pathology and Audiology, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Wellness Studies, Minor",
+      "college": "Bouvé College of Health Sciences"
+    },
+    {
+      "name": "Animation, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Architectural Design, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Architectural Science and Systems, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Architectural and Urban History, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Argumentation and Law, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Art History and Visual Studies, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Art History, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Art, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Cinema Studies, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Communication Studies, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Creative Computing, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Creative Fabrication, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Creativity in Theory and Practice, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Dance, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Data Storytelling, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Data Visualization, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Design, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Digital Communication, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Ethnomusicology, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Experience Design, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Fashion and Wearable Technologies, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Film Production, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Film Studies, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Game Art, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Game Design, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Global Fashion Studies, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Graphic and Information Design, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Human Communication, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Immersive Media, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Improvisation and Storytelling, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Interaction Design, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Journalism Practice, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Journalism Studies, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Media Production, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Media and Screen Studies, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Music Composition, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Music Industry, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Music Performance, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Music Recording, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Music Technology, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Music, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Oratory and Public Speaking, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Performing Arts Administration, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Photography, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Photojournalism, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Playwriting, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Podcasting, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Political Communication, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Public Relations, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Rhetoric, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Science Communication, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Social Activism, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Songwriting, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Sports, Media, and Communication, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Theatre, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Theatre, Performance, and Social Change, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Theatrical Design, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Urban Landscape Studies, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Video Arts, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Video News Storytelling, Minor",
+      "college": "College of Arts, Media and Design"
+    },
+    {
+      "name": "Aerospace, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Architectural Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Biochemical Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Bioengineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Biomechanical Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Biomedical Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Chemical Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Civil Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Computational Data Analytics, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Computer Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Design and Innovation in Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Electrical Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Entrepreneurial Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Environmental Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Global Perspectives in Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Healthcare System Operations, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Industrial Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Materials Science and Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Mechanical Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Robotics, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Semiconductor Engineering, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Sustainable Cities, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Sustainable Energy Systems, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Sustainable Processes and Materials, Minor",
+      "college": "College of Engineering"
+    },
+    {
+      "name": "Astrophysics, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Behavioral Neuroscience, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Biochemistry, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Bioethics, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Biology, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Cell and Molecular Biology, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Chemistry, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Ecology and Evolutionary Biology, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Environmental Chemistry, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Environmental Studies, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Environmental and Sustainability Sciences, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Geosciences, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Linguistics, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Marine Sciences, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Mathematics, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Network Science, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Physics, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Psychology, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Science Writing, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "Scientific Commercialization, Minor",
+      "college": "College of Science"
+    },
+    {
+      "name": "African American Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "African Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Africana Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "American Political Institutions, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "American Sign Language, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Arabic, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Black Feminist Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Chinese, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Computational Social Science, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Criminal Justice, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Cultural Anthropology, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Digital Methods in the Humanities, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "East Asian Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Economics, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "English, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Ethics, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Expressive Therapies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Film and International Cultures, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Food Systems Sustainability, Health, and Equity, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "French, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "German, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Global Asian Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Health, Humanities, and Society, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "History, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Human Services, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Information Ethics, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Affairs, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "International Security Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Italian, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Japanese, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Jewish Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Latino/a, Latin American and Caribbean Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Latinx, Latin American, and Caribbean Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Law and Public Policy, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Middle East and Mediterranean Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Philosophy, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Political Science, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Portuguese, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Religious Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Russian, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Science and Technology Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Sociology, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Spanish for Healthcare, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Spanish, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Urban Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Women's, Gender, and Sexuality Studies, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Writing, Minor",
+      "college": "College of Social Sciences and Humanities"
+    },
+    {
+      "name": "Accounting and Advisory Services, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Brand Management, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Business Administration, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Business Analytics, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Consulting, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Corporate Innovation, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Emerging Markets, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Entrepreneurial Startups, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Family Business, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Interdisciplinary Artificial Intelligence, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "International Business, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Leadership and Human Capital, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Management Information Systems, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Managing Human Capital, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Marketing Analytics, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Marketing, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Social Innovation and Entrepreneurship, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Strategy, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Supply Chain Management, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Sustainable Business Practices, Minor",
+      "college": "D'Amore-McKim School of Business"
+    },
+    {
+      "name": "Artificial Intelligence, Minor",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Computer Science, Minor",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Cybersecurity, Minor",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Data Science, Minor",
+      "college": "Khoury College of Computer Sciences"
+    },
+    {
+      "name": "Creative Writing, Minor",
+      "college": "Mills College at Northeastern"
+    },
+    {
+      "name": "Sustainability Studies, Minor",
+      "college": "Mills College at Northeastern"
+    }
+  ]
+}
