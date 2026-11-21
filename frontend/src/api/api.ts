@@ -691,11 +691,14 @@ export async function addBookmark(itemType: 'professor' | 'course', itemKey: str
   }
 }
 
-export async function removeBookmark(itemType: 'professor' | 'course', itemKey: string): Promise<void> {
+export async function removeBookmark(
+  itemType: 'professor' | 'course', itemKey: string, opts?: { keepalive?: boolean },
+): Promise<void> {
   const res = await fetch(`${API_BASE}/api/bookmarks`, {
     method: 'DELETE',
     headers: bookmarkAuthHeaders(),
     body: JSON.stringify({ itemType, itemKey }),
+    keepalive: opts?.keepalive,
   });
   if (maintenanceGuard(res)) throw new Error('Site is under maintenance');
   if (!res.ok) {
