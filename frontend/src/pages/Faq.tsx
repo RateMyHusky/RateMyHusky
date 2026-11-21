@@ -53,14 +53,19 @@ const Faq = () => {
       return;
     }
     const t0 = performance.now();
+    let prev = start;
     let last = start;
     const step = (now: number) => {
-      // Something else moved the page (scrollbar drag, autoscroll): let it win.
-      if (Math.abs(window.scrollY - last) > 1) return;
+      // Something else moved the page (scrollbar drag, autoscroll): let it win. iOS Safari
+      // can report the position from a frame behind, so anywhere between the last two
+      // positions this slide asked for still counts as the slide's own.
+      const y = window.scrollY;
+      if (y < Math.min(prev, last) - 1 || y > Math.max(prev, last) + 1) return;
       const t = Math.min((now - t0) / SLIDE_MS, 1);
       const eased = t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
-      window.scrollTo(0, start + distance * eased);
-      last = window.scrollY;
+      prev = last;
+      last = start + distance * eased;
+      window.scrollTo(0, last);
       if (t < 1) slideFrame.current = requestAnimationFrame(step);
     };
     slideFrame.current = requestAnimationFrame(step);
