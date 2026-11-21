@@ -2,6 +2,7 @@
 .profile-popup { align-items: stretch; text-align: left; max-height: calc(100dvh - 32px); overflow-y: auto; }
 .profile-popup .rate-popup-text { margin-bottom: 12px; text-align: center; }
 .profile-popup .rate-popup-later { align-self: center; }
+.profile-sub { margin: -6px 0 12px; font-size: 0.8rem; line-height: 1.4; color: #666; text-align: center; }
 
 .profile-dots { display: flex; gap: 5px; justify-content: center; margin-bottom: 10px; }
 .profile-dots i { width: 7px; height: 7px; border-radius: 50%; background: #e2e2e2; }
@@ -69,7 +70,7 @@
 .dark .profile-year { background: #2e2e2e; border-color: #444; color: #e0e0e0; }
 .dark .profile-year:hover { background: #3a2327; border-color: #d6394c; }
 .dark .profile-year.on { background: #3a2327; border-color: #d6394c; color: #f0a0ab; }
-.dark .profile-note, .dark .profile-loading { color: #aaa; }
+.dark .profile-note, .dark .profile-loading, .dark .profile-sub { color: #aaa; }
 .dark .profile-note a, .dark .profile-error, .dark .profile-add { color: #f0a0ab; }
 .dark .profile-other { color: #aaa; }
 .dark .profile-label { color: #ccc; }

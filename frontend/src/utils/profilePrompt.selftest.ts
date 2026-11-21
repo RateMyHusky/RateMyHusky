@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { DAY_MS } from './ratePrompt';
 import {
   RESUME_KEY, STORAGE_KEY,
-  canAdvance, canShowProfilePrompt, firstStep, gradYearOptions, isLastStep, loadState, markDismissed,
+  canAdvance, canShowProfilePrompt, gradYearOptions, isLastQuestion, loadState, markDismissed,
   markResume, markShown, takeResume, toAnswers,
   type ProfilePromptState,
 } from './profilePrompt';
@@ -41,8 +41,13 @@ function selftest(): number {
 
   check('fresh can show', canShowProfilePrompt(loadState(fakeStorage())!, T));
   check('shown blocks a day', !canShowProfilePrompt(markShown(fresh, T), T + DAY_MS - 1) && canShowProfilePrompt(markShown(fresh, T), T + DAY_MS));
-  check('dismiss blocks a week', !canShowProfilePrompt(markDismissed(fresh, T), T + 7 * DAY_MS - 1));
-  check('three dismissals end it', !canShowProfilePrompt({ dismissCount: 3 }, T + 365 * DAY_MS));
+  check('dismiss blocks 3 days', !canShowProfilePrompt(markDismissed(fresh, T), T + 3 * DAY_MS - 1)
+    && canShowProfilePrompt(markDismissed(fresh, T), T + 3 * DAY_MS));
+  const third = markDismissed(markDismissed(markDismissed(fresh, T), T), T);
+  check('three dismissals pause 90 days', third.dismissCount === 3
+    && !canShowProfilePrompt(third, T + 89 * DAY_MS) && canShowProfilePrompt(third, T + 90 * DAY_MS));
+  check('a skip after the pause starts a new round', (() => { const s = markDismissed(third, T + 90 * DAY_MS);
+    return s.dismissCount === 1 && !canShowProfilePrompt(s, T + 92 * DAY_MS) && canShowProfilePrompt(s, T + 93 * DAY_MS); })());
   check('future clock does not block', canShowProfilePrompt({ dismissCount: 0, lastShown: T + DAY_MS * 30 }, T));
   check('throwing storage', loadState(throwingStorage) === null);
   check('tampered fields dropped', isDeepStrictEqual(loadState(fakeStorage('{"dismissCount":"x","lastShown":"y","junk":1}')), { dismissCount: 0 }));
@@ -57,16 +62,22 @@ function selftest(): number {
     withTz('Asia/Tokyo', () => gradYearOptions(Date.parse('2026-12-31T15:30:00Z'))), [2027, 2028, 2029, 2030, 2031]));
   check('years behind UTC on Dec 31 keep the local year', isDeepStrictEqual(
     withTz('America/New_York', () => gradYearOptions(Date.parse('2027-01-01T03:00:00Z'))), [2026, 2027, 2028, 2029, 2030, 2031]));
-  check('first step', firstStep(false) === 0 && firstStep(true) === 1);
-  check('grad finishes at step 1', isLastStep(1, 'grad') && !isLastStep(1, 2028) && isLastStep(3, 2028));
+  check('grad finishes at step 1', isLastQuestion(1, 'grad') && !isLastQuestion(1, 2028) && isLastQuestion(3, 2028));
   check('advance', !canAdvance(1, null, []) && canAdvance(1, 'grad', []) && !canAdvance(2, 2028, []) && canAdvance(2, 2028, ['other']));
   check('grad answers drop programs', isDeepStrictEqual(toAnswers('grad', ['x'], ['y']), { gradYear: null, majors: [], minors: [] }));
-  check('resume other path is false and removes it', (() => { const s = fakeSession(); markResume('/professors/a', s);
-    return !takeResume('/professors/b', Date.now(), s) && !takeResume('/professors/a', Date.now(), s); })());
-  check('resume same path once', (() => { const s = fakeSession(); markResume('/courses/cs2500', s);
-    return takeResume('/courses/cs2500', Date.now(), s) && !takeResume('/courses/cs2500', Date.now(), s); })());
-  check('resume expires', (() => { const s = fakeSession(); markResume('/courses/cs2500', s);
-    return !takeResume('/courses/cs2500', Date.now() + 16 * 60_000, s); })());
+  const answers = { year: 2028, majors: ['Computer Science, BSCS'], minors: [] };
+  check('resume other path is null and removes it', (() => { const s = fakeSession(); markResume('/professors/a', answers, s);
+    return takeResume('/professors/b', Date.now(), s) === null && takeResume('/professors/a', Date.now(), s) === null; })());
+  check('resume same path once, with the answers', (() => { const s = fakeSession(); markResume('/courses/cs2500', answers, s);
+    return isDeepStrictEqual(takeResume('/courses/cs2500', Date.now(), s), answers) && takeResume('/courses/cs2500', Date.now(), s) === null; })());
+  check('resume keeps a grad student', (() => { const s = fakeSession(); const grad = { year: 'grad' as const, majors: [], minors: [] };
+    markResume('/courses/cs2500', grad, s); return isDeepStrictEqual(takeResume('/courses/cs2500', Date.now(), s), grad); })());
+  check('resume expires', (() => { const s = fakeSession(); markResume('/courses/cs2500', answers, s);
+    return takeResume('/courses/cs2500', Date.now() + 16 * 60_000, s) === null; })());
+  check('resume without answers (older marker) is null', takeResume('/courses/cs2500', Date.now(),
+    fakeStorage(JSON.stringify({ path: '/courses/cs2500', at: Date.now() }), RESUME_KEY)) === null);
+  check('resume with tampered answers is null', takeResume('/courses/cs2500', Date.now(),
+    fakeStorage(JSON.stringify({ path: '/courses/cs2500', at: Date.now(), answers: { year: '2028', majors: [1], minors: [] } }), RESUME_KEY)) === null);
 
   console.log(fails.length ? `${fails.length} FAIL(s): ` + fails.join(', ') : 'ALL PASS');
   return fails.length ? 1 : 0;

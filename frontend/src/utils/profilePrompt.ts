@@ -1,6 +1,6 @@
 // Rules and local state for the step-by-step student profile popup.
 import type { ProfileAnswers } from '../api/api';
-import { DISMISS_COOLDOWN_MS, MAX_DISMISSALS, SHOWN_COOLDOWN_MS } from './ratePrompt';
+import { DAY_MS, SHOWN_COOLDOWN_MS } from './ratePrompt';
 
 export interface ProfilePromptState {
   lastShown?: number;
@@ -8,13 +8,28 @@ export interface ProfilePromptState {
   lastDismiss?: number;
 }
 
-export type Step = 0 | 1 | 2 | 3;
+// 1-3 are the questions; 4 asks a signed-out student to sign in so the answers can be saved.
+export type Step = 1 | 2 | 3 | 4;
 // null = not picked yet.
 export type YearChoice = number | 'grad' | null;
 // Whether the rate popup showed this page view; the profile popup never joins it.
 export type RateGate = 'pending' | 'shown' | 'clear';
 
+// Answers carried through a sign-in, so they can be saved once it finishes.
+export interface ResumeAnswers {
+  year: YearChoice;
+  majors: string[];
+  minors: string[];
+}
+
 export const STORAGE_KEY = 'rmh_profile_prompt';
+// Visible time before the popup opens, or after a scroll to the reviews or course table.
+export const PROFILE_DWELL_MS = 10_000;
+export const PROFILE_SCROLL_DWELL_MS = 3_000;
+const DISMISS_COOLDOWN_MS = 3 * DAY_MS;
+// Three skips pause the popup for about a semester; after that it gets three more.
+const MAX_DISMISSALS = 3;
+const ROUND_PAUSE_MS = 90 * DAY_MS;
 export const RESUME_KEY = 'rmh_profile_resume';
 // Older than this, a sign-in is no longer a continuation of the popup.
 const RESUME_MAX_AGE_MS = 15 * 60 * 1000;
@@ -60,37 +75,43 @@ const within = (then: number | undefined, now: number, span: number) =>
 
 export function canShowProfilePrompt(s: ProfilePromptState, now: number): boolean {
   if (within(s.lastShown, now, SHOWN_COOLDOWN_MS)) return false;
-  if (s.dismissCount >= MAX_DISMISSALS) return false;
+  if (s.dismissCount >= MAX_DISMISSALS) return !within(s.lastDismiss, now, ROUND_PAUSE_MS);
   return !within(s.lastDismiss, now, DISMISS_COOLDOWN_MS);
 }
 
 export const markShown = (s: ProfilePromptState, now: number): ProfilePromptState => ({ ...s, lastShown: now });
 
+// A skip after a full round's pause starts the next round.
 export const markDismissed = (s: ProfilePromptState, now: number): ProfilePromptState =>
-  ({ ...s, dismissCount: s.dismissCount + 1, lastDismiss: now });
+  ({ ...s, dismissCount: (s.dismissCount >= MAX_DISMISSALS ? 0 : s.dismissCount) + 1, lastDismiss: now });
 
-// Remembers which page the popup was on across a sign-in (same pattern as pendingBookmark.ts).
-export function markResume(path: string, storage?: Storage | null): void {
+// Remembers the page and the answers across a sign-in (same pattern as pendingBookmark.ts).
+export function markResume(path: string, answers: ResumeAnswers, storage?: Storage | null): void {
   try {
     const store = storage === undefined ? window.sessionStorage : storage;
-    store?.setItem(RESUME_KEY, JSON.stringify({ path, at: Date.now() }));
+    store?.setItem(RESUME_KEY, JSON.stringify({ path, at: Date.now(), answers }));
   } catch {
     // storage blocked: the popup simply doesn't resume
   }
 }
 
-// True only for the same path within 15 minutes; removed either way so it applies at most once.
-export function takeResume(path: string, now: number, storage?: Storage | null): boolean {
+const isNames = (v: unknown): v is string[] => Array.isArray(v) && v.every((n) => typeof n === 'string');
+
+// The answers, only for the same path within 15 minutes; removed either way so it applies at most once.
+export function takeResume(path: string, now: number, storage?: Storage | null): ResumeAnswers | null {
   try {
     const store = storage === undefined ? window.sessionStorage : storage;
-    if (!store) return false;
+    if (!store) return null;
     const raw = store.getItem(RESUME_KEY);
     store.removeItem(RESUME_KEY);
-    if (!raw) return false;
+    if (!raw) return null;
     const p = JSON.parse(raw);
-    return p.path === path && typeof p.at === 'number' && now - p.at < RESUME_MAX_AGE_MS;
+    if (p.path !== path || typeof p.at !== 'number' || now - p.at >= RESUME_MAX_AGE_MS) return null;
+    const a = p.answers;
+    if (!a || !(a.year === 'grad' || typeof a.year === 'number') || !isNames(a.majors) || !isNames(a.minors)) return null;
+    return { year: a.year, majors: a.majors, minors: a.minors };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -102,10 +123,8 @@ export function gradYearOptions(now: number): number[] {
   return Array.from({ length: 6 }, (_, i) => year + i).filter((y) => y <= d.getUTCFullYear() + 5);
 }
 
-export const firstStep = (signedIn: boolean): Step => (signedIn ? 1 : 0);
-
-// A grad student has no programs to pick, so the year step is their last.
-export const isLastStep = (step: Step, year: YearChoice): boolean =>
+// A grad student has no programs to pick, so the year step is their last question.
+export const isLastQuestion = (step: Step, year: YearChoice): boolean =>
   step === 3 || (step === 1 && year === 'grad');
 
 export function canAdvance(step: Step, year: YearChoice, majors: string[]): boolean {

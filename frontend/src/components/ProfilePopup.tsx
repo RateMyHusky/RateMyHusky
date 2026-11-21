@@ -6,10 +6,11 @@ import { useProfileStatus } from '../hooks/useProfileStatus';
 import { markProfileSaved } from '../utils/profileStatus';
 import {
   loadState, saveState, canShowProfilePrompt, markShown, markDismissed, markResume, takeResume,
-  gradYearOptions, firstStep, isLastStep, canAdvance, toAnswers, type Step, type YearChoice, type RateGate,
+  gradYearOptions, isLastQuestion, canAdvance, toAnswers, PROFILE_DWELL_MS, PROFILE_SCROLL_DWELL_MS,
+  type Step, type YearChoice, type RateGate,
 } from '../utils/profilePrompt';
 import { useDwell } from '../utils/useDwell';
-import { DWELL_MS, track } from '../utils/ratePrompt';
+import { track } from '../utils/ratePrompt';
 import type { Program } from '../utils/programSearch';
 import ProgramPicker from './ProgramPicker';
 import SignInModal from './SignInModal';
@@ -42,7 +43,9 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
   const [listsFailed, setListsFailed] = useState(false);
   const waitingForGate = useRef(false);
   const resumeChecked = useRef(false);
-  const resumeWanted = useRef(false);
+  const resumed = useRef<ReturnType<typeof takeResume>>(null);
+  // The save after a sign-in runs once; a failure leaves a Try again button instead of retrying on its own.
+  const autoSaved = useRef(false);
 
   const eligible = !loading && (!user || (!!status && !status.exists));
   const clearResume = () => { takeResume(pathname, Date.now()); };
@@ -52,20 +55,35 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
     const state = loadState();
     if (!state || !canShowProfilePrompt(state, Date.now())) return;
     saveState(markShown(state, Date.now()));
-    setStep(firstStep(!!user));
+    setStep(1);
     setOpen(true);
     setLaunched(true);
     track('profile_prompt_shown', {});
   };
 
-  useDwell(sectionRef, eligible && !launched ? DWELL_MS : null, () => {
+  const save = async () => {
+    setSaving(true);
+    setFailed(false);
+    try {
+      await saveProfile(toAnswers(year, majors, minors));
+      markProfileSaved();
+      track('profile_prompt_finished', {});
+      setOpen(false);
+    } catch {
+      setFailed(true);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  useDwell(sectionRef, eligible && !launched ? PROFILE_DWELL_MS : null, () => {
     if (gate === 'shown') return;
     if (gate === 'pending') {
       waitingForGate.current = true;
       return;
     }
     tryShow();
-  });
+  }, PROFILE_SCROLL_DWELL_MS);
 
   // A dwell that fired while the rate popup was undecided opens once that popup is known to stay away.
   useEffect(() => {
@@ -76,31 +94,38 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gate]);
 
-  // Back from the mobile Google redirect: continue at step 1 with no dwell, cooldown or new shown mark.
+  // Back from the phone's Google redirect, or from the FAQ after signing in there: reopen at the
+  // sign-in step with the answers, which saves them below. No dwell, cooldown or new shown mark.
   useEffect(() => {
     if (loading) return;
     // Taken on the first check whatever the auth state, so a marker that isn't used here doesn't linger.
     if (!resumeChecked.current) {
       resumeChecked.current = true;
-      resumeWanted.current = takeResume(pathname, Date.now());
+      resumed.current = takeResume(pathname, Date.now());
     }
     // The user can arrive later in this mount, after an /api/auth/me retry.
-    if (!resumeWanted.current || !user || status === undefined) return;
-    resumeWanted.current = false;
+    const answers = resumed.current;
+    if (!answers || !user || status === undefined) return;
+    resumed.current = null;
     // The rate popup may have opened while the status loaded.
     if (status && !status.exists && gate !== 'shown') {
-      setStep(1);
+      setYear(answers.year);
+      setMajors(answers.majors);
+      setMinors(answers.minors);
+      setStep(4);
       setOpen(true);
       setLaunched(true);
     }
   }, [loading, user, status, pathname, gate]);
 
-  // Signed in at step 0: an existing profile means nothing to ask; otherwise carry on to the year.
+  // Signed in at the sign-in step: save the answers, or close if the account already has a profile.
   useEffect(() => {
-    if (!open || step !== 0 || !user || status === undefined) return;
+    if (!open || step !== 4 || !user || status === undefined || autoSaved.current) return;
+    autoSaved.current = true;
     takeResume(pathname, Date.now());
-    if (status && !status.exists) setStep(1);
+    if (status && !status.exists) void save();
     else setOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, step, user, status, pathname]);
 
   useEffect(() => {
@@ -136,36 +161,27 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
     setOpen(false);
   };
 
-  const save = async (withMinors: string[]) => {
-    setSaving(true);
-    setFailed(false);
-    try {
-      await saveProfile(toAnswers(year, majors, withMinors));
-      markProfileSaved();
-      track('profile_prompt_finished', {});
-      setOpen(false);
-    } catch {
-      setFailed(true);
-    } finally {
-      setSaving(false);
-    }
+  const lastQuestion = step !== 4 && isLastQuestion(step, year);
+  // Signed out, the last question leads to the sign-in step; signed in, it saves.
+  const next = () => {
+    if (!lastQuestion) setStep((step + 1) as Step);
+    else if (user) void save();
+    else setStep(4);
   };
+  const savesHere = step === 4 || (lastQuestion && !!user);
 
-  const last = isLastStep(step, year);
-  const next = () => (last ? save(minors) : setStep((step + 1) as Step));
-
-  const title = [
-    'Sign in with your Husky account to get course picks',
-    'When do you expect to graduate?',
-    "What's your major?",
-    'Any minors? (optional)',
-  ][step];
+  const title = {
+    1: 'Help us find the best classes for your major',
+    2: "What's your major?",
+    3: 'Any minors? (optional)',
+    4: user ? 'Saving your answers' : 'Sign in to save',
+  }[step];
 
   return (
     <>
       <div key="live" aria-live="polite">
       <div className="rate-popup profile-popup" role="region" aria-label="Course picks">
-        {step > 0 && (
+        {step !== 4 && (
           <div className="profile-dots" role="img" aria-label={`Step ${step} of 3`}>
             {[1, 2, 3].map((n) => <i key={n} className={n <= step ? 'on' : undefined} />)}
           </div>
@@ -173,19 +189,23 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
         <p className="rate-popup-text">{title}</p>
 
         {step === 1 && (
-          <div className="profile-years">
-            {[...gradYearOptions(Date.now()), 'grad' as const].map((y) => (
-              <button
-                type="button"
-                key={y}
-                className={y === year ? 'profile-year on' : 'profile-year'}
-                aria-pressed={y === year}
-                onClick={() => setYear(y)}
-              >
-                {y === 'grad' ? 'Grad student' : y}
-              </button>
-            ))}
-          </div>
+          <>
+            <p className="profile-sub">Tell us your year and major. It takes 15 seconds.</p>
+            <span className="profile-label" id="profile-year-label">Expected graduation year</span>
+            <div className="profile-years" role="group" aria-labelledby="profile-year-label">
+              {[...gradYearOptions(Date.now()), 'grad' as const].map((y) => (
+                <button
+                  type="button"
+                  key={y}
+                  className={y === year ? 'profile-year on' : 'profile-year'}
+                  aria-pressed={y === year}
+                  onClick={() => setYear(y)}
+                >
+                  {y === 'grad' ? 'Grad student' : y}
+                </button>
+              ))}
+            </div>
+          </>
         )}
         {(step === 2 || step === 3) && (
           <div aria-live="off">
@@ -202,8 +222,11 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
           ) : !listsFailed && <p className="profile-loading">Loading…</p>}
           </div>
         )}
+        {step === 4 && !user && (
+          <p className="profile-sub">Use your Husky account. We'll use your answers to suggest courses.</p>
+        )}
 
-        {last && (
+        {savesHere && (
           <p className="profile-note">
             Your activity here helps tailor picks. <a href="/privacy#course-picks" target="_blank" rel="noopener noreferrer">Learn more</a>
           </p>
@@ -211,13 +234,19 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
         {listsFailed && <p className="profile-error" role="alert">Couldn't load the program list. Try again later.</p>}
         {failed && <p className="profile-error" role="alert">Couldn't save that. Try again.</p>}
 
-        {step === 0 ? (
+        {step === 4 ? (
           <button
             type="button"
             className="profile-btn"
-            onClick={() => { markResume(pathname); setSignInOpen(true); }}
+            // Signed in, the save starts on its own; the button only retries one that failed.
+            disabled={saving || (!!user && !failed)}
+            onClick={() => {
+              if (user) { void save(); return; }
+              markResume(pathname, { year, majors, minors });
+              setSignInOpen(true);
+            }}
           >
-            Sign in
+            {user ? (failed ? 'Try again' : 'Saving…') : 'Sign in'}
           </button>
         ) : (
           <div className="profile-row">
@@ -227,7 +256,7 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
               disabled={!canAdvance(step, year, majors) || saving}
               onClick={next}
             >
-              {last ? 'Done' : 'Next'}
+              {lastQuestion && user ? 'Done' : 'Next'}
             </button>
           </div>
         )}
@@ -238,9 +267,9 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
         key="signin"
         open={signInOpen}
         // Leaving through the FAQ, Terms or Privacy link keeps the resume marker, so signing in
-        // there and coming back to this page within 15 minutes reopens the popup at step 1.
+        // there and coming back to this page within 15 minutes saves the answers.
         onClose={(leaving) => { setSignInOpen(false); if (!leaving) clearResume(); }}
-        reason="Sign in to get course picks."
+        reason="Sign in to save your answers."
       />
     </>
   );
