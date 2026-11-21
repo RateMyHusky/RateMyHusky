@@ -237,7 +237,9 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
       <SignInModal
         key="signin"
         open={signInOpen}
-        onClose={() => { setSignInOpen(false); clearResume(); }}
+        // Leaving through the FAQ, Terms or Privacy link keeps the resume marker, so signing in
+        // there and coming back to this page within 15 minutes reopens the popup at step 1.
+        onClose={(leaving) => { setSignInOpen(false); if (!leaving) clearResume(); }}
         reason="Sign in to get course picks."
       />
     </>

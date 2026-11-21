@@ -7,9 +7,11 @@
 .profile-dots i { width: 7px; height: 7px; border-radius: 50%; background: #e2e2e2; }
 .profile-dots i.on { background: #d6394c; }
 
-.profile-years { display: flex; flex-wrap: wrap; gap: 5px; }
+/* Three even columns of years; Grad student takes its own full-width row. */
+.profile-years { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.profile-year:last-child { grid-column: 1 / -1; }
 .profile-year {
-  flex: 1 0 auto; min-width: 52px; min-height: 36px; padding: 6px 8px;
+  min-width: 52px; min-height: 36px; padding: 6px 8px;
   border: 1px solid #ddd; border-radius: 8px; background: #fff; cursor: pointer;
   font: 700 0.8rem 'Nunito', sans-serif; color: #333;
 }
