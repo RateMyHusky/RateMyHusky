@@ -468,7 +468,7 @@ export default function ProfessorCatalog() {
               <p className="filter-label">
                 College
                 {filters.college && (
-                  <button className="dept-clear-btn" onClick={() => setCollege('')}>Clear all</button>
+                  <button className="dept-clear-btn" onClick={() => setCollege('')}>Clear</button>
                 )}
               </p>
               <ChecklistFilter
@@ -485,7 +485,7 @@ export default function ProfessorCatalog() {
               <p className="filter-label">
                 Department
                 {filters.dept && (
-                  <button className="dept-clear-btn" onClick={() => updateFilter('dept', '')}>Clear all</button>
+                  <button className="dept-clear-btn" onClick={() => updateFilter('dept', '')}>Clear</button>
                 )}
               </p>
               <ChecklistFilter
@@ -503,7 +503,7 @@ export default function ProfessorCatalog() {
                 <p className="filter-label">
                   Teaching style
                   {filters.tags && (
-                    <button className="dept-clear-btn" onClick={() => updateFilter('tags', '')}>Clear all</button>
+                    <button className="dept-clear-btn" onClick={() => updateFilter('tags', '')}>Clear</button>
                   )}
                 </p>
                 <ChecklistFilter

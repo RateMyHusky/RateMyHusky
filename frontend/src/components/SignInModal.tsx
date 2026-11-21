@@ -10,7 +10,8 @@ const CLOSE_DURATION = 200; // ms — must match CSS animation duration
 
 interface Props {
   open: boolean;
-  onClose: () => void;
+  /** leaving is true when the modal closed because a link took the student to another page. */
+  onClose: (leaving?: boolean) => void;
   /** Leads the description when the opener gave one, e.g. "Sign in to save Prof. Bell to your bookmarks." */
   reason?: string;
 }
@@ -31,7 +32,7 @@ export default function SignInModal({ open, onClose, reason }: Props) {
     setClosing(true);
     setTimeout(() => {
       setClosing(false);
-      onClose();
+      onClose(!!callback);
       callback?.();
     }, CLOSE_DURATION);
   };

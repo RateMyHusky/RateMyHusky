@@ -954,11 +954,15 @@ const Professor = () => {
       <section className="prof-stats">
         <div className={`prof-stat-card${stats.breakdown.length > 1 ? ' prof-stat-clickable' : ''}`}>
           <span className="prof-stat-value">{stats.rating !== null ? <AnimatedNumber value={stats.rating} /> : '—'}</span>
-          <span className="prof-stat-label" style={{ display: 'block', textAlign: 'center', position: 'relative' }}>
-            Overall Rating
-            {stats.breakdown.length > 1 && (
-              <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', marginLeft: '4px', opacity: 0.6 }}><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-            )}
+          {/* The icon hangs off the text's right edge, so the text stays centered and the icon
+              stays beside it when a wrapping label in another card makes this row taller. */}
+          <span className="prof-stat-label">
+            <span style={{ position: 'relative' }}>
+              Overall Rating
+              {stats.breakdown.length > 1 && (
+                <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'absolute', left: '100%', top: '50%', transform: 'translateY(-50%)', marginLeft: '4px', opacity: 0.6 }}><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+              )}
+            </span>
           </span>
           <div className="prof-stat-extra">
             {noRatings ? <span className="prof-stat-hint">No ratings yet</span> : <StarRating rating={stats.rating ?? 0} size="lg" />}

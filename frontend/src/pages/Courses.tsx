@@ -335,7 +335,7 @@ export default function Courses() {
 							<p className="filter-label">
 								Department
 								{filters.dept && (
-									<button className="dept-clear-btn" onClick={() => updateFilter('dept', '')}>Clear all</button>
+									<button className="dept-clear-btn" onClick={() => updateFilter('dept', '')}>Clear</button>
 								)}
 							</p>
 							<DepartmentFilter departments={departments} selected={filters.dept} onSelect={(d) => updateFilter('dept', d)} onOpenChange={setDeptOpen} />
