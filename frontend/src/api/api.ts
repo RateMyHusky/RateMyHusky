@@ -704,6 +704,51 @@ export async function removeBookmark(itemType: 'professor' | 'course', itemKey: 
   }
 }
 
+/* ---- Student profile ---- */
+export interface ProfileStatus {
+  exists: boolean;
+  optedOut: boolean;
+}
+
+export interface ProfileAnswers {
+  gradYear: number | null;
+  majors: string[];
+  minors: string[];
+}
+
+export interface PageView {
+  itemType: 'professor' | 'course';
+  itemKey: string;
+  visibleSeconds: number;
+  reachedSection: boolean;
+  courseFilter: string | null;
+}
+
+export const fetchProfileStatus = () => get<ProfileStatus>('/api/profile');
+
+export async function saveProfile(a: ProfileAnswers): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/profile`, {
+    method: 'PUT',
+    headers: bookmarkAuthHeaders(),
+    body: JSON.stringify(a),
+  });
+  if (maintenanceGuard(res)) throw new Error('Site is under maintenance');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `API ${res.status}`);
+  }
+}
+
+/* Fire and forget: keepalive lets it finish while the page unloads, and a failed view is simply lost. */
+export function sendPageView(v: PageView): void {
+  fetch(`${API_BASE}/api/views`, {
+    method: 'POST',
+    headers: bookmarkAuthHeaders(),
+    body: JSON.stringify(v),
+    keepalive: true,
+  }).catch(() => {});
+}
+
 /* ---- Department hub pages ---- */
 export interface HubDepartment {
   slug: string;

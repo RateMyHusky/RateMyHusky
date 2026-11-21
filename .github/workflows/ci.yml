@@ -52,6 +52,8 @@ jobs:
       - run: npm run test:compare
       # The rate form's step flow and draft storage selftests.
       - run: npm run test:rate
+      # The profile popup rules, program search, page view timer and profile status selftests.
+      - run: npm run test:profile
 
   extension:
     name: Extension build
