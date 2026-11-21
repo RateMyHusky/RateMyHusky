@@ -1,12 +1,13 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import { MIN_DWELL_MS } from './ratePrompt';
 
-// Fires once per mount after delayMs of visible time, or after MIN_DWELL_MS of visible time once a scroll
+// Fires once per mount after delayMs of visible time, or after minMs of visible time once a scroll
 // leaves the section's top above the bottom 15% of the screen. delayMs null means not armed yet.
 export function useDwell(
   sectionRef: RefObject<HTMLElement | null>,
   delayMs: number | null,
   onFire: (signal: 'time' | 'scroll') => void,
+  minMs: number = MIN_DWELL_MS,
 ) {
   const onFireRef = useRef(onFire);
   useEffect(() => { onFireRef.current = onFire; });
@@ -31,9 +32,9 @@ export function useDwell(
       window.clearTimeout(timer);
       if (fired || visibleSince === null) return;
       const seen = visibleMs + (Date.now() - visibleSince);
-      if (scrolled && seen >= MIN_DWELL_MS) return fire('scroll');
+      if (scrolled && seen >= minMs) return fire('scroll');
       if (seen >= delayMs) return fire('time');
-      timer = window.setTimeout(schedule, (scrolled ? Math.min(delayMs, MIN_DWELL_MS) : delayMs) - seen);
+      timer = window.setTimeout(schedule, (scrolled ? Math.min(delayMs, minMs) : delayMs) - seen);
     };
 
     const onVisibility = () => {
@@ -66,5 +67,5 @@ export function useDwell(
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('scroll', onScroll);
     };
-  }, [sectionRef, delayMs]);
+  }, [sectionRef, delayMs, minMs]);
 }

@@ -18,7 +18,7 @@ const Privacy = () => {
         <div className="terms-shell">
           <header className="terms-header">
             <h1>Privacy Policy</h1>
-            <p className="terms-meta">Effective November 20, 2026</p>
+            <p className="terms-meta">Effective November 21, 2026</p>
           </header>
 
           <div className="terms-body">
@@ -65,7 +65,7 @@ const Privacy = () => {
                   {RATE_ENABLED ? ' The one exception is the rating device ID, described under Ratings below. We also keep when you last saw or skipped a prompt to rate a professor, how often you skipped one, which professors you rated from this browser and when, and the last day you visited, so prompts are not repeated too often.' : ''} While
                   you sign in, your browser also holds a short-lived marker that sign-in is
                   underway and any bookmark you clicked before signing in, so it can be saved
-                  once you are back; both are dropped when sign-in finishes or you close the tab. We also keep when the course picks questions were last shown and how many times you skipped them, and, if you sign in from those questions, the page to return to afterwards, which is only used if you come back right away.{RATE_ENABLED ? ' The rating form also keeps your unsent answers there, comment included, along with a copy of its device ID, until you submit them or close the tab.' : ''}
+                  once you are back; both are dropped when sign-in finishes or you close the tab. We also keep when the course picks questions were last shown and how many times you skipped them, and, if you sign in from those questions, the page to return to and your answers so far, which are only used to save them if you come back right away.{RATE_ENABLED ? ' The rating form also keeps your unsent answers there, comment included, along with a copy of its device ID, until you submit them or close the tab.' : ''}
                 </li>
                 <li>
                   <strong>IP address:</strong> your IP address is used in the moment a request
@@ -205,8 +205,8 @@ const Privacy = () => {
                 <strong>Course picks profile and browsing activity</strong>
               </p>
               <p>
-                We may ask a few questions to help suggest courses, first asking you to sign in if
-                you aren't: when you expect to graduate, your major(s), and any minor(s). Your answers are stored with
+                We may ask a few questions to help suggest courses: when you expect to graduate, your
+                major(s), and any minor(s), then asking you to sign in to save them if you aren't. Your answers are stored with
                 a coded version of your Google account id, not the id itself.
               </p>
               <p>
@@ -437,7 +437,7 @@ const Privacy = () => {
                 Your browser's storage holds your sign-in token, your theme, your catalog view mode, and flags for
                 on-page tips you have dismissed{RATE_ENABLED && (<>, plus your history with prompts to rate a professor</>)}, plus when the course picks questions were last shown and how many times they were skipped.
                 While you sign in, your browser also holds a short-lived sign-in marker and any
-                bookmark you clicked before signing in, and the page to return to after signing in from the course picks questions (only used if you come back right away). This is cleared when you close the tab.{RATE_ENABLED && (<> The rating form also keeps your unsent answers there, comment included, along with a copy of its device ID, until you submit them or close the tab.</>)} None of this data is
+                bookmark you clicked before signing in, and the page to return to and your answers so far after signing in from the course picks questions (only used to save them if you come back right away). This is cleared when you close the tab.{RATE_ENABLED && (<> The rating form also keeps your unsent answers there, comment included, along with a copy of its device ID, until you submit them or close the tab.</>)} None of this data is
                 synced to our servers{RATE_ENABLED ? (<>, with one exception: the rating form also keeps a copy of
                 its device ID in your browser, and that
                 copy is sent to our servers when you use the rating form</>) : ''}.
