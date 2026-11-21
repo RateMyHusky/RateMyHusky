@@ -6,6 +6,11 @@
   scroll-margin-top: 96px;
 }
 
+/* A jump link focuses the section so Tab continues inside it; no ring around the whole section. */
+.faq-group:focus {
+  outline: none;
+}
+
 .faq-group ol {
   margin: 10px 0 10px 20px;
   padding: 0;

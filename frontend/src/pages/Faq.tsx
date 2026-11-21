@@ -37,13 +37,15 @@ const Faq = () => {
 
   // The jump links slide instead of jumping: ease-in-out, so slow, fast, then slow.
   // Reduced-motion users get the plain jump. replaceState keeps the hash in the URL
-  // without re-running the effect above, which would cut the slide short.
+  // without re-running the effect above, which would cut the slide short. Focus
+  // moves to the section like a native jump, so the next Tab continues inside it.
   const slideTo = (e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
     const el = document.getElementById(id);
     if (!el || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
     cancelAnimationFrame(slideFrame.current);
     window.history.replaceState(window.history.state, '', `#${id}`);
+    el.focus({ preventScroll: true });
     const start = window.scrollY;
     const distance = el.getBoundingClientRect().top - (parseFloat(getComputedStyle(el).scrollMarginTop) || 0);
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -51,10 +53,14 @@ const Faq = () => {
       return;
     }
     const t0 = performance.now();
+    let last = start;
     const step = (now: number) => {
+      // Something else moved the page (scrollbar drag, autoscroll): let it win.
+      if (Math.abs(window.scrollY - last) > 1) return;
       const t = Math.min((now - t0) / SLIDE_MS, 1);
       const eased = t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
       window.scrollTo(0, start + distance * eased);
+      last = window.scrollY;
       if (t < 1) slideFrame.current = requestAnimationFrame(step);
     };
     slideFrame.current = requestAnimationFrame(step);
@@ -78,7 +84,7 @@ const Faq = () => {
           </header>
 
           <div className="terms-body">
-            <section id="students" className="terms-section faq-group">
+            <section id="students" className="terms-section faq-group" tabIndex={-1}>
               <h2>For students</h2>
 
               <h3>Where do the ratings and reviews come from?</h3>
@@ -200,7 +206,7 @@ const Faq = () => {
               </p>
             </section>
 
-            <section id="professors" className="terms-section terms-section--last faq-group">
+            <section id="professors" className="terms-section terms-section--last faq-group" tabIndex={-1}>
               <h2>For professors</h2>
 
               <h3>What does RateMyHusky publish about me?</h3>
