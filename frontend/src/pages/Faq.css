@@ -1,8 +1,39 @@
 /* Builds on Terms.css: each audience is a .terms-section, each question an h3. */
 
-/* Clears the fixed navbar when /faq#professors jumps here. */
-.faq-group {
+/* Clears the fixed navbar when /faq#professors or /faq#google-account jumps here. */
+.faq-group,
+.faq-group h3[id] {
   scroll-margin-top: 96px;
+}
+
+/* A jump link focuses the section so Tab continues inside it; no ring around the whole section. */
+.faq-group:focus {
+  outline: none;
+}
+
+.faq-group ol {
+  margin: 10px 0 10px 20px;
+  padding: 0;
+}
+
+.faq-group ol li {
+  font-size: 0.97rem;
+  line-height: 1.75;
+  color: #555;
+}
+
+.dark .faq-group ol li {
+  color: #b0b0b0;
+}
+
+/* The audience heading is a small red label, so it doesn't read as another question. */
+.faq-group h2 {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #d6394c;
+  margin-bottom: 4px;
 }
 
 .faq-group h3 {
@@ -14,22 +45,38 @@
 }
 
 .faq-group h2 + h3 {
-  margin-top: 14px;
+  margin-top: 8px;
 }
 
 .faq-jump {
   list-style: none;
   padding: 0;
-  margin: 0;
+  margin: 16px 0 0;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .faq-jump a {
-  color: #5b9bd5;
+  display: inline-block;
+  padding: 7px 16px;
+  border: 1px solid #e3e3e3;
+  border-radius: 999px;
+  background: #fff;
+  color: #333;
+  font-weight: 600;
   text-decoration: none;
+  transition: color 0.15s, border-color 0.15s;
 }
 
 .faq-jump a:hover {
-  text-decoration: underline;
+  border-color: #d6394c;
+  color: #d6394c;
+}
+
+.dark .faq-group h2 {
+  color: #e06070;
 }
 
 .dark .faq-group h3 {
@@ -37,5 +84,12 @@
 }
 
 .dark .faq-jump a {
-  color: #7ab3e0;
+  background: #242424;
+  border-color: #333;
+  color: #e0e0e0;
+}
+
+.dark .faq-jump a:hover {
+  border-color: #e06070;
+  color: #e06070;
 }

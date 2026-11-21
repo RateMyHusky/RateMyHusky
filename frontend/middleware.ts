@@ -36,7 +36,7 @@ export const config = {
   // unbundled as ESM and crashes every request (ERR_IMPORT_ATTRIBUTE_MISSING).
   runtime: 'edge',
   matcher:
-    '/((?!(?:maintenance\\.html|logo\\.jpg|favicon\\.png|favicon\\.ico|robots\\.txt|ads\\.txt|sitemap\\.xml|llms\\.txt|2c426a030622417e4b03f2011ae5959e\\.txt)$|_vercel/|photos/|assets/).*)',
+    '/((?!(?:maintenance\\.html|logo\\.jpg|logo-mascot\\.png|favicon\\.png|favicon\\.ico|robots\\.txt|ads\\.txt|sitemap\\.xml|llms\\.txt|2c426a030622417e4b03f2011ae5959e\\.txt)$|_vercel/|photos/|assets/).*)',
 };
 
 // Preview hosts /bypass-handoff will redirect to. Not the security boundary

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import Footer from '../components/Footer';
 import Seo from '../components/Seo';
@@ -10,15 +10,61 @@ import './Faq.css';
    here would go stale on the next weekly refresh. No FAQPage JSON-LD, same as
    the crawler FAQ in backend/render.py (Google restricted that rich result). */
 
+const SLIDE_MS = 800;
+
 const Faq = () => {
-  const { hash } = useLocation();
+  const { hash, key } = useLocation();
+  const slideFrame = useRef(0);
 
   // Professor pages link to /faq#professors. React Router doesn't scroll to a
-  // hash, and this runs after App's ScrollToTop, so the jump isn't undone.
+  // hash, and this runs after App's ScrollToTop, so the jump isn't undone. Keyed
+  // on the location too: the sign-in modal can link to the hash already in the URL.
   useEffect(() => {
     if (!hash) return;
     document.getElementById(hash.slice(1))?.scrollIntoView();
-  }, [hash]);
+  }, [hash, key]);
+
+  // The student scrolling or leaving the page stops a slide instead of fighting it.
+  useEffect(() => {
+    const stop = () => cancelAnimationFrame(slideFrame.current);
+    const events = ['wheel', 'touchstart', 'keydown'] as const;
+    events.forEach(ev => window.addEventListener(ev, stop, { passive: true }));
+    return () => {
+      stop();
+      events.forEach(ev => window.removeEventListener(ev, stop));
+    };
+  }, []);
+
+  // The jump links slide instead of jumping: ease-in-out, so slow, fast, then slow.
+  // Reduced-motion users get the plain jump. replaceState keeps the hash in the URL
+  // without re-running the effect above, which would cut the slide short. Focus
+  // moves to the section like a native jump, so the next Tab continues inside it.
+  const slideTo = (e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
+    const el = document.getElementById(id);
+    if (!el || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    cancelAnimationFrame(slideFrame.current);
+    window.history.replaceState(window.history.state, '', `#${id}`);
+    el.focus({ preventScroll: true });
+    const start = window.scrollY;
+    const distance = el.getBoundingClientRect().top - (parseFloat(getComputedStyle(el).scrollMarginTop) || 0);
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      window.scrollTo(0, start + distance);
+      return;
+    }
+    const t0 = performance.now();
+    let last = start;
+    const step = (now: number) => {
+      // Something else moved the page (scrollbar drag, autoscroll): let it win.
+      if (Math.abs(window.scrollY - last) > 1) return;
+      const t = Math.min((now - t0) / SLIDE_MS, 1);
+      const eased = t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
+      window.scrollTo(0, start + distance * eased);
+      last = window.scrollY;
+      if (t < 1) slideFrame.current = requestAnimationFrame(step);
+    };
+    slideFrame.current = requestAnimationFrame(step);
+  };
 
   return (
     <div className="terms-page">
@@ -32,13 +78,13 @@ const Faq = () => {
           <header className="terms-header">
             <h1>Frequently Asked Questions</h1>
             <ul className="terms-meta faq-jump">
-              <li>For students: <a href="#students">using the site</a></li>
-              <li>For professors: <a href="#professors">your page</a></li>
+              <li><a href="#students" onClick={e => slideTo(e, 'students')}>For students</a></li>
+              <li><a href="#professors" onClick={e => slideTo(e, 'professors')}>For professors</a></li>
             </ul>
           </header>
 
           <div className="terms-body">
-            <section id="students" className="terms-section faq-group">
+            <section id="students" className="terms-section faq-group" tabIndex={-1}>
               <h2>For students</h2>
 
               <h3>Where do the ratings and reviews come from?</h3>
@@ -57,6 +103,23 @@ const Faq = () => {
                 endorsed by, or officially connected to Northeastern University or
                 RateMyProfessors.
               </p>
+
+              <h3 id="google-account">How do I sign in with my husky.neu.edu account?</h3>
+              <p>
+                Every Northeastern student has a Google account at husky.neu.edu. It's separate
+                from your Outlook email. If you haven't used it before, open it through Student Hub:
+              </p>
+              <ol>
+                <li>
+                  Go to{' '}
+                  <a href="https://student.me.northeastern.edu/" target="_blank" rel="noopener noreferrer">
+                    Student Hub
+                  </a>
+                </li>
+                <li>Scroll down to <strong>My Documents</strong></li>
+                <li>Click <strong>Google Drive</strong></li>
+              </ol>
+              <p>Then come back and sign in with that account.</p>
 
               {RATE_ENABLED && (<>
               <h3>Can I write a review here?</h3>
@@ -143,7 +206,7 @@ const Faq = () => {
               </p>
             </section>
 
-            <section id="professors" className="terms-section terms-section--last faq-group">
+            <section id="professors" className="terms-section terms-section--last faq-group" tabIndex={-1}>
               <h2>For professors</h2>
 
               <h3>What does RateMyHusky publish about me?</h3>
