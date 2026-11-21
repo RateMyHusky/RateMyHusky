@@ -190,7 +190,7 @@ export default function ProfilePopup({ sectionRef, gate, onOpen }: Props) {
 
         {step === 1 && (
           <>
-            <p className="profile-sub">Tell us your year and major. It takes 15 seconds.</p>
+            <p className="profile-sub">Just two quick questions: your year and major.</p>
             <span className="profile-label" id="profile-year-label">Expected graduation year</span>
             <div className="profile-years" role="group" aria-labelledby="profile-year-label">
               {[...gradYearOptions(Date.now()), 'grad' as const].map((y) => (

@@ -29,7 +29,7 @@
 .profile-row { display: flex; gap: 8px; margin-top: 12px; }
 .profile-popup > .profile-btn { flex: none; margin-top: 12px; }
 
-.profile-note { margin: 10px 0 0; font-size: 0.7rem; line-height: 1.4; color: #777; }
+.profile-note { margin: 10px 0 0; font-size: 0.7rem; line-height: 1.4; color: #777; text-align: center; }
 .profile-note a { color: #b82e3f; }
 .profile-error { margin: 8px 0 0; font-size: 0.78rem; font-weight: 700; color: #b82e3f; }
 .profile-loading { margin: 0; font-size: 0.82rem; color: #777; text-align: center; }
