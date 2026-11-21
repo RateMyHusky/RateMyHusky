@@ -205,8 +205,8 @@ const Privacy = () => {
                 <strong>Course picks profile and browsing activity</strong>
               </p>
               <p>
-                If you're signed in, we may ask a few questions to help suggest courses: when you
-                expect to graduate, your major(s), and any minor(s). Your answers are stored with
+                We may ask a few questions to help suggest courses, first asking you to sign in if
+                you aren't: when you expect to graduate, your major(s), and any minor(s). Your answers are stored with
                 a coded version of your Google account id, not the id itself.
               </p>
               <p>

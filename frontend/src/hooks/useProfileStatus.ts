@@ -3,7 +3,10 @@ import { useAuth } from '../context/AuthContext';
 import { getProfileStatus, onProfileSaved } from '../utils/profileStatus';
 import type { ProfileStatus } from '../api/api';
 
-/* undefined while auth or the request is loading, null when signed out or the request failed. */
+// A failed lookup says nothing about the profile: try once more before settling on null, like /api/auth/me.
+const RETRY_MS = 5000;
+
+/* undefined while auth or the request is loading, null when signed out or the request failed twice. */
 export function useProfileStatus(): ProfileStatus | null | undefined {
   const { user, loading } = useAuth();
   const [result, setResult] = useState<{ user: unknown; status: ProfileStatus | null } | undefined>();
@@ -16,10 +19,14 @@ export function useProfileStatus(): ProfileStatus | null | undefined {
   useEffect(() => {
     if (loading || !user) return;
     let cancelled = false;
-    getProfileStatus().then((status) => {
-      if (!cancelled) setResult({ user, status });
+    let retry: number | undefined;
+    const load = (again: boolean) => getProfileStatus().then((status) => {
+      if (cancelled) return;
+      if (status === null && again) retry = window.setTimeout(() => load(false), RETRY_MS);
+      else setResult({ user, status });
     });
-    return () => { cancelled = true; };
+    load(true);
+    return () => { cancelled = true; window.clearTimeout(retry); };
   }, [user, loading, version]);
 
   if (loading) return undefined;
