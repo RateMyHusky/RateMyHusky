@@ -73,3 +73,17 @@ def test_purge_without_a_rating_secret_refuses_before_touching_anything(admin, m
     resp = client.post("/api/users/user-1/purge", json={"dry_run": dry_run})
     assert resp.status_code == 500 and "RATING_SECRET" in resp.get_json()["error"]
     assert cur.executed == [] and conn.commits == 0
+
+
+def test_purge_retries_once_on_a_stale_connection(admin):
+    import psycopg2
+    client, cur, conn = admin
+    real = cur.execute
+
+    def dropped(sql, params=None):   # the idle connection was dropped: first statement fails
+        cur.execute = real
+        raise psycopg2.OperationalError("server closed the connection unexpectedly")
+    cur.execute = dropped
+    resp = client.post("/api/users/user-1/purge", json={"dry_run": False})
+    assert resp.status_code == 200 and resp.get_json()["page_views_deleted"] == 9
+    assert conn.commits == 1

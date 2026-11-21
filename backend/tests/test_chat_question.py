@@ -105,6 +105,22 @@ def test_hourly_job_purges_page_views_too(monkeypatch):
     assert ran == ["ask_log", "rollback", "page_views"]
 
 
+def test_hourly_job_purges_page_views_when_the_rollback_fails(monkeypatch):
+    import psycopg2
+    import server
+    ran = []
+    monkeypatch.setattr(server, "delete_old_ask_log", lambda: None)
+    monkeypatch.setattr(server, "delete_old_page_views", lambda: ran.append("page_views"))
+
+    def broken(self):   # a dead socket that isn't marked closed
+        raise psycopg2.InterfaceError("connection already closed")
+    monkeypatch.setattr(server, "get_db", lambda: type("C", (), {"rollback": broken})())
+    monkeypatch.setattr(server, "_discard_db_conn", lambda: ran.append("discarded"))
+    with server.app.app_context():
+        server._purge_ask_log_job()
+    assert ran == ["discarded", "page_views"]
+
+
 def test_ask_log_purge_starts_off_the_request_thread_on_railway(monkeypatch):
     import types
     import server

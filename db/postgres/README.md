@@ -657,8 +657,10 @@ SET lock_timeout = '5s';
 ALTER TABLE public.survey_ratings ADD COLUMN IF NOT EXISTS rater_level TEXT NULL;
 ALTER TABLE public.survey_ratings ADD COLUMN IF NOT EXISTS rater_grad_year SMALLINT NULL;
 ALTER TABLE public.survey_ratings DROP CONSTRAINT IF EXISTS check_survey_rater_level;
+-- NOT VALID skips the scan under ACCESS EXCLUSIVE; VALIDATE scans holding a lock reads and writes don't wait on.
 ALTER TABLE public.survey_ratings ADD CONSTRAINT check_survey_rater_level
-    CHECK (rater_level IN ('undergrad', 'grad'));
+    CHECK (rater_level IN ('undergrad', 'grad')) NOT VALID;
+ALTER TABLE public.survey_ratings VALIDATE CONSTRAINT check_survey_rater_level;
 ```
 
 A Data Collection Opt-out Request's `python rag/clear_ask_strikes.py --opt-out <sub>`

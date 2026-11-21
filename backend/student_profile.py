@@ -32,8 +32,8 @@ def validate_profile(data, this_year):
     if "gradYear" not in data:
         return None, "gradYear is required"
     year = data["gradYear"]
-    majors = _programs(data.get("majors"), MAJORS)
-    minors = _programs(data.get("minors"), MINORS)
+    majors = _programs(data.get("majors", []), MAJORS)
+    minors = _programs(data.get("minors", []), MINORS)
     if majors is None or minors is None:
         return None, "majors and minors must be lists of known programs, at most 4 each"
     if year is None:

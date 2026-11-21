@@ -812,7 +812,7 @@ def delete_old_page_views(write_fn=None):
 def _purge_ask_log_job():
     with app.app_context():   # get_db() keeps its connection on flask.g
         delete_old_ask_log()
-        get_db().rollback()   # a failed delete above leaves the transaction aborted; don't skip this one
+        _rollback_after_cancel(get_db())   # a failed delete above leaves the transaction aborted; don't skip this one
         delete_old_page_views()
 
 

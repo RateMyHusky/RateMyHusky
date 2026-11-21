@@ -320,14 +320,16 @@ def api_clear_strikes(sub):
 def api_purge(sub):
     """Exactly what `clear_ask_strikes.py --purge-account` does (the shared purge_account_data)."""
     dry_run = _dry_run_from_body()
+    secret = os.getenv("RATING_SECRET")
     try:
         with conn.cursor() as cur:
-            counts = purge_account_data(conn, cur, sub, dry_run, os.getenv("RATING_SECRET"))
+            counts = purge_account_data(conn, cur, sub, dry_run, secret)
     except ValueError as e:
         return jsonify({"error": str(e)}), 500
     except psycopg2.Error as e:
-        _recover(e)
-        raise
+        _recover(e)   # like query()/execute(): retry once; the purge commits only at the end
+        with conn.cursor() as cur:
+            counts = purge_account_data(conn, cur, sub, dry_run, secret)
     return jsonify({"deleted": counts["ask_log"], "bookmarks_deleted": counts["bookmarks"],
                     "ratings_deleted": counts["ratings"], "profiles_deleted": counts["profiles"],
                     "page_views_deleted": counts["page_views"], "opt_out_kept": counts["opt_out_kept"]})

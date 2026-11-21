@@ -21,6 +21,11 @@ def test_grad_student_has_no_programs():
     assert validate_profile({"gradYear": None, "majors": [M1], "minors": []}, 2026)[1]
 
 
+def test_missing_program_lists_mean_none():
+    assert validate_profile({"gradYear": None}, 2026)[0] ==         {"level": "grad", "grad_year": None, "majors": [], "minors": []}
+    assert validate_profile({"gradYear": 2028, "majors": [M1]}, 2026)[0]["minors"] == []
+
+
 @pytest.mark.parametrize("profile,expected", [
     (None, (None, None)),
     ({"level": "undergrad", "grad_year": 2028, "tracking_opt_out": False}, ("undergrad", 2028)),
